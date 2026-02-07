@@ -97,3 +97,42 @@ function Test-IsDefaultPackage {
     return ($defaults -contains $PackageName)
 }
 
+function Find-UnityEditorPaths {
+    # Search common Unity Hub installation locations for Unity.exe
+    $candidates = @()
+
+    # Unity Hub default location
+    $hubEditors = Join-Path $env:ProgramFiles "Unity\Hub\Editor"
+    if (Test-Path $hubEditors) {
+        Get-ChildItem $hubEditors -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $exe = Join-Path $_.FullName "Editor\Unity.exe"
+            if (Test-Path $exe) {
+                $candidates += @{ Version = $_.Name; Path = $exe }
+            }
+        }
+    }
+
+    # Secondary location (x86)
+    $hubEditors86 = Join-Path ${env:ProgramFiles(x86)} "Unity\Hub\Editor"
+    if (Test-Path $hubEditors86) {
+        Get-ChildItem $hubEditors86 -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $exe = Join-Path $_.FullName "Editor\Unity.exe"
+            if (Test-Path $exe) {
+                $candidates += @{ Version = $_.Name; Path = $exe }
+            }
+        }
+    }
+
+    return $candidates
+}
+
+function Test-ConfigEssentials {
+    # Returns $true if UnityEditorPath and UnityProjectsRoot are configured and valid
+    param($Config)
+    if (-not $Config) { return $false }
+    $editor = [string]$Config.UnityEditorPath
+    $root = [string]$Config.UnityProjectsRoot
+    if ([string]::IsNullOrWhiteSpace($editor) -or [string]::IsNullOrWhiteSpace($root)) { return $false }
+    return $true
+}
+
