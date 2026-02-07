@@ -25,7 +25,20 @@ function Initialize-ConfigIfMissing {
             'com.vrchat.base' = 'latest'
             'com.vrchat.avatars' = 'latest'
             'com.vrchat.core.vpm-resolver' = 'latest'
+            'com.vrcfury.vrcfury' = 'latest'
+            'gogoloco' = 'latest'
+            'adjerry91.vrcft.templates' = 'latest'
+            'com.poiyomi.toon' = 'latest'
         }
+        DefaultPackages = @(
+            'com.vrchat.base',
+            'com.vrchat.avatars',
+            'com.vrchat.core.vpm-resolver',
+            'com.vrcfury.vrcfury',
+            'gogoloco',
+            'adjerry91.vrcft.templates',
+            'com.poiyomi.toon'
+        )
         UnityEditorPath = ''
         UnityProjectsRoot = ''
         Naming = [pscustomobject]@{
@@ -55,5 +68,32 @@ function Save-Config {
     param($Config, [string]$ConfigPath)
     if (-not $ConfigPath) { throw 'ConfigPath required' }
     $Config | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
+}
+
+function Get-DefaultPackages {
+    param($Config)
+    if (-not $Config) { return @() }
+    if ($Config.PSObject.Properties.Name -contains 'DefaultPackages' -and $Config.DefaultPackages) {
+        return @($Config.DefaultPackages)
+    }
+    # Fallback: VRChat core packages are always protected
+    return @(
+        'com.vrchat.base',
+        'com.vrchat.avatars',
+        'com.vrchat.core.vpm-resolver',
+        'com.vrcfury.vrcfury',
+        'gogoloco',
+        'adjerry91.vrcft.templates',
+        'com.poiyomi.toon'
+    )
+}
+
+function Test-IsDefaultPackage {
+    param(
+        [string]$PackageName,
+        $Config
+    )
+    $defaults = Get-DefaultPackages -Config $Config
+    return ($defaults -contains $PackageName)
 }
 

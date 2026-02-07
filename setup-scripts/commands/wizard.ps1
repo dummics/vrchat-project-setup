@@ -83,6 +83,21 @@ function Ensure-ConfigDefaults {
         $Config | Add-Member -MemberType NoteProperty -Name "UnityPackagesFolder" -Value $null -Force
     }
 
+    # Ensure DefaultPackages list exists (for protected packages)
+    if (-not ($Config.PSObject.Properties.Name -contains 'DefaultPackages') -or $null -eq $Config.DefaultPackages) {
+        $Config | Add-Member -MemberType NoteProperty -Name "DefaultPackages" -Value (Get-DefaultPackages -Config $null) -Force
+    }
+
+    # Ensure VpmPackages contains all default packages
+    if ($Config.VpmPackages) {
+        $defaults = Get-DefaultPackages -Config $Config
+        foreach ($dpkg in $defaults) {
+            if ($Config.VpmPackages.PSObject.Properties.Name -notcontains $dpkg) {
+                $Config.VpmPackages | Add-Member -MemberType NoteProperty -Name $dpkg -Value "latest" -Force
+            }
+        }
+    }
+
     return $Config
 }
 
@@ -438,11 +453,13 @@ function Edit-VpmPackages {
         $packagesList = @($config.VpmPackages.PSObject.Properties) | Sort-Object Name
         $pkgOptions = @()
         foreach ($pkg in $packagesList) {
-            $pkgOptions += ("{0}  [{1}]" -f $pkg.Name, $pkg.Value)
+            $isDefault = Test-IsDefaultPackage -PackageName $pkg.Name -Config $config
+            $lockIcon = if ($isDefault) { " [default]" } else { "" }
+            $pkgOptions += ("{0}  [{1}]{2}" -f $pkg.Name, $pkg.Value, $lockIcon)
         }
         $pkgOptions += @("Add package", "Back")
 
-        $header = "Select a package, then choose an action."
+        $header = "Select a package, then choose an action.`nPackages marked [default] cannot be removed."
         $selected = Show-Menu -Title "VPM Packages" -Header $header -Options $pkgOptions
         if ($selected -eq -1) { return }
 
@@ -565,9 +582,40 @@ function Edit-VpmPackages {
         $pkgProp = $packagesList[$selected]
         $pkgName = $pkgProp.Name
         $pkgVersion = $pkgProp.Value
+        $isDefaultPkg = Test-IsDefaultPackage -PackageName $pkgName -Config $config
 
-        $action = Show-Menu -Title "Package: ${pkgName}" -Header "Current: ${pkgVersion}" -Options @("Change version", "Remove package", "Back")
-        if ($action -eq -1 -or $action -eq 2) { continue }
+        if ($isDefaultPkg) {
+            $action = Show-Menu -Title "Package: ${pkgName} [default]" -Header "Current: ${pkgVersion}`nThis is a default package and cannot be removed." -Options @("Change version", "Back")
+            if ($action -eq -1 -or $action -eq 1) { continue }
+
+            if ($action -eq 0) {
+                if (-not (Test-VpmPackageExists -PackageName $pkgName -ScriptDir $ScriptDir)) {
+                    $tail = Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25
+                    Show-WizardError -Title "Package not found" -Message "Package not found / not resolvable: ${pkgName}" -Details $tail
+                    continue
+                }
+
+                $newVersion = Select-VpmVersion -PackageName $pkgName -CurrentVersion $pkgVersion
+                if ($null -eq $newVersion) { continue }
+
+                $validation = Test-VpmPackageVersion -PackageName $pkgName -Version $newVersion -ScriptDir $ScriptDir
+                if (-not $validation.Valid) {
+                    $details = $validation.Details
+                    if ([string]::IsNullOrWhiteSpace($details)) {
+                        $details = Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25
+                    }
+                    Show-WizardError -Title "Validation failed" -Message $validation.Message -Details $details
+                    continue
+                }
+
+                $config.VpmPackages.($pkgName) = $newVersion
+                Save-Config -Config $config -ConfigPath $ConfigPath
+                continue
+            }
+        } else {
+            $action = Show-Menu -Title "Package: ${pkgName}" -Header "Current: ${pkgVersion}" -Options @("Change version", "Remove package", "Back")
+            if ($action -eq -1 -or $action -eq 2) { continue }
+        }
 
         if ($action -eq 0) {
             if (-not (Test-VpmPackageExists -PackageName $pkgName -ScriptDir $ScriptDir)) {
