@@ -55,20 +55,32 @@ function Initialize-VpmTestProject {
     )
 
     $testProjectPath = Join-Path $ScriptDir ".vpm-validation-cache"
-    if (Test-Path ${testProjectPath}) {
+    $assetsPath = Join-Path $testProjectPath "Assets"
+    $packagesPath = Join-Path $testProjectPath "Packages"
+    $settingsPath = Join-Path $testProjectPath "ProjectSettings"
+
+    # VPM requires at minimum an Assets folder to recognize a Unity project.
+    # Re-create missing structure even if the cache directory already exists.
+    $needsInit = -not (Test-Path $assetsPath) -or -not (Test-Path $packagesPath)
+
+    if (-not $needsInit) {
         return $testProjectPath
     }
 
-    Write-Host "Initializing VPM validation cache (first run)..." -ForegroundColor Yellow
+    Write-Host "Initializing VPM validation cache..." -ForegroundColor Yellow
     New-Item -ItemType Directory -Path $testProjectPath -Force | Out-Null
-    $packagesPath = Join-Path $testProjectPath "Packages"
+    New-Item -ItemType Directory -Path $assetsPath -Force | Out-Null
     New-Item -ItemType Directory -Path $packagesPath -Force | Out-Null
+    New-Item -ItemType Directory -Path $settingsPath -Force | Out-Null
 
     $manifest = @{ dependencies = @{ } }
     $manifest | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $packagesPath "manifest.json") -Encoding UTF8
 
     $vpmManifest = @{ dependencies = @{ }; locked = @{ } }
     $vpmManifest | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $packagesPath "vpm-manifest.json") -Encoding UTF8
+
+    # Minimal ProjectVersion.txt so VPM and other tools can identify the Unity version
+    Set-Content -Path (Join-Path $settingsPath "ProjectVersion.txt") -Value "m_EditorVersion: 2022.3.22f1" -Encoding UTF8
 
     Write-Host "Cache created at: ${testProjectPath}" -ForegroundColor Green
     return $testProjectPath
@@ -207,7 +219,7 @@ function Test-VpmPackageVersion {
         $output = vpm add package $packageSpec -p $testProject 2>&1 | Out-String
         $global:VRCSETUP_LAST_TOOL_OUTPUT = $output
 
-        if ($LASTEXITCODE -ne 0 -or $output -match "ERR.*Could not get match" -or $output -match "ERR.*not found") {
+        if ($LASTEXITCODE -ne 0 -or $output -match "ERR.*Could not get match" -or $output -match "ERR.*not found" -or $output -match "ERR.*Could not find project") {
             $reposPath = Get-VpmReposPath
             $availableVersions = @()
             if (Test-Path $reposPath) {

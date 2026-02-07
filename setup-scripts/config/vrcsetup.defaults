@@ -2,8 +2,21 @@
   "VpmPackages": {
     "com.vrchat.base": "latest",
     "com.vrchat.avatars": "latest",
-    "com.vrchat.core.vpm-resolver": "latest"
+    "com.vrchat.core.vpm-resolver": "latest",
+    "com.vrcfury.vrcfury": "latest",
+    "gogoloco": "latest",
+    "adjerry91.vrcft.templates": "latest",
+    "com.poiyomi.toon": "latest"
   },
+  "DefaultPackages": [
+    "com.vrchat.base",
+    "com.vrchat.avatars",
+    "com.vrchat.core.vpm-resolver",
+    "com.vrcfury.vrcfury",
+    "gogoloco",
+    "adjerry91.vrcft.templates",
+    "com.poiyomi.toon"
+  ],
   "UnityEditorPath": "",
   "UnityProjectsRoot": "",
   "Naming": {

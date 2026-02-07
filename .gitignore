@@ -3,3 +3,6 @@
 
 # User-generated config (contains local paths)
 setup-scripts/config/vrcsetup.json
+
+# VPM validation cache (generated at runtime)
+setup-scripts/.vpm-validation-cache/
