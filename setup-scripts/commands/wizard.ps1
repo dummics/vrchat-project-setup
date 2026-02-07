@@ -31,20 +31,64 @@ function Invoke-FirstRunSetup {
 
     if (Test-ConfigEssentials -Config $config) { return }
 
-    Clear-Host
-    Write-Host "=== First-time setup ===" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Before you can create projects, we need two things:" -ForegroundColor Gray
-    Write-Host "  1. Path to Unity.exe (the editor)" -ForegroundColor White
-    Write-Host "  2. Folder where new projects will be created" -ForegroundColor White
-    Write-Host ""
+    # Helper: redraws the setup screen showing current state of both fields
+    function Show-SetupScreen {
+        param(
+            [string]$EditorValue,
+            [string]$ProjectsRootValue,
+            [string]$ActiveStep,       # "editor", "projects", "done"
+            [string]$StatusMessage
+        )
+        Clear-Host
+        Write-Host "=== First-time setup ===" -ForegroundColor Cyan
+        Write-Host ""
 
-    # --- Unity Editor Path ---
+        # --- Editor line ---
+        if (-not [string]::IsNullOrWhiteSpace($EditorValue)) {
+            Write-Host "  Unity Editor:   " -ForegroundColor Gray -NoNewline
+            Write-Host $EditorValue -ForegroundColor Green
+        }
+        elseif ($ActiveStep -eq "editor") {
+            Write-Host "  Unity Editor:   " -ForegroundColor Gray -NoNewline
+            Write-Host "(selecting...)" -ForegroundColor DarkYellow
+        }
+        else {
+            Write-Host "  Unity Editor:   " -ForegroundColor Gray -NoNewline
+            Write-Host "(skipped)" -ForegroundColor DarkGray
+        }
+
+        # --- Projects Root line ---
+        if (-not [string]::IsNullOrWhiteSpace($ProjectsRootValue)) {
+            Write-Host "  Projects root:  " -ForegroundColor Gray -NoNewline
+            Write-Host $ProjectsRootValue -ForegroundColor Green
+        }
+        elseif ($ActiveStep -eq "projects") {
+            Write-Host "  Projects root:  " -ForegroundColor Gray -NoNewline
+            Write-Host "(waiting for input...)" -ForegroundColor DarkYellow
+        }
+        else {
+            Write-Host "  Projects root:  " -ForegroundColor Gray -NoNewline
+            Write-Host "(not yet)" -ForegroundColor DarkGray
+        }
+
+        Write-Host ""
+        if ($StatusMessage) {
+            Write-Host $StatusMessage -ForegroundColor Yellow
+            Write-Host ""
+        }
+    }
+
     $editorPath = [string]$config.UnityEditorPath
-    if ([string]::IsNullOrWhiteSpace($editorPath) -or -not (Test-Path $editorPath)) {
+    $projectsRoot = [string]$config.UnityProjectsRoot
+    $needEditor = [string]::IsNullOrWhiteSpace($editorPath) -or -not (Test-Path $editorPath)
+    $needProjects = [string]::IsNullOrWhiteSpace($projectsRoot)
+
+    # ===== STEP 1: Unity Editor Path =====
+    if ($needEditor) {
+        $editorPath = ""
         $found = Find-UnityEditorPaths
+
         if ($found.Count -gt 0) {
-            Write-Host "Found Unity installations:" -ForegroundColor Yellow
             $editorOptions = @()
             foreach ($f in $found) {
                 $editorOptions += "$($f.Version) - $($f.Path)"
@@ -52,71 +96,90 @@ function Invoke-FirstRunSetup {
             $editorOptions += "Enter path manually"
             $editorOptions += "Skip for now"
 
-            $pick = Show-Menu -Title "Select Unity Editor" -Header "Which Unity editor should be used?" -Options $editorOptions
+            $pick = Show-Menu -Title "First-time setup" -Header "Step 1/2: Select your Unity Editor" -Options $editorOptions
             if ($pick -ge 0 -and $pick -lt $found.Count) {
                 $editorPath = $found[$pick].Path
             }
             elseif ($pick -eq $found.Count) {
-                Clear-Host
-                Write-Host "Drag Unity.exe here or paste the full path:" -ForegroundColor Yellow
-                $editorPath = Normalize-UserPath (Read-Host "Unity.exe path")
+                Show-SetupScreen -EditorValue "" -ProjectsRootValue "" -ActiveStep "editor" -StatusMessage "Drag Unity.exe here or paste the full path:"
+                $manualPath = Normalize-UserPath (Read-Host "  Unity.exe path")
+                $manualCheck = Test-UnityEditorPath -Path $manualPath
+                if ($manualCheck.Valid) {
+                    $editorPath = $manualPath
+                } else {
+                    Show-SetupScreen -EditorValue "" -ProjectsRootValue "" -ActiveStep "editor" -StatusMessage $manualCheck.Message
+                    Start-Sleep -Seconds 2
+                }
             }
             # else: skip
         }
         else {
-            Write-Host "No Unity installations found automatically." -ForegroundColor Yellow
-            Write-Host "Drag Unity.exe here or paste the full path (or press ENTER to skip):" -ForegroundColor Yellow
-            $editorPath = Normalize-UserPath (Read-Host "Unity.exe path")
+            Show-SetupScreen -EditorValue "" -ProjectsRootValue "" -ActiveStep "editor" -StatusMessage "No Unity installations found. Drag Unity.exe here or paste the path (ENTER to skip):"
+            $manualPath = Normalize-UserPath (Read-Host "  Unity.exe path")
+            if (-not [string]::IsNullOrWhiteSpace($manualPath)) {
+                $manualCheck = Test-UnityEditorPath -Path $manualPath
+                if ($manualCheck.Valid) {
+                    $editorPath = $manualPath
+                } else {
+                    Show-SetupScreen -EditorValue "" -ProjectsRootValue "" -ActiveStep "editor" -StatusMessage $manualCheck.Message
+                    Start-Sleep -Seconds 2
+                }
+            }
         }
 
-        if (-not [string]::IsNullOrWhiteSpace($editorPath) -and (Test-Path $editorPath)) {
+        # Save editor if valid
+        $editorValidation = Test-UnityEditorPath -Path $editorPath
+        if ($editorValidation.Valid) {
             $config | Add-Member -MemberType NoteProperty -Name "UnityEditorPath" -Value $editorPath -Force
             Save-Config -Config $config -ConfigPath $ConfigPath
-            Write-Host "Unity Editor set: ${editorPath}" -ForegroundColor Green
+        } else {
+            $editorPath = ""
         }
-        elseif (-not [string]::IsNullOrWhiteSpace($editorPath)) {
-            Write-Host "Path not found: ${editorPath}" -ForegroundColor Red
-            Write-Host "You can set it later in Advanced settings." -ForegroundColor DarkGray
-        }
-        Write-Host ""
     }
 
-    # --- Unity Projects Root ---
-    $projectsRoot = [string]$config.UnityProjectsRoot
-    if ([string]::IsNullOrWhiteSpace($projectsRoot)) {
-        Write-Host "Where should new projects be created?" -ForegroundColor Yellow
-        Write-Host "Drag a folder here or paste the path:" -ForegroundColor Gray
-        $projectsRoot = Normalize-UserPath (Read-Host "Projects folder")
+    # ===== STEP 2: Projects Root =====
+    if ($needProjects) {
+        $projectsRoot = ""
+        Show-SetupScreen -EditorValue $editorPath -ProjectsRootValue "" -ActiveStep "projects" -StatusMessage "Step 2/2: Where should new projects be created?`nDrag a folder here or paste the path (ENTER to skip):"
+        $inputRoot = Normalize-UserPath (Read-Host "  Projects folder")
 
-        if (-not [string]::IsNullOrWhiteSpace($projectsRoot)) {
-            if (-not (Test-Path $projectsRoot)) {
-                $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${projectsRoot}" -Options @("Create it", "Skip")
+        if (-not [string]::IsNullOrWhiteSpace($inputRoot)) {
+            if (-not (Test-Path $inputRoot)) {
+                $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${inputRoot}" -Options @("Create it", "Skip")
                 if ($mkChoice -eq 0) {
-                    New-Item -ItemType Directory -Path $projectsRoot -Force | Out-Null
-                    Write-Host "Created: ${projectsRoot}" -ForegroundColor Green
+                    try {
+                        New-Item -ItemType Directory -Path $inputRoot -Force | Out-Null
+                    } catch {
+                        Show-SetupScreen -EditorValue $editorPath -ProjectsRootValue "" -ActiveStep "projects" -StatusMessage "Failed to create folder."
+                        Start-Sleep -Seconds 2
+                        $inputRoot = ""
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($inputRoot) -and -not (Test-Path $inputRoot)) {
+                        $inputRoot = ""
+                    }
                 }
                 else {
-                    $projectsRoot = ""
+                    $inputRoot = ""
                 }
             }
-            if (-not [string]::IsNullOrWhiteSpace($projectsRoot)) {
+
+            if (-not [string]::IsNullOrWhiteSpace($inputRoot)) {
+                $projectsRoot = $inputRoot
                 $config | Add-Member -MemberType NoteProperty -Name "UnityProjectsRoot" -Value $projectsRoot -Force
                 Save-Config -Config $config -ConfigPath $ConfigPath
-                Write-Host "Projects root set: ${projectsRoot}" -ForegroundColor Green
             }
         }
-        else {
-            Write-Host "You can set it later in Advanced settings." -ForegroundColor DarkGray
-        }
-        Write-Host ""
     }
 
+    # ===== FINAL SCREEN =====
+    Show-SetupScreen -EditorValue $editorPath -ProjectsRootValue $projectsRoot -ActiveStep "done"
     if (Test-ConfigEssentials -Config $config) {
         Write-Host "Setup complete! You're ready to create projects." -ForegroundColor Green
     }
     else {
-        Write-Host "Some settings are missing. You can configure them in 'Advanced settings'." -ForegroundColor Yellow
+        Write-Host "Some settings are missing. You can configure them in 'Advanced settings'." -ForegroundColor DarkGray
     }
+    Write-Host ""
     Read-Host "Press ENTER to continue"
 }
 
@@ -246,18 +309,20 @@ function Advanced-NamingSettings {
         $commonPackagesStatus = 'DISABLED'
         if ($config -and -not [string]::IsNullOrWhiteSpace([string]$config.UnityPackagesFolder)) {
             $cfgCommon = ([string]$config.UnityPackagesFolder).Trim().Trim('"').Trim("'")
-            if ([System.IO.Path]::IsPathRooted($cfgCommon)) {
-                $commonPackagesStatus = $cfgCommon
+            $resolvedCommon = $cfgCommon
+            if (-not [System.IO.Path]::IsPathRooted($cfgCommon)) {
+                $resolvedCommon = Join-Path $workspaceRoot $cfgCommon
             }
-            else {
-                $commonPackagesStatus = Join-Path $workspaceRoot $cfgCommon
-            }
+            $commonPackagesStatus = Get-PathStatus -Path $resolvedCommon
         }
 
-        $editorStatus = [string]$config.UnityEditorPath
-        if ([string]::IsNullOrWhiteSpace($editorStatus)) { $editorStatus = "(not set)" }
-        $projectsRootStatus = [string]$config.UnityProjectsRoot
-        if ([string]::IsNullOrWhiteSpace($projectsRootStatus)) { $projectsRootStatus = "(not set)" }
+        $editorStatus = Get-PathStatus -Path ([string]$config.UnityEditorPath)
+        # Extra check: if editor path exists but isn't Unity.exe, flag it
+        if (-not [string]::IsNullOrWhiteSpace([string]$config.UnityEditorPath) -and (Test-Path ([string]$config.UnityEditorPath))) {
+            $editorValidation = Test-UnityEditorPath -Path ([string]$config.UnityEditorPath)
+            if (-not $editorValidation.Valid) { $editorStatus = "INVALID: $($editorValidation.Message)" }
+        }
+        $projectsRootStatus = Get-PathStatus -Path ([string]$config.UnityProjectsRoot)
 
         $optEditor = "Unity Editor path: ${editorStatus}"
         $optProjectsRoot = "Projects root: ${projectsRootStatus}"
@@ -301,8 +366,16 @@ function Advanced-NamingSettings {
                     Write-Host "Drag Unity.exe here or paste the full path:" -ForegroundColor Yellow
                     $newPath = Normalize-UserPath (Read-Host "Unity.exe path")
                     if (-not [string]::IsNullOrWhiteSpace($newPath)) {
-                        $config | Add-Member -MemberType NoteProperty -Name "UnityEditorPath" -Value $newPath -Force
-                        Save-Config -Config $config -ConfigPath $ConfigPath
+                        $validation = Test-UnityEditorPath -Path $newPath
+                        if ($validation.Valid) {
+                            $config | Add-Member -MemberType NoteProperty -Name "UnityEditorPath" -Value $newPath -Force
+                            Save-Config -Config $config -ConfigPath $ConfigPath
+                            Write-Host "Unity Editor set: ${newPath}" -ForegroundColor Green
+                        } else {
+                            Write-Host $validation.Message -ForegroundColor Red
+                            Write-Host "Path was NOT saved." -ForegroundColor DarkGray
+                            Read-Host "Press ENTER to continue" | Out-Null
+                        }
                     }
                 }
             }
@@ -316,12 +389,24 @@ function Advanced-NamingSettings {
                     if (-not (Test-Path $newRoot)) {
                         $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${newRoot}" -Options @("Create it", "Cancel")
                         if ($mkChoice -eq 0) {
-                            New-Item -ItemType Directory -Path $newRoot -Force | Out-Null
+                            try {
+                                New-Item -ItemType Directory -Path $newRoot -Force | Out-Null
+                            } catch {
+                                Write-Host "Failed to create folder: ${_}" -ForegroundColor Red
+                                Read-Host "Press ENTER to continue" | Out-Null
+                                continue
+                            }
+                            if (-not (Test-Path $newRoot)) {
+                                Write-Host "Folder still doesn't exist after creation attempt." -ForegroundColor Red
+                                Read-Host "Press ENTER to continue" | Out-Null
+                                continue
+                            }
                         }
                         else { continue }
                     }
                     $config | Add-Member -MemberType NoteProperty -Name "UnityProjectsRoot" -Value $newRoot -Force
                     Save-Config -Config $config -ConfigPath $ConfigPath
+                    Write-Host "Projects root set: ${newRoot}" -ForegroundColor Green
                 }
             }
             2 {
@@ -880,6 +965,21 @@ function Setup-ProjectFlow {
         return
     }
 
+    # Gate: check essential paths exist before proceeding with project creation
+    $essentials = Test-ConfigEssentialsExist -Config $config
+    if (-not $essentials.Ready) {
+        Clear-Host
+        Write-Host "Cannot proceed - configuration issues found:" -ForegroundColor Red
+        Write-Host ""
+        foreach ($msg in $essentials.Missing) {
+            Write-Host "  - ${msg}" -ForegroundColor Yellow
+        }
+        Write-Host ""
+        Write-Host "Go to 'Advanced settings' from the main menu to fix these." -ForegroundColor Gray
+        Read-Host "Press ENTER to continue" | Out-Null
+        return
+    }
+
     if ($setupChoice -eq 0) {
         Clear-Host
         Write-Host "Drag here the .unitypackage file (or paste the full path):" -ForegroundColor Cyan
@@ -1012,9 +1112,20 @@ function Start-Wizard {
     Invoke-FirstRunSetup -ConfigPath $configPath
 
     while ($true) {
-        $header = "Use arrows + Enter. ESC cancels." 
+        # Check config state for warnings
+        $menuConfig = $null
+        if (Test-Path $configPath) { $menuConfig = Load-Config -ConfigPath $configPath }
+        $essentials = Test-ConfigEssentialsExist -Config $menuConfig
+        $setupLabel = "Setup project (UnityPackage or existing)"
+        $header = "Use arrows + Enter. ESC cancels."
+        if (-not $essentials.Ready) {
+            $setupLabel = "Setup project (UnityPackage or existing)  [!]"
+            $warnings = ($essentials.Missing | ForEach-Object { "  - $_" }) -join "`n"
+            $header = "WARNING: Some paths are missing or invalid:`n${warnings}`n  Go to 'Advanced settings' to fix.`n`n${header}"
+        }
+
         $choice = Show-Menu -Title "VRChat Project Setup Wizard" -Header $header -Options @(
-            "Setup project (UnityPackage or existing)",
+            $setupLabel,
             "Configure VPM packages",
             "Advanced settings",
             "Reset configuration",

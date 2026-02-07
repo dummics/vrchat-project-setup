@@ -126,6 +126,47 @@ function Find-UnityEditorPaths {
     return $candidates
 }
 
+function Test-UnityEditorPath {
+    # Validates a Unity Editor path: must exist, must be a file named Unity.exe
+    # Returns @{ Valid = $bool; Message = $string }
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return @{ Valid = $false; Message = "Path is empty" }
+    }
+    if (-not (Test-Path $Path)) {
+        return @{ Valid = $false; Message = "Path not found: ${Path}" }
+    }
+    if ((Get-Item $Path -ErrorAction SilentlyContinue).PSIsContainer) {
+        return @{ Valid = $false; Message = "Path is a folder, not Unity.exe: ${Path}" }
+    }
+    $fileName = [System.IO.Path]::GetFileName($Path)
+    if ($fileName -ine 'Unity.exe') {
+        return @{ Valid = $false; Message = "File is '${fileName}', expected 'Unity.exe'" }
+    }
+    return @{ Valid = $true; Message = $null }
+}
+
+function Get-PathStatus {
+    # Returns a display string for a configured path:
+    #   "(not set)"            - when value is empty/null
+    #   "NOT FOUND: <path>"    - when set but doesn't exist on disk
+    #   "<path>"               - when set and exists
+    param(
+        [string]$Path,
+        [string]$NotSetLabel = "(not set)"
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $NotSetLabel }
+    if (-not (Test-Path $Path)) { return "NOT FOUND: ${Path}" }
+    return $Path
+}
+
+function Test-PathExists {
+    # Quick boolean: is the configured path non-empty AND exists on disk?
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    return (Test-Path $Path)
+}
+
 function Test-ConfigEssentials {
     # Returns $true if UnityEditorPath and UnityProjectsRoot are configured and valid
     param($Config)
@@ -134,5 +175,33 @@ function Test-ConfigEssentials {
     $root = [string]$Config.UnityProjectsRoot
     if ([string]::IsNullOrWhiteSpace($editor) -or [string]::IsNullOrWhiteSpace($root)) { return $false }
     return $true
+}
+
+function Test-ConfigEssentialsExist {
+    # Returns @{ Ready = $bool; Missing = @(...) }
+    # Checks both that values are configured AND that paths actually exist on disk
+    param($Config)
+    $missing = @()
+    if (-not $Config) { return @{ Ready = $false; Missing = @("Config not loaded") } }
+
+    $editor = [string]$Config.UnityEditorPath
+    $root = [string]$Config.UnityProjectsRoot
+
+    if ([string]::IsNullOrWhiteSpace($editor)) {
+        $missing += "Unity Editor path is not set"
+    } elseif (-not (Test-Path $editor)) {
+        $missing += "Unity Editor not found: ${editor}"
+    } else {
+        $editorCheck = Test-UnityEditorPath -Path $editor
+        if (-not $editorCheck.Valid) { $missing += $editorCheck.Message }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($root)) {
+        $missing += "Projects root is not set"
+    } elseif (-not (Test-Path $root)) {
+        $missing += "Projects root not found: ${root}"
+    }
+
+    return @{ Ready = ($missing.Count -eq 0); Missing = $missing }
 }
 
