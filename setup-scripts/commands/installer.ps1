@@ -9,6 +9,48 @@ $scriptDir = (Resolve-Path (Join-Path $cmdDir '..')).Path
 . "$scriptDir\lib\config.ps1"
 . "$scriptDir\lib\project-state.ps1"
 
+function Write-VrcSetupLog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        [int]$RetryCount = 6,
+        [int]$RetryDelayMs = 150
+    )
+
+    if ([string]::IsNullOrWhiteSpace($global:VRCSETUP_LOGFILE)) { return }
+
+    $line = $Message
+    if (-not $line.EndsWith([Environment]::NewLine)) {
+        $line += [Environment]::NewLine
+    }
+
+    for ($attempt = 0; $attempt -lt $RetryCount; $attempt++) {
+        try {
+            [System.IO.File]::AppendAllText($global:VRCSETUP_LOGFILE, $line)
+            return
+        } catch {
+            if ($attempt -ge ($RetryCount - 1)) {
+                Write-Host ("Warning: failed to write to log file {0}: {1}" -f $global:VRCSETUP_LOGFILE, $_.Exception.Message) -ForegroundColor Yellow
+                return
+            }
+            Start-Sleep -Milliseconds $RetryDelayMs
+        }
+    }
+}
+
+function Write-VrcSetupCommandOutput {
+    param(
+        $Entries
+    )
+
+    foreach ($entry in @($Entries)) {
+        $line = [string]$entry
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        Write-Host $line
+        Write-VrcSetupLog -Message $line
+    }
+}
+
 function Install-PackagesInProject {
     param(
         [string]$ProjectPath,
@@ -39,34 +81,37 @@ function Install-PackagesInProject {
 
         if ($Test) {
             Write-Host "[TEST] Would add package: ${packageName}@${packageVersion}" -ForegroundColor DarkGray
-            Add-Content -Path $global:VRCSETUP_LOGFILE -Value "[TEST] Would add package: ${packageName}@${packageVersion}"
+            Write-VrcSetupLog -Message "[TEST] Would add package: ${packageName}@${packageVersion}"
             continue
         }
 
         try {
+            $cmdOutput = @()
             if ($packageVersion -eq "latest") {
                 Write-Host "Adding package: ${packageName} (latest)" -ForegroundColor Cyan
-                vpm add package "${packageName}" 2>&1 | Tee-Object -FilePath $global:VRCSETUP_LOGFILE -Append
+                $cmdOutput = @(vpm add package "${packageName}" 2>&1)
             } else {
                 Write-Host "Adding package: ${packageName} @ ${packageVersion}" -ForegroundColor Cyan
-                vpm add package "${packageName}@${packageVersion}" 2>&1 | Tee-Object -FilePath $global:VRCSETUP_LOGFILE -Append
+                $cmdOutput = @(vpm add package "${packageName}@${packageVersion}" 2>&1)
             }
+            Write-VrcSetupCommandOutput -Entries $cmdOutput
             if ($LASTEXITCODE -ne 0) { Write-Host "vpm reported exit code ${LASTEXITCODE} for ${packageName}" -ForegroundColor Yellow }
         } catch {
             Write-Host "Failed to add ${packageName}: ${_}" -ForegroundColor Red
-            Add-Content -Path $global:VRCSETUP_LOGFILE -Value "ERROR: Failed to add ${packageName} : ${_}"
+            Write-VrcSetupLog -Message "ERROR: Failed to add ${packageName} : ${_}"
         }
     }
 
     if ($Test) {
         Write-Host "[TEST] Would resolve VPM project: ${ProjectPath}" -ForegroundColor DarkGray
-        Add-Content -Path $global:VRCSETUP_LOGFILE -Value "[TEST] Would resolve VPM project: ${ProjectPath}"
+        Write-VrcSetupLog -Message "[TEST] Would resolve VPM project: ${ProjectPath}"
         return 0
     }
 
     # Resolve packages
     $manifestPath = Join-Path ${ProjectPath} "Packages\manifest.json"
-    vpm resolve project ${ProjectPath} 2>&1 | Tee-Object -FilePath $global:VRCSETUP_LOGFILE -Append
+    $resolveOutput = @(vpm resolve project ${ProjectPath} 2>&1)
+    Write-VrcSetupCommandOutput -Entries $resolveOutput
 
     return 0
 
