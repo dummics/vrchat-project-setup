@@ -1,5 +1,9 @@
 param()
 
+$script:VrcSetupStatusSuccess = 0
+$script:VrcSetupStatusFailure = 1
+$script:VrcSetupStatusCancelled = 2
+
 # commands/installer.ps1 - central installer logic exported as a function
 $cmdDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptDir = (Resolve-Path (Join-Path $cmdDir '..')).Path
@@ -8,6 +12,154 @@ $scriptDir = (Resolve-Path (Join-Path $cmdDir '..')).Path
 . "$scriptDir\lib\progress.ps1"
 . "$scriptDir\lib\config.ps1"
 . "$scriptDir\lib\project-state.ps1"
+
+function Write-VrcSetupLog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        [int]$RetryCount = 6,
+        [int]$RetryDelayMs = 150
+    )
+
+    if ([string]::IsNullOrWhiteSpace($global:VRCSETUP_LOGFILE)) { return }
+
+    $line = $Message
+    if (-not $line.EndsWith([Environment]::NewLine)) {
+        $line += [Environment]::NewLine
+    }
+
+    for ($attempt = 0; $attempt -lt $RetryCount; $attempt++) {
+        try {
+            [System.IO.File]::AppendAllText($global:VRCSETUP_LOGFILE, $line)
+            return
+        } catch {
+            if ($attempt -ge ($RetryCount - 1)) {
+                Write-Host ("Warning: failed to write to log file {0}: {1}" -f $global:VRCSETUP_LOGFILE, $_.Exception.Message) -ForegroundColor Yellow
+                return
+            }
+            Start-Sleep -Milliseconds $RetryDelayMs
+        }
+    }
+}
+
+function Write-VrcSetupCommandOutput {
+    param(
+        $Entries
+    )
+
+    foreach ($entry in @($Entries)) {
+        $line = [string]$entry
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        Write-Host $line
+        Write-VrcSetupLog -Message $line
+    }
+}
+
+function Get-VpmManifestValidationResult {
+    param(
+        [string]$ProjectPath,
+        $Packages
+    )
+
+    $manifestPath = Join-Path $ProjectPath "Packages\manifest.json"
+    $vpmManifestPath = Join-Path $ProjectPath "Packages\vpm-manifest.json"
+    $result = [pscustomobject]@{
+        Valid = $false
+        ManifestPath = $manifestPath
+        VpmManifestPath = $vpmManifestPath
+        MissingPackages = @()
+        Message = $null
+    }
+
+    if ((-not (Test-Path $manifestPath)) -and (-not (Test-Path $vpmManifestPath))) {
+        $result.Message = "Neither manifest.json nor vpm-manifest.json was found."
+        return $result
+    }
+
+    $expectedPackages = @()
+    try {
+        if ($Packages) {
+            $expectedPackages = @($Packages.PSObject.Properties | ForEach-Object { $_.Name })
+        }
+    } catch {
+        $expectedPackages = @()
+    }
+
+    if ($expectedPackages.Count -eq 0) {
+        $result.Valid = $true
+        $result.Message = "No configured VPM packages to validate."
+        return $result
+    }
+
+    try {
+        $dependencyNames = @()
+
+        if (Test-Path $manifestPath) {
+            $manifest = Get-Content $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($manifest -and $manifest.dependencies) {
+                $dependencyNames += @($manifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
+            }
+        }
+
+        if (Test-Path $vpmManifestPath) {
+            $vpmManifest = Get-Content $vpmManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($vpmManifest -and $vpmManifest.dependencies) {
+                $dependencyNames += @($vpmManifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
+            }
+        }
+
+        $dependencyNames = @($dependencyNames | Sort-Object -Unique)
+
+        $missing = @($expectedPackages | Where-Object { $dependencyNames -notcontains $_ })
+        $result.MissingPackages = $missing
+        if ($missing.Count -eq 0) {
+            $result.Valid = $true
+            $result.Message = "All configured VPM packages are present in the project manifests."
+        } else {
+            $result.Message = ("Missing configured VPM packages in project manifests: {0}" -f ($missing -join ", "))
+        }
+    } catch {
+        $result.Message = ("Failed to read project manifests: {0}" -f $_.Exception.Message)
+    }
+
+    return $result
+}
+
+function Ensure-VpmPackagesPresentAfterImport {
+    param(
+        [string]$ProjectPath,
+        $Packages,
+        [switch]$Test,
+        [string]$PhaseLabel = "after import"
+    )
+
+    if ($Test) { return $script:VrcSetupStatusSuccess }
+
+    $validation = Get-VpmManifestValidationResult -ProjectPath $ProjectPath -Packages $Packages
+    if ($validation.Valid) {
+        return $script:VrcSetupStatusSuccess
+    }
+
+    Write-Host ("Configured VPM packages need repair {0}." -f $PhaseLabel) -ForegroundColor Yellow
+    Write-Host $validation.Message -ForegroundColor Yellow
+    Write-VrcSetupLog -Message ("WARN: VPM manifest validation failed {0}: {1}" -f $PhaseLabel, $validation.Message)
+
+    $repairStatus = Install-PackagesInProject -ProjectPath $ProjectPath -Packages $Packages -Test:$Test
+    if ($repairStatus -ne $script:VrcSetupStatusSuccess) {
+        return $repairStatus
+    }
+
+    $revalidation = Get-VpmManifestValidationResult -ProjectPath $ProjectPath -Packages $Packages
+    if (-not $revalidation.Valid) {
+        Write-Host ("Error: configured VPM packages are still missing {0}." -f $PhaseLabel) -ForegroundColor Red
+        Write-Host $revalidation.Message -ForegroundColor Red
+        Write-VrcSetupLog -Message ("ERROR: VPM manifest validation still failing {0}: {1}" -f $PhaseLabel, $revalidation.Message)
+        return $script:VrcSetupStatusFailure
+    }
+
+    Write-Host ("Configured VPM packages restored successfully {0}." -f $PhaseLabel) -ForegroundColor Green
+    return $script:VrcSetupStatusSuccess
+}
 
 function Install-PackagesInProject {
     param(
@@ -18,6 +170,7 @@ function Install-PackagesInProject {
 
     Push-Location $ProjectPath
     try {
+    $hadFailures = $false
 
     # Backup manifest once before any changes (keeps logs in a sane order)
     $manifestPath = Join-Path $ProjectPath "Packages\manifest.json"
@@ -39,39 +192,187 @@ function Install-PackagesInProject {
 
         if ($Test) {
             Write-Host "[TEST] Would add package: ${packageName}@${packageVersion}" -ForegroundColor DarkGray
-            Add-Content -Path $global:VRCSETUP_LOGFILE -Value "[TEST] Would add package: ${packageName}@${packageVersion}"
+            Write-VrcSetupLog -Message "[TEST] Would add package: ${packageName}@${packageVersion}"
             continue
         }
 
         try {
+            $cmdOutput = @()
             if ($packageVersion -eq "latest") {
                 Write-Host "Adding package: ${packageName} (latest)" -ForegroundColor Cyan
-                vpm add package "${packageName}" 2>&1 | Tee-Object -FilePath $global:VRCSETUP_LOGFILE -Append
+                $cmdOutput = @(vpm add package "${packageName}" 2>&1)
             } else {
                 Write-Host "Adding package: ${packageName} @ ${packageVersion}" -ForegroundColor Cyan
-                vpm add package "${packageName}@${packageVersion}" 2>&1 | Tee-Object -FilePath $global:VRCSETUP_LOGFILE -Append
+                $cmdOutput = @(vpm add package "${packageName}@${packageVersion}" 2>&1)
             }
-            if ($LASTEXITCODE -ne 0) { Write-Host "vpm reported exit code ${LASTEXITCODE} for ${packageName}" -ForegroundColor Yellow }
+            Write-VrcSetupCommandOutput -Entries $cmdOutput
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "vpm reported exit code ${LASTEXITCODE} for ${packageName}" -ForegroundColor Yellow
+                Write-VrcSetupLog -Message "ERROR: vpm add failed for ${packageName} with exit code ${LASTEXITCODE}"
+                $hadFailures = $true
+            }
         } catch {
             Write-Host "Failed to add ${packageName}: ${_}" -ForegroundColor Red
-            Add-Content -Path $global:VRCSETUP_LOGFILE -Value "ERROR: Failed to add ${packageName} : ${_}"
+            Write-VrcSetupLog -Message "ERROR: Failed to add ${packageName} : ${_}"
+            $hadFailures = $true
         }
     }
 
     if ($Test) {
         Write-Host "[TEST] Would resolve VPM project: ${ProjectPath}" -ForegroundColor DarkGray
-        Add-Content -Path $global:VRCSETUP_LOGFILE -Value "[TEST] Would resolve VPM project: ${ProjectPath}"
-        return 0
+        Write-VrcSetupLog -Message "[TEST] Would resolve VPM project: ${ProjectPath}"
+        return $script:VrcSetupStatusSuccess
     }
 
     # Resolve packages
     $manifestPath = Join-Path ${ProjectPath} "Packages\manifest.json"
-    vpm resolve project ${ProjectPath} 2>&1 | Tee-Object -FilePath $global:VRCSETUP_LOGFILE -Append
+    $resolveOutput = @(vpm resolve project ${ProjectPath} 2>&1)
+    Write-VrcSetupCommandOutput -Entries $resolveOutput
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "vpm resolve reported exit code ${LASTEXITCODE}" -ForegroundColor Red
+        Write-VrcSetupLog -Message "ERROR: vpm resolve failed for ${ProjectPath} with exit code ${LASTEXITCODE}"
+        return $script:VrcSetupStatusFailure
+    }
 
-    return 0
+    $validation = Get-VpmManifestValidationResult -ProjectPath $ProjectPath -Packages $Packages
+    if (-not $validation.Valid) {
+        Write-Host $validation.Message -ForegroundColor Red
+        Write-VrcSetupLog -Message ("ERROR: {0}" -f $validation.Message)
+        return $script:VrcSetupStatusFailure
+    }
+
+    if ($hadFailures) {
+        Write-Host "One or more VPM package operations failed." -ForegroundColor Red
+        return $script:VrcSetupStatusFailure
+    }
+
+    return $script:VrcSetupStatusSuccess
 
     } finally {
         Pop-Location
+    }
+}
+
+function Get-UnityProcessesUsingProjectPath {
+    param(
+        [string]$ProjectPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProjectPath)) { return @() }
+
+    $normalizedPath = $ProjectPath
+    try {
+        if (Test-Path $ProjectPath) {
+            $normalizedPath = (Resolve-Path $ProjectPath -ErrorAction Stop).Path
+        } else {
+            $normalizedPath = [System.IO.Path]::GetFullPath($ProjectPath)
+        }
+    } catch {
+        $normalizedPath = $ProjectPath
+    }
+
+    $matches = @()
+    try {
+        $candidates = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $_.Name -eq 'Unity.exe' -and
+            -not [string]::IsNullOrWhiteSpace($_.CommandLine)
+        }
+
+        foreach ($proc in $candidates) {
+            if ($proc.CommandLine -match [regex]::Escape($normalizedPath)) {
+                $matches += [pscustomobject]@{
+                    ProcessId   = [int]$proc.ProcessId
+                    Name        = [string]$proc.Name
+                    CommandLine = [string]$proc.CommandLine
+                }
+            }
+        }
+    } catch { }
+
+    return @($matches | Sort-Object ProcessId -Unique)
+}
+
+function Remove-ProjectFolderWithRecovery {
+    param(
+        [string]$ProjectPath,
+        [string]$FailurePrefix = "Failed to delete project folder",
+        [bool]$AllowSkip = $false,
+        [string]$SkipLabel = "Cancel"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+        return [pscustomobject]@{ Removed = $false; Skipped = $AllowSkip; Cancelled = (-not $AllowSkip) }
+    }
+
+    while ($true) {
+        try {
+            Remove-Item -Path $ProjectPath -Recurse -Force -ErrorAction Stop
+            return [pscustomobject]@{ Removed = $true; Skipped = $false; Cancelled = $false }
+        } catch {
+            $deleteMessage = $_.Exception.Message
+            $unityLocks = @(Get-UnityProcessesUsingProjectPath -ProjectPath $ProjectPath)
+
+            if ($unityLocks.Count -eq 0) {
+                Write-Host "${FailurePrefix}: ${deleteMessage}" -ForegroundColor Red
+                if ($AllowSkip) {
+                    return [pscustomobject]@{ Removed = $false; Skipped = $true; Cancelled = $false }
+                }
+                return [pscustomobject]@{ Removed = $false; Skipped = $false; Cancelled = $true }
+            }
+
+            $options = @()
+            foreach ($proc in $unityLocks) {
+                $options += ("Close Unity PID {0}" -f $proc.ProcessId)
+            }
+            $options += "Retry delete"
+            $options += $SkipLabel
+
+            $header = @(
+                "Could not delete:",
+                $ProjectPath,
+                "",
+                "Reason:",
+                $deleteMessage,
+                "",
+                "Unity appears to be using this folder. Choose the PID to close, then retry."
+            ) -join "`n"
+
+            $choice = Show-Menu -Title "Project folder is in use" -Header $header -Options $options -AllowCancel $false
+            if ($choice -lt 0) {
+                return [pscustomobject]@{ Removed = $false; Skipped = $AllowSkip; Cancelled = (-not $AllowSkip) }
+            }
+
+            if ($choice -lt $unityLocks.Count) {
+                $selectedProc = $unityLocks[$choice]
+                $confirmHeader = @(
+                    "Close this Unity process?",
+                    "",
+                    ("PID: {0}" -f $selectedProc.ProcessId),
+                    ("Command: {0}" -f $selectedProc.CommandLine)
+                ) -join "`n"
+                $confirm = Show-Menu -Title "Confirm process close" -Header $confirmHeader -Options @("Close PID", "Back") -AllowCancel $false
+                if ($confirm -eq 0) {
+                    try {
+                        Stop-Process -Id $selectedProc.ProcessId -Force -ErrorAction Stop
+                        Write-Host ("Closed Unity PID {0}." -f $selectedProc.ProcessId) -ForegroundColor Yellow
+                    } catch {
+                        Write-Host ("Failed to close Unity PID {0}: {1}" -f $selectedProc.ProcessId, $_.Exception.Message) -ForegroundColor Red
+                        Read-Host "Press ENTER to continue" | Out-Null
+                    }
+                }
+                continue
+            }
+
+            if ($choice -eq $unityLocks.Count) {
+                continue
+            }
+
+            if ($AllowSkip) {
+                return [pscustomobject]@{ Removed = $false; Skipped = $true; Cancelled = $false }
+            }
+
+            return [pscustomobject]@{ Removed = $false; Skipped = $false; Cancelled = $true }
+        }
     }
 }
 
@@ -103,14 +404,14 @@ function Start-Installer {
 
     # If reset requested
     if ($projectPath -eq "-reset") {
-        if (Test-Path $configPath) { Remove-Item $configPath -Force; Write-Host "Configuration reset" -ForegroundColor Green; return 0 }
+        if (Test-Path $configPath) { Remove-Item $configPath -Force; Write-Host "Configuration reset" -ForegroundColor Green; return $script:VrcSetupStatusSuccess }
         Write-Host "No configuration to reset" -ForegroundColor Yellow
-        return 0
+        return $script:VrcSetupStatusSuccess
     }
 
     # Validate projectPath exists
-    if (-not $projectPath) { Write-Host "Error: project path required" -ForegroundColor Red; return 1 }
-    if (-not (Test-Path $projectPath)) { Write-Host "Error: path not found: ${projectPath}" -ForegroundColor Red; return 1 }
+    if (-not $projectPath) { Write-Host "Error: project path required" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
+    if (-not (Test-Path $projectPath)) { Write-Host "Error: path not found: ${projectPath}" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
 
     # Load config
     $config = Load-Config -ConfigPath $configPath
@@ -120,7 +421,7 @@ function Start-Installer {
         $VPM_PACKAGES = $config.VpmPackages
     } else {
         Write-Host "Config missing (create via the wizard)." -ForegroundColor Red
-        return 1
+        return $script:VrcSetupStatusFailure
     }
 
     # Normalize legacy formats (array -> object with versions)
@@ -136,7 +437,7 @@ function Start-Installer {
 
     if (-not $VPM_PACKAGES) {
         Write-Host "Error: VpmPackages missing in config." -ForegroundColor Red
-        return 1
+        return $script:VrcSetupStatusFailure
     }
 
     # Sticky overall progress (shows immediately; logs scroll below)
@@ -200,10 +501,10 @@ function Start-Installer {
             [bool]$OverallProgressEnabled
         )
 
-        if (-not $UnityPackagePaths -or $UnityPackagePaths.Count -eq 0) { return 0 }
+        if (-not $UnityPackagePaths -or $UnityPackagePaths.Count -eq 0) { return $script:VrcSetupStatusSuccess }
         if (-not $UnityEditorPath -or (-not (Test-Path $UnityEditorPath))) {
             Write-Host "Error: Unity Editor not found at: ${UnityEditorPath}" -ForegroundColor Red
-            return 1
+            return $script:VrcSetupStatusFailure
         }
 
         $idx = 0
@@ -220,10 +521,10 @@ function Start-Installer {
             )
             $p = Start-Process -FilePath $UnityEditorPath -ArgumentList $args -NoNewWindow -PassThru
             if ($OverallProgressEnabled) { try { Write-Progress -Id 1 -Activity $OverallProgressActivity -Status ("Importing UnityPackage extra ({0}/{1})..." -f $idx, $UnityPackagePaths.Count) } catch { } }
-            $res = Show-ProcessProgress -Process $p -LogFile $log -Prefix ("[Import:extra {0}/{1}]" -f $idx, $UnityPackagePaths.Count) -AllowCancel -ProgressId 2 -ParentProgressId 1
-            if ($res -and $res.Cancelled) { return 1 }
+            $res = Show-ProcessProgress -Process $p -LogFile $log -Prefix ("[Import:extra {0}/{1}]" -f $idx, $UnityPackagePaths.Count) -AllowCancel -CancelPrompt "Cancel this import step only? (y/N)" -ProgressId 2 -ParentProgressId 1
+            if ($res -and $res.Cancelled) { return $script:VrcSetupStatusCancelled }
         }
-        return 0
+        return $script:VrcSetupStatusSuccess
     }
 
     # UnityPackage mode: create a new project, import package(s), then continue install on the new project
@@ -239,35 +540,33 @@ function Start-Installer {
         }
         if (-not $UNITY_PROJECTS_ROOT) {
             Write-Host "Error: UnityProjectsRoot is missing in config." -ForegroundColor Red
-            return 1
+            return $script:VrcSetupStatusFailure
         }
 
         $newProjectPath = Join-Path $UNITY_PROJECTS_ROOT $projectName
         if (Test-Path $newProjectPath) {
             if ($OverwriteExistingProject) {
-                try {
-                    Write-Host "Project already exists, deleting (overwrite enabled): ${newProjectPath}" -ForegroundColor Yellow
-                    Remove-Item -Path $newProjectPath -Recurse -Force -ErrorAction Stop
-                } catch {
-                    Write-Host "Error: failed to delete existing project: ${_}" -ForegroundColor Red
-                    return 1
+                Write-Host "Project already exists, deleting (overwrite enabled): ${newProjectPath}" -ForegroundColor Yellow
+                $deleteResult = Remove-ProjectFolderWithRecovery -ProjectPath $newProjectPath -FailurePrefix "Error: failed to delete existing project" -AllowSkip:$false -SkipLabel "Cancel setup"
+                if (-not $deleteResult.Removed) {
+                    return $(if ($deleteResult.Cancelled) { $script:VrcSetupStatusCancelled } else { $script:VrcSetupStatusFailure })
                 }
             } else {
                 Write-Host "Error: project already exists at: ${newProjectPath}" -ForegroundColor Red
-                return 1
+                return $script:VrcSetupStatusFailure
             }
         }
 
         if (-not $UNITY_EDITOR_PATH -or (-not (Test-Path $UNITY_EDITOR_PATH))) {
             Write-Host "Error: Unity Editor not found at: ${UNITY_EDITOR_PATH}" -ForegroundColor Red
-            return 1
+            return $script:VrcSetupStatusFailure
         }
 
         if ($Test) {
             Write-Host "[TEST] Would create Unity project: ${newProjectPath}" -ForegroundColor DarkGray
             Write-Host "[TEST] Would import UnityPackage: ${projectPath}" -ForegroundColor DarkGray
             Write-Host "[TEST] Would then install configured VPM packages into: ${newProjectPath}" -ForegroundColor DarkGray
-            return 0
+            return $script:VrcSetupStatusSuccess
         } else {
             Write-Host "Creating project: ${projectName}" -ForegroundColor Green
             Write-Host "Path: ${newProjectPath}" -ForegroundColor Gray
@@ -288,8 +587,8 @@ function Start-Installer {
             $createArgs = "-createProject `"${newProjectPath}`" -buildTarget StandaloneWindows64 -quit -batchmode -logFile `"${createLogFile}`""
             $createProcess = Start-Process -FilePath $UNITY_EDITOR_PATH -ArgumentList $createArgs -NoNewWindow -PassThru
             if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Creating Unity project..." } catch { } }
-            $createRes = Show-ProcessProgress -Process $createProcess -LogFile $createLogFile -Prefix "[Unity]" -AllowCancel -OnCancel $onCancelDeleteProject -ProgressId 2 -ParentProgressId 1
-            if ($createRes -and $createRes.Cancelled) { return 1 }
+            $createRes = Show-ProcessProgress -Process $createProcess -LogFile $createLogFile -Prefix "[Unity]" -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
+            if ($createRes -and $createRes.Cancelled) { return $script:VrcSetupStatusCancelled }
 
             if (-not (Test-Path (Join-Path $newProjectPath "Assets"))) {
                 Write-Host "Error: project was not created correctly." -ForegroundColor Red
@@ -298,7 +597,7 @@ function Start-Installer {
                     Get-Content $createLogFile -Tail 20
                 }
                 Remove-Item -Path $newProjectPath -Recurse -Force -ErrorAction SilentlyContinue
-                return 1
+                return $script:VrcSetupStatusFailure
             }
 
             # Create state marker for cleanup (incomplete projects)
@@ -314,7 +613,11 @@ function Start-Installer {
             # 2) Install configured VPM packages BEFORE importing the UnityPackage(s).
             # This usually reduces re-import work when the GUI opens (SDK + dependencies already present).
             if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Installing VPM packages..." } catch { } }
-            Install-PackagesInProject -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test | Out-Null
+            $vpmStatus = Install-PackagesInProject -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test
+            if ($vpmStatus -ne $script:VrcSetupStatusSuccess) {
+                try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $false } catch { }
+                return $vpmStatus
+            }
             try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $true } catch { }
 
             $packagesToImport = @($projectPath)
@@ -368,8 +671,8 @@ function Start-Installer {
             )
             $importProcess = Start-Process -FilePath $UNITY_EDITOR_PATH -ArgumentList $importArgs -NoNewWindow -PassThru
             if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Importing UnityPackage (main)..." } catch { } }
-            $importRes = Show-ProcessProgress -Process $importProcess -LogFile $importLogFile -Prefix "[Import:main]" -AllowCancel -OnCancel $onCancelDeleteProject -ProgressId 2 -ParentProgressId 1
-            if ($importRes -and $importRes.Cancelled) { return 1 }
+            $importRes = Show-ProcessProgress -Process $importProcess -LogFile $importLogFile -Prefix "[Import:main]" -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
+            if ($importRes -and $importRes.Cancelled) { return $script:VrcSetupStatusCancelled }
             try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'importMain' -Done $true } catch { }
 
             # Extra packages (if any) AFTER main
@@ -387,8 +690,8 @@ function Start-Installer {
                 )
                 $p = Start-Process -FilePath $UNITY_EDITOR_PATH -ArgumentList $extraArgs -NoNewWindow -PassThru
                 if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status ("Importing UnityPackage (extra {0}/{1})..." -f $idx, $extraPackages.Count) } catch { } }
-                $extraRes = Show-ProcessProgress -Process $p -LogFile $extraLog -Prefix ("[Import:extra {0}/{1}]" -f $idx, $extraPackages.Count) -AllowCancel -OnCancel $onCancelDeleteProject -ProgressId 2 -ParentProgressId 1
-                if ($extraRes -and $extraRes.Cancelled) { return 1 }
+                $extraRes = Show-ProcessProgress -Process $p -LogFile $extraLog -Prefix ("[Import:extra {0}/{1}]" -f $idx, $extraPackages.Count) -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
+                if ($extraRes -and $extraRes.Cancelled) { return $script:VrcSetupStatusCancelled }
             }
 
             try {
@@ -490,12 +793,19 @@ public static class VrcSetupPostImport
                 Write-Host "Finalizing import (post-import settle)..." -ForegroundColor Cyan
                 $settleProcess = Start-Process -FilePath $UNITY_EDITOR_PATH -ArgumentList $settleArgs -NoNewWindow -PassThru
                 if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Finalizing (settle/flush)..." } catch { } }
-                $settleRes = Show-ProcessProgress -Process $settleProcess -LogFile $settleLogFile -Prefix "[Finalize]" -AllowCancel -OnCancel $onCancelDeleteProject -ProgressId 2 -ParentProgressId 1
-                if ($settleRes -and $settleRes.Cancelled) { return 1 }
+                $settleRes = Show-ProcessProgress -Process $settleProcess -LogFile $settleLogFile -Prefix "[Finalize]" -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
+                if ($settleRes -and $settleRes.Cancelled) { return $script:VrcSetupStatusCancelled }
                 try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'finalize' -Done $true } catch { }
             } catch {
                 Write-Host "Warning: post-import finalize step failed: ${_}" -ForegroundColor Yellow
             }
+
+            $postImportVpmStatus = Ensure-VpmPackagesPresentAfterImport -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test -PhaseLabel "after UnityPackage import"
+            if ($postImportVpmStatus -ne $script:VrcSetupStatusSuccess) {
+                try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $false } catch { }
+                return $postImportVpmStatus
+            }
+            try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $true } catch { }
 
             # Mark completed only if steps are all done (avoids false positives).
             try { Complete-VrcSetupProjectState -ProjectPath $newProjectPath } catch { }
@@ -512,7 +822,7 @@ public static class VrcSetupPostImport
             # - imported main + extra unitypackages
             # - ran post-import finalize
             # Don't run the generic "install packages in existing project" step again.
-            return 0
+            return $script:VrcSetupStatusSuccess
         }
     }
 
@@ -529,7 +839,8 @@ public static class VrcSetupPostImport
             }
         }
         if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Installing VPM packages..." } catch { } }
-        Install-PackagesInProject -ProjectPath $projectPath -Packages $VPM_PACKAGES -Test:$Test | Out-Null
+        $vpmStatus = Install-PackagesInProject -ProjectPath $projectPath -Packages $VPM_PACKAGES -Test:$Test
+        if ($vpmStatus -ne $script:VrcSetupStatusSuccess) { return $vpmStatus }
 
         if ($ImportExtras) {
             $workspaceRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
@@ -539,21 +850,24 @@ public static class VrcSetupPostImport
             } else {
                 Write-Host ("Importing extra UnityPackages from config... count={0}" -f $extraPkgs.Count) -ForegroundColor Cyan
                 $impRes = Import-UnityPackagesSequential -ProjectPath $projectPath -UnityPackagePaths $extraPkgs -UnityEditorPath $UNITY_EDITOR_PATH -OverallProgressActivity $overallProgressActivity -OverallProgressEnabled $overallProgressEnabled
-                if ($impRes -ne 0) { return 1 }
+                if ($impRes -ne $script:VrcSetupStatusSuccess) { return $impRes }
+
+                $postImportVpmStatus = Ensure-VpmPackagesPresentAfterImport -ProjectPath $projectPath -Packages $VPM_PACKAGES -Test:$Test -PhaseLabel "after extra UnityPackage import"
+                if ($postImportVpmStatus -ne $script:VrcSetupStatusSuccess) { return $postImportVpmStatus }
             }
         }
 
         if ($overallProgressEnabled) {
             try { Write-Progress -Id 1 -Activity $overallProgressActivity -Completed } catch { }
         }
-        return 0
+        return $script:VrcSetupStatusSuccess
     }
 
     Write-Host "Error: path is not a Unity project (missing Assets/Packages): ${projectPath}" -ForegroundColor Red
-    return 1
+    return $script:VrcSetupStatusFailure
 
     # If we reach here nothing else to do
-    return 0
+    return $script:VrcSetupStatusSuccess
 }
 
 

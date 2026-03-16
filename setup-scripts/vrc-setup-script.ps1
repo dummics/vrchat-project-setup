@@ -15,4 +15,5 @@ if ($Wizard -or (-not $projectPath)) {
     exit 0
 }
 
-Start-Installer -projectPath $projectPath -Test:$Test
+$status = Start-Installer -projectPath $projectPath -Test:$Test
+exit $status

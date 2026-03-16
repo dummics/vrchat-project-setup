@@ -225,6 +225,47 @@ function Normalize-UserPath {
     return $p
 }
 
+function Read-WizardPathInput {
+    param(
+        [string]$Title,
+        [string[]]$BodyLines = @(),
+        [string]$Prompt = "Path",
+        [ConsoleColor]$TitleColor = [ConsoleColor]::Cyan,
+        [string]$Hint = "Drag & drop works. Press ENTER to go back."
+    )
+
+    Clear-Host
+    if (-not [string]::IsNullOrWhiteSpace($Title)) {
+        Write-Host $Title -ForegroundColor $TitleColor
+        Write-Host ""
+    }
+
+    foreach ($line in @($BodyLines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Host $line -ForegroundColor Gray
+        } else {
+            Write-Host ""
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Hint)) {
+        Write-Host ""
+        Write-Host $Hint -ForegroundColor DarkGray
+    }
+
+    return Normalize-UserPath (Read-Host $Prompt)
+}
+
+function Add-ConfirmHint {
+    param(
+        [string]$Header,
+        [string]$Hint = "Use arrows + Enter. ESC is disabled on this screen."
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Header)) { return $Hint }
+    return "${Header}`n`n${Hint}"
+}
+
 function Ensure-ConfigDefaults {
     param($Config)
     if (-not $Config) { return $null }
@@ -465,15 +506,13 @@ function Advanced-NamingSettings {
                 Save-Config -Config $config -ConfigPath $ConfigPath
             }
             6 {
-                Clear-Host
-                Write-Host "UnityPackages folder (extra imports)" -ForegroundColor Cyan
-                Write-Host "" 
-                Write-Host "When you create a project from a UnityPackage, the installer can also import all *.unitypackage found in this folder." -ForegroundColor Gray
-                Write-Host "Current: ${commonPackagesStatus}" -ForegroundColor DarkGray
-                Write-Host "" 
-                Write-Host "Paste/drag a folder path. Type 'disable' (or 'none' / 'clear') to turn it off." -ForegroundColor Yellow
-
-                $inputPath = Normalize-UserPath (Read-Host "Folder path")
+                $inputPath = Read-WizardPathInput -Title "UnityPackages folder (extra imports)" -Prompt "Folder path" -BodyLines @(
+                    "When you create a project from a UnityPackage, the installer can also import all *.unitypackage found in this folder.",
+                    "",
+                    "Current: ${commonPackagesStatus}",
+                    "",
+                    "Type 'disable' (or 'none' / 'clear') to turn it off."
+                )
                 if ([string]::IsNullOrWhiteSpace($inputPath)) { continue }
 
                 if ($inputPath -ieq 'disable' -or $inputPath -ieq 'none' -or $inputPath -ieq 'clear') {
@@ -488,7 +527,7 @@ function Advanced-NamingSettings {
                 }
 
                 if (-not (Test-Path $resolved)) {
-                    $create = Show-Menu -Title "Folder not found" -Header "Create folder?`n${resolved}" -Options @("Create", "Cancel") -AllowCancel $false
+                    $create = Show-Menu -Title "Folder not found" -Header (Add-ConfirmHint -Header "Create folder?`n${resolved}") -Options @("Create", "Cancel") -AllowCancel $false
                     if ($create -ne 0) { continue }
                     try {
                         New-Item -Path $resolved -ItemType Directory -Force | Out-Null
@@ -727,13 +766,18 @@ function Edit-VpmPackages {
             }
             $filterParams = @{
                 Title         = "Add package"
-                Header        = $hint
+                Header        = "${hint}`n`nTip: exact matches are safest. If you type a custom id, you'll confirm it before saving."
                 Options       = $opts
                 PinnedOptions = $pinned
                 Placeholder   = "type package name (e.g. gogoloco, poiyomi)"
             }
             $pickedName = Show-MenuFilter @filterParams
             if ($null -eq $pickedName) { continue }
+
+            if (($opts -notcontains $pickedName) -and -not [string]::IsNullOrWhiteSpace($pickedName)) {
+                $typedConfirm = Show-Menu -Title "Use typed package id?" -Header (Add-ConfirmHint -Header ("No exact match was selected.`n`nUse this package id as typed?`n${pickedName}")) -Options @("Use typed text", "Back") -AllowCancel $false
+                if ($typedConfirm -ne 0) { continue }
+            }
 
             $newPackage = $null
             if ($pickedName -eq $searchOption) {
@@ -884,7 +928,7 @@ function Edit-VpmPackages {
         }
 
         if ($action -eq 1) {
-            $confirm = Show-Menu -Title "Remove package" -Header "Remove ${pkgName}?" -Options @("Yes, remove", "Cancel") -AllowCancel $false
+            $confirm = Show-Menu -Title "Remove package" -Header (Add-ConfirmHint -Header "Remove ${pkgName}?") -Options @("Yes, remove", "Cancel") -AllowCancel $false
             if ($confirm -eq 0) {
                 $config.VpmPackages.PSObject.Properties.Remove($pkgName)
                 Save-Config -Config $config -ConfigPath $ConfigPath
@@ -933,7 +977,7 @@ function Setup-ProjectFlow {
             return
         }
 
-        $confirm = Show-Menu -Title "Confirm delete" -Header ("Delete {0} selected project(s)?\nThis deletes the entire project folders." -f $picked.Count) -Options @("Delete", "Cancel") -AllowCancel $false
+        $confirm = Show-Menu -Title "Confirm delete" -Header (Add-ConfirmHint -Header ("Delete {0} selected project(s)?`nThis deletes the entire project folders." -f $picked.Count)) -Options @("Delete", "Cancel") -AllowCancel $false
         if ($confirm -ne 0) { return }
 
         Clear-Host
@@ -941,14 +985,443 @@ function Setup-ProjectFlow {
             $pp = [string]$p.ProjectPath
             if ([string]::IsNullOrWhiteSpace($pp)) { continue }
             Write-Host "Deleting: ${pp}" -ForegroundColor Yellow
-            try {
-                Remove-Item -Path $pp -Recurse -Force -ErrorAction Stop
-            } catch {
-                Write-Host "Failed: ${pp} (${_})" -ForegroundColor Red
+            $deleteResult = Remove-ProjectFolderWithRecovery -ProjectPath $pp -FailurePrefix ("Failed: ${pp}") -AllowSkip:$true -SkipLabel "Skip this project"
+            if ($deleteResult.Skipped) {
+                Write-Host "Skipped: ${pp}" -ForegroundColor DarkYellow
             }
         }
         Write-Host "Cleanup done." -ForegroundColor Green
         Read-Host "Press ENTER to continue" | Out-Null
+    }
+
+    function Get-ConfiguredExtraUnityPackagesInfo {
+        param(
+            $Config,
+            [string]$PackagePath
+        )
+
+        $result = [pscustomobject]@{
+            ExtrasCount = 0
+            StatusLabel = "Disabled"
+        }
+
+        if (-not $Config) { return $result }
+        if (-not ($Config.PSObject.Properties.Name -contains 'UnityPackagesFolder')) { return $result }
+
+        $cfgCommon = [string]$Config.UnityPackagesFolder
+        if ([string]::IsNullOrWhiteSpace($cfgCommon)) { return $result }
+
+        $cfgCommon = $cfgCommon.Trim().Trim('"').Trim("'")
+        $workspaceRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
+        $resolvedCommon = if ([System.IO.Path]::IsPathRooted($cfgCommon)) { $cfgCommon } else { Join-Path $workspaceRoot $cfgCommon }
+
+        if (-not (Test-Path $resolvedCommon)) {
+            $result.StatusLabel = "Configured but folder missing"
+            return $result
+        }
+
+        $mainResolved = $PackagePath
+        try { $mainResolved = (Resolve-Path $PackagePath -ErrorAction Stop).Path } catch { }
+
+        $extraPackages = @()
+        $commonPackages = Get-ChildItem -Path $resolvedCommon -Filter "*.unitypackage" -ErrorAction SilentlyContinue
+        foreach ($pkg in $commonPackages) {
+            $pkgResolved = $pkg.FullName
+            try { $pkgResolved = (Resolve-Path $pkg.FullName -ErrorAction Stop).Path } catch { }
+            if ($pkgResolved -ne $mainResolved) {
+                $extraPackages += $pkg.FullName
+            }
+        }
+
+        $result.ExtrasCount = @($extraPackages).Count
+        $result.StatusLabel = if ($result.ExtrasCount -gt 0) { "{0} package(s) found" -f $result.ExtrasCount } else { "0 package(s) found" }
+        return $result
+    }
+
+    function New-UnityPackageFlowState {
+        return [pscustomobject]@{
+            PackagePath = $null
+            SuggestedProjectName = $null
+            SavedProjectName = $null
+            ProjectName = $null
+            TargetProjectPath = $null
+            ExistingAction = 'create-new'
+            ActionLabel = 'Create new project'
+            ExtrasCount = 0
+            ExtrasStatus = 'Disabled'
+        }
+    }
+
+    function Get-UnityPackageActionLabel {
+        param([string]$Action)
+
+        switch ($Action) {
+            'overwrite'           { return "Delete existing and recreate" }
+            'use-existing-vpm'    { return "Use existing (VPM only)" }
+            'use-existing-extras' { return "Use existing (VPM + import extras)" }
+            default               { return "Create new project" }
+        }
+    }
+
+    function Update-UnityPackageFlowState {
+        param(
+            $State,
+            $Config
+        )
+
+        if (-not $State) { return }
+
+        $State.SuggestedProjectName = $null
+        $State.SavedProjectName = $null
+        $State.TargetProjectPath = $null
+        $State.ExtrasCount = 0
+        $State.ExtrasStatus = "Disabled"
+
+        if (-not [string]::IsNullOrWhiteSpace([string]$State.PackagePath)) {
+            $rawDefault = [System.IO.Path]::GetFileNameWithoutExtension([string]$State.PackagePath)
+            $State.SuggestedProjectName = Apply-ProjectNamingRules -BaseName $rawDefault -Config $Config
+
+            if ($Config -and $Config.SavedProjectNames -and $Config.SavedProjectNames.PSObject.Properties.Name -contains $State.PackagePath) {
+                $State.SavedProjectName = $Config.SavedProjectNames.($State.PackagePath)
+            }
+
+            $extrasInfo = Get-ConfiguredExtraUnityPackagesInfo -Config $Config -PackagePath $State.PackagePath
+            $State.ExtrasCount = $extrasInfo.ExtrasCount
+            $State.ExtrasStatus = $extrasInfo.StatusLabel
+        }
+
+        $defaultPromptName = if (-not [string]::IsNullOrWhiteSpace([string]$State.SavedProjectName)) {
+            [string]$State.SavedProjectName
+        } else {
+            [string]$State.SuggestedProjectName
+        }
+
+        if ([string]::IsNullOrWhiteSpace([string]$State.ProjectName)) {
+            $State.ProjectName = $defaultPromptName
+        } else {
+            $State.ProjectName = ([string]$State.ProjectName).Trim()
+        }
+
+        if ($Config -and -not [string]::IsNullOrWhiteSpace([string]$Config.UnityProjectsRoot) -and -not [string]::IsNullOrWhiteSpace([string]$State.ProjectName)) {
+            try {
+                $State.TargetProjectPath = Join-Path ([string]$Config.UnityProjectsRoot) ([string]$State.ProjectName)
+            } catch {
+                $State.TargetProjectPath = $null
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -or -not (Test-Path ([string]$State.TargetProjectPath))) {
+            $State.ExistingAction = 'create-new'
+        }
+
+        $State.ActionLabel = Get-UnityPackageActionLabel -Action $State.ExistingAction
+    }
+
+    function Prompt-UnityPackagePackageStep {
+        param($State)
+
+        while ($true) {
+            $packagePath = Read-WizardPathInput -Title "UnityPackage setup - Step 1/4: Select package" -Prompt "UnityPackage path" -BodyLines @(
+                "Choose the .unitypackage file to import.",
+                "The wizard will keep you inside this flow until the input is valid or you cancel."
+            )
+
+            if ([string]::IsNullOrWhiteSpace($packagePath)) { return $false }
+
+            if (-not (Test-Path $packagePath)) {
+                Show-WizardError -Title "Path not found" -Message $packagePath
+                continue
+            }
+
+            if ($packagePath -notlike "*.unitypackage") {
+                Show-WizardError -Title "Invalid file type" -Message "The selected path must point to a .unitypackage file."
+                continue
+            }
+
+            $State.PackagePath = $packagePath
+            $State.ProjectName = $null
+            $State.ExistingAction = 'create-new'
+            return $true
+        }
+    }
+
+    function Prompt-UnityPackageIdentityStep {
+        param(
+            $State,
+            $Config
+        )
+
+        Update-UnityPackageFlowState -State $State -Config $Config
+
+        $projectsRootValue = if ($Config -and -not [string]::IsNullOrWhiteSpace([string]$Config.UnityProjectsRoot)) {
+            [string]$Config.UnityProjectsRoot
+        } else {
+            "(missing)"
+        }
+
+        $targetPreview = if (-not [string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath)) {
+            [string]$State.TargetProjectPath
+        } else {
+            "(unavailable)"
+        }
+
+        $defaultPromptName = if (-not [string]::IsNullOrWhiteSpace([string]$State.SavedProjectName)) {
+            [string]$State.SavedProjectName
+        } else {
+            [string]$State.SuggestedProjectName
+        }
+
+        Clear-Host
+        Write-Host "UnityPackage setup - Step 2/4: Project identity" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "UnityPackage:" -ForegroundColor Gray
+        Write-Host "  $($State.PackagePath)" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Suggested project name:" -ForegroundColor Gray
+        Write-Host "  $($State.SuggestedProjectName)" -ForegroundColor White
+        if ($State.SavedProjectName) {
+            Write-Host "Saved name for this UnityPackage:" -ForegroundColor DarkGray
+            Write-Host "  $($State.SavedProjectName)" -ForegroundColor Gray
+        }
+        Write-Host ""
+        Write-Host "Projects root:" -ForegroundColor Gray
+        Write-Host "  ${projectsRootValue}" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Target preview:" -ForegroundColor Gray
+        Write-Host "  ${targetPreview}" -ForegroundColor White
+        Write-Host ""
+        Write-Host ("Press ENTER to use: {0}" -f $defaultPromptName) -ForegroundColor DarkGray
+
+        $projectName = Read-Host "Project name"
+        if ([string]::IsNullOrWhiteSpace($projectName)) {
+            $State.ProjectName = $defaultPromptName
+        } else {
+            $State.ProjectName = $projectName.Trim()
+        }
+
+        Update-UnityPackageFlowState -State $State -Config $Config
+        return $true
+    }
+
+    function Prompt-UnityPackageExistingActionStep {
+        param($State)
+
+        Update-UnityPackageFlowState -State $State -Config $config
+
+        if ([string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -or -not (Test-Path ([string]$State.TargetProjectPath))) {
+            $State.ExistingAction = 'create-new'
+            $State.ActionLabel = Get-UnityPackageActionLabel -Action $State.ExistingAction
+            return $true
+        }
+
+        $extrasLabel = if ($State.ExtrasCount -gt 0) {
+            "Use existing: setup VPM + import extra UnityPackages ({0} found)" -f $State.ExtrasCount
+        } else {
+            "Use existing: setup VPM + import extra UnityPackages (0 found)"
+        }
+
+        $options = @(
+            "Delete existing and recreate (from UnityPackage)",
+            "Use existing: setup VPM only",
+            $extrasLabel,
+            "Back"
+        )
+
+        $header = @(
+            "Step 3/4: Existing target decision",
+            "",
+            "Target already exists:",
+            $State.TargetProjectPath,
+            "",
+            "Choose how to continue with this existing project."
+        ) -join "`n"
+
+        $choice = Show-Menu -Title "UnityPackage setup" -Header (Add-ConfirmHint -Header $header -Hint "Choose an action for the existing target. Use Back to return to project identity.") -Options $options -AllowCancel $false
+        if ($choice -lt 0 -or $options[$choice] -eq "Back") { return $false }
+
+        switch ($choice) {
+            0 { $State.ExistingAction = 'overwrite' }
+            1 { $State.ExistingAction = 'use-existing-vpm' }
+            2 { $State.ExistingAction = 'use-existing-extras' }
+            default { $State.ExistingAction = 'create-new' }
+        }
+        $State.ActionLabel = Get-UnityPackageActionLabel -Action $State.ExistingAction
+        return $true
+    }
+
+    function Get-UnityPackageReviewHeader {
+        param($State)
+
+        $targetState = if (-not [string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -and (Test-Path ([string]$State.TargetProjectPath))) {
+            "Already exists"
+        } else {
+            "Will be created"
+        }
+
+        return @(
+            "Step 4/4: Review setup plan",
+            "",
+            "UnityPackage: $($State.PackagePath)",
+            "Project name: $($State.ProjectName)",
+            "Target: $($State.TargetProjectPath)",
+            "Target status: ${targetState}",
+            "Action: $($State.ActionLabel)",
+            "Extra UnityPackages: $($State.ExtrasStatus)",
+            "",
+            "Review the plan before starting setup."
+        ) -join "`n"
+    }
+
+    function Show-SetupOutcomeSummary {
+        param(
+            [int]$Status,
+            [string]$ActionLabel,
+            [string]$TargetPath,
+            [string]$PackagePath,
+            [bool]$CanLeavePartialProject = $false
+        )
+
+        Write-Host ""
+
+        if ($Status -eq 0) {
+            Write-Host "Setup completed successfully" -ForegroundColor Green
+        } elseif ($Status -eq 2) {
+            Write-Host "Setup cancelled" -ForegroundColor Yellow
+        } else {
+            Write-Host "Setup failed" -ForegroundColor Red
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($ActionLabel)) {
+            Write-Host ("Action: {0}" -f $ActionLabel) -ForegroundColor Gray
+        }
+        if (-not [string]::IsNullOrWhiteSpace($TargetPath)) {
+            Write-Host ("Target: {0}" -f $TargetPath) -ForegroundColor Gray
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PackagePath)) {
+            Write-Host ("Source package: {0}" -f $PackagePath) -ForegroundColor DarkGray
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace([string]$global:VRCSETUP_LOGFILE)) {
+            Write-Host ("Session log: {0}" -f $global:VRCSETUP_LOGFILE) -ForegroundColor DarkGray
+        }
+
+        Write-Host ""
+        if ($Status -eq 0) {
+            if ($CanLeavePartialProject) {
+                Write-Host "Next step: open the created project in Unity and do a quick sanity check." -ForegroundColor Cyan
+            } else {
+                Write-Host "Next step: open the target project in Unity and verify packages/assets." -ForegroundColor Cyan
+            }
+        } elseif ($Status -eq 2) {
+            if ($CanLeavePartialProject) {
+                Write-Host "If a partial project remains on disk, use 'Setup project -> Cleanup incomplete projects' before retrying." -ForegroundColor Yellow
+            } else {
+                Write-Host "The target project was left in place. You can retry when ready." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Review the messages above and the session log, then retry." -ForegroundColor Yellow
+            if ($CanLeavePartialProject) {
+                Write-Host "If the run stopped mid-creation, use 'Setup project -> Cleanup incomplete projects' before retrying." -ForegroundColor Yellow
+            }
+        }
+    }
+
+    function Invoke-UnityPackageExecution {
+        param(
+            $State,
+            $Config,
+            [string]$ConfigPath
+        )
+
+        if ($Config) {
+            $Config | Add-Member -MemberType NoteProperty -Name "LastUnityPackagePath" -Value $State.PackagePath -Force
+            if ($Config.Naming.RememberUnityPackageNames) {
+                $Config.SavedProjectNames | Add-Member -MemberType NoteProperty -Name $State.PackagePath -Value $State.ProjectName -Force
+            }
+            Save-Config -Config $Config -ConfigPath $ConfigPath
+        }
+
+        Clear-Host
+
+        $status = 1
+        $canLeavePartialProject = ($State.ExistingAction -eq 'create-new' -or $State.ExistingAction -eq 'overwrite')
+        switch ($State.ExistingAction) {
+            'overwrite' {
+                $confirmDel = Show-Menu -Title "Confirm delete" -Header (Add-ConfirmHint -Header ("This will DELETE the existing folder:`n{0}`n`nContinue?" -f $State.TargetProjectPath)) -Options @("Delete and recreate", "Cancel") -AllowCancel $false
+                if ($confirmDel -ne 0) { return [pscustomobject]@{ Executed = $false; Status = $null } }
+                Clear-Host
+                $status = Start-Installer -projectPath $State.PackagePath -NewProjectName $State.ProjectName -OverwriteExistingProject
+            }
+            'use-existing-vpm' {
+                $status = Start-Installer -projectPath $State.TargetProjectPath
+            }
+            'use-existing-extras' {
+                $status = Start-Installer -projectPath $State.TargetProjectPath -ImportExtras -ExcludeUnityPackagePath $State.PackagePath
+            }
+            default {
+                $status = Start-Installer -projectPath $State.PackagePath -NewProjectName $State.ProjectName
+            }
+        }
+
+        Show-SetupOutcomeSummary -Status $status -ActionLabel $State.ActionLabel -TargetPath $State.TargetProjectPath -PackagePath $State.PackagePath -CanLeavePartialProject:$canLeavePartialProject
+        Read-Host "Press ENTER to return" | Out-Null
+        return [pscustomobject]@{ Executed = $true; Status = $status }
+    }
+
+    function Invoke-UnityPackageSetupFlow {
+        param(
+            $Config,
+            [string]$ConfigPath
+        )
+
+        $state = New-UnityPackageFlowState
+
+        while ($true) {
+            if (-not $state.PackagePath) {
+                if (-not (Prompt-UnityPackagePackageStep -State $state)) { return }
+            }
+
+            [void](Prompt-UnityPackageIdentityStep -State $state -Config $Config)
+            if (-not (Prompt-UnityPackageExistingActionStep -State $state)) {
+                continue
+            }
+
+            while ($true) {
+                Update-UnityPackageFlowState -State $state -Config $Config
+
+                $options = @("Start setup", "Change project name")
+                if (-not [string]::IsNullOrWhiteSpace([string]$state.TargetProjectPath) -and (Test-Path ([string]$state.TargetProjectPath))) {
+                    $options += "Change existing target action"
+                }
+                $options += @("Choose another UnityPackage", "Cancel")
+
+                $choice = Show-Menu -Title "UnityPackage setup" -Header (Get-UnityPackageReviewHeader -State $state) -Options $options
+                if ($choice -eq -1) { return }
+
+                $picked = $options[$choice]
+                if ($picked -eq "Start setup") {
+                    $executionResult = Invoke-UnityPackageExecution -State $state -Config $Config -ConfigPath $ConfigPath
+                    if (-not $executionResult.Executed) {
+                        continue
+                    }
+                    return
+                }
+                if ($picked -eq "Change project name") {
+                    break
+                }
+                if ($picked -eq "Change existing target action") {
+                    if (-not (Prompt-UnityPackageExistingActionStep -State $state)) {
+                        break
+                    }
+                    continue
+                }
+                if ($picked -eq "Choose another UnityPackage") {
+                    $state = New-UnityPackageFlowState
+                    break
+                }
+                return
+            }
+        }
     }
 
     $setupChoice = Show-Menu -Title "Setup project" -Header "Choose what you're starting from:" -Options @(
@@ -1013,113 +1486,14 @@ function Setup-ProjectFlow {
     }
 
     if ($setupChoice -eq 0) {
-        Clear-Host
-        Write-Host "Drag here the .unitypackage file (or paste the full path):" -ForegroundColor Cyan
-        $packagePath = Normalize-UserPath (Read-Host "UnityPackage path")
-        if ([string]::IsNullOrWhiteSpace($packagePath)) { return }
-        if (-not (Test-Path $packagePath)) { Write-Host "Path not found: ${packagePath}" -ForegroundColor Red; Read-Host "Press ENTER"; return }
-        if ($packagePath -notlike "*.unitypackage") { Write-Host "Must be a .unitypackage file." -ForegroundColor Red; Read-Host "Press ENTER"; return }
-
-        $rawDefault = [System.IO.Path]::GetFileNameWithoutExtension($packagePath)
-        $defaultName = Apply-ProjectNamingRules -BaseName $rawDefault -Config $config
-
-        $savedName = $null
-        if ($config -and $config.SavedProjectNames -and $config.SavedProjectNames.PSObject.Properties.Name -contains $packagePath) {
-            $savedName = $config.SavedProjectNames.($packagePath)
-        }
-
-        Clear-Host
-        Write-Host "UnityPackage setup" -ForegroundColor Cyan
-        Write-Host "" 
-        Write-Host "UnityPackage:" -ForegroundColor Gray
-        Write-Host "  ${packagePath}" -ForegroundColor White
-
-        Write-Host "" 
-        Write-Host "Suggested project name:" -ForegroundColor Gray
-        Write-Host "  ${defaultName}" -ForegroundColor White
-
-        if ($savedName) {
-            Write-Host "Saved name for this package:" -ForegroundColor DarkGray
-            Write-Host "  ${savedName}" -ForegroundColor Gray
-        } elseif ($config -and $config.LastProjectName) {
-            Write-Host "Last used project name:" -ForegroundColor DarkGray
-            Write-Host "  $($config.LastProjectName)" -ForegroundColor Gray
-        }
-
-        Write-Host "" 
-        Write-Host "Tip: press ENTER to accept the suggested name." -ForegroundColor DarkGray
-        $projectName = (Read-Host "Project name")
-        if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = if ($savedName) { $savedName } else { $defaultName } } else { $projectName = $projectName.Trim() }
-
-        $targetProjectPath = $null
-        try {
-            if ($config -and -not [string]::IsNullOrWhiteSpace([string]$config.UnityProjectsRoot)) {
-                $targetProjectPath = Join-Path ([string]$config.UnityProjectsRoot) $projectName
-            }
-        } catch { $targetProjectPath = $null }
-
-        $existingAction = $null
-        if ($targetProjectPath -and (Test-Path $targetProjectPath)) {
-            $existingAction = Show-Menu -Title "Project already exists" -Header ("Target already exists:`n${targetProjectPath}`n`nChoose what to do:") -Options @(
-                "Delete existing and recreate (from UnityPackage)",
-                "Use existing: setup VPM only",
-                "Use existing: setup VPM + import extra UnityPackages",
-                "Cancel"
-            ) -AllowCancel $false
-
-            if ($existingAction -eq 3 -or $existingAction -eq -1) { return }
-        }
-
-        $actionLabel = "Create new project"
-        if ($existingAction -eq 0) { $actionLabel = "Delete existing and recreate" }
-        elseif ($existingAction -eq 1) { $actionLabel = "Use existing (VPM only)" }
-        elseif ($existingAction -eq 2) { $actionLabel = "Use existing (VPM + import extras)" }
-
-        $confirmHeader = @(
-            "UnityPackage: ${packagePath}",
-            "Project name: ${projectName}",
-            "Target: ${targetProjectPath}",
-            "Action: ${actionLabel}",
-            "",
-            "Proceed?"
-        ) -join "`n"
-        $confirm = Show-Menu -Title "Confirm" -Header $confirmHeader -Options @("Proceed", "Cancel") -AllowCancel $false
-        if ($confirm -ne 0) { return }
-
-        if ($config) {
-            $config | Add-Member -MemberType NoteProperty -Name "LastProjectName" -Value $projectName -Force
-            $config | Add-Member -MemberType NoteProperty -Name "LastUnityPackagePath" -Value $packagePath -Force
-            if ($config.Naming.RememberUnityPackageNames) {
-                $config.SavedProjectNames | Add-Member -MemberType NoteProperty -Name $packagePath -Value $projectName -Force
-            }
-            Save-Config -Config $config -ConfigPath $ConfigPath
-        }
-
-        # Avoid leftover TUI lines before starting installer output
-        Clear-Host
-        if ($existingAction -eq 0) {
-            $confirmDel = Show-Menu -Title "Confirm delete" -Header ("This will DELETE the existing folder:`n${targetProjectPath}`n`nContinue?") -Options @("Delete and recreate", "Cancel") -AllowCancel $false
-            if ($confirmDel -ne 0) { return }
-            Clear-Host
-            Start-Installer -projectPath $packagePath -NewProjectName $projectName -OverwriteExistingProject
-        }
-        elseif ($existingAction -eq 1) {
-            Start-Installer -projectPath $targetProjectPath
-        }
-        elseif ($existingAction -eq 2) {
-            Start-Installer -projectPath $targetProjectPath -ImportExtras -ExcludeUnityPackagePath $packagePath
-        }
-        else {
-            Start-Installer -projectPath $packagePath -NewProjectName $projectName
-        }
-        Read-Host "Press ENTER to return"
+        Invoke-UnityPackageSetupFlow -Config $config -ConfigPath $ConfigPath
         return
     }
 
     if ($setupChoice -eq 1) {
-        Clear-Host
-        Write-Host "Drag here the Unity project folder (or paste the path):" -ForegroundColor Yellow
-        $projectPath = Normalize-UserPath (Read-Host "Project path")
+        $projectPath = Read-WizardPathInput -Title "Existing Unity project" -TitleColor ([ConsoleColor]::Yellow) -Prompt "Project path" -BodyLines @(
+            "Choose the Unity project folder you want to configure."
+        )
         if ([string]::IsNullOrWhiteSpace($projectPath)) { return }
         if (-not (Test-Path $projectPath)) { Write-Host "Path not found: ${projectPath}" -ForegroundColor Red; Read-Host "Press ENTER"; return }
 
@@ -1127,12 +1501,13 @@ function Setup-ProjectFlow {
         if (-not (Test-Path $assetsPath)) { Write-Host "Not a Unity project (missing Assets)." -ForegroundColor Red; Read-Host "Press ENTER"; return }
 
         $confirmHeader = "Project folder: ${projectPath}`n\nProceed?"
-        $confirm = Show-Menu -Title "Confirm" -Header $confirmHeader -Options @("Proceed", "Cancel") -AllowCancel $false
+        $confirm = Show-Menu -Title "Confirm" -Header (Add-ConfirmHint -Header $confirmHeader) -Options @("Proceed", "Cancel") -AllowCancel $false
         if ($confirm -ne 0) { return }
 
         # Avoid leftover TUI lines before starting installer output
         Clear-Host
-        Start-Installer -projectPath $projectPath
+        $status = Start-Installer -projectPath $projectPath
+        Show-SetupOutcomeSummary -Status $status -ActionLabel "Configure existing project" -TargetPath $projectPath -PackagePath $null -CanLeavePartialProject:$false
         Read-Host "Press ENTER to return"
         return
     }
@@ -1149,7 +1524,7 @@ function Start-Wizard {
         if (Test-Path $configPath) { $menuConfig = Load-Config -ConfigPath $configPath }
         $essentials = Test-ConfigEssentialsExist -Config $menuConfig
         $setupLabel = "Setup project (UnityPackage or existing)"
-        $header = "Use arrows + Enter. ESC cancels."
+        $header = "Use arrows + Enter. ESC goes back in submenus. Select Exit here to close."
         if (-not $essentials.Ready) {
             $setupLabel = "Setup project (UnityPackage or existing)  [!]"
             $warnings = ($essentials.Missing | ForEach-Object { "  - $_" }) -join "`n"
@@ -1177,7 +1552,7 @@ function Start-Wizard {
                 Advanced-NamingSettings -ConfigPath $configPath
             }
             3 {
-                $confirm = Show-Menu -Title "Reset configuration" -Header "Reset config file?" -Options @("Yes, reset", "Cancel") -AllowCancel $false
+                $confirm = Show-Menu -Title "Reset configuration" -Header (Add-ConfirmHint -Header "Reset config file?") -Options @("Yes, reset", "Cancel") -AllowCancel $false
                 if ($confirm -eq 0) {
                     Clear-Host
                     Start-Installer -projectPath "-reset"

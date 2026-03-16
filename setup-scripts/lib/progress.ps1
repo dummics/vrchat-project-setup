@@ -7,6 +7,7 @@ function Show-ProcessProgress {
         [int]$PollMs = 250,
         [switch]$AllowCancel,
         [scriptblock]$OnCancel,
+        [string]$CancelPrompt = "Cancel this step only? (y/N)",
         [int]$ProgressId = 2,
         [int]$ParentProgressId = 0
     )
@@ -56,8 +57,8 @@ function Show-ProcessProgress {
                             }
                         } catch { }
 
-                        $answer = Read-Host "Cancel this step and delete the created project? (y/N)"
-                        if ($answer -match '^(y|yes)$') {
+                        $answer = Read-Host $CancelPrompt
+                        if ($answer -match '^(y|yes|s|si)$') {
                             try {
                                 if ($useWriteProgress) {
                                     if ($ParentProgressId -gt 0) {
