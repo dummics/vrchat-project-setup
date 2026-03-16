@@ -984,10 +984,9 @@ function Setup-ProjectFlow {
             $pp = [string]$p.ProjectPath
             if ([string]::IsNullOrWhiteSpace($pp)) { continue }
             Write-Host "Deleting: ${pp}" -ForegroundColor Yellow
-            try {
-                Remove-Item -Path $pp -Recurse -Force -ErrorAction Stop
-            } catch {
-                Write-Host "Failed: ${pp} (${_})" -ForegroundColor Red
+            $deleteResult = Remove-ProjectFolderWithRecovery -ProjectPath $pp -FailurePrefix ("Failed: ${pp}") -AllowSkip:$true -SkipLabel "Skip this project"
+            if ($deleteResult.Skipped) {
+                Write-Host "Skipped: ${pp}" -ForegroundColor DarkYellow
             }
         }
         Write-Host "Cleanup done." -ForegroundColor Green

@@ -75,6 +75,129 @@ function Install-PackagesInProject {
     }
 }
 
+function Get-UnityProcessesUsingProjectPath {
+    param(
+        [string]$ProjectPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProjectPath)) { return @() }
+
+    $normalizedPath = $ProjectPath
+    try {
+        if (Test-Path $ProjectPath) {
+            $normalizedPath = (Resolve-Path $ProjectPath -ErrorAction Stop).Path
+        } else {
+            $normalizedPath = [System.IO.Path]::GetFullPath($ProjectPath)
+        }
+    } catch {
+        $normalizedPath = $ProjectPath
+    }
+
+    $matches = @()
+    try {
+        $candidates = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $_.Name -eq 'Unity.exe' -and
+            -not [string]::IsNullOrWhiteSpace($_.CommandLine)
+        }
+
+        foreach ($proc in $candidates) {
+            if ($proc.CommandLine -match [regex]::Escape($normalizedPath)) {
+                $matches += [pscustomobject]@{
+                    ProcessId   = [int]$proc.ProcessId
+                    Name        = [string]$proc.Name
+                    CommandLine = [string]$proc.CommandLine
+                }
+            }
+        }
+    } catch { }
+
+    return @($matches | Sort-Object ProcessId -Unique)
+}
+
+function Remove-ProjectFolderWithRecovery {
+    param(
+        [string]$ProjectPath,
+        [string]$FailurePrefix = "Failed to delete project folder",
+        [bool]$AllowSkip = $false,
+        [string]$SkipLabel = "Cancel"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+        return [pscustomobject]@{ Removed = $false; Skipped = $AllowSkip; Cancelled = (-not $AllowSkip) }
+    }
+
+    while ($true) {
+        try {
+            Remove-Item -Path $ProjectPath -Recurse -Force -ErrorAction Stop
+            return [pscustomobject]@{ Removed = $true; Skipped = $false; Cancelled = $false }
+        } catch {
+            $deleteMessage = $_.Exception.Message
+            $unityLocks = @(Get-UnityProcessesUsingProjectPath -ProjectPath $ProjectPath)
+
+            if ($unityLocks.Count -eq 0) {
+                Write-Host "${FailurePrefix}: ${deleteMessage}" -ForegroundColor Red
+                if ($AllowSkip) {
+                    return [pscustomobject]@{ Removed = $false; Skipped = $true; Cancelled = $false }
+                }
+                return [pscustomobject]@{ Removed = $false; Skipped = $false; Cancelled = $true }
+            }
+
+            $options = @()
+            foreach ($proc in $unityLocks) {
+                $options += ("Close Unity PID {0}" -f $proc.ProcessId)
+            }
+            $options += "Retry delete"
+            $options += $SkipLabel
+
+            $header = @(
+                "Could not delete:",
+                $ProjectPath,
+                "",
+                "Reason:",
+                $deleteMessage,
+                "",
+                "Unity appears to be using this folder. Choose the PID to close, then retry."
+            ) -join "`n"
+
+            $choice = Show-Menu -Title "Project folder is in use" -Header $header -Options $options -AllowCancel $false
+            if ($choice -lt 0) {
+                return [pscustomobject]@{ Removed = $false; Skipped = $AllowSkip; Cancelled = (-not $AllowSkip) }
+            }
+
+            if ($choice -lt $unityLocks.Count) {
+                $selectedProc = $unityLocks[$choice]
+                $confirmHeader = @(
+                    "Close this Unity process?",
+                    "",
+                    ("PID: {0}" -f $selectedProc.ProcessId),
+                    ("Command: {0}" -f $selectedProc.CommandLine)
+                ) -join "`n"
+                $confirm = Show-Menu -Title "Confirm process close" -Header $confirmHeader -Options @("Close PID", "Back") -AllowCancel $false
+                if ($confirm -eq 0) {
+                    try {
+                        Stop-Process -Id $selectedProc.ProcessId -Force -ErrorAction Stop
+                        Write-Host ("Closed Unity PID {0}." -f $selectedProc.ProcessId) -ForegroundColor Yellow
+                    } catch {
+                        Write-Host ("Failed to close Unity PID {0}: {1}" -f $selectedProc.ProcessId, $_.Exception.Message) -ForegroundColor Red
+                        Read-Host "Press ENTER to continue" | Out-Null
+                    }
+                }
+                continue
+            }
+
+            if ($choice -eq $unityLocks.Count) {
+                continue
+            }
+
+            if ($AllowSkip) {
+                return [pscustomobject]@{ Removed = $false; Skipped = $true; Cancelled = $false }
+            }
+
+            return [pscustomobject]@{ Removed = $false; Skipped = $false; Cancelled = $true }
+        }
+    }
+}
+
 function Start-Installer {
     param(
         [string]$projectPath,
@@ -245,11 +368,9 @@ function Start-Installer {
         $newProjectPath = Join-Path $UNITY_PROJECTS_ROOT $projectName
         if (Test-Path $newProjectPath) {
             if ($OverwriteExistingProject) {
-                try {
-                    Write-Host "Project already exists, deleting (overwrite enabled): ${newProjectPath}" -ForegroundColor Yellow
-                    Remove-Item -Path $newProjectPath -Recurse -Force -ErrorAction Stop
-                } catch {
-                    Write-Host "Error: failed to delete existing project: ${_}" -ForegroundColor Red
+                Write-Host "Project already exists, deleting (overwrite enabled): ${newProjectPath}" -ForegroundColor Yellow
+                $deleteResult = Remove-ProjectFolderWithRecovery -ProjectPath $newProjectPath -FailurePrefix "Error: failed to delete existing project" -AllowSkip:$false -SkipLabel "Cancel setup"
+                if (-not $deleteResult.Removed) {
                     return 1
                 }
             } else {
