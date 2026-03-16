@@ -218,7 +218,51 @@ function Normalize-UserPath {
     $p = $Path.Trim()
     $p = $p.Trim('"')
     $p = $p.Trim("'")
+    # PowerShell drag&drop can escape spaces as "` " in some hosts.
+    # Remove those escape markers so Test-Path sees the real filesystem path.
+    $p = $p -replace '`(?=\s)', ''
     return $p
+}
+
+function Read-WizardPathInput {
+    param(
+        [string]$Title,
+        [string[]]$BodyLines = @(),
+        [string]$Prompt = "Path",
+        [ConsoleColor]$TitleColor = [ConsoleColor]::Cyan,
+        [string]$Hint = "Drag & drop works. Press ENTER to go back."
+    )
+
+    Clear-Host
+    if (-not [string]::IsNullOrWhiteSpace($Title)) {
+        Write-Host $Title -ForegroundColor $TitleColor
+        Write-Host ""
+    }
+
+    foreach ($line in @($BodyLines)) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Host $line -ForegroundColor Gray
+        } else {
+            Write-Host ""
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Hint)) {
+        Write-Host ""
+        Write-Host $Hint -ForegroundColor DarkGray
+    }
+
+    return Normalize-UserPath (Read-Host $Prompt)
+}
+
+function Add-ConfirmHint {
+    param(
+        [string]$Header,
+        [string]$Hint = "Use arrows + Enter. ESC is disabled on this screen."
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Header)) { return $Hint }
+    return "${Header}`n`n${Hint}"
 }
 
 function Ensure-ConfigDefaults {
@@ -461,15 +505,13 @@ function Advanced-NamingSettings {
                 Save-Config -Config $config -ConfigPath $ConfigPath
             }
             6 {
-                Clear-Host
-                Write-Host "UnityPackages folder (extra imports)" -ForegroundColor Cyan
-                Write-Host "" 
-                Write-Host "When you create a project from a UnityPackage, the installer can also import all *.unitypackage found in this folder." -ForegroundColor Gray
-                Write-Host "Current: ${commonPackagesStatus}" -ForegroundColor DarkGray
-                Write-Host "" 
-                Write-Host "Paste/drag a folder path. Type 'disable' (or 'none' / 'clear') to turn it off." -ForegroundColor Yellow
-
-                $inputPath = Normalize-UserPath (Read-Host "Folder path")
+                $inputPath = Read-WizardPathInput -Title "UnityPackages folder (extra imports)" -Prompt "Folder path" -BodyLines @(
+                    "When you create a project from a UnityPackage, the installer can also import all *.unitypackage found in this folder.",
+                    "",
+                    "Current: ${commonPackagesStatus}",
+                    "",
+                    "Type 'disable' (or 'none' / 'clear') to turn it off."
+                )
                 if ([string]::IsNullOrWhiteSpace($inputPath)) { continue }
 
                 if ($inputPath -ieq 'disable' -or $inputPath -ieq 'none' -or $inputPath -ieq 'clear') {
@@ -484,7 +526,7 @@ function Advanced-NamingSettings {
                 }
 
                 if (-not (Test-Path $resolved)) {
-                    $create = Show-Menu -Title "Folder not found" -Header "Create folder?`n${resolved}" -Options @("Create", "Cancel") -AllowCancel $false
+                    $create = Show-Menu -Title "Folder not found" -Header (Add-ConfirmHint -Header "Create folder?`n${resolved}") -Options @("Create", "Cancel") -AllowCancel $false
                     if ($create -ne 0) { continue }
                     try {
                         New-Item -Path $resolved -ItemType Directory -Force | Out-Null
@@ -723,13 +765,18 @@ function Edit-VpmPackages {
             }
             $filterParams = @{
                 Title         = "Add package"
-                Header        = $hint
+                Header        = "${hint}`n`nTip: exact matches are safest. If you type a custom id, you'll confirm it before saving."
                 Options       = $opts
                 PinnedOptions = $pinned
                 Placeholder   = "type package name (e.g. gogoloco, poiyomi)"
             }
             $pickedName = Show-MenuFilter @filterParams
             if ($null -eq $pickedName) { continue }
+
+            if (($opts -notcontains $pickedName) -and -not [string]::IsNullOrWhiteSpace($pickedName)) {
+                $typedConfirm = Show-Menu -Title "Use typed package id?" -Header (Add-ConfirmHint -Header ("No exact match was selected.`n`nUse this package id as typed?`n${pickedName}")) -Options @("Use typed text", "Back") -AllowCancel $false
+                if ($typedConfirm -ne 0) { continue }
+            }
 
             $newPackage = $null
             if ($pickedName -eq $searchOption) {
@@ -880,7 +927,7 @@ function Edit-VpmPackages {
         }
 
         if ($action -eq 1) {
-            $confirm = Show-Menu -Title "Remove package" -Header "Remove ${pkgName}?" -Options @("Yes, remove", "Cancel") -AllowCancel $false
+            $confirm = Show-Menu -Title "Remove package" -Header (Add-ConfirmHint -Header "Remove ${pkgName}?") -Options @("Yes, remove", "Cancel") -AllowCancel $false
             if ($confirm -eq 0) {
                 $config.VpmPackages.PSObject.Properties.Remove($pkgName)
                 Save-Config -Config $config -ConfigPath $ConfigPath
@@ -929,7 +976,7 @@ function Setup-ProjectFlow {
             return
         }
 
-        $confirm = Show-Menu -Title "Confirm delete" -Header ("Delete {0} selected project(s)?\nThis deletes the entire project folders." -f $picked.Count) -Options @("Delete", "Cancel") -AllowCancel $false
+        $confirm = Show-Menu -Title "Confirm delete" -Header (Add-ConfirmHint -Header ("Delete {0} selected project(s)?`nThis deletes the entire project folders." -f $picked.Count)) -Options @("Delete", "Cancel") -AllowCancel $false
         if ($confirm -ne 0) { return }
 
         Clear-Host
@@ -981,9 +1028,9 @@ function Setup-ProjectFlow {
     }
 
     if ($setupChoice -eq 0) {
-        Clear-Host
-        Write-Host "Drag here the .unitypackage file (or paste the full path):" -ForegroundColor Cyan
-        $packagePath = Normalize-UserPath (Read-Host "UnityPackage path")
+        $packagePath = Read-WizardPathInput -Title "UnityPackage setup" -Prompt "UnityPackage path" -BodyLines @(
+            "Choose the .unitypackage file to import."
+        )
         if ([string]::IsNullOrWhiteSpace($packagePath)) { return }
         if (-not (Test-Path $packagePath)) { Write-Host "Path not found: ${packagePath}" -ForegroundColor Red; Read-Host "Press ENTER"; return }
         if ($packagePath -notlike "*.unitypackage") { Write-Host "Must be a .unitypackage file." -ForegroundColor Red; Read-Host "Press ENTER"; return }
@@ -1007,17 +1054,15 @@ function Setup-ProjectFlow {
         Write-Host "  ${defaultName}" -ForegroundColor White
 
         if ($savedName) {
-            Write-Host "Saved name for this package:" -ForegroundColor DarkGray
+            Write-Host "Saved name for this UnityPackage:" -ForegroundColor DarkGray
             Write-Host "  ${savedName}" -ForegroundColor Gray
-        } elseif ($config -and $config.LastProjectName) {
-            Write-Host "Last used project name:" -ForegroundColor DarkGray
-            Write-Host "  $($config.LastProjectName)" -ForegroundColor Gray
         }
 
+        $defaultPromptName = if ($savedName) { $savedName } else { $defaultName }
         Write-Host "" 
-        Write-Host "Tip: press ENTER to accept the suggested name." -ForegroundColor DarkGray
+        Write-Host ("Press ENTER to use: {0}" -f $defaultPromptName) -ForegroundColor DarkGray
         $projectName = (Read-Host "Project name")
-        if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = if ($savedName) { $savedName } else { $defaultName } } else { $projectName = $projectName.Trim() }
+        if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = $defaultPromptName } else { $projectName = $projectName.Trim() }
 
         $targetProjectPath = $null
         try {
@@ -1028,7 +1073,7 @@ function Setup-ProjectFlow {
 
         $existingAction = $null
         if ($targetProjectPath -and (Test-Path $targetProjectPath)) {
-            $existingAction = Show-Menu -Title "Project already exists" -Header ("Target already exists:`n${targetProjectPath}`n`nChoose what to do:") -Options @(
+            $existingAction = Show-Menu -Title "Project already exists" -Header (Add-ConfirmHint -Header ("Target already exists:`n${targetProjectPath}`n`nChoose what to do:") -Hint "Use arrows + Enter. ESC is disabled here, so choose one of the options below.") -Options @(
                 "Delete existing and recreate (from UnityPackage)",
                 "Use existing: setup VPM only",
                 "Use existing: setup VPM + import extra UnityPackages",
@@ -1051,11 +1096,10 @@ function Setup-ProjectFlow {
             "",
             "Proceed?"
         ) -join "`n"
-        $confirm = Show-Menu -Title "Confirm" -Header $confirmHeader -Options @("Proceed", "Cancel") -AllowCancel $false
+        $confirm = Show-Menu -Title "Confirm" -Header (Add-ConfirmHint -Header $confirmHeader) -Options @("Proceed", "Cancel") -AllowCancel $false
         if ($confirm -ne 0) { return }
 
         if ($config) {
-            $config | Add-Member -MemberType NoteProperty -Name "LastProjectName" -Value $projectName -Force
             $config | Add-Member -MemberType NoteProperty -Name "LastUnityPackagePath" -Value $packagePath -Force
             if ($config.Naming.RememberUnityPackageNames) {
                 $config.SavedProjectNames | Add-Member -MemberType NoteProperty -Name $packagePath -Value $projectName -Force
@@ -1066,7 +1110,7 @@ function Setup-ProjectFlow {
         # Avoid leftover TUI lines before starting installer output
         Clear-Host
         if ($existingAction -eq 0) {
-            $confirmDel = Show-Menu -Title "Confirm delete" -Header ("This will DELETE the existing folder:`n${targetProjectPath}`n`nContinue?") -Options @("Delete and recreate", "Cancel") -AllowCancel $false
+            $confirmDel = Show-Menu -Title "Confirm delete" -Header (Add-ConfirmHint -Header ("This will DELETE the existing folder:`n${targetProjectPath}`n`nContinue?")) -Options @("Delete and recreate", "Cancel") -AllowCancel $false
             if ($confirmDel -ne 0) { return }
             Clear-Host
             Start-Installer -projectPath $packagePath -NewProjectName $projectName -OverwriteExistingProject
@@ -1085,9 +1129,9 @@ function Setup-ProjectFlow {
     }
 
     if ($setupChoice -eq 1) {
-        Clear-Host
-        Write-Host "Drag here the Unity project folder (or paste the path):" -ForegroundColor Yellow
-        $projectPath = Normalize-UserPath (Read-Host "Project path")
+        $projectPath = Read-WizardPathInput -Title "Existing Unity project" -TitleColor ([ConsoleColor]::Yellow) -Prompt "Project path" -BodyLines @(
+            "Choose the Unity project folder you want to configure."
+        )
         if ([string]::IsNullOrWhiteSpace($projectPath)) { return }
         if (-not (Test-Path $projectPath)) { Write-Host "Path not found: ${projectPath}" -ForegroundColor Red; Read-Host "Press ENTER"; return }
 
@@ -1095,7 +1139,7 @@ function Setup-ProjectFlow {
         if (-not (Test-Path $assetsPath)) { Write-Host "Not a Unity project (missing Assets)." -ForegroundColor Red; Read-Host "Press ENTER"; return }
 
         $confirmHeader = "Project folder: ${projectPath}`n\nProceed?"
-        $confirm = Show-Menu -Title "Confirm" -Header $confirmHeader -Options @("Proceed", "Cancel") -AllowCancel $false
+        $confirm = Show-Menu -Title "Confirm" -Header (Add-ConfirmHint -Header $confirmHeader) -Options @("Proceed", "Cancel") -AllowCancel $false
         if ($confirm -ne 0) { return }
 
         # Avoid leftover TUI lines before starting installer output
@@ -1117,7 +1161,7 @@ function Start-Wizard {
         if (Test-Path $configPath) { $menuConfig = Load-Config -ConfigPath $configPath }
         $essentials = Test-ConfigEssentialsExist -Config $menuConfig
         $setupLabel = "Setup project (UnityPackage or existing)"
-        $header = "Use arrows + Enter. ESC cancels."
+        $header = "Use arrows + Enter. ESC goes back in submenus. Select Exit here to close."
         if (-not $essentials.Ready) {
             $setupLabel = "Setup project (UnityPackage or existing)  [!]"
             $warnings = ($essentials.Missing | ForEach-Object { "  - $_" }) -join "`n"
@@ -1145,7 +1189,7 @@ function Start-Wizard {
                 Advanced-NamingSettings -ConfigPath $configPath
             }
             3 {
-                $confirm = Show-Menu -Title "Reset configuration" -Header "Reset config file?" -Options @("Yes, reset", "Cancel") -AllowCancel $false
+                $confirm = Show-Menu -Title "Reset configuration" -Header (Add-ConfirmHint -Header "Reset config file?") -Options @("Yes, reset", "Cancel") -AllowCancel $false
                 if ($confirm -eq 0) {
                     Clear-Host
                     Start-Installer -projectPath "-reset"
