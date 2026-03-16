@@ -55,6 +55,112 @@ function Write-VrcSetupCommandOutput {
     }
 }
 
+function Get-VpmManifestValidationResult {
+    param(
+        [string]$ProjectPath,
+        $Packages
+    )
+
+    $manifestPath = Join-Path $ProjectPath "Packages\manifest.json"
+    $vpmManifestPath = Join-Path $ProjectPath "Packages\vpm-manifest.json"
+    $result = [pscustomobject]@{
+        Valid = $false
+        ManifestPath = $manifestPath
+        VpmManifestPath = $vpmManifestPath
+        MissingPackages = @()
+        Message = $null
+    }
+
+    if ((-not (Test-Path $manifestPath)) -and (-not (Test-Path $vpmManifestPath))) {
+        $result.Message = "Neither manifest.json nor vpm-manifest.json was found."
+        return $result
+    }
+
+    $expectedPackages = @()
+    try {
+        if ($Packages) {
+            $expectedPackages = @($Packages.PSObject.Properties | ForEach-Object { $_.Name })
+        }
+    } catch {
+        $expectedPackages = @()
+    }
+
+    if ($expectedPackages.Count -eq 0) {
+        $result.Valid = $true
+        $result.Message = "No configured VPM packages to validate."
+        return $result
+    }
+
+    try {
+        $dependencyNames = @()
+
+        if (Test-Path $manifestPath) {
+            $manifest = Get-Content $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($manifest -and $manifest.dependencies) {
+                $dependencyNames += @($manifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
+            }
+        }
+
+        if (Test-Path $vpmManifestPath) {
+            $vpmManifest = Get-Content $vpmManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($vpmManifest -and $vpmManifest.dependencies) {
+                $dependencyNames += @($vpmManifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
+            }
+        }
+
+        $dependencyNames = @($dependencyNames | Sort-Object -Unique)
+
+        $missing = @($expectedPackages | Where-Object { $dependencyNames -notcontains $_ })
+        $result.MissingPackages = $missing
+        if ($missing.Count -eq 0) {
+            $result.Valid = $true
+            $result.Message = "All configured VPM packages are present in the project manifests."
+        } else {
+            $result.Message = ("Missing configured VPM packages in project manifests: {0}" -f ($missing -join ", "))
+        }
+    } catch {
+        $result.Message = ("Failed to read project manifests: {0}" -f $_.Exception.Message)
+    }
+
+    return $result
+}
+
+function Ensure-VpmPackagesPresentAfterImport {
+    param(
+        [string]$ProjectPath,
+        $Packages,
+        [switch]$Test,
+        [string]$PhaseLabel = "after import"
+    )
+
+    if ($Test) { return $script:VrcSetupStatusSuccess }
+
+    $validation = Get-VpmManifestValidationResult -ProjectPath $ProjectPath -Packages $Packages
+    if ($validation.Valid) {
+        return $script:VrcSetupStatusSuccess
+    }
+
+    Write-Host ("Configured VPM packages need repair {0}." -f $PhaseLabel) -ForegroundColor Yellow
+    Write-Host $validation.Message -ForegroundColor Yellow
+    Write-VrcSetupLog -Message ("WARN: VPM manifest validation failed {0}: {1}" -f $PhaseLabel, $validation.Message)
+
+    $repairStatus = Install-PackagesInProject -ProjectPath $ProjectPath -Packages $Packages -Test:$Test
+    if ($repairStatus -ne $script:VrcSetupStatusSuccess) {
+        return $repairStatus
+    }
+
+    $revalidation = Get-VpmManifestValidationResult -ProjectPath $ProjectPath -Packages $Packages
+    if (-not $revalidation.Valid) {
+        Write-Host ("Error: configured VPM packages are still missing {0}." -f $PhaseLabel) -ForegroundColor Red
+        Write-Host $revalidation.Message -ForegroundColor Red
+        Write-VrcSetupLog -Message ("ERROR: VPM manifest validation still failing {0}: {1}" -f $PhaseLabel, $revalidation.Message)
+        return $script:VrcSetupStatusFailure
+    }
+
+    Write-Host ("Configured VPM packages restored successfully {0}." -f $PhaseLabel) -ForegroundColor Green
+    return $script:VrcSetupStatusSuccess
+}
+
 function Install-PackagesInProject {
     param(
         [string]$ProjectPath,
@@ -64,6 +170,7 @@ function Install-PackagesInProject {
 
     Push-Location $ProjectPath
     try {
+    $hadFailures = $false
 
     # Backup manifest once before any changes (keeps logs in a sane order)
     $manifestPath = Join-Path $ProjectPath "Packages\manifest.json"
@@ -99,10 +206,15 @@ function Install-PackagesInProject {
                 $cmdOutput = @(vpm add package "${packageName}@${packageVersion}" 2>&1)
             }
             Write-VrcSetupCommandOutput -Entries $cmdOutput
-            if ($LASTEXITCODE -ne 0) { Write-Host "vpm reported exit code ${LASTEXITCODE} for ${packageName}" -ForegroundColor Yellow }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "vpm reported exit code ${LASTEXITCODE} for ${packageName}" -ForegroundColor Yellow
+                Write-VrcSetupLog -Message "ERROR: vpm add failed for ${packageName} with exit code ${LASTEXITCODE}"
+                $hadFailures = $true
+            }
         } catch {
             Write-Host "Failed to add ${packageName}: ${_}" -ForegroundColor Red
             Write-VrcSetupLog -Message "ERROR: Failed to add ${packageName} : ${_}"
+            $hadFailures = $true
         }
     }
 
@@ -116,6 +228,23 @@ function Install-PackagesInProject {
     $manifestPath = Join-Path ${ProjectPath} "Packages\manifest.json"
     $resolveOutput = @(vpm resolve project ${ProjectPath} 2>&1)
     Write-VrcSetupCommandOutput -Entries $resolveOutput
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "vpm resolve reported exit code ${LASTEXITCODE}" -ForegroundColor Red
+        Write-VrcSetupLog -Message "ERROR: vpm resolve failed for ${ProjectPath} with exit code ${LASTEXITCODE}"
+        return $script:VrcSetupStatusFailure
+    }
+
+    $validation = Get-VpmManifestValidationResult -ProjectPath $ProjectPath -Packages $Packages
+    if (-not $validation.Valid) {
+        Write-Host $validation.Message -ForegroundColor Red
+        Write-VrcSetupLog -Message ("ERROR: {0}" -f $validation.Message)
+        return $script:VrcSetupStatusFailure
+    }
+
+    if ($hadFailures) {
+        Write-Host "One or more VPM package operations failed." -ForegroundColor Red
+        return $script:VrcSetupStatusFailure
+    }
 
     return $script:VrcSetupStatusSuccess
 
@@ -484,7 +613,11 @@ function Start-Installer {
             # 2) Install configured VPM packages BEFORE importing the UnityPackage(s).
             # This usually reduces re-import work when the GUI opens (SDK + dependencies already present).
             if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Installing VPM packages..." } catch { } }
-            Install-PackagesInProject -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test | Out-Null
+            $vpmStatus = Install-PackagesInProject -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test
+            if ($vpmStatus -ne $script:VrcSetupStatusSuccess) {
+                try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $false } catch { }
+                return $vpmStatus
+            }
             try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $true } catch { }
 
             $packagesToImport = @($projectPath)
@@ -667,6 +800,13 @@ public static class VrcSetupPostImport
                 Write-Host "Warning: post-import finalize step failed: ${_}" -ForegroundColor Yellow
             }
 
+            $postImportVpmStatus = Ensure-VpmPackagesPresentAfterImport -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test -PhaseLabel "after UnityPackage import"
+            if ($postImportVpmStatus -ne $script:VrcSetupStatusSuccess) {
+                try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $false } catch { }
+                return $postImportVpmStatus
+            }
+            try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $true } catch { }
+
             # Mark completed only if steps are all done (avoids false positives).
             try { Complete-VrcSetupProjectState -ProjectPath $newProjectPath } catch { }
 
@@ -699,7 +839,8 @@ public static class VrcSetupPostImport
             }
         }
         if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Installing VPM packages..." } catch { } }
-        Install-PackagesInProject -ProjectPath $projectPath -Packages $VPM_PACKAGES -Test:$Test | Out-Null
+        $vpmStatus = Install-PackagesInProject -ProjectPath $projectPath -Packages $VPM_PACKAGES -Test:$Test
+        if ($vpmStatus -ne $script:VrcSetupStatusSuccess) { return $vpmStatus }
 
         if ($ImportExtras) {
             $workspaceRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
@@ -710,6 +851,9 @@ public static class VrcSetupPostImport
                 Write-Host ("Importing extra UnityPackages from config... count={0}" -f $extraPkgs.Count) -ForegroundColor Cyan
                 $impRes = Import-UnityPackagesSequential -ProjectPath $projectPath -UnityPackagePaths $extraPkgs -UnityEditorPath $UNITY_EDITOR_PATH -OverallProgressActivity $overallProgressActivity -OverallProgressEnabled $overallProgressEnabled
                 if ($impRes -ne $script:VrcSetupStatusSuccess) { return $impRes }
+
+                $postImportVpmStatus = Ensure-VpmPackagesPresentAfterImport -ProjectPath $projectPath -Packages $VPM_PACKAGES -Test:$Test -PhaseLabel "after extra UnityPackage import"
+                if ($postImportVpmStatus -ne $script:VrcSetupStatusSuccess) { return $postImportVpmStatus }
             }
         }
 
