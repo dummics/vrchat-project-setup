@@ -1272,6 +1272,60 @@ function Setup-ProjectFlow {
         ) -join "`n"
     }
 
+    function Show-SetupOutcomeSummary {
+        param(
+            [int]$Status,
+            [string]$ActionLabel,
+            [string]$TargetPath,
+            [string]$PackagePath,
+            [bool]$CanLeavePartialProject = $false
+        )
+
+        Write-Host ""
+
+        if ($Status -eq 0) {
+            Write-Host "Setup completed successfully" -ForegroundColor Green
+        } elseif ($Status -eq 2) {
+            Write-Host "Setup cancelled" -ForegroundColor Yellow
+        } else {
+            Write-Host "Setup failed" -ForegroundColor Red
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($ActionLabel)) {
+            Write-Host ("Action: {0}" -f $ActionLabel) -ForegroundColor Gray
+        }
+        if (-not [string]::IsNullOrWhiteSpace($TargetPath)) {
+            Write-Host ("Target: {0}" -f $TargetPath) -ForegroundColor Gray
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PackagePath)) {
+            Write-Host ("Source package: {0}" -f $PackagePath) -ForegroundColor DarkGray
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace([string]$global:VRCSETUP_LOGFILE)) {
+            Write-Host ("Session log: {0}" -f $global:VRCSETUP_LOGFILE) -ForegroundColor DarkGray
+        }
+
+        Write-Host ""
+        if ($Status -eq 0) {
+            if ($CanLeavePartialProject) {
+                Write-Host "Next step: open the created project in Unity and do a quick sanity check." -ForegroundColor Cyan
+            } else {
+                Write-Host "Next step: open the target project in Unity and verify packages/assets." -ForegroundColor Cyan
+            }
+        } elseif ($Status -eq 2) {
+            if ($CanLeavePartialProject) {
+                Write-Host "If a partial project remains on disk, use 'Setup project -> Cleanup incomplete projects' before retrying." -ForegroundColor Yellow
+            } else {
+                Write-Host "The target project was left in place. You can retry when ready." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Review the messages above and the session log, then retry." -ForegroundColor Yellow
+            if ($CanLeavePartialProject) {
+                Write-Host "If the run stopped mid-creation, use 'Setup project -> Cleanup incomplete projects' before retrying." -ForegroundColor Yellow
+            }
+        }
+    }
+
     function Invoke-UnityPackageExecution {
         param(
             $State,
@@ -1290,6 +1344,7 @@ function Setup-ProjectFlow {
         Clear-Host
 
         $status = 1
+        $canLeavePartialProject = ($State.ExistingAction -eq 'create-new' -or $State.ExistingAction -eq 'overwrite')
         switch ($State.ExistingAction) {
             'overwrite' {
                 $confirmDel = Show-Menu -Title "Confirm delete" -Header (Add-ConfirmHint -Header ("This will DELETE the existing folder:`n{0}`n`nContinue?" -f $State.TargetProjectPath)) -Options @("Delete and recreate", "Cancel") -AllowCancel $false
@@ -1308,12 +1363,7 @@ function Setup-ProjectFlow {
             }
         }
 
-        Write-Host ""
-        if ($status -eq 0) {
-            Write-Host "Setup finished." -ForegroundColor Green
-        } else {
-            Write-Host "Setup ended with errors or was cancelled." -ForegroundColor Yellow
-        }
+        Show-SetupOutcomeSummary -Status $status -ActionLabel $State.ActionLabel -TargetPath $State.TargetProjectPath -PackagePath $State.PackagePath -CanLeavePartialProject:$canLeavePartialProject
         Read-Host "Press ENTER to return" | Out-Null
         return [pscustomobject]@{ Executed = $true; Status = $status }
     }
@@ -1428,7 +1478,8 @@ function Setup-ProjectFlow {
 
         # Avoid leftover TUI lines before starting installer output
         Clear-Host
-        Start-Installer -projectPath $projectPath
+        $status = Start-Installer -projectPath $projectPath
+        Show-SetupOutcomeSummary -Status $status -ActionLabel "Configure existing project" -TargetPath $projectPath -PackagePath $null -CanLeavePartialProject:$false
         Read-Host "Press ENTER to return"
         return
     }
