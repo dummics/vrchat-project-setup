@@ -10,6 +10,6 @@ if %errorlevel%==0 (
 	set "PS_EXE=powershell"
 )
 
-:: Launch wizard in a NEW window, then close this terminal.
-start "VRChat Setup Wizard" %PS_EXE% -NoProfile -ExecutionPolicy Bypass -NoExit -File "%~dp0vrc-setup-script.ps1" -Wizard
-exit /b 0
+:: Run the wizard in the CURRENT terminal session.
+%PS_EXE% -NoProfile -ExecutionPolicy Bypass -File "%~dp0vrc-setup-script.ps1" -Wizard
+exit /b %errorlevel%

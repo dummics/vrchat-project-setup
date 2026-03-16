@@ -53,7 +53,7 @@ Run the script from PowerShell or via `vrcsetupfull.bat` to open the interactive
 vrcsetupfull.bat
 ```
 
-Note: the batch launcher opens the wizard in a NEW PowerShell window (pwsh if available) and then exits the current cmd session.
+Note: the batch launcher now runs the wizard in the current terminal session. If `pwsh` is installed it is preferred, otherwise Windows PowerShell is used.
 
 ## 🧭 Modes of Operation
 

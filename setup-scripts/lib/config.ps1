@@ -107,7 +107,7 @@ function Find-UnityEditorPaths {
         Get-ChildItem $hubEditors -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             $exe = Join-Path $_.FullName "Editor\Unity.exe"
             if (Test-Path $exe) {
-                $candidates += @{ Version = $_.Name; Path = $exe }
+                $candidates += [pscustomobject]@{ Version = $_.Name; Path = $exe }
             }
         }
     }
@@ -118,12 +118,12 @@ function Find-UnityEditorPaths {
         Get-ChildItem $hubEditors86 -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             $exe = Join-Path $_.FullName "Editor\Unity.exe"
             if (Test-Path $exe) {
-                $candidates += @{ Version = $_.Name; Path = $exe }
+                $candidates += [pscustomobject]@{ Version = $_.Name; Path = $exe }
             }
         }
     }
 
-    return $candidates
+    return ,$candidates
 }
 
 function Test-UnityEditorPath {

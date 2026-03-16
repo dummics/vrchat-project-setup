@@ -26,3 +26,29 @@ $result = Test-VpmPackageVersion -PackageName "com.vrchat.avatars" -Version "lat
 Write-Host "Valid: $($result.Valid) - $($result.Message)" -ForegroundColor $(if ($result.Valid) { "Green" } else { "Red" })
 
 Write-Host "`n=== Tests Completed ===" -ForegroundColor Cyan
+
+Write-Host "`n=== Unity Editor Path Tests ===" -ForegroundColor Cyan
+
+function Assert-True {
+    param([bool]$Condition, [string]$Message)
+    if ($Condition) {
+        Write-Host "[PASS] $Message" -ForegroundColor Green
+    } else {
+        Write-Host "[FAIL] $Message" -ForegroundColor Red
+    }
+}
+
+$foundEditors = @((Find-UnityEditorPaths))
+Assert-True ($null -ne $foundEditors) "Find-UnityEditorPaths returns not null"
+Assert-True ($foundEditors -is [array]) "Find-UnityEditorPaths returns array"
+Write-Host ("Found editors: {0}" -f $foundEditors.Count) -ForegroundColor Gray
+if ($foundEditors.Count -gt 0) {
+    $firstPath = [string]$foundEditors[0].Path
+    Write-Host ("First path: {0}" -f $firstPath) -ForegroundColor Gray
+    $check = Test-UnityEditorPath -Path $firstPath
+    Assert-True ($check.Valid) "First Unity editor path validates"
+} else {
+    Write-Host "No Unity editors found on this machine." -ForegroundColor Yellow
+}
+
+Write-Host "`n=== Unity Path Tests Completed ===" -ForegroundColor Cyan

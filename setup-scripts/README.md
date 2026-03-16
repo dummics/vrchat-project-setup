@@ -2,6 +2,7 @@
 
 Structure:
 - `vrc-setup-script.ps1`: main unified entrypoint with `-projectPath` or `-Wizard` flags.
+- `setup.bat`: batch launcher that runs the wizard in the current terminal session.
 - `commands/wrappers/`: optional legacy wrappers (vrcsetupscript.ps1, vrcsetup-wizard.ps1) kept for backward compatibility.
 - `commands/installer.ps1`: `Start-Installer` + helpers (UnityPackage create/import + VPM install).
 - `commands/wizard.ps1`: `Start-Wizard` logic and menu.

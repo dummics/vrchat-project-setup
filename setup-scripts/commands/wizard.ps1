@@ -86,7 +86,7 @@ function Invoke-FirstRunSetup {
     # ===== STEP 1: Unity Editor Path =====
     if ($needEditor) {
         $editorPath = ""
-        $found = Find-UnityEditorPaths
+        $found = @((Find-UnityEditorPaths))
 
         if ($found.Count -gt 0) {
             $editorOptions = @()
@@ -218,6 +218,10 @@ function Normalize-UserPath {
     $p = $Path.Trim()
     $p = $p.Trim('"')
     $p = $p.Trim("'")
+    # PowerShell drag&drop can escape spaces and shell metacharacters
+    # (for example "` " or "`&") in some hosts.
+    # Remove those escape markers so Test-Path sees the real filesystem path.
+    $p = $p -replace '`(?=[\s&()\[\]{}$;,])', ''
     return $p
 }
 
@@ -348,7 +352,7 @@ function Advanced-NamingSettings {
         switch ($sel) {
             0 {
                 # Unity Editor path
-                $found = Find-UnityEditorPaths
+                $found = @((Find-UnityEditorPaths))
                 $editorOptions = @()
                 foreach ($f in $found) {
                     $editorOptions += "$($f.Version) - $($f.Path)"
@@ -967,6 +971,34 @@ function Setup-ProjectFlow {
 
     # Gate: check essential paths exist before proceeding with project creation
     $essentials = Test-ConfigEssentialsExist -Config $config
+    if (-not $essentials.Ready) {
+        # Try auto-fix: if Unity Editor is missing but can be auto-detected, set it now
+        $editorVal = [string]$config.UnityEditorPath
+        if ([string]::IsNullOrWhiteSpace($editorVal) -or -not (Test-Path $editorVal)) {
+            $autoFound = @((Find-UnityEditorPaths))
+            if ($autoFound.Count -eq 1) {
+                # Single install found: auto-set it
+                $config | Add-Member -MemberType NoteProperty -Name "UnityEditorPath" -Value $autoFound[0].Path -Force
+                Save-Config -Config $config -ConfigPath $ConfigPath
+            }
+            elseif ($autoFound.Count -gt 1) {
+                # Multiple installs: let user pick quickly
+                $editorOptions = @()
+                foreach ($f in $autoFound) { $editorOptions += "$($f.Version) - $($f.Path)" }
+                $editorOptions += "Cancel"
+                $pick = Show-Menu -Title "Unity Editor required" -Header "Select your Unity Editor to continue:" -Options $editorOptions
+                if ($pick -ge 0 -and $pick -lt $autoFound.Count) {
+                    $config | Add-Member -MemberType NoteProperty -Name "UnityEditorPath" -Value $autoFound[$pick].Path -Force
+                    Save-Config -Config $config -ConfigPath $ConfigPath
+                } else {
+                    return
+                }
+            }
+            # Re-check after auto-fix attempt
+            $essentials = Test-ConfigEssentialsExist -Config $config
+        }
+    }
+
     if (-not $essentials.Ready) {
         Clear-Host
         Write-Host "Cannot proceed - configuration issues found:" -ForegroundColor Red
