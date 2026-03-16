@@ -3,6 +3,39 @@
 
 # Cache: package id -> versions array
 $script:VpmVersionsCache = @{}
+$script:VpmMutexName = 'Local\VrcSetup.Vpm.Commands'
+
+function Test-IsFileLockMessage {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+    return ($Text -match 'being used by another process' -or $Text -match 'cannot access the file')
+}
+
+function Read-VccRepoJsonSafe {
+    param(
+        [string]$Path,
+        [int]$RetryCount = 5,
+        [int]$RetryDelayMs = 250
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+
+    for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+        try {
+            return (Get-Content $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+        } catch {
+            $message = $_.Exception.Message
+            if (($attempt -lt $RetryCount) -and (Test-IsFileLockMessage -Text $message)) {
+                Start-Sleep -Milliseconds $RetryDelayMs
+                continue
+            }
+            return $null
+        }
+    }
+
+    return $null
+}
 
 function Get-VrcSetupLastToolOutput {
     return [string]$global:VRCSETUP_LAST_TOOL_OUTPUT
@@ -10,18 +43,69 @@ function Get-VrcSetupLastToolOutput {
 
 function Invoke-VpmCapture {
     param(
-        [string[]]$Arguments
+        [string[]]$Arguments,
+        [int]$RetryCount = 4,
+        [int]$InitialDelayMs = 500,
+        [int]$MutexTimeoutSec = 900
     )
 
     $output = ""
+    $outputLines = @()
+    $exitCode = 1
+    $mutex = $null
+    $hasHandle = $false
+
     try {
-        $output = (& vpm @Arguments 2>&1 | Out-String)
+        $mutex = New-Object System.Threading.Mutex($false, $script:VpmMutexName)
+        try {
+            $hasHandle = $mutex.WaitOne([TimeSpan]::FromSeconds($MutexTimeoutSec))
+        } catch [System.Threading.AbandonedMutexException] {
+            $hasHandle = $true
+        }
+
+        if (-not $hasHandle) {
+            $output = "Timed out waiting for the global VPM lock."
+            $outputLines = @($output)
+            $exitCode = 1
+        } else {
+            $delayMs = $InitialDelayMs
+            for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+                $rawOutput = @()
+                try {
+                    $rawOutput = @(& vpm @Arguments 2>&1)
+                    $exitCode = $LASTEXITCODE
+                } catch {
+                    $rawOutput = @(${_})
+                    $exitCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+                }
+
+                $outputLines = @($rawOutput | ForEach-Object { [string]$_ })
+                $output = ($outputLines | Out-String)
+
+                $shouldRetry = ($exitCode -ne 0) -and (Test-IsFileLockMessage -Text $output)
+                if (-not $shouldRetry -or $attempt -ge $RetryCount) {
+                    break
+                }
+
+                Start-Sleep -Milliseconds $delayMs
+                $delayMs = [Math]::Min(($delayMs * 2), 4000)
+            }
+        }
     } catch {
         $output = (${_} | Out-String)
+        $outputLines = @($output)
+        $exitCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+    } finally {
+        if ($hasHandle -and $mutex) {
+            try { $mutex.ReleaseMutex() } catch { }
+        }
+        if ($mutex) {
+            try { $mutex.Dispose() } catch { }
+        }
     }
 
     $global:VRCSETUP_LAST_TOOL_OUTPUT = $output
-    return @{ ExitCode = $LASTEXITCODE; Output = $output }
+    return @{ ExitCode = $exitCode; Output = $output; OutputLines = $outputLines }
 }
 
 function Test-VpmCheckOutputIsSuccess {
@@ -103,7 +187,7 @@ function Get-AllVpmPackageNames {
     if (-not [string]::IsNullOrWhiteSpace($reposPath) -and (Test-Path $reposPath)) {
         Get-ChildItem $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
             try {
-                $repoData = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                $repoData = Read-VccRepoJsonSafe -Path $_.FullName
                 if ($repoData.packages) {
                     $names += $repoData.packages.PSObject.Properties.Name
                 }
@@ -129,7 +213,7 @@ function Get-VpmAvailableVersions {
     if (-not [string]::IsNullOrWhiteSpace($reposPath) -and (Test-Path $reposPath)) {
         Get-ChildItem $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
             try {
-                $repoData = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                $repoData = Read-VccRepoJsonSafe -Path $_.FullName
                 if (${repoData.packages}.${PackageName}) {
                     $versions = $repoData.packages.$PackageName.versions.PSObject.Properties.Name
                     if ($versions) {
@@ -216,16 +300,17 @@ function Test-VpmPackageVersion {
     $testProject = Initialize-VpmTestProject -ScriptDir $ScriptDir
     try {
         $packageSpec = "${PackageName}@${Version}"
-        $output = vpm add package $packageSpec -p $testProject 2>&1 | Out-String
+        $res = Invoke-VpmCapture -Arguments @('add', 'package', $packageSpec, '-p', $testProject)
+        $output = [string]$res.Output
         $global:VRCSETUP_LAST_TOOL_OUTPUT = $output
 
-        if ($LASTEXITCODE -ne 0 -or $output -match "ERR.*Could not get match" -or $output -match "ERR.*not found" -or $output -match "ERR.*Could not find project") {
+        if ($res.ExitCode -ne 0 -or $output -match "ERR.*Could not get match" -or $output -match "ERR.*not found" -or $output -match "ERR.*Could not find project") {
             $reposPath = Get-VpmReposPath
             $availableVersions = @()
             if (Test-Path $reposPath) {
                 Get-ChildItem $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
                     try {
-                        $repoData = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                        $repoData = Read-VccRepoJsonSafe -Path $_.FullName
                         if (${repoData.packages}.${PackageName}) {
                             $versions = $repoData.packages.$PackageName.versions.PSObject.Properties.Name
                             if ($versions) { $availableVersions += $versions }
@@ -243,7 +328,7 @@ function Test-VpmPackageVersion {
             return @{ Valid = $false; Message = "Version ${Version} not available" }
         }
 
-        vpm remove package $PackageName -p $testProject 2>&1 | Out-Null
+        [void](Invoke-VpmCapture -Arguments @('remove', 'package', $PackageName, '-p', $testProject))
         return @{ Valid = $true; Message = "Version verified with VPM" }
     } catch {
         $global:VRCSETUP_LAST_TOOL_OUTPUT = (${_} | Out-String)

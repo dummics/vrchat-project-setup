@@ -10,6 +10,7 @@ $scriptDir = (Resolve-Path (Join-Path $cmdDir '..')).Path
 . "$scriptDir\lib\menu.ps1"
 . "$scriptDir\lib\utils.ps1"
 . "$scriptDir\lib\progress.ps1"
+. "$scriptDir\lib\vpm.ps1"
 . "$scriptDir\lib\config.ps1"
 . "$scriptDir\lib\project-state.ps1"
 
@@ -200,15 +201,15 @@ function Install-PackagesInProject {
             $cmdOutput = @()
             if ($packageVersion -eq "latest") {
                 Write-Host "Adding package: ${packageName} (latest)" -ForegroundColor Cyan
-                $cmdOutput = @(vpm add package "${packageName}" 2>&1)
+                $cmdResult = Invoke-VpmCapture -Arguments @('add', 'package', "${packageName}")
             } else {
                 Write-Host "Adding package: ${packageName} @ ${packageVersion}" -ForegroundColor Cyan
-                $cmdOutput = @(vpm add package "${packageName}@${packageVersion}" 2>&1)
+                $cmdResult = Invoke-VpmCapture -Arguments @('add', 'package', "${packageName}@${packageVersion}")
             }
-            Write-VrcSetupCommandOutput -Entries $cmdOutput
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "vpm reported exit code ${LASTEXITCODE} for ${packageName}" -ForegroundColor Yellow
-                Write-VrcSetupLog -Message "ERROR: vpm add failed for ${packageName} with exit code ${LASTEXITCODE}"
+            Write-VrcSetupCommandOutput -Entries $cmdResult.OutputLines
+            if ($cmdResult.ExitCode -ne 0) {
+                Write-Host "vpm reported exit code $($cmdResult.ExitCode) for ${packageName}" -ForegroundColor Yellow
+                Write-VrcSetupLog -Message "ERROR: vpm add failed for ${packageName} with exit code $($cmdResult.ExitCode)"
                 $hadFailures = $true
             }
         } catch {
@@ -226,11 +227,11 @@ function Install-PackagesInProject {
 
     # Resolve packages
     $manifestPath = Join-Path ${ProjectPath} "Packages\manifest.json"
-    $resolveOutput = @(vpm resolve project ${ProjectPath} 2>&1)
-    Write-VrcSetupCommandOutput -Entries $resolveOutput
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "vpm resolve reported exit code ${LASTEXITCODE}" -ForegroundColor Red
-        Write-VrcSetupLog -Message "ERROR: vpm resolve failed for ${ProjectPath} with exit code ${LASTEXITCODE}"
+    $resolveResult = Invoke-VpmCapture -Arguments @('resolve', 'project', "${ProjectPath}")
+    Write-VrcSetupCommandOutput -Entries $resolveResult.OutputLines
+    if ($resolveResult.ExitCode -ne 0) {
+        Write-Host "vpm resolve reported exit code $($resolveResult.ExitCode)" -ForegroundColor Red
+        Write-VrcSetupLog -Message "ERROR: vpm resolve failed for ${ProjectPath} with exit code $($resolveResult.ExitCode)"
         return $script:VrcSetupStatusFailure
     }
 
