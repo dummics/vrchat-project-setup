@@ -266,7 +266,7 @@ function Start-Installer {
         $projectPath = $projectPath.Trim()
         $projectPath = $projectPath.Trim('"')
         $projectPath = $projectPath.Trim("'")
-        $projectPath = $projectPath -replace '`(?=\s)', ''
+        $projectPath = $projectPath -replace '`(?=[\s&()\[\]{}$;,])', ''
     }
 
     # If reset requested
