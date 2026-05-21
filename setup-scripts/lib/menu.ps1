@@ -24,11 +24,11 @@ function Get-TuiTheme {
         TitleFg     = 'Cyan'
         HeaderFg    = 'Gray'
         OptionFg    = 'White'
-        SelectedFg  = 'Black'
-        SelectedBg  = 'DarkCyan'
+        SelectedFg  = 'White'
+        SelectedBg  = 'DarkBlue'
         ActionFg    = 'Cyan'
-        ActionSelectedFg = 'Black'
-        ActionSelectedBg = 'DarkGreen'
+        ActionSelectedFg = 'White'
+        ActionSelectedBg = 'DarkBlue'
         BackFg      = 'Red'
         BackSelectedFg = 'White'
         BackSelectedBg = 'DarkRed'
@@ -51,6 +51,8 @@ function Test-IsActionOption {
     if (Test-IsBackOption -Text $t) { return $true }
     if ($t -eq 'Add package') { return $true }
     if ($t -eq 'Enter manually') { return $true }
+    if ($t -eq 'Enter package name manually') { return $true }
+    if ($t -eq 'Search packages' -or $t -eq 'SEARCH PACKAGES') { return $true }
     if ($t -eq 'Set filter' -or $t -eq 'Clear filter') { return $true }
     if ($t -eq 'Jump to range') { return $true }
     if ($t -eq '< Prev page' -or $t -eq 'Next page >') { return $true }
@@ -344,7 +346,9 @@ function Show-MenuFilter {
         [string]$Placeholder = "Type to filter...",
         [bool]$AllowCancel = $true,
         [int]$MaxVisible = 15,
-        [bool]$EnterReturnsFilterWhenNoMatch = $true
+        [bool]$EnterReturnsFilterWhenNoMatch = $true,
+        [bool]$ShowListMarkers = $false,
+        [bool]$ReturnSelectionWithFilter = $false
     )
 
     if (-not $Options) { return $null }
@@ -368,6 +372,19 @@ function Show-MenuFilter {
 
     $spacerLines = 2
 
+    function New-MenuFilterResult {
+        param([object]$Selection)
+
+        if ($ReturnSelectionWithFilter) {
+            return [pscustomobject]@{
+                Selection = $Selection
+                Filter    = $filter
+            }
+        }
+
+        return $Selection
+    }
+
     function Render-FilterLine {
         param(
             [int]$Index,
@@ -375,8 +392,6 @@ function Show-MenuFilter {
         )
         if ($Index -lt 0 -or $Index -ge $cachedToShow.Count) { return }
         $textVal = [string]$cachedToShow[$Index]
-        $lineText = " > ${textVal}"
-        if (-not $Selected) { $lineText = "   ${textVal}" }
 
         $pinnedCount = @($PinnedOptions).Count
         $rowOffset = if ($pinnedCount -gt 0 -and $Index -ge $pinnedCount) { $spacerLines } else { 0 }
@@ -384,6 +399,13 @@ function Show-MenuFilter {
 
         $isBack = Test-IsBackOption -Text $textVal
         $isAction = Test-IsActionOption -Text $textVal
+        $displayText = $textVal
+        if ($ShowListMarkers -and (-not $isBack) -and (-not $isAction)) {
+            $displayText = "- ${textVal}"
+        }
+
+        $lineText = " > ${displayText}"
+        if (-not $Selected) { $lineText = "   ${displayText}" }
 
         if ($Selected) {
             if ($isBack) {
@@ -548,12 +570,12 @@ function Show-MenuFilter {
             'Enter' {
                 if ($matches.Count -eq 0) {
                     if ($EnterReturnsFilterWhenNoMatch -and (-not [string]::IsNullOrWhiteSpace($filter))) {
-                        return $filter
+                        return (New-MenuFilterResult -Selection $filter)
                     }
                     continue
                 }
 
-                return $cachedToShow[$current]
+                return (New-MenuFilterResult -Selection $cachedToShow[$current])
             }
             'Escape' { if ($AllowCancel) { return $null } }
             'Backspace' {
