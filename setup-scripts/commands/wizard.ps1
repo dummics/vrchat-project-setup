@@ -699,6 +699,84 @@ function Select-VpmVersion {
     }
 }
 
+function Resolve-VpmPackageFromSearch {
+    param(
+        [string]$InitialQuery,
+        [string]$SearchOption,
+        [string]$ManualOption
+    )
+
+    $query = $InitialQuery
+    while ($true) {
+        if ([string]::IsNullOrWhiteSpace($query)) {
+            $query = Read-Host "Search query"
+        }
+        $query = $query.Trim()
+        if ([string]::IsNullOrWhiteSpace($query)) { return $null }
+
+        $found = Search-VrcGetPackages -Query $query -ScriptDir $ScriptDir
+        if ($found.Count -eq 0) {
+            $tail = Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25
+            Show-WizardError -Title "No matches" -Message "No packages matched: ${query}" -Details $tail
+
+            $retryChoice = Show-Menu `
+                -Title "Package search" `
+                -Header "No results for '${query}'. Try a different search, enter an exact package id manually, or go back." `
+                -Options @("Search again", "Enter package name manually", "Back") `
+                -AllowCancel $false
+
+            if ($retryChoice -eq 0) {
+                $query = $null
+                continue
+            }
+            if ($retryChoice -eq 1) {
+                $manual = Read-Host "Package name"
+                if ($null -eq $manual) { return $null }
+                return $manual.Trim()
+            }
+            return $null
+        }
+
+        $displayOptions = @()
+        foreach ($x in $found) {
+            if ($x.DisplayName) {
+                $displayOptions += ("{0} ({1})" -f $x.DisplayName, $x.Id)
+            }
+            else {
+                $displayOptions += $x.Id
+            }
+        }
+
+        $searchParams = @{
+            Title         = "Search results"
+            Header        = "Results for '${query}'. Select a package, refine the search, enter an exact id, or go back."
+            Options       = $displayOptions
+            PinnedOptions = @($SearchOption, $ManualOption)
+            Placeholder   = "type to filter results"
+        }
+        $pickStr = Show-MenuFilter @searchParams
+
+        if ($null -eq $pickStr) { return $null }
+        if ($pickStr -eq $SearchOption) {
+            $query = $null
+            continue
+        }
+        if ($pickStr -eq $ManualOption) {
+            $manual = Read-Host "Package name"
+            if ($null -eq $manual) { return $null }
+            return $manual.Trim()
+        }
+
+        $idx = [array]::IndexOf($displayOptions, $pickStr)
+        if ($idx -ge 0) { return $found[$idx].Id }
+
+        if (-not [string]::IsNullOrWhiteSpace($pickStr)) {
+            $query = $pickStr.Trim()
+            continue
+        }
+    }
+}
+
 function Edit-VpmPackages {
     param(
         [string]$ConfigPath,
@@ -760,7 +838,7 @@ function Edit-VpmPackages {
             $pinned += $manualOption
             $opts += @($allPackages)
 
-            $hint = "Type to filter. Enter selects. If no match, Enter uses the typed text."
+            $hint = "Type to filter local package ids. If no local match, Enter searches vrc-get when available."
             if (($allPackages.Count -eq 0) -and (-not $hasVrcGet)) {
                 $hint += "`nTip: put vrc-get .exe under setup-scripts/lib/vrc-get/ to enable search."
             }
@@ -774,52 +852,23 @@ function Edit-VpmPackages {
             $pickedName = Show-MenuFilter @filterParams
             if ($null -eq $pickedName) { continue }
 
-            if (($opts -notcontains $pickedName) -and -not [string]::IsNullOrWhiteSpace($pickedName)) {
-                $typedConfirm = Show-Menu -Title "Use typed package id?" -Header (Add-ConfirmHint -Header ("No exact match was selected.`n`nUse this package id as typed?`n${pickedName}")) -Options @("Use typed text", "Back") -AllowCancel $false
-                if ($typedConfirm -ne 0) { continue }
-            }
-
             $newPackage = $null
             if ($pickedName -eq $searchOption) {
-                $q = Read-Host "Search query"
-                $q = $q.Trim()
-                if ([string]::IsNullOrWhiteSpace($q)) { continue }
-
-                $found = Search-VrcGetPackages -Query $q -ScriptDir $ScriptDir
-                if ($found.Count -eq 0) {
-                    $tail = Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25
-                    Show-WizardError -Title "No matches" -Message "No packages matched: ${q}" -Details $tail
-                    continue
-                }
-
-                $displayOptions = @()
-                foreach ($x in $found) {
-                    if ($x.DisplayName) {
-                        $displayOptions += ("{0} ({1})" -f $x.DisplayName, $x.Id)
-                    }
-                    else {
-                        $displayOptions += $x.Id
-                    }
-                }
-
-                $searchParams = @{
-                    Title       = "Search results"
-                    Header      = "Select a package from vrc-get search results."
-                    Options     = $displayOptions
-                    Placeholder = "type to filter results"
-                }
-                $pickStr = Show-MenuFilter @searchParams
-
-                if ($null -eq $pickStr) { continue }
-
-                # Map back to Id
-                $idx = [array]::IndexOf($displayOptions, $pickStr)
-                if ($idx -lt 0) { continue }
-                $newPackage = $found[$idx].Id
+                $newPackage = Resolve-VpmPackageFromSearch -SearchOption $searchOption -ManualOption $manualOption
             }
             elseif ($pickedName -eq $manualOption) {
                 $newPackage = Read-Host "Package name"
                 $newPackage = $newPackage.Trim()
+            }
+            elseif (($opts -notcontains $pickedName) -and -not [string]::IsNullOrWhiteSpace($pickedName)) {
+                if ($hasVrcGet) {
+                    $newPackage = Resolve-VpmPackageFromSearch -InitialQuery $pickedName -SearchOption $searchOption -ManualOption $manualOption
+                }
+                else {
+                    $typedConfirm = Show-Menu -Title "Use typed package id?" -Header (Add-ConfirmHint -Header ("No exact match was selected.`n`nUse this package id as typed?`n${pickedName}")) -Options @("Use typed text", "Back") -AllowCancel $false
+                    if ($typedConfirm -ne 0) { continue }
+                    $newPackage = $pickedName
+                }
             }
             else {
                 $newPackage = $pickedName
