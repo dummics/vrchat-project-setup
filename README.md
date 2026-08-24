@@ -69,7 +69,8 @@ vrcsetup uninstall
 
 `REPAIR.bat` and `UNINSTALL.bat` provide the same operations for users who
 prefer double-clickable launchers. Reinstall and repair preserve
-`setup-scripts\config\vrcsetup.json`; uninstall can optionally back it up with
+`setup-scripts\config\vrcsetup.json`; the first install also migrates an existing
+local config found beside the source scripts. Uninstall can optionally back it up with
 `Uninstall-VrcSetup.ps1 -KeepConfig`.
 
 ### Portable use without installation

@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Stop'
 $sourceRoot = $PSScriptRoot
 $installRootFull = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($InstallRoot))
 $sourceRootFull = [System.IO.Path]::GetFullPath($sourceRoot)
+$sourceConfigPath = Join-Path $sourceRoot 'setup-scripts\config\vrcsetup.json'
+$installedConfigPath = Join-Path $installRootFull 'setup-scripts\config\vrcsetup.json'
 
 if ($installRootFull.TrimEnd('\').Equals($sourceRootFull.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'InstallRoot must be different from the source folder.'
@@ -58,6 +60,11 @@ foreach ($runtimeItem in @(
     } else {
         Copy-Item -LiteralPath $source -Destination $destination -Force
     }
+}
+
+if ((-not (Test-Path -LiteralPath $installedConfigPath)) -and (Test-Path -LiteralPath $sourceConfigPath)) {
+    Copy-Item -LiteralPath $sourceConfigPath -Destination $installedConfigPath
+    Write-Host 'Existing local configuration migrated to the installed copy.' -ForegroundColor Gray
 }
 
 $binPath = Join-Path $installRootFull 'bin'
