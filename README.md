@@ -1,89 +1,145 @@
-# VRChat Unity Project Setup Scripts
+# VRChat Project Setup
 
-Automated scripts to create and configure VRChat Unity projects, add VPM packages, and manage setup workflows.
+> A click-first Windows companion for preparing VRChat Unity avatar projects consistently.
 
-## 🎯 Purpose
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)](https://learn.microsoft.com/powershell/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-This folder contains a set of scripts that help you quickly create, configure, and maintain VRChat Unity projects, including support for importing Unity packages and managing VPM packages/versions.
+VRChat Project Setup turns a downloaded `.unitypackage` or an existing Unity
+project into a repeatable VRChat setup flow. It guides the user through paths,
+project naming and VPM packages, then performs the setup with validation,
+recoverable state and useful logs.
 
-UnityPackage mode order (important): the installer creates the project, applies required manifest tweaks (Unity Test Framework), installs configured VPM packages, then imports the UnityPackage(s) and runs a bounded post-import finalize step. This aims to reduce Unity doing a second big import/preprocess pass when you open the project in the GUI.
+It is designed for creators who prefer to click through a clear wizard, while
+still providing the `vrcsetup` command for advanced users and automation.
 
-Implementation notes:
-- The finalize step is blocking (no update callbacks) and exits from code (no `-quit`), so Unity doesn't close before the asset pipeline is stable.
-- Unity invocations pin `-buildTarget StandaloneWindows64` for deterministic imports.
+## Download
 
-Note: Unity may still show some import/preprocess on the first GUI open (especially for packages with many textures/scripts). The scripts can reduce double-work, but they can't fully eliminate Unity's first-time asset pipeline.
+**[Download the latest source ZIP](https://github.com/dummics/vrchat-project-setup/archive/refs/heads/main.zip)**
 
-Cancellation:
-- During Unity steps (create/import/finalize), press `Q` or `Esc` to cancel.
-- If you cancel in UnityPackage mode, the script stops Unity and deletes the created project folder.
+Extract the ZIP before running it. The downloaded source is fully usable; a
+separate release package is not required.
 
-Incomplete project cleanup:
-- When creating a project from a UnityPackage, the installer writes a marker at `<Project>/.vrcsetup/state.json` with the current step.
-- The marker is created right after the Unity project is created (so a crash/failure afterwards can still be detected).
-- The project is marked `completed=true` only when all expected steps are marked as done.
-- In the wizard: `Setup project` → `Cleanup incomplete projects`.
-- It shows a paged checklist (default: all selected) so you can delete half-imported / dead projects safely.
+## Quick start
 
-## 📦 Structure
+### Install for the current Windows user
 
-```
-_unityprojectsetup/
-├── INSTALL.bat                 # Clickable per-user installer
-├── START VRCHAT SETUP.bat      # Smart installed/portable launcher
-├── REPAIR.bat / UNINSTALL.bat  # Safe clickable maintenance
-├── vrcsetupfull.bat            # Runtime launcher
-└── setup-scripts/
-    ├── vrc-setup-script.ps1    # Unified entrypoint (wizard + CLI)
-    ├── setup.bat               # Batch wrapper for the wizard
-    ├── commands/               # Wizard + installer commands
-    ├── lib/                    # Shared helpers (menu/config/progress/utils)
-    └── config/                 # Defaults (tracked) + local config (gitignored)
-
-Note: on first run, `setup-scripts/config/vrcsetup.json` is created from `setup-scripts/config/vrcsetup.defaults`.
-If the template is missing, the script generates a minimal skeleton config.
-```
-
-## 🚀 Quickstart
-
-### Recommended for most people: install with clicks
-
-1. Download the ZIP from GitHub and choose **Extract all** in Windows.
-2. Open the extracted folder and double-click **`INSTALL.bat`**.
-3. When it finishes, press any key to open the setup wizard.
+1. Extract the downloaded ZIP.
+2. Double-click **`Install VRChat Project Setup.bat`**.
+3. Press any key when installation finishes to open the wizard.
 4. Later, press the Windows key and search for **VRChat Project Setup**.
 
-No administrator rights are required. The installer creates a private per-user
-copy under `%LOCALAPPDATA%\Programs\VrcSetup`, adds the `vrcsetup` terminal
-command to the user `PATH`, and creates searchable shortcuts for the app, repair,
-and uninstall actions.
+Installation does not require administrator rights. It creates a private copy
+under `%LOCALAPPDATA%\Programs\VrcSetup`, adds `vrcsetup` to the current user's
+`PATH`, and creates Start-menu shortcuts for opening, repairing and uninstalling
+the tool.
 
-If Windows shows a SmartScreen prompt for a downloaded ZIP, first confirm that
-the package came from this repository, then choose **More info → Run anyway**.
+### Run directly without installing
 
-### Use without installing
+Double-click **`VRChat Project Setup.bat`**.
 
-Double-click **`START VRCHAT SETUP.bat`** in the extracted folder. It works as a
-portable launcher. If the tool is already installed for the current user, the
-same file intentionally opens that installed copy so configuration and repairs
-stay consistent.
+This is the portable entry point. If an installed copy exists, it opens that
+copy so configuration and maintenance stay consistent. Otherwise it runs
+directly from the extracted source folder.
 
-### Repair or uninstall with clicks
+### Repair or uninstall
 
-- Search Windows for **Repair VRChat Project Setup** or
-  **Uninstall VRChat Project Setup**.
-- Or double-click `REPAIR.bat` / `UNINSTALL.bat` in either the downloaded package
-  or the installed folder. The launchers detect the installed copy and never
-  treat the downloaded package as something to delete.
+- Double-click **`Repair VRChat Project Setup.bat`** to validate the installation,
+  rebuild the alias and restore Start-menu shortcuts.
+- Double-click **`Uninstall VRChat Project Setup.bat`** to remove the per-user
+  installation after an explicit `Y/N` confirmation.
 
-Reinstall and repair preserve `setup-scripts\config\vrcsetup.json`; the first
-install also migrates an existing local configuration found beside the source
-scripts. The advanced PowerShell uninstall can back it up with
-`Uninstall-VrcSetup.ps1 -KeepConfig`.
+These launchers detect the installed copy and will not treat the downloaded
+source folder as an installation to delete.
 
-### Terminal use (optional)
+## What it provides
 
-After opening a new terminal, run:
+- A keyboard-friendly interactive setup wizard.
+- Project preparation from a `.unitypackage` or an existing Unity folder.
+- Configurable VPM packages with `latest` or pinned versions.
+- Package discovery through `vrc-get`, VPM and the local VCC repository cache.
+- Remembered project names and configurable naming rules.
+- Detection and cleanup of interrupted or incomplete setup operations.
+- Cancellation with `Q` or `Esc` during long Unity operations.
+- Backups before package-manifest changes and timestamped execution logs.
+- Portable, installed and command-line entry points backed by the same engine.
+
+## Requirements
+
+- Windows 10 or Windows 11.
+- Windows PowerShell 5.1 or PowerShell 7.
+- VRChat Creator Companion and a compatible Unity Editor installation.
+- Internet access when package metadata or packages must be downloaded.
+
+The first-run wizard helps select Unity and project paths. PowerShell 7 is used
+when available; otherwise the built-in Windows PowerShell 5.1 is supported.
+
+## Relationship with VRChat Creator Companion
+
+This project complements VRChat Creator Companion; it does not replace it.
+
+VRChat Project Setup focuses on a guided, repeatable project-preparation flow:
+input selection, naming, configured VPM packages, UnityPackage import, recovery
+and diagnostics. VCC remains the official tool for VRChat SDK distribution,
+official project management and platform services.
+
+This is an independent community utility and is not affiliated with or endorsed
+by VRChat Inc.
+
+## Source-folder layout
+
+The four user-facing actions stay at the first level of the downloaded source:
+
+```text
+vrchat-project-setup-main/
+├── VRChat Project Setup.bat
+├── Install VRChat Project Setup.bat
+├── Repair VRChat Project Setup.bat
+├── Uninstall VRChat Project Setup.bat
+├── setup-scripts/
+│   ├── setup.bat
+│   ├── vrc-setup-script.ps1
+│   ├── bin/                  # Installed terminal alias
+│   ├── commands/
+│   ├── config/
+│   ├── lib/
+│   └── maintenance/          # Internal install, repair and uninstall scripts
+├── docs/
+├── tests/
+└── README.md
+```
+
+Local configuration is stored in
+`setup-scripts/config/vrcsetup.json`. It is generated from the tracked defaults
+and is intentionally excluded from Git because it can contain machine-specific
+paths.
+
+## Wizard workflows
+
+The main wizard provides:
+
+1. **Setup project**
+   - Create and configure a project from a UnityPackage.
+   - Prepare an existing Unity project.
+   - Add VPM packages and optionally import extra UnityPackages.
+   - Detect and clean up incomplete project setups.
+2. **Configure VPM packages**
+   - Search packages and select available versions.
+   - Use `latest` or pin a specific version.
+3. **Advanced settings**
+   - Configure Unity paths, naming rules and remembered project names.
+4. **Reset configuration**
+
+When creating from a UnityPackage, the tool creates the Unity project, applies
+required manifest adjustments, installs configured VPM packages, imports the
+package and waits for a bounded finalization step. Unity may still perform some
+first-open asset processing, especially for projects with many textures or
+scripts.
+
+## Terminal usage
+
+After installation, open a new terminal and run:
 
 ```powershell
 vrcsetup
@@ -91,131 +147,87 @@ vrcsetup repair
 vrcsetup uninstall
 ```
 
-For an explicit scripted installation:
+The engine can also be called directly:
 
 ```powershell
-pwsh -NoProfile -File .\Install-VrcSetup.ps1
-```
+# Open the wizard
+.\setup-scripts\vrc-setup-script.ps1 -Wizard
 
-Note: the batch launcher now runs the wizard in the current terminal session. If `pwsh` is installed it is preferred, otherwise Windows PowerShell is used.
+# Prepare an existing Unity project or import a UnityPackage
+.\setup-scripts\vrc-setup-script.ps1 -projectPath "C:\Path\To\Project-Or-Package"
 
-## 🧭 Modes of Operation
+# Validate the flow without changing the target project
+.\setup-scripts\vrc-setup-script.ps1 -projectPath "C:\Path\To\Project" -Test
 
-
-### Wizard Mode
-The wizard offers the following options:
-
-1. Setup project (choose UnityPackage or existing project folder).
-     - If the target project folder already exists (UnityPackage flow), you'll get extra choices:
-         - Delete existing and recreate from the UnityPackage
-         - Use existing: setup VPM only
-         - Use existing: setup VPM + import extra UnityPackages (from `UnityPackagesFolder`)
-2. Manage VPM packages (type-to-filter picker + selectable versions when available).
-3. Advanced settings (naming rules + remembered project names).
-4. Reset the configuration.
-
-### CLI Mode
-You can run the main script in scripted mode from command line:
-
-```powershell
-# Create project from UnityPackage
-.\setup-scripts\vrc-setup-script.ps1 -projectPath "C:\Path\To\Package.unitypackage"
-
-# Setup an existing project
-.\setup-scripts\vrc-setup-script.ps1 -projectPath "C:\Path\To\UnityProject"
-
-# Reset configuration
+# Reset local configuration
 .\setup-scripts\vrc-setup-script.ps1 -projectPath "-reset"
 ```
 
-## ⚙️ VPM Packages Configuration
+Paths containing spaces, Unicode characters, `&`, parentheses and wildcard-like
+characters such as `[]` are handled literally. Wizard path fields also accept
+environment variables, `~` and paths relative to the tool folder.
 
-The VPM packages included in the project are configurable in `setup-scripts/config/vrcsetup.json` using package names and versions.
+## Configuration and package versions
 
-Example config snippet:
+Packages are configured in `setup-scripts/config/vrcsetup.json`:
 
 ```json
 {
-    "VpmPackages": {
-        "com.vrchat.base": "latest",
-        "com.vrchat.avatars": "3.5.0",
-        "com.poiyomi.toon": "9.0.57",
-        "com.vrcfury.vrcfury": "latest"
-    },
-    "UnityEditorPath": "<full path to Unity.exe>",
-    "UnityProjectsRoot": "<folder where projects are created>",
-    "UnityPackagesFolder": "<optional folder with extra .unitypackage files>"
+  "VpmPackages": {
+    "com.vrchat.base": "latest",
+    "com.vrchat.avatars": "latest",
+    "com.poiyomi.toon": "latest",
+    "com.vrcfury.vrcfury": "latest"
+  },
+  "UnityEditorPath": "C:\\Path\\To\\Unity.exe",
+  "UnityProjectsRoot": "D:\\Unity Projects",
+  "UnityPackagesFolder": null
 }
 ```
 
-- `latest` installs the newest version available.
-- You can specify exact versions like `"3.5.0"` to lock to a specific release.
-- The wizard validates versions with VPM (fail-fast) and can also show selectable versions from the local VCC repos cache.
+Use `latest` for convenience or an exact version for reproducible projects. The
+wizard validates configured versions before applying them. Existing older
+package-list configurations are migrated automatically.
 
-## 🔎 Optional: `vrc-get` (better search + versions)
+`dev.foxscore.easy-login` is managed as a protected VPM dependency. If an
+imported avatar contains an older source copy under `Assets/EASY LOGIN`, the
+tool moves it to a recoverable `.vrcsetup/backups/` location before resolving
+the package, avoiding duplicate assemblies without discarding the original.
 
-If you ship `vrc-get` as a local portable exe, the wizard can:
-- Search packages using `vrc-get search <query...>` (works even when the local VCC repos cache is empty)
-- List available versions using `vrc-get info package <id> --json-format 1`
+## Safety and recovery
 
-Portable setup (recommended for this repo):
-- Download the prebuilt Windows binary from the official releases.
-- Put it under:
-    - `setup-scripts/lib/vrc-get/` (any `*.exe` name is accepted; `vrc-get.exe` is preferred)
+- Project manifest files are backed up before modification.
+- Interrupted UnityPackage workflows are tracked in
+  `<Project>/.vrcsetup/state.json`.
+- Cancelled incomplete creations can be removed through the wizard.
+- Install and repair preserve the user's configuration.
+- Uninstall requires confirmation and validates an installation marker before
+  removing files.
+- Logs are written under `setup-scripts/logs/`.
 
-If the local exe is missing, the scripts fall back to `vpm` + local VCC cache.
+## Testing
 
-## 🧠 Advanced naming
+The regression suite validates both PowerShell 7 and Windows PowerShell 5.1,
+portable and installed launchers, Start-menu shortcuts, alias behavior,
+repair/uninstall safety and paths containing special characters.
 
-In `setup-scripts/config/vrcsetup.json` you can store naming preferences used when creating a project from a UnityPackage:
-
-- Prefix/suffix
-- Regex remove patterns (auto-clean the suggested project name)
-- Remember a custom project name per UnityPackage path
-
-## 🔄 Migration from Old Format
-Older config files that used a simple array of package names are migrated automatically into the new dict format with `latest` as a default version.
-
-### Easy Login policy
-
-`dev.foxscore.easy-login` is a protected default package and is resolved from Fox_score's Vulpine Vault repository (`https://foxscore.dev/vpm/index.json`). The tracked default uses `latest`: setup resolves the newest stable release available at that moment, while the project's `Packages/vpm-manifest.json` records the exact resolved version for reproducibility.
-
-If an imported avatar contains an old source copy at `Assets/EASY LOGIN`, setup verifies its package ID and moves it outside `Assets` to `.vrcsetup/backups/easy-login-assets-<timestamp>` before resolving the VPM package. This prevents duplicate Easy Login assemblies without deleting the imported copy. Run setup again on an existing project to refresh the package; close that project in Unity first.
-
-## 📝 Changelog (summary)
-
-- v2.0 - 26/10/2025: Added support for configurable package versions, migration, and validation.
-- v1.0: Initial release with .unitypackage-based setup, VPM configuration, and interactive wizard.
-
-## 🛠️ Advanced Notes
-
-- The script integrates with Unity via the editor path configured in `setup-scripts/config/vrcsetup.json`.
-- Drag & drop inputs often include quotes; paths are normalized automatically.
-- Spaces, Unicode, `&`, parentheses, and wildcard-like characters such as `[]` are handled literally.
-- Wizard path fields accept `%ENVIRONMENT_VARIABLES%`, `~`, and paths relative to the tool folder.
-- UnityPackage mode lets you override the project name; the wizard remembers the last one.
-- `UnityPackagesFolder` (optional) controls where the installer looks for extra `*.unitypackage` files to auto-import when creating a project from a UnityPackage.
-    - If it's a relative path, it's resolved from the tool/repository root.
-    - When missing/empty, extra-imports are DISABLED.
-- Ensure PowerShell execution policies and system permissions allow the script to invoke Unity and modify project files.
-
-### 🔍 Test mode, backups & logs
-
-- `-Test` (dry-run): Run the script with `-Test` to print actions that would be performed without modifying the project or adding packages. Example:
 ```powershell
-.\setup-scripts\vrc-setup-script.ps1 -projectPath "C:\Path\To\Project" -Test
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
 ```
-- Backup: Before applying changes to `Packages/manifest.json`, the script creates a timestamped backup (`manifest.json.bak.YYYYMMDD-HHmmss`) in the same folder. If a change breaks the project, restore the original with:
-```powershell
-Copy-Item "<Project>\Packages\manifest.json.bak.YYYYMMDD-HHmmss" "<Project>\Packages\manifest.json" -Force
-```
-- Logs: the script writes `vpm` and execution logs to `setup-scripts/logs/` as `vrcsetup-YYYYMMDD-HHmmss.log`.
 
-These features provide safe rollback paths without forcing any particular version policy. Keep in mind: we don't change versions automatically; pinning/upgrade decisions are still yours to set in `setup-scripts/config/vrcsetup.json`.
+## Future direction
+
+The long-term direction is a small Windows desktop companion built on the same
+setup engine, without duplicating Creator Companion responsibilities. See
+[Future Desktop App](docs/FUTURE-DESKTOP-APP.md).
 
 ## Contributing
 
-Contributions are welcome. Open an issue or a pull request with a description of the change.
+Issues and pull requests are welcome. Please describe the project type, expected
+behavior, observed behavior and any relevant sanitized log excerpt. Do not
+include local credentials or private avatar assets.
 
 ## License
-See the `LICENSE` file in this folder for license details.
+
+Released under the [MIT License](LICENSE).

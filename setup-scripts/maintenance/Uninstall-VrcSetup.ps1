@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $installRootFull = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($InstallRoot))
-$shellIntegrationScript = Join-Path $installRootFull 'VrcSetup-ShellIntegration.ps1'
+$shellIntegrationScript = Join-Path $PSScriptRoot 'VrcSetup-ShellIntegration.ps1'
 
 if (-not (Test-Path -LiteralPath $shellIntegrationScript)) {
     throw "The selected folder is not a complete VRChat Project Setup installation: ${installRootFull}"

@@ -39,23 +39,34 @@ try {
         $text = Get-Content -LiteralPath $file.FullName -Raw
         Assert-True ($text -notmatch '(?i)C:\\Users\\domix|\.scriptsdum') "Machine-specific path found in $($file.FullName)"
     }
+    $expectedTopLevelLaunchers = @(
+        'Install VRChat Project Setup.bat',
+        'Repair VRChat Project Setup.bat',
+        'Uninstall VRChat Project Setup.bat',
+        'VRChat Project Setup.bat'
+    )
+    $actualTopLevelLaunchers = @(Get-ChildItem -LiteralPath $repoRoot -File -Filter '*.bat' | Select-Object -ExpandProperty Name | Sort-Object)
+    Assert-True (($actualTopLevelLaunchers -join '|') -ceq (($expectedTopLevelLaunchers | Sort-Object) -join '|')) 'The source root does not expose exactly the four friendly BAT launchers.'
 
     Write-Host '[3/9] Running the portable click launcher before installation...'
-    $portableLauncher = Join-Path $repoRoot 'START VRCHAT SETUP.bat'
+    $portableLauncher = Join-Path $repoRoot 'VRChat Project Setup.bat'
     & $portableLauncher -projectPath $projectRoot -Test *> $null
     $portableExit = $LASTEXITCODE
     Assert-True ($portableExit -eq 0) "Portable click launcher exited with ${portableExit}."
 
     Write-Host '[4/9] Installing through the clickable BAT to a special-character path...'
     [System.IO.Directory]::CreateDirectory($installRoot) | Out-Null
+    [System.IO.Directory]::CreateDirectory((Join-Path $installRoot 'bin')) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $installRoot 'bin\vrcsetup.cmd'), '@echo obsolete')
     [System.IO.File]::WriteAllText((Join-Path $installRoot 'Install-VrcSetup.ps1'), '# obsolete installed copy')
-    & (Join-Path $repoRoot 'INSTALL.bat') --no-pause --no-launch | Out-Host
+    & (Join-Path $repoRoot 'Install VRChat Project Setup.bat') --no-pause --no-launch | Out-Host
     $installExit = $LASTEXITCODE
     Assert-True ($installExit -eq 0) "Installer exited with ${installExit}."
-    Assert-True (Test-Path -LiteralPath (Join-Path $installRoot 'bin\vrcsetup.cmd')) 'Alias was not installed.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $installRoot 'setup-scripts\bin\vrcsetup.cmd')) 'Alias was not installed.'
     Assert-True (Test-Path -LiteralPath (Join-Path $installRoot '.vrcsetup-installed')) 'Installation marker was not created.'
-    Assert-True (Test-Path -LiteralPath (Join-Path $installRoot 'START VRCHAT SETUP.bat')) 'Smart click launcher was not installed.'
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $installRoot 'Install-VrcSetup.ps1'))) 'The source-only installer was copied into the installed runtime.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $installRoot 'VRChat Project Setup.bat')) 'Smart click launcher was not installed.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $installRoot 'setup-scripts\maintenance\Install-VrcSetup.ps1'))) 'The source-only installer was copied into the installed runtime.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $installRoot 'bin'))) 'The obsolete root-level alias folder was not removed.'
 
     $startMenuFolder = Join-Path $startMenuRoot 'VRChat Project Setup'
     $shortcutNames = @(
@@ -82,7 +93,7 @@ try {
     }
 
     Write-Host '[5/9] Verifying the downloaded smart launcher prefers the installed copy...'
-    $installedLauncher = Join-Path $installRoot 'vrcsetupfull.bat'
+    $installedLauncher = Join-Path $installRoot 'setup-scripts\setup.bat'
     $installedLauncherContent = [System.IO.File]::ReadAllText($installedLauncher)
     $routeProbe = Join-Path $testRoot 'installed-route.txt'
     try {
@@ -105,7 +116,7 @@ try {
     }
 
     Write-Host '[6/9] Running installed CLI alias against a special-character project path...'
-    $aliasPath = Join-Path $installRoot 'bin\vrcsetup.cmd'
+    $aliasPath = Join-Path $installRoot 'setup-scripts\bin\vrcsetup.cmd'
     Push-Location -LiteralPath $env:TEMP
     try {
         & $aliasPath -projectPath $projectRoot -Test *> $null
@@ -118,7 +129,7 @@ try {
     Write-Host '[7/9] Verifying the runtime launcher preserves caller working directory and arguments...'
     $cwdOutput = Join-Path $testRoot 'caller-cwd.txt'
     $batchPath = Join-Path $testRoot 'check-launcher.cmd'
-    $launcherPath = Join-Path $installRoot 'vrcsetupfull.bat'
+    $launcherPath = Join-Path $installRoot 'VRChat Project Setup.bat'
     $batchLines = @(
         '@echo off',
         'chcp 65001 >nul',
@@ -135,14 +146,14 @@ try {
 
     Write-Host '[8/9] Repairing the installed copy from the downloaded BAT...'
     Remove-Item -LiteralPath (Join-Path $startMenuFolder 'Repair VRChat Project Setup.lnk') -Force
-    & (Join-Path $repoRoot 'REPAIR.bat') --no-pause *> $null
+    & (Join-Path $repoRoot 'Repair VRChat Project Setup.bat') --no-pause *> $null
     $repairExit = $LASTEXITCODE
     Assert-True ($repairExit -eq 0) "Source repair launcher exited with ${repairExit}."
     Assert-True (Test-Path -LiteralPath (Join-Path $startMenuFolder 'Repair VRChat Project Setup.lnk')) 'Repair did not restore the missing Start Menu shortcut.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot '.vrcsetup-installed'))) 'Repair incorrectly marked the downloaded folder as installed.'
 
     Write-Host '[9/9] Uninstalling from the downloaded BAT without touching its folder...'
-    & (Join-Path $repoRoot 'UNINSTALL.bat') --no-pause *> $null
+    & (Join-Path $repoRoot 'Uninstall VRChat Project Setup.bat') --no-pause *> $null
     $uninstallExit = $LASTEXITCODE
     Assert-True ($uninstallExit -eq 0) "Source uninstall launcher exited with ${uninstallExit}."
     $uninstallDeadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -151,15 +162,15 @@ try {
     }
     Assert-True (-not (Test-Path -LiteralPath $installRoot)) 'Uninstall left the install folder behind.'
     Assert-True (-not (Test-Path -LiteralPath $startMenuFolder)) 'Uninstall left Start Menu shortcuts behind.'
-    Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot 'INSTALL.bat')) 'Uninstall damaged the downloaded source folder.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot 'Install VRChat Project Setup.bat')) 'Uninstall damaged the downloaded source folder.'
 
-    & (Join-Path $repoRoot 'UNINSTALL.bat') --no-pause *> $null
+    & (Join-Path $repoRoot 'Uninstall VRChat Project Setup.bat') --no-pause *> $null
     Assert-True ($LASTEXITCODE -eq 2) 'Uninstall without an installed copy did not return the safe no-op result.'
     Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot 'setup-scripts')) 'Safe no-op uninstall damaged the downloaded source folder.'
 
     $directUninstallRefused = $false
     try {
-        & (Join-Path $repoRoot 'Uninstall-VrcSetup.ps1') -InstallRoot $repoRoot *> $null
+        & (Join-Path $repoRoot 'setup-scripts\maintenance\Uninstall-VrcSetup.ps1') -InstallRoot $repoRoot *> $null
     } catch {
         $directUninstallRefused = $true
     }

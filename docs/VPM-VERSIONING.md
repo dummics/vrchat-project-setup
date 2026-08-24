@@ -1,4 +1,4 @@
-# 📦 Guida al Versionamento VPM
+# Guida al versionamento VPM
 
 ## Come Funziona
 

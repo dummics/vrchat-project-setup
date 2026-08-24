@@ -26,9 +26,9 @@ if /i not "%~1"=="--no-pause" (
 
 where pwsh >nul 2>nul
 if errorlevel 1 (
-	powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET_ROOT%\Uninstall-VrcSetup.ps1" -InstallRoot "%TARGET_ROOT%" -DeferredCleanup
+	powershell -NoProfile -ExecutionPolicy Bypass -File "%TARGET_ROOT%\setup-scripts\maintenance\Uninstall-VrcSetup.ps1" -InstallRoot "%TARGET_ROOT%" -DeferredCleanup
 	exit /b
 ) else (
-	pwsh -NoProfile -ExecutionPolicy Bypass -File "%TARGET_ROOT%\Uninstall-VrcSetup.ps1" -InstallRoot "%TARGET_ROOT%" -DeferredCleanup
+	pwsh -NoProfile -ExecutionPolicy Bypass -File "%TARGET_ROOT%\setup-scripts\maintenance\Uninstall-VrcSetup.ps1" -InstallRoot "%TARGET_ROOT%" -DeferredCleanup
 	exit /b
 )

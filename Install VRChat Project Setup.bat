@@ -28,7 +28,7 @@ if defined VRCSETUP_INSTALL_ROOT (
 	set "TARGET_ROOT=%LOCALAPPDATA%\Programs\VrcSetup"
 )
 
-%PS_EXE% -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-VrcSetup.ps1" -InstallRoot "%TARGET_ROOT%"
+%PS_EXE% -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-scripts\maintenance\Install-VrcSetup.ps1" -InstallRoot "%TARGET_ROOT%"
 set "RESULT=%errorlevel%"
 echo.
 if "%RESULT%"=="0" (
@@ -40,7 +40,7 @@ if "%RESULT%"=="0" (
 		echo Press any key to open VRChat Project Setup now.
 		pause >nul
 	)
-	if "%NO_LAUNCH%"=="0" call "%TARGET_ROOT%\START VRCHAT SETUP.bat"
+	if "%NO_LAUNCH%"=="0" call "%TARGET_ROOT%\VRChat Project Setup.bat"
 ) else (
 	echo Installation failed with exit code %RESULT%.
 	if "%NO_PAUSE%"=="0" pause

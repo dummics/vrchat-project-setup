@@ -17,12 +17,12 @@ if exist "%~dp0.vrcsetup-installed" (
 
 if not exist "%TARGET_ROOT%\.vrcsetup-installed" (
 	echo VRChat Project Setup is not installed for this user.
-	echo Run INSTALL.bat, or use START VRCHAT SETUP.bat in portable mode.
+	echo Run Install VRChat Project Setup.bat, or use VRChat Project Setup.bat in portable mode.
 	if /i not "%~1"=="--no-pause" pause
 	exit /b 2
 )
 
-%PS_EXE% -NoProfile -ExecutionPolicy Bypass -File "%TARGET_ROOT%\Repair-VrcSetup.ps1" -InstallRoot "%TARGET_ROOT%"
+%PS_EXE% -NoProfile -ExecutionPolicy Bypass -File "%TARGET_ROOT%\setup-scripts\maintenance\Repair-VrcSetup.ps1" -InstallRoot "%TARGET_ROOT%"
 set "RESULT=%errorlevel%"
 if /i not "%~1"=="--no-pause" pause
 exit /b %RESULT%

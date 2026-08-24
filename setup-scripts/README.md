@@ -7,11 +7,12 @@ Structure:
 - `commands/installer.ps1`: `Start-Installer` + helpers (UnityPackage create/import + VPM install).
 - `commands/wizard.ps1`: `Start-Wizard` logic and menu.
 - `lib/`: shared helpers: menu, config, progress, utils.
+- `maintenance/`: internal per-user install, repair, uninstall, PATH and Start-menu integration.
 
 Recommended install from the repository root:
 
 ```powershell
-pwsh -NoProfile -File .\Install-VrcSetup.ps1
+pwsh -NoProfile -File '.\setup-scripts\maintenance\Install-VrcSetup.ps1'
 ```
 
 Open a new terminal and run `vrcsetup`. Use `vrcsetup repair` to restore the

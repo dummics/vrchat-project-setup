@@ -9,12 +9,12 @@ $installRootFull = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmen
 $setupScript = Join-Path $installRootFull 'setup-scripts\vrc-setup-script.ps1'
 $defaultsPath = Join-Path $installRootFull 'setup-scripts\config\vrcsetup.defaults'
 $configPath = Join-Path $installRootFull 'setup-scripts\config\vrcsetup.json'
-$binPath = Join-Path $installRootFull 'bin'
+$binPath = Join-Path $installRootFull 'setup-scripts\bin'
 $aliasPath = Join-Path $binPath 'vrcsetup.cmd'
-$shellIntegrationScript = Join-Path $installRootFull 'VrcSetup-ShellIntegration.ps1'
+$shellIntegrationScript = Join-Path $PSScriptRoot 'VrcSetup-ShellIntegration.ps1'
 
 if (-not (Test-Path -LiteralPath $shellIntegrationScript)) {
-    throw 'This installation is incomplete. Run INSTALL.bat again from the original package.'
+    throw 'This installation is incomplete. Run Install VRChat Project Setup.bat again from the original package.'
 }
 . $shellIntegrationScript
 if (-not (Test-VrcSetupInstalledCopy -InstallRoot $installRootFull)) {
@@ -26,30 +26,30 @@ $required = @(
     (Join-Path $installRootFull 'setup-scripts\commands\installer.ps1'),
     (Join-Path $installRootFull 'setup-scripts\commands\wizard.ps1'),
     $defaultsPath,
-    (Join-Path $installRootFull 'START VRCHAT SETUP.bat'),
+    (Join-Path $installRootFull 'VRChat Project Setup.bat'),
     $shellIntegrationScript,
-    (Join-Path $installRootFull 'Repair-VrcSetup.ps1'),
-    (Join-Path $installRootFull 'Uninstall-VrcSetup.ps1'),
-    (Join-Path $installRootFull 'REPAIR.bat'),
-    (Join-Path $installRootFull 'UNINSTALL.bat')
+    (Join-Path $installRootFull 'setup-scripts\maintenance\Repair-VrcSetup.ps1'),
+    (Join-Path $installRootFull 'setup-scripts\maintenance\Uninstall-VrcSetup.ps1'),
+    (Join-Path $installRootFull 'Repair VRChat Project Setup.bat'),
+    (Join-Path $installRootFull 'Uninstall VRChat Project Setup.bat')
 )
 $missing = @($required | Where-Object { -not (Test-Path -LiteralPath $_) })
 if ($missing.Count -gt 0) {
-    throw "Core files are missing. Run INSTALL.bat again from the original package. Missing: $($missing -join ', ')"
+    throw "Core files are missing. Run Install VRChat Project Setup.bat again from the original package. Missing: $($missing -join ', ')"
 }
 
 [System.IO.Directory]::CreateDirectory($binPath) | Out-Null
 $aliasContent = @'
 @echo off
 if /i "%~1"=="repair" (
-	call "%~dp0..\REPAIR.bat" --no-pause
+	call "%~dp0..\..\Repair VRChat Project Setup.bat" --no-pause
 	exit /b
 )
 if /i "%~1"=="uninstall" (
-	call "%~dp0..\UNINSTALL.bat" --no-pause
+	call "%~dp0..\..\Uninstall VRChat Project Setup.bat" --no-pause
 	exit /b
 )
-call "%~dp0..\setup-scripts\setup.bat" %*
+call "%~dp0..\setup.bat" %*
 exit /b
 '@
 $normalizedAliasContent = $aliasContent -replace "`r?`n", "`r`n"

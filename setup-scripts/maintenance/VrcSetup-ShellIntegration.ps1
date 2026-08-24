@@ -88,17 +88,17 @@ function Install-VrcSetupStartMenuShortcuts {
     $shortcuts = @(
         @{
             Name = 'VRChat Project Setup.lnk'
-            Batch = 'START VRCHAT SETUP.bat'
+            Batch = 'VRChat Project Setup.bat'
             Description = 'Open VRChat Project Setup'
         },
         @{
             Name = 'Repair VRChat Project Setup.lnk'
-            Batch = 'REPAIR.bat'
+            Batch = 'Repair VRChat Project Setup.bat'
             Description = 'Repair VRChat Project Setup'
         },
         @{
             Name = 'Uninstall VRChat Project Setup.lnk'
-            Batch = 'UNINSTALL.bat'
+            Batch = 'Uninstall VRChat Project Setup.bat'
             Description = 'Uninstall VRChat Project Setup'
         }
     )
@@ -137,7 +137,7 @@ function Install-VrcSetupShellIntegration {
 
     Write-VrcSetupInstallMarker -InstallRoot $InstallRoot
     if (-not $SkipPathUpdate) {
-        Add-VrcSetupToUserPath -BinPath (Join-Path $InstallRoot 'bin')
+        Add-VrcSetupToUserPath -BinPath (Join-Path $InstallRoot 'setup-scripts\bin')
     }
     return Install-VrcSetupStartMenuShortcuts -InstallRoot $InstallRoot
 }
@@ -149,7 +149,7 @@ function Remove-VrcSetupShellIntegration {
     )
 
     if (-not $SkipPathUpdate) {
-        Remove-VrcSetupFromUserPath -BinPath (Join-Path $InstallRoot 'bin')
+        Remove-VrcSetupFromUserPath -BinPath (Join-Path $InstallRoot 'setup-scripts\bin')
     }
     Remove-VrcSetupStartMenuShortcuts
 }
