@@ -69,6 +69,13 @@ foreach ($runtimeItem in @(
     }
 }
 
+foreach ($obsoleteRuntimeItem in @('Install-VrcSetup.ps1')) {
+    $obsoletePath = Join-Path $installRootFull $obsoleteRuntimeItem
+    if (Test-Path -LiteralPath $obsoletePath) {
+        Remove-Item -LiteralPath $obsoletePath -Force
+    }
+}
+
 if ((-not (Test-Path -LiteralPath $installedConfigPath)) -and (Test-Path -LiteralPath $sourceConfigPath)) {
     Copy-Item -LiteralPath $sourceConfigPath -Destination $installedConfigPath
     Write-Host 'Existing local configuration migrated to the installed copy.' -ForegroundColor Gray

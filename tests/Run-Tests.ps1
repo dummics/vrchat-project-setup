@@ -47,6 +47,8 @@ try {
     Assert-True ($portableExit -eq 0) "Portable click launcher exited with ${portableExit}."
 
     Write-Host '[4/9] Installing through the clickable BAT to a special-character path...'
+    [System.IO.Directory]::CreateDirectory($installRoot) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $installRoot 'Install-VrcSetup.ps1'), '# obsolete installed copy')
     & (Join-Path $repoRoot 'INSTALL.bat') --no-pause --no-launch | Out-Host
     $installExit = $LASTEXITCODE
     Assert-True ($installExit -eq 0) "Installer exited with ${installExit}."
