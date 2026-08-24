@@ -43,6 +43,37 @@ If the template is missing, the script generates a minimal skeleton config.
 
 ## 🚀 Quickstart
 
+### Recommended: one-click per-user install
+
+Double-click `INSTALL.bat`, or run:
+
+```powershell
+pwsh -NoProfile -File .\Install-VrcSetup.ps1
+```
+
+The installer requires no administrator rights. It copies the tool to
+`%LOCALAPPDATA%\Programs\VrcSetup`, adds its `bin` folder to the current user's
+`PATH`, and installs the `vrcsetup` command. Open a new terminal after install,
+then run:
+
+```powershell
+vrcsetup
+```
+
+Maintenance commands:
+
+```powershell
+vrcsetup repair
+vrcsetup uninstall
+```
+
+`REPAIR.bat` and `UNINSTALL.bat` provide the same operations for users who
+prefer double-clickable launchers. Reinstall and repair preserve
+`setup-scripts\config\vrcsetup.json`; uninstall can optionally back it up with
+`Uninstall-VrcSetup.ps1 -KeepConfig`.
+
+### Portable use without installation
+
 Run the script from PowerShell or via `vrcsetupfull.bat` to open the interactive wizard:
 
 ```powershell
@@ -98,9 +129,9 @@ Example config snippet:
         "com.poiyomi.toon": "9.0.57",
         "com.vrcfury.vrcfury": "latest"
     },
-    "UnityEditorPath": "C:\\Program Files\\Unity\\Hub\\Editor\\2022.3.22f1\\Editor\\Unity.exe",
-    "UnityProjectsRoot": "F:\\UNITY PROJECTS",
-    "UnityPackagesFolder": "E:\\UnityPackages"
+    "UnityEditorPath": "<full path to Unity.exe>",
+    "UnityProjectsRoot": "<folder where projects are created>",
+    "UnityPackagesFolder": "<optional folder with extra .unitypackage files>"
 }
 ```
 
@@ -147,9 +178,11 @@ If an imported avatar contains an old source copy at `Assets/EASY LOGIN`, setup 
 
 - The script integrates with Unity via the editor path configured in `setup-scripts/config/vrcsetup.json`.
 - Drag & drop inputs often include quotes; paths are normalized automatically.
+- Spaces, Unicode, `&`, parentheses, and wildcard-like characters such as `[]` are handled literally.
+- Wizard path fields accept `%ENVIRONMENT_VARIABLES%`, `~`, and paths relative to the tool folder.
 - UnityPackage mode lets you override the project name; the wizard remembers the last one.
 - `UnityPackagesFolder` (optional) controls where the installer looks for extra `*.unitypackage` files to auto-import when creating a project from a UnityPackage.
-    - If it's a relative path, it's resolved from the repo workspace root.
+    - If it's a relative path, it's resolved from the tool/repository root.
     - When missing/empty, extra-imports are DISABLED.
 - Ensure PowerShell execution policies and system permissions allow the script to invoke Unity and modify project files.
 

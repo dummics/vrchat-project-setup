@@ -1,0 +1,81 @@
+[CmdletBinding()]
+param(
+    [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'Programs\VrcSetup'),
+    [switch]$SkipPathUpdate
+)
+
+$ErrorActionPreference = 'Stop'
+$installRootFull = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($InstallRoot))
+$setupScript = Join-Path $installRootFull 'setup-scripts\vrc-setup-script.ps1'
+$defaultsPath = Join-Path $installRootFull 'setup-scripts\config\vrcsetup.defaults'
+$configPath = Join-Path $installRootFull 'setup-scripts\config\vrcsetup.json'
+$binPath = Join-Path $installRootFull 'bin'
+$aliasPath = Join-Path $binPath 'vrcsetup.cmd'
+
+$required = @(
+    $setupScript,
+    (Join-Path $installRootFull 'setup-scripts\commands\installer.ps1'),
+    (Join-Path $installRootFull 'setup-scripts\commands\wizard.ps1'),
+    $defaultsPath,
+    (Join-Path $installRootFull 'Repair-VrcSetup.ps1'),
+    (Join-Path $installRootFull 'Uninstall-VrcSetup.ps1'),
+    (Join-Path $installRootFull 'REPAIR.bat'),
+    (Join-Path $installRootFull 'UNINSTALL.bat')
+)
+$missing = @($required | Where-Object { -not (Test-Path -LiteralPath $_) })
+if ($missing.Count -gt 0) {
+    throw "Core files are missing. Run INSTALL.bat again from the original package. Missing: $($missing -join ', ')"
+}
+
+[System.IO.Directory]::CreateDirectory($binPath) | Out-Null
+$aliasContent = @'
+@echo off
+if /i "%~1"=="repair" (
+	call "%~dp0..\REPAIR.bat" --no-pause
+	exit /b %errorlevel%
+)
+if /i "%~1"=="uninstall" (
+	call "%~dp0..\UNINSTALL.bat" --no-pause
+	exit /b %errorlevel%
+)
+call "%~dp0..\setup-scripts\setup.bat" %*
+exit /b %errorlevel%
+'@
+$normalizedAliasContent = $aliasContent -replace "`r?`n", "`r`n"
+[System.IO.File]::WriteAllText($aliasPath, $normalizedAliasContent, [System.Text.Encoding]::ASCII)
+
+if (-not (Test-Path -LiteralPath $configPath)) {
+    Copy-Item -LiteralPath $defaultsPath -Destination $configPath
+}
+
+$skipPath = $SkipPathUpdate -or $env:VRCSETUP_SKIP_PATH_UPDATE -eq '1'
+if (-not $skipPath) {
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $parts = @($userPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if (@($parts | Where-Object { $_.TrimEnd('\') -ieq $binPath.TrimEnd('\') }).Count -eq 0) {
+        [Environment]::SetEnvironmentVariable('Path', ((@($parts) + $binPath) -join ';'), 'User')
+    }
+}
+
+$parseErrors = @()
+foreach ($file in Get-ChildItem -LiteralPath $installRootFull -Recurse -File -Filter '*.ps1') {
+    $tokens = $null
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+    if ($errors.Count -gt 0) { $parseErrors += @($errors | ForEach-Object { "$($file.FullName): $($_.Message)" }) }
+}
+if ($parseErrors.Count -gt 0) { throw "PowerShell validation failed: $($parseErrors -join '; ')" }
+
+$smokeRoot = Join-Path $env:TEMP ('vrcsetup-repair-' + [guid]::NewGuid().ToString('N'))
+try {
+    [System.IO.Directory]::CreateDirectory((Join-Path $smokeRoot 'Assets')) | Out-Null
+    $shell = Get-Command pwsh -ErrorAction SilentlyContinue
+    if (-not $shell) { $shell = Get-Command powershell -ErrorAction Stop }
+    & $shell.Source -NoProfile -ExecutionPolicy Bypass -File $setupScript -projectPath $smokeRoot -Test *> $null
+    if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed with exit code ${LASTEXITCODE}." }
+} finally {
+    if (Test-Path -LiteralPath $smokeRoot) { [System.IO.Directory]::Delete($smokeRoot, $true) }
+}
+
+Write-Host 'VRChat Project Setup repair completed successfully.' -ForegroundColor Green
+Write-Host 'Open a new terminal if the alias was previously unavailable.' -ForegroundColor Cyan

@@ -7,6 +7,16 @@ Structure:
 - `commands/installer.ps1`: `Start-Installer` + helpers (UnityPackage create/import + VPM install).
 - `commands/wizard.ps1`: `Start-Wizard` logic and menu.
 - `lib/`: shared helpers: menu, config, progress, utils.
+
+Recommended install from the repository root:
+
+```powershell
+pwsh -NoProfile -File .\Install-VrcSetup.ps1
+```
+
+Open a new terminal and run `vrcsetup`. Use `vrcsetup repair` to restore the
+alias, per-user PATH entry, missing config, and run a smoke test; use
+`vrcsetup uninstall` to remove the per-user installation.
 - `config/`: configuration templates + local config.
 	- `vrcsetup.defaults` is tracked in repo and used as the first-run seed.
 	- `vrcsetup.json` is generated on first run (or by the wizard), is local-only and gitignored (it contains local paths).
