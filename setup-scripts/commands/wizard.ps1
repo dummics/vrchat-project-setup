@@ -4,8 +4,7 @@
 param()
 
 # === CARICAMENTO CONFIG & HELPERS ===
-$cmdDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptDir = (Resolve-Path (Join-Path $cmdDir '..')).Path
+$scriptDir = [System.IO.Directory]::GetParent($PSScriptRoot).FullName
 . "${scriptDir}\lib\menu.ps1"
 . "${scriptDir}\lib\utils.ps1"
 . "${scriptDir}\lib\config.ps1"
@@ -26,7 +25,7 @@ function Invoke-FirstRunSetup {
     param([string]$ConfigPath)
 
     $config = $null
-    if (Test-Path $ConfigPath) { $config = Load-Config -ConfigPath $ConfigPath }
+    if (Test-Path -LiteralPath $ConfigPath) { $config = Load-Config -ConfigPath $ConfigPath }
     if (-not $config) { return }
 
     if (Test-ConfigEssentials -Config $config) { return }
@@ -80,7 +79,7 @@ function Invoke-FirstRunSetup {
 
     $editorPath = [string]$config.UnityEditorPath
     $projectsRoot = [string]$config.UnityProjectsRoot
-    $needEditor = [string]::IsNullOrWhiteSpace($editorPath) -or -not (Test-Path $editorPath)
+    $needEditor = [string]::IsNullOrWhiteSpace($editorPath) -or -not (Test-Path -LiteralPath $editorPath)
     $needProjects = [string]::IsNullOrWhiteSpace($projectsRoot)
 
     # ===== STEP 1: Unity Editor Path =====
@@ -144,7 +143,7 @@ function Invoke-FirstRunSetup {
         $inputRoot = Normalize-UserPath (Read-Host "  Projects folder")
 
         if (-not [string]::IsNullOrWhiteSpace($inputRoot)) {
-            if (-not (Test-Path $inputRoot)) {
+            if (-not (Test-Path -LiteralPath $inputRoot)) {
                 $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${inputRoot}" -Options @("Create it", "Skip")
                 if ($mkChoice -eq 0) {
                     try {
@@ -154,7 +153,7 @@ function Invoke-FirstRunSetup {
                         Start-Sleep -Seconds 2
                         $inputRoot = ""
                     }
-                    if (-not [string]::IsNullOrWhiteSpace($inputRoot) -and -not (Test-Path $inputRoot)) {
+                    if (-not [string]::IsNullOrWhiteSpace($inputRoot) -and -not (Test-Path -LiteralPath $inputRoot)) {
                         $inputRoot = ""
                     }
                 }
@@ -213,7 +212,10 @@ function Show-WizardError {
 }
 
 function Normalize-UserPath {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [switch]$PreserveRelative
+    )
     if ($null -eq $Path) { return $null }
     $p = $Path.Trim()
     $p = $p.Trim('"')
@@ -222,7 +224,20 @@ function Normalize-UserPath {
     # (for example "` " or "`&") in some hosts.
     # Remove those escape markers so Test-Path sees the real filesystem path.
     $p = $p -replace '`(?=[\s&()\[\]{}$;,])', ''
-    return $p
+    $p = [Environment]::ExpandEnvironmentVariables($p)
+
+    if ($p -eq '~') {
+        $p = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+    } elseif ($p.StartsWith('~\') -or $p.StartsWith('~/')) {
+        $p = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)) $p.Substring(2)
+    }
+
+    if ((-not $PreserveRelative) -and (-not [System.IO.Path]::IsPathRooted($p))) {
+        $repoRoot = [System.IO.Directory]::GetParent($scriptDir).FullName
+        $p = Join-Path $repoRoot $p
+    }
+
+    try { return [System.IO.Path]::GetFullPath($p) } catch { return $p }
 }
 
 function Read-WizardPathInput {
@@ -231,7 +246,8 @@ function Read-WizardPathInput {
         [string[]]$BodyLines = @(),
         [string]$Prompt = "Path",
         [ConsoleColor]$TitleColor = [ConsoleColor]::Cyan,
-        [string]$Hint = "Drag & drop works. Press ENTER to go back."
+        [switch]$PreserveRelative,
+        [string]$Hint = "Drag & drop, absolute paths, %ENV% variables and ~ are supported. Relative paths use the tool folder. Press ENTER to go back."
     )
 
     Clear-Host
@@ -253,7 +269,7 @@ function Read-WizardPathInput {
         Write-Host $Hint -ForegroundColor DarkGray
     }
 
-    return Normalize-UserPath (Read-Host $Prompt)
+    return Normalize-UserPath (Read-Host $Prompt) -PreserveRelative:$PreserveRelative
 }
 
 function Add-ConfirmHint {
@@ -336,7 +352,7 @@ function Advanced-NamingSettings {
         [string]$ConfigPath
     )
 
-    if (-not (Test-Path $ConfigPath)) {
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
         Write-Host "Config not found. Run setup first." -ForegroundColor Red
         Read-Host "Press ENTER to continue"
         return
@@ -348,7 +364,7 @@ function Advanced-NamingSettings {
     while ($true) {
         $patternsCount = @($config.Naming.RegexRemovePatterns).Count
         $remember = if ($config.Naming.RememberUnityPackageNames) { "ON" } else { "OFF" }
-        $workspaceRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
+        $workspaceRoot = [System.IO.Directory]::GetParent($scriptDir).FullName
         $commonPackagesStatus = 'DISABLED'
         if ($config -and -not [string]::IsNullOrWhiteSpace([string]$config.UnityPackagesFolder)) {
             $cfgCommon = ([string]$config.UnityPackagesFolder).Trim().Trim('"').Trim("'")
@@ -361,7 +377,7 @@ function Advanced-NamingSettings {
 
         $editorStatus = Get-PathStatus -Path ([string]$config.UnityEditorPath)
         # Extra check: if editor path exists but isn't Unity.exe, flag it
-        if (-not [string]::IsNullOrWhiteSpace([string]$config.UnityEditorPath) -and (Test-Path ([string]$config.UnityEditorPath))) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$config.UnityEditorPath) -and (Test-Path -LiteralPath ([string]$config.UnityEditorPath))) {
             $editorValidation = Test-UnityEditorPath -Path ([string]$config.UnityEditorPath)
             if (-not $editorValidation.Valid) { $editorStatus = "INVALID: $($editorValidation.Message)" }
         }
@@ -429,7 +445,7 @@ function Advanced-NamingSettings {
                 Write-Host "Drag a folder here or paste the path:" -ForegroundColor Yellow
                 $newRoot = Normalize-UserPath (Read-Host "Projects folder")
                 if (-not [string]::IsNullOrWhiteSpace($newRoot)) {
-                    if (-not (Test-Path $newRoot)) {
+                    if (-not (Test-Path -LiteralPath $newRoot)) {
                         $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${newRoot}" -Options @("Create it", "Cancel")
                         if ($mkChoice -eq 0) {
                             try {
@@ -439,7 +455,7 @@ function Advanced-NamingSettings {
                                 Read-Host "Press ENTER to continue" | Out-Null
                                 continue
                             }
-                            if (-not (Test-Path $newRoot)) {
+                            if (-not (Test-Path -LiteralPath $newRoot)) {
                                 Write-Host "Folder still doesn't exist after creation attempt." -ForegroundColor Red
                                 Read-Host "Press ENTER to continue" | Out-Null
                                 continue
@@ -504,7 +520,7 @@ function Advanced-NamingSettings {
                 Save-Config -Config $config -ConfigPath $ConfigPath
             }
             6 {
-                $inputPath = Read-WizardPathInput -Title "UnityPackages folder (extra imports)" -Prompt "Folder path" -BodyLines @(
+                $inputPath = Read-WizardPathInput -Title "UnityPackages folder (extra imports)" -Prompt "Folder path" -PreserveRelative -BodyLines @(
                     "When you create a project from a UnityPackage, the installer can also import all *.unitypackage found in this folder.",
                     "",
                     "Current: ${commonPackagesStatus}",
@@ -524,7 +540,7 @@ function Advanced-NamingSettings {
                     $resolved = Join-Path $workspaceRoot $resolved
                 }
 
-                if (-not (Test-Path $resolved)) {
+                if (-not (Test-Path -LiteralPath $resolved)) {
                     $create = Show-Menu -Title "Folder not found" -Header (Add-ConfirmHint -Header "Create folder?`n${resolved}") -Options @("Create", "Cancel") -AllowCancel $false
                     if ($create -ne 0) { continue }
                     try {
@@ -785,7 +801,7 @@ function Edit-VpmPackages {
         [string]$ScriptDir
     )
 
-    if (-not (Test-Path $ConfigPath)) {
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
         Write-Host "Config not found. Run setup first." -ForegroundColor Red
         Read-Host "Press ENTER to continue"
         return
@@ -1055,22 +1071,22 @@ function Setup-ProjectFlow {
         if ([string]::IsNullOrWhiteSpace($cfgCommon)) { return $result }
 
         $cfgCommon = $cfgCommon.Trim().Trim('"').Trim("'")
-        $workspaceRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
+        $workspaceRoot = [System.IO.Directory]::GetParent($scriptDir).FullName
         $resolvedCommon = if ([System.IO.Path]::IsPathRooted($cfgCommon)) { $cfgCommon } else { Join-Path $workspaceRoot $cfgCommon }
 
-        if (-not (Test-Path $resolvedCommon)) {
+        if (-not (Test-Path -LiteralPath $resolvedCommon)) {
             $result.StatusLabel = "Configured but folder missing"
             return $result
         }
 
         $mainResolved = $PackagePath
-        try { $mainResolved = (Resolve-Path $PackagePath -ErrorAction Stop).Path } catch { }
+        try { $mainResolved = (Resolve-Path -LiteralPath $PackagePath -ErrorAction Stop).Path } catch { }
 
         $extraPackages = @()
-        $commonPackages = Get-ChildItem -Path $resolvedCommon -Filter "*.unitypackage" -ErrorAction SilentlyContinue
+        $commonPackages = Get-ChildItem -LiteralPath $resolvedCommon -Filter "*.unitypackage" -ErrorAction SilentlyContinue
         foreach ($pkg in $commonPackages) {
             $pkgResolved = $pkg.FullName
-            try { $pkgResolved = (Resolve-Path $pkg.FullName -ErrorAction Stop).Path } catch { }
+            try { $pkgResolved = (Resolve-Path -LiteralPath $pkg.FullName -ErrorAction Stop).Path } catch { }
             if ($pkgResolved -ne $mainResolved) {
                 $extraPackages += $pkg.FullName
             }
@@ -1153,7 +1169,7 @@ function Setup-ProjectFlow {
             }
         }
 
-        if ([string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -or -not (Test-Path ([string]$State.TargetProjectPath))) {
+        if ([string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -or -not (Test-Path -LiteralPath ([string]$State.TargetProjectPath))) {
             $State.ExistingAction = 'create-new'
         }
 
@@ -1171,7 +1187,7 @@ function Setup-ProjectFlow {
 
             if ([string]::IsNullOrWhiteSpace($packagePath)) { return $false }
 
-            if (-not (Test-Path $packagePath)) {
+            if (-not (Test-Path -LiteralPath $packagePath)) {
                 Show-WizardError -Title "Path not found" -Message $packagePath
                 continue
             }
@@ -1235,11 +1251,17 @@ function Setup-ProjectFlow {
         Write-Host ""
         Write-Host ("Press ENTER to use: {0}" -f $defaultPromptName) -ForegroundColor DarkGray
 
-        $projectName = Read-Host "Project name"
-        if ([string]::IsNullOrWhiteSpace($projectName)) {
-            $State.ProjectName = $defaultPromptName
-        } else {
-            $State.ProjectName = $projectName.Trim()
+        while ($true) {
+            $projectName = Read-Host "Project name"
+            $candidateName = if ([string]::IsNullOrWhiteSpace($projectName)) { $defaultPromptName } else { $projectName.Trim() }
+            $nameCheck = Test-VrcSetupProjectName -Name $candidateName
+            if ($nameCheck.Valid) {
+                $State.ProjectName = $candidateName
+                break
+            }
+
+            Write-Host $nameCheck.Message -ForegroundColor Red
+            Write-Host "Use a single Windows folder name, not a full path." -ForegroundColor DarkGray
         }
 
         Update-UnityPackageFlowState -State $State -Config $Config
@@ -1251,7 +1273,7 @@ function Setup-ProjectFlow {
 
         Update-UnityPackageFlowState -State $State -Config $config
 
-        if ([string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -or -not (Test-Path ([string]$State.TargetProjectPath))) {
+        if ([string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -or -not (Test-Path -LiteralPath ([string]$State.TargetProjectPath))) {
             $State.ExistingAction = 'create-new'
             $State.ActionLabel = Get-UnityPackageActionLabel -Action $State.ExistingAction
             return $true
@@ -1295,7 +1317,7 @@ function Setup-ProjectFlow {
     function Get-UnityPackageReviewHeader {
         param($State)
 
-        $targetState = if (-not [string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -and (Test-Path ([string]$State.TargetProjectPath))) {
+        $targetState = if (-not [string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath) -and (Test-Path -LiteralPath ([string]$State.TargetProjectPath))) {
             "Already exists"
         } else {
             "Will be created"
@@ -1433,7 +1455,7 @@ function Setup-ProjectFlow {
                 Update-UnityPackageFlowState -State $state -Config $Config
 
                 $options = @("Start setup", "Change project name")
-                if (-not [string]::IsNullOrWhiteSpace([string]$state.TargetProjectPath) -and (Test-Path ([string]$state.TargetProjectPath))) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$state.TargetProjectPath) -and (Test-Path -LiteralPath ([string]$state.TargetProjectPath))) {
                     $options += "Change existing target action"
                 }
                 $options += @("Choose another UnityPackage", "Cancel")
@@ -1477,7 +1499,7 @@ function Setup-ProjectFlow {
     if ($setupChoice -eq -1 -or $setupChoice -eq 3) { return }
 
     $config = $null
-    if (Test-Path $ConfigPath) { $config = Load-Config -ConfigPath $ConfigPath }
+    if (Test-Path -LiteralPath $ConfigPath) { $config = Load-Config -ConfigPath $ConfigPath }
     if ($config) { $config = Ensure-ConfigDefaults -Config $config }
 
     if ($setupChoice -eq 2) {
@@ -1490,7 +1512,7 @@ function Setup-ProjectFlow {
     if (-not $essentials.Ready) {
         # Try auto-fix: if Unity Editor is missing but can be auto-detected, set it now
         $editorVal = [string]$config.UnityEditorPath
-        if ([string]::IsNullOrWhiteSpace($editorVal) -or -not (Test-Path $editorVal)) {
+        if ([string]::IsNullOrWhiteSpace($editorVal) -or -not (Test-Path -LiteralPath $editorVal)) {
             $autoFound = @((Find-UnityEditorPaths))
             if ($autoFound.Count -eq 1) {
                 # Single install found: auto-set it
@@ -1538,10 +1560,10 @@ function Setup-ProjectFlow {
             "Choose the Unity project folder you want to configure."
         )
         if ([string]::IsNullOrWhiteSpace($projectPath)) { return }
-        if (-not (Test-Path $projectPath)) { Write-Host "Path not found: ${projectPath}" -ForegroundColor Red; Read-Host "Press ENTER"; return }
+        if (-not (Test-Path -LiteralPath $projectPath)) { Write-Host "Path not found: ${projectPath}" -ForegroundColor Red; Read-Host "Press ENTER"; return }
 
         $assetsPath = Join-Path $projectPath "Assets"
-        if (-not (Test-Path $assetsPath)) { Write-Host "Not a Unity project (missing Assets)." -ForegroundColor Red; Read-Host "Press ENTER"; return }
+        if (-not (Test-Path -LiteralPath $assetsPath)) { Write-Host "Not a Unity project (missing Assets)." -ForegroundColor Red; Read-Host "Press ENTER"; return }
 
         $confirmHeader = "Project folder: ${projectPath}`n\nProceed?"
         $confirm = Show-Menu -Title "Confirm" -Header (Add-ConfirmHint -Header $confirmHeader) -Options @("Proceed", "Cancel") -AllowCancel $false
@@ -1564,7 +1586,7 @@ function Start-Wizard {
     while ($true) {
         # Check config state for warnings
         $menuConfig = $null
-        if (Test-Path $configPath) { $menuConfig = Load-Config -ConfigPath $configPath }
+        if (Test-Path -LiteralPath $configPath) { $menuConfig = Load-Config -ConfigPath $configPath }
         $essentials = Test-ConfigEssentialsExist -Config $menuConfig
         $setupLabel = "Setup project (UnityPackage or existing)"
         $header = "Use arrows + Enter. ESC goes back in submenus. Select Exit here to close."

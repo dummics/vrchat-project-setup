@@ -10,14 +10,14 @@ function Get-VrcGetExecutablePath {
 
     # Always prefer local, shipped exe (portable). No PATH / winget assumptions.
     $folder = Join-Path $ScriptDir "lib\\vrc-get"
-    if (-not (Test-Path $folder)) { return $null }
+    if (-not (Test-Path -LiteralPath $folder)) { return $null }
 
     # Prefer a canonical name if present, otherwise pick any exe in the folder.
     $preferred = Join-Path $folder "vrc-get.exe"
-    if (Test-Path $preferred) { return $preferred }
+    if (Test-Path -LiteralPath $preferred) { return $preferred }
 
     try {
-        $exe = Get-ChildItem -Path $folder -Filter "*.exe" -File -ErrorAction SilentlyContinue |
+        $exe = Get-ChildItem -LiteralPath $folder -Filter "*.exe" -File -ErrorAction SilentlyContinue |
             Sort-Object -Property Name |
             Select-Object -First 1
         if ($exe) { return $exe.FullName }
@@ -47,7 +47,7 @@ function Invoke-VrcGetCapture {
         $exitCode = $LASTEXITCODE
 
         try {
-            $stderr = (Get-Content -Path $tmpErr -Raw -ErrorAction SilentlyContinue)
+            $stderr = (Get-Content -LiteralPath $tmpErr -Raw -ErrorAction SilentlyContinue)
         } catch {
             $stderr = ""
         }
@@ -56,8 +56,8 @@ function Invoke-VrcGetCapture {
         $stderr = (${_} | Out-String)
         $exitCode = 1
     } finally {
-        if ($tmpErr -and (Test-Path $tmpErr)) {
-            try { Remove-Item -Path $tmpErr -Force -ErrorAction SilentlyContinue } catch { }
+        if ($tmpErr -and (Test-Path -LiteralPath $tmpErr)) {
+            try { Remove-Item -LiteralPath $tmpErr -Force -ErrorAction SilentlyContinue } catch { }
         }
     }
 

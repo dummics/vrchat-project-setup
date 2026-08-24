@@ -1,7 +1,6 @@
 param([string]$projectPath, [switch]$Test)
 
-$cmdDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptDir = (Resolve-Path (Join-Path $cmdDir '..')).Path
+$scriptDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 . "${scriptDir}\commands\installer.ps1"
 . "${scriptDir}\lib\config.ps1"
 

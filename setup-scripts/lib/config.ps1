@@ -6,16 +6,16 @@ function Initialize-ConfigIfMissing {
     )
 
     if (-not $ConfigPath) { throw 'ConfigPath is required' }
-    if (Test-Path $ConfigPath) { return $false }
-    $hasTemplate = ($DefaultsPath -and (Test-Path $DefaultsPath))
+    if (Test-Path -LiteralPath $ConfigPath) { return $false }
+    $hasTemplate = ($DefaultsPath -and (Test-Path -LiteralPath $DefaultsPath))
 
     $configDir = Split-Path -Parent $ConfigPath
-    if ($configDir -and (-not (Test-Path $configDir))) {
+    if ($configDir -and (-not (Test-Path -LiteralPath $configDir))) {
         New-Item -Path $configDir -ItemType Directory -Force | Out-Null
     }
 
     if ($hasTemplate) {
-        Copy-Item -Path $DefaultsPath -Destination $ConfigPath -Force
+        Copy-Item -LiteralPath $DefaultsPath -Destination $ConfigPath -Force
         return $true
     }
 
@@ -55,21 +55,21 @@ function Initialize-ConfigIfMissing {
         UnityPackagesFolder = $null
     }
 
-    $skeleton | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
+    $skeleton | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
     return $true
 }
 
 function Load-Config {
     param([string]$ConfigPath)
     if (-not $ConfigPath) { throw 'ConfigPath is required' }
-    if (-not (Test-Path $ConfigPath)) { return $null }
-    return Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    if (-not (Test-Path -LiteralPath $ConfigPath)) { return $null }
+    return Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 }
 
 function Save-Config {
     param($Config, [string]$ConfigPath)
     if (-not $ConfigPath) { throw 'ConfigPath required' }
-    $Config | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
+    $Config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
 }
 
 function Get-DefaultPackages {
@@ -106,10 +106,10 @@ function Find-UnityEditorPaths {
 
     # Unity Hub default location
     $hubEditors = Join-Path $env:ProgramFiles "Unity\Hub\Editor"
-    if (Test-Path $hubEditors) {
-        Get-ChildItem $hubEditors -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    if (Test-Path -LiteralPath $hubEditors) {
+        Get-ChildItem -LiteralPath $hubEditors -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             $exe = Join-Path $_.FullName "Editor\Unity.exe"
-            if (Test-Path $exe) {
+            if (Test-Path -LiteralPath $exe) {
                 $candidates += [pscustomobject]@{ Version = $_.Name; Path = $exe }
             }
         }
@@ -117,10 +117,10 @@ function Find-UnityEditorPaths {
 
     # Secondary location (x86)
     $hubEditors86 = Join-Path ${env:ProgramFiles(x86)} "Unity\Hub\Editor"
-    if (Test-Path $hubEditors86) {
-        Get-ChildItem $hubEditors86 -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    if (Test-Path -LiteralPath $hubEditors86) {
+        Get-ChildItem -LiteralPath $hubEditors86 -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             $exe = Join-Path $_.FullName "Editor\Unity.exe"
-            if (Test-Path $exe) {
+            if (Test-Path -LiteralPath $exe) {
                 $candidates += [pscustomobject]@{ Version = $_.Name; Path = $exe }
             }
         }
@@ -136,10 +136,10 @@ function Test-UnityEditorPath {
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return @{ Valid = $false; Message = "Path is empty" }
     }
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         return @{ Valid = $false; Message = "Path not found: ${Path}" }
     }
-    if ((Get-Item $Path -ErrorAction SilentlyContinue).PSIsContainer) {
+    if ((Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue).PSIsContainer) {
         return @{ Valid = $false; Message = "Path is a folder, not Unity.exe: ${Path}" }
     }
     $fileName = [System.IO.Path]::GetFileName($Path)
@@ -159,7 +159,7 @@ function Get-PathStatus {
         [string]$NotSetLabel = "(not set)"
     )
     if ([string]::IsNullOrWhiteSpace($Path)) { return $NotSetLabel }
-    if (-not (Test-Path $Path)) { return "NOT FOUND: ${Path}" }
+    if (-not (Test-Path -LiteralPath $Path)) { return "NOT FOUND: ${Path}" }
     return $Path
 }
 
@@ -167,7 +167,7 @@ function Test-PathExists {
     # Quick boolean: is the configured path non-empty AND exists on disk?
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-    return (Test-Path $Path)
+    return (Test-Path -LiteralPath $Path)
 }
 
 function Test-ConfigEssentials {
@@ -192,7 +192,7 @@ function Test-ConfigEssentialsExist {
 
     if ([string]::IsNullOrWhiteSpace($editor)) {
         $missing += "Unity Editor path is not set"
-    } elseif (-not (Test-Path $editor)) {
+    } elseif (-not (Test-Path -LiteralPath $editor)) {
         $missing += "Unity Editor not found: ${editor}"
     } else {
         $editorCheck = Test-UnityEditorPath -Path $editor
@@ -201,7 +201,7 @@ function Test-ConfigEssentialsExist {
 
     if ([string]::IsNullOrWhiteSpace($root)) {
         $missing += "Projects root is not set"
-    } elseif (-not (Test-Path $root)) {
+    } elseif (-not (Test-Path -LiteralPath $root)) {
         $missing += "Projects root not found: ${root}"
     }
 

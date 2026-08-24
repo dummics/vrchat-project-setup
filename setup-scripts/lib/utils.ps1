@@ -1,4 +1,31 @@
 # Utilities for vrc setup scripts
+function Test-VrcSetupProjectName {
+    param([string]$Name)
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return @{ Valid = $false; Message = 'Project name cannot be empty.' }
+    }
+
+    $trimmed = $Name.Trim()
+    if ($trimmed -in @('.', '..') -or [System.IO.Path]::IsPathRooted($trimmed) -or
+        $trimmed.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0 -or
+        $trimmed.Contains([System.IO.Path]::DirectorySeparatorChar) -or
+        $trimmed.Contains([System.IO.Path]::AltDirectorySeparatorChar)) {
+        return @{ Valid = $false; Message = "Project name contains path separators or invalid characters: ${Name}" }
+    }
+
+    if ($trimmed.EndsWith(' ') -or $trimmed.EndsWith('.')) {
+        return @{ Valid = $false; Message = 'Project name cannot end with a space or period.' }
+    }
+
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($trimmed)
+    if ($stem -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') {
+        return @{ Valid = $false; Message = "Project name is reserved by Windows: ${Name}" }
+    }
+
+    return @{ Valid = $true; Message = $null }
+}
+
 function Install-NUnitPackage {
     param(
         [string]$ProjectPath,
@@ -7,13 +34,13 @@ function Install-NUnitPackage {
 
     $manifestPath = Join-Path $ProjectPath "Packages\manifest.json"
 
-    if (-not (Test-Path $manifestPath)) {
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
         Write-Host "Warning: manifest.json not found, skipping NUnit" -ForegroundColor Yellow
         return
     }
 
     try {
-        $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 
         # Check se NUnit è già presente
         if ($manifest.dependencies.PSObject.Properties.Name -contains "com.unity.test-framework") {
@@ -23,16 +50,15 @@ function Install-NUnitPackage {
 
         $testFrameworkVersion = "1.1.33"
         try {
-            $utilsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-            $scriptDir = (Resolve-Path (Join-Path $utilsDir '..')).Path
+            $scriptDir = [System.IO.Directory]::GetParent($PSScriptRoot).FullName
             $depsPath = Join-Path $scriptDir "config\\unity-test-framework.dependencies.json"
-            if (-not (Test-Path $depsPath)) {
+            if (-not (Test-Path -LiteralPath $depsPath)) {
                 # Back-compat (older name)
                 $depsPath = Join-Path $scriptDir "config\\vrcsetup.lock.json"
             }
 
-            if (Test-Path $depsPath) {
-                $deps = Get-Content $depsPath -Raw | ConvertFrom-Json
+            if (Test-Path -LiteralPath $depsPath) {
+                $deps = Get-Content -LiteralPath $depsPath -Raw | ConvertFrom-Json
                 if ($deps -and $deps.dependencies -and ($deps.dependencies.PSObject.Properties.Name -contains 'com.unity.test-framework')) {
                     $testFrameworkVersion = [string]$deps.dependencies.'com.unity.test-framework'
                 }
@@ -44,14 +70,14 @@ function Install-NUnitPackage {
         Write-Host "Adding NUnit Test Framework (required by VRChat SDK)..." -ForegroundColor Cyan
         if ($Test) {
             Write-Host "[TEST] Would add com.unity.test-framework @ ${testFrameworkVersion}" -ForegroundColor DarkGray
-            Add-Content -Path $global:VRCSETUP_LOGFILE -Value "[TEST] Would add com.unity.test-framework @ ${testFrameworkVersion} to ${ProjectPath}"
+            Add-Content -LiteralPath $global:VRCSETUP_LOGFILE -Value "[TEST] Would add com.unity.test-framework @ ${testFrameworkVersion} to ${ProjectPath}"
             return
         }
         # Aggiungi NUnit
         $manifest.dependencies | Add-Member -MemberType NoteProperty -Name "com.unity.test-framework" -Value $testFrameworkVersion -Force
 
         # Salva manifest
-        $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath -Encoding UTF8
+        $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
         Write-Host "NUnit Test Framework added!" -ForegroundColor Green
     } catch {

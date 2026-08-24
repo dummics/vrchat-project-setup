@@ -14,10 +14,10 @@ function Read-VrcSetupProjectState {
     param([string]$ProjectPath)
 
     $statePath = Get-VrcSetupStatePath -ProjectPath $ProjectPath
-    if (-not (Test-Path $statePath)) { return $null }
+    if (-not (Test-Path -LiteralPath $statePath)) { return $null }
 
     try {
-        return (Get-Content $statePath -Raw -ErrorAction Stop | ConvertFrom-Json)
+        return (Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop | ConvertFrom-Json)
     } catch {
         return $null
     }
@@ -30,12 +30,12 @@ function Write-VrcSetupProjectState {
     )
 
     $stateDir = Get-VrcSetupStateDir -ProjectPath $ProjectPath
-    if (-not (Test-Path $stateDir)) {
+    if (-not (Test-Path -LiteralPath $stateDir)) {
         New-Item -Path $stateDir -ItemType Directory -Force | Out-Null
     }
 
     $statePath = Get-VrcSetupStatePath -ProjectPath $ProjectPath
-    $State | ConvertTo-Json -Depth 20 | Set-Content -Path $statePath -Encoding UTF8
+    $State | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $statePath -Encoding UTF8
 }
 
 function Initialize-VrcSetupProjectState {
@@ -147,10 +147,10 @@ function Get-VrcSetupIncompleteProjects {
     param([string]$UnityProjectsRoot)
 
     if ([string]::IsNullOrWhiteSpace($UnityProjectsRoot)) { return @() }
-    if (-not (Test-Path $UnityProjectsRoot)) { return @() }
+    if (-not (Test-Path -LiteralPath $UnityProjectsRoot)) { return @() }
 
     $result = @()
-    Get-ChildItem -Path $UnityProjectsRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    Get-ChildItem -LiteralPath $UnityProjectsRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
         $p = $_.FullName
         $state = Read-VrcSetupProjectState -ProjectPath $p
         if (-not $state) { return }

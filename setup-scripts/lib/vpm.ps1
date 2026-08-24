@@ -23,7 +23,7 @@ function Read-VccRepoJsonSafe {
 
     for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
         try {
-            return (Get-Content $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+            return (Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
         } catch {
             $message = $_.Exception.Message
             if (($attempt -lt $RetryCount) -and (Test-IsFileLockMessage -Text $message)) {
@@ -145,7 +145,7 @@ function Initialize-VpmTestProject {
 
     # VPM requires at minimum an Assets folder to recognize a Unity project.
     # Re-create missing structure even if the cache directory already exists.
-    $needsInit = -not (Test-Path $assetsPath) -or -not (Test-Path $packagesPath)
+    $needsInit = -not (Test-Path -LiteralPath $assetsPath) -or -not (Test-Path -LiteralPath $packagesPath)
 
     if (-not $needsInit) {
         return $testProjectPath
@@ -158,13 +158,13 @@ function Initialize-VpmTestProject {
     New-Item -ItemType Directory -Path $settingsPath -Force | Out-Null
 
     $manifest = @{ dependencies = @{ } }
-    $manifest | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $packagesPath "manifest.json") -Encoding UTF8
+    $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $packagesPath "manifest.json") -Encoding UTF8
 
     $vpmManifest = @{ dependencies = @{ }; locked = @{ } }
-    $vpmManifest | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $packagesPath "vpm-manifest.json") -Encoding UTF8
+    $vpmManifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $packagesPath "vpm-manifest.json") -Encoding UTF8
 
     # Minimal ProjectVersion.txt so VPM and other tools can identify the Unity version
-    Set-Content -Path (Join-Path $settingsPath "ProjectVersion.txt") -Value "m_EditorVersion: 2022.3.22f1" -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $settingsPath "ProjectVersion.txt") -Value "m_EditorVersion: 2022.3.22f1" -Encoding UTF8
 
     Write-Host "Cache created at: ${testProjectPath}" -ForegroundColor Green
     return $testProjectPath
@@ -185,9 +185,9 @@ function Test-VpmRepositoryConfigured {
     param([Parameter(Mandatory)][string]$Url)
 
     $reposPath = Get-VpmReposPath
-    if ([string]::IsNullOrWhiteSpace($reposPath) -or -not (Test-Path $reposPath)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($reposPath) -or -not (Test-Path -LiteralPath $reposPath)) { return $false }
 
-    foreach ($repoFile in Get-ChildItem $reposPath -Filter '*.json' -File -ErrorAction SilentlyContinue) {
+    foreach ($repoFile in Get-ChildItem -LiteralPath $reposPath -Filter '*.json' -File -ErrorAction SilentlyContinue) {
         $repoData = Read-VccRepoJsonSafe -Path $repoFile.FullName
         if (-not $repoData) { continue }
         $configuredUrl = if ($repoData.repo -and $repoData.repo.url) {
@@ -219,8 +219,8 @@ function Ensure-VpmRepository {
 function Get-AllVpmPackageNames {
     $reposPath = Get-VpmReposPath
     $names = @()
-    if (-not [string]::IsNullOrWhiteSpace($reposPath) -and (Test-Path $reposPath)) {
-        Get-ChildItem $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+    if (-not [string]::IsNullOrWhiteSpace($reposPath) -and (Test-Path -LiteralPath $reposPath)) {
+        Get-ChildItem -LiteralPath $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
             try {
                 $repoData = Read-VccRepoJsonSafe -Path $_.FullName
                 if ($repoData.packages) {
@@ -245,8 +245,8 @@ function Get-VpmAvailableVersions {
 
     $reposPath = Get-VpmReposPath
     $available = @()
-    if (-not [string]::IsNullOrWhiteSpace($reposPath) -and (Test-Path $reposPath)) {
-        Get-ChildItem $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+    if (-not [string]::IsNullOrWhiteSpace($reposPath) -and (Test-Path -LiteralPath $reposPath)) {
+        Get-ChildItem -LiteralPath $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
             try {
                 $repoData = Read-VccRepoJsonSafe -Path $_.FullName
                 if (${repoData.packages}.${PackageName}) {
@@ -342,8 +342,8 @@ function Test-VpmPackageVersion {
         if ($res.ExitCode -ne 0 -or $output -match "ERR.*Could not get match" -or $output -match "ERR.*not found" -or $output -match "ERR.*Could not find project") {
             $reposPath = Get-VpmReposPath
             $availableVersions = @()
-            if (Test-Path $reposPath) {
-                Get-ChildItem $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+            if (Test-Path -LiteralPath $reposPath) {
+                Get-ChildItem -LiteralPath $reposPath -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
                     try {
                         $repoData = Read-VccRepoJsonSafe -Path $_.FullName
                         if (${repoData.packages}.${PackageName}) {

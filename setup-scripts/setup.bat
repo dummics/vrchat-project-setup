@@ -10,6 +10,10 @@ if %errorlevel%==0 (
 	set "PS_EXE=powershell"
 )
 
-:: Run the wizard in the CURRENT terminal session.
-%PS_EXE% -NoProfile -ExecutionPolicy Bypass -File "%~dp0vrc-setup-script.ps1" -Wizard
+:: No arguments opens the wizard; arguments are forwarded to the PowerShell CLI.
+if "%~1"=="" (
+	%PS_EXE% -NoProfile -ExecutionPolicy Bypass -File "%~dp0vrc-setup-script.ps1" -Wizard
+) else (
+	%PS_EXE% -NoProfile -ExecutionPolicy Bypass -File "%~dp0vrc-setup-script.ps1" %*
+)
 exit /b %errorlevel%

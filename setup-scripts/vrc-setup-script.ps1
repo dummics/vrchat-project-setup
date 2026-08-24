@@ -1,7 +1,7 @@
 param([string]$projectPath, [switch]$Test, [switch]$Wizard)
 
 # Top-level entry point for vrc setup
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptDir = $PSScriptRoot
 . "${scriptDir}\lib\config.ps1"
 . "${scriptDir}\commands\wizard.ps1"
 . "${scriptDir}\commands\installer.ps1"

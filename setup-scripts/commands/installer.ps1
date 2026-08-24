@@ -5,8 +5,7 @@ $script:VrcSetupStatusFailure = 1
 $script:VrcSetupStatusCancelled = 2
 
 # commands/installer.ps1 - central installer logic exported as a function
-$cmdDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptDir = (Resolve-Path (Join-Path $cmdDir '..')).Path
+$scriptDir = [System.IO.Directory]::GetParent($PSScriptRoot).FullName
 . "$scriptDir\lib\menu.ps1"
 . "$scriptDir\lib\utils.ps1"
 . "$scriptDir\lib\progress.ps1"
@@ -72,7 +71,7 @@ function Get-VpmManifestValidationResult {
         Message = $null
     }
 
-    if ((-not (Test-Path $manifestPath)) -and (-not (Test-Path $vpmManifestPath))) {
+    if ((-not (Test-Path -LiteralPath $manifestPath)) -and (-not (Test-Path -LiteralPath $vpmManifestPath))) {
         $result.Message = "Neither manifest.json nor vpm-manifest.json was found."
         return $result
     }
@@ -95,15 +94,15 @@ function Get-VpmManifestValidationResult {
     try {
         $dependencyNames = @()
 
-        if (Test-Path $manifestPath) {
-            $manifest = Get-Content $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if (Test-Path -LiteralPath $manifestPath) {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
             if ($manifest -and $manifest.dependencies) {
                 $dependencyNames += @($manifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
             }
         }
 
-        if (Test-Path $vpmManifestPath) {
-            $vpmManifest = Get-Content $vpmManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if (Test-Path -LiteralPath $vpmManifestPath) {
+            $vpmManifest = Get-Content -LiteralPath $vpmManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
             if ($vpmManifest -and $vpmManifest.dependencies) {
                 $dependencyNames += @($vpmManifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
             }
@@ -264,16 +263,16 @@ function Install-PackagesInProject {
         Write-VrcSetupLog -Message ("INFO: {0}" -f $legacyMigration.Message)
     }
 
-    Push-Location $ProjectPath
+    Push-Location -LiteralPath $ProjectPath
     try {
     $hadFailures = $false
 
     # Backup manifest once before any changes (keeps logs in a sane order)
     $manifestPath = Join-Path $ProjectPath "Packages\manifest.json"
-    if ((-not $Test) -and (Test-Path $manifestPath)) {
+    if ((-not $Test) -and (Test-Path -LiteralPath $manifestPath)) {
         try {
             $backupPath = "${manifestPath}.bak.$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item $manifestPath -Destination $backupPath -Force
+            Copy-Item -LiteralPath $manifestPath -Destination $backupPath -Force
             Write-Host "Backup manifest created: ${backupPath}" -ForegroundColor Gray
         } catch {
             Write-Host "Failed to create manifest backup: ${_}" -ForegroundColor Yellow
@@ -358,8 +357,8 @@ function Get-UnityProcessesUsingProjectPath {
 
     $normalizedPath = $ProjectPath
     try {
-        if (Test-Path $ProjectPath) {
-            $normalizedPath = (Resolve-Path $ProjectPath -ErrorAction Stop).Path
+        if (Test-Path -LiteralPath $ProjectPath) {
+            $normalizedPath = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop).Path
         } else {
             $normalizedPath = [System.IO.Path]::GetFullPath($ProjectPath)
         }
@@ -402,7 +401,7 @@ function Remove-ProjectFolderWithRecovery {
 
     while ($true) {
         try {
-            Remove-Item -Path $ProjectPath -Recurse -Force -ErrorAction Stop
+            Remove-Item -LiteralPath $ProjectPath -Recurse -Force -ErrorAction Stop
             return [pscustomobject]@{ Removed = $true; Skipped = $false; Cancelled = $false }
         } catch {
             $deleteMessage = $_.Exception.Message
@@ -484,7 +483,7 @@ function Start-Installer {
 
     # prepare environment
     $logDir = Join-Path $scriptDir 'logs'
-    if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
+    if (-not (Test-Path -LiteralPath $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
     $global:VRCSETUP_LOGFILE = Join-Path $logDir "vrcsetup-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
     $configPath = Join-Path $scriptDir "config\\vrcsetup.json"
     $defaultsPath = Join-Path $scriptDir "config\\vrcsetup.defaults"
@@ -500,14 +499,14 @@ function Start-Installer {
 
     # If reset requested
     if ($projectPath -eq "-reset") {
-        if (Test-Path $configPath) { Remove-Item $configPath -Force; Write-Host "Configuration reset" -ForegroundColor Green; return $script:VrcSetupStatusSuccess }
+        if (Test-Path -LiteralPath $configPath) { Remove-Item -LiteralPath $configPath -Force; Write-Host "Configuration reset" -ForegroundColor Green; return $script:VrcSetupStatusSuccess }
         Write-Host "No configuration to reset" -ForegroundColor Yellow
         return $script:VrcSetupStatusSuccess
     }
 
     # Validate projectPath exists
     if (-not $projectPath) { Write-Host "Error: project path required" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
-    if (-not (Test-Path $projectPath)) { Write-Host "Error: path not found: ${projectPath}" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
+    if (-not (Test-Path -LiteralPath $projectPath)) { Write-Host "Error: path not found: ${projectPath}" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
 
     # Load config
     $config = Load-Config -ConfigPath $configPath
@@ -569,18 +568,18 @@ function Start-Installer {
         }
 
         if (-not $commonPackagesPath) { return @() }
-        if (-not (Test-Path $commonPackagesPath)) { return @() }
+        if (-not (Test-Path -LiteralPath $commonPackagesPath)) { return @() }
 
         $excludeResolved = $null
         if (-not [string]::IsNullOrWhiteSpace($ExcludeUnityPackagePath)) {
-            try { $excludeResolved = (Resolve-Path $ExcludeUnityPackagePath -ErrorAction Stop).Path } catch { $excludeResolved = $ExcludeUnityPackagePath }
+            try { $excludeResolved = (Resolve-Path -LiteralPath $ExcludeUnityPackagePath -ErrorAction Stop).Path } catch { $excludeResolved = $ExcludeUnityPackagePath }
         }
 
         $extra = @()
-        $commonPackages = Get-ChildItem -Path $commonPackagesPath -Filter "*.unitypackage" -ErrorAction SilentlyContinue
+        $commonPackages = Get-ChildItem -LiteralPath $commonPackagesPath -Filter "*.unitypackage" -ErrorAction SilentlyContinue
         foreach ($pkg in $commonPackages) {
             $pkgResolved = $pkg.FullName
-            try { $pkgResolved = (Resolve-Path $pkg.FullName -ErrorAction Stop).Path } catch { }
+            try { $pkgResolved = (Resolve-Path -LiteralPath $pkg.FullName -ErrorAction Stop).Path } catch { }
 
             if ($excludeResolved -and ($pkgResolved -eq $excludeResolved)) { continue }
             $extra += $pkg.FullName
@@ -598,7 +597,7 @@ function Start-Installer {
         )
 
         if (-not $UnityPackagePaths -or $UnityPackagePaths.Count -eq 0) { return $script:VrcSetupStatusSuccess }
-        if (-not $UnityEditorPath -or (-not (Test-Path $UnityEditorPath))) {
+        if (-not $UnityEditorPath -or (-not (Test-Path -LiteralPath $UnityEditorPath))) {
             Write-Host "Error: Unity Editor not found at: ${UnityEditorPath}" -ForegroundColor Red
             return $script:VrcSetupStatusFailure
         }
@@ -630,6 +629,12 @@ function Start-Installer {
         $packageName = [System.IO.Path]::GetFileNameWithoutExtension($projectPath)
         $projectName = if (-not [string]::IsNullOrWhiteSpace($NewProjectName)) { $NewProjectName } else { $packageName }
 
+        $projectNameCheck = Test-VrcSetupProjectName -Name $projectName
+        if (-not $projectNameCheck.Valid) {
+            Write-Host ("Error: invalid project name. {0}" -f $projectNameCheck.Message) -ForegroundColor Red
+            return $script:VrcSetupStatusFailure
+        }
+
         if ($overallProgressEnabled) {
             $overallProgressActivity = "[Setup] ${projectName}"
             try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status ("UnityPackage: {0}" -f ([System.IO.Path]::GetFileName($projectPath))) } catch { }
@@ -640,7 +645,7 @@ function Start-Installer {
         }
 
         $newProjectPath = Join-Path $UNITY_PROJECTS_ROOT $projectName
-        if (Test-Path $newProjectPath) {
+        if (Test-Path -LiteralPath $newProjectPath) {
             if ($OverwriteExistingProject) {
                 Write-Host "Project already exists, deleting (overwrite enabled): ${newProjectPath}" -ForegroundColor Yellow
                 $deleteResult = Remove-ProjectFolderWithRecovery -ProjectPath $newProjectPath -FailurePrefix "Error: failed to delete existing project" -AllowSkip:$false -SkipLabel "Cancel setup"
@@ -653,7 +658,7 @@ function Start-Installer {
             }
         }
 
-        if (-not $UNITY_EDITOR_PATH -or (-not (Test-Path $UNITY_EDITOR_PATH))) {
+        if (-not $UNITY_EDITOR_PATH -or (-not (Test-Path -LiteralPath $UNITY_EDITOR_PATH))) {
             Write-Host "Error: Unity Editor not found at: ${UNITY_EDITOR_PATH}" -ForegroundColor Red
             return $script:VrcSetupStatusFailure
         }
@@ -669,9 +674,9 @@ function Start-Installer {
 
             $onCancelDeleteProject = {
                 try {
-                    if (Test-Path $newProjectPath) {
+                    if (Test-Path -LiteralPath $newProjectPath) {
                         Write-Host "Cancelling: deleting created project folder..." -ForegroundColor Yellow
-                        Remove-Item -Path $newProjectPath -Recurse -Force -ErrorAction SilentlyContinue
+                        Remove-Item -LiteralPath $newProjectPath -Recurse -Force -ErrorAction SilentlyContinue
                         Write-Host "Deleted: ${newProjectPath}" -ForegroundColor Yellow
                     }
                 } catch {
@@ -686,13 +691,13 @@ function Start-Installer {
             $createRes = Show-ProcessProgress -Process $createProcess -LogFile $createLogFile -Prefix "[Unity]" -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
             if ($createRes -and $createRes.Cancelled) { return $script:VrcSetupStatusCancelled }
 
-            if (-not (Test-Path (Join-Path $newProjectPath "Assets"))) {
+            if (-not (Test-Path -LiteralPath (Join-Path $newProjectPath "Assets"))) {
                 Write-Host "Error: project was not created correctly." -ForegroundColor Red
-                if (Test-Path $createLogFile) {
+                if (Test-Path -LiteralPath $createLogFile) {
                     Write-Host "Last log lines:" -ForegroundColor Yellow
-                    Get-Content $createLogFile -Tail 20
+                    Get-Content -LiteralPath $createLogFile -Tail 20
                 }
-                Remove-Item -Path $newProjectPath -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $newProjectPath -Recurse -Force -ErrorAction SilentlyContinue
                 return $script:VrcSetupStatusFailure
             }
 
@@ -719,9 +724,9 @@ function Start-Installer {
             $packagesToImport = @($projectPath)
 
             $mainPackageResolved = $projectPath
-            try { $mainPackageResolved = (Resolve-Path $projectPath -ErrorAction Stop).Path } catch { }
+            try { $mainPackageResolved = (Resolve-Path -LiteralPath $projectPath -ErrorAction Stop).Path } catch { }
 
-            $workspaceRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
+            $workspaceRoot = [System.IO.Directory]::GetParent($scriptDir).FullName
             ${commonPackagesPath} = $null
             if ($config -and ($config.PSObject.Properties.Name -contains 'UnityPackagesFolder')) {
                 $cfgCommon = [string]$config.UnityPackagesFolder
@@ -735,11 +740,11 @@ function Start-Installer {
                 }
             }
 
-            if (${commonPackagesPath} -and (Test-Path ${commonPackagesPath})) {
-                $commonPackages = Get-ChildItem -Path ${commonPackagesPath} -Filter "*.unitypackage" -ErrorAction SilentlyContinue
+            if (${commonPackagesPath} -and (Test-Path -LiteralPath ${commonPackagesPath})) {
+                $commonPackages = Get-ChildItem -LiteralPath ${commonPackagesPath} -Filter "*.unitypackage" -ErrorAction SilentlyContinue
                 foreach ($pkg in $commonPackages) {
                     $pkgResolved = $pkg.FullName
-                    try { $pkgResolved = (Resolve-Path $pkg.FullName -ErrorAction Stop).Path } catch { }
+                    try { $pkgResolved = (Resolve-Path -LiteralPath $pkg.FullName -ErrorAction Stop).Path } catch { }
                     if ($pkgResolved -ne $mainPackageResolved) {
                         $packagesToImport += $pkg.FullName
                     }
@@ -799,7 +804,7 @@ function Start-Installer {
             # This helps avoid a full re-import/crunch pass when opening the GUI right after.
             try {
                 $editorDir = Join-Path $newProjectPath "Assets\\Editor"
-                if (-not (Test-Path $editorDir)) { New-Item -Path $editorDir -ItemType Directory -Force | Out-Null }
+                if (-not (Test-Path -LiteralPath $editorDir)) { New-Item -Path $editorDir -ItemType Directory -Force | Out-Null }
 
                 $postImportScriptPath = Join-Path $editorDir "VrcSetupPostImport.cs"
                 @'
@@ -875,7 +880,7 @@ public static class VrcSetupPostImport
         EditorApplication.Exit(0);
     }
 }
-'@ | Set-Content -Path $postImportScriptPath -Encoding UTF8
+'@ | Set-Content -LiteralPath $postImportScriptPath -Encoding UTF8
 
                 $settleLogFile = Join-Path $env:TEMP "unity-postimport-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
                 $settleArgs = @(
@@ -925,7 +930,7 @@ public static class VrcSetupPostImport
     # If not a Unity package, assume existing project and install packages
     $assetsPath = Join-Path $projectPath "Assets"
     $packagesPath = Join-Path $projectPath "Packages"
-    if ((Test-Path $assetsPath) -or (Test-Path $packagesPath)) {
+    if ((Test-Path -LiteralPath $assetsPath) -or (Test-Path -LiteralPath $packagesPath)) {
         if ($overallProgressEnabled) {
             $leaf = $null
             try { $leaf = Split-Path -Leaf $projectPath } catch { $leaf = $null }
@@ -939,7 +944,7 @@ public static class VrcSetupPostImport
         if ($vpmStatus -ne $script:VrcSetupStatusSuccess) { return $vpmStatus }
 
         if ($ImportExtras) {
-            $workspaceRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
+            $workspaceRoot = [System.IO.Directory]::GetParent($scriptDir).FullName
             $extraPkgs = Resolve-ExtraUnityPackagesFromConfig -Config $config -WorkspaceRoot $workspaceRoot -ExcludeUnityPackagePath $ExcludeUnityPackagePath
             if (-not $extraPkgs -or $extraPkgs.Count -eq 0) {
                 Write-Host "No extra UnityPackages configured/found to import." -ForegroundColor Yellow

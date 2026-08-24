@@ -105,8 +105,8 @@ function Show-ProcessProgress {
             $lastStatsUpdate = Get-Date
         }
 
-        if (Test-Path $LogFile) {
-            $newLog = Get-Content $LogFile -Tail 1 -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $LogFile) {
+            $newLog = Get-Content -LiteralPath $LogFile -Tail 1 -ErrorAction SilentlyContinue
             if ($newLog -and $newLog -ne $lastLog) { $lastLog = $newLog }
         }
 

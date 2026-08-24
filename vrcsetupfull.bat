@@ -1,5 +1,5 @@
 @echo off
 :: VRChat Setup Wizard - Shortcut
-:: Lancia il wizard dalla cartella setup-scripts
-cd /d "%~dp0setup-scripts"
-call setup.bat
+:: Delegate with an absolute path without changing the caller's working directory.
+call "%~dp0setup-scripts\setup.bat" %*
+exit /b %errorlevel%
