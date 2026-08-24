@@ -6,12 +6,12 @@ set "NO_LAUNCH=0"
 :parse_args
 if /i "%~1"=="--no-pause" (
 	set "NO_PAUSE=1"
-	shift
+	shift /1
 	goto parse_args
 )
 if /i "%~1"=="--no-launch" (
 	set "NO_LAUNCH=1"
-	shift
+	shift /1
 	goto parse_args
 )
 

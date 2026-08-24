@@ -59,8 +59,13 @@ try {
     [System.IO.Directory]::CreateDirectory((Join-Path $installRoot 'bin')) | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $installRoot 'bin\vrcsetup.cmd'), '@echo obsolete')
     [System.IO.File]::WriteAllText((Join-Path $installRoot 'Install-VrcSetup.ps1'), '# obsolete installed copy')
-    & (Join-Path $repoRoot 'Install VRChat Project Setup.bat') --no-pause --no-launch | Out-Host
-    $installExit = $LASTEXITCODE
+    Push-Location -LiteralPath $env:TEMP
+    try {
+        & (Join-Path $repoRoot 'Install VRChat Project Setup.bat') --no-pause --no-launch | Out-Host
+        $installExit = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
     Assert-True ($installExit -eq 0) "Installer exited with ${installExit}."
     Assert-True (Test-Path -LiteralPath (Join-Path $installRoot 'setup-scripts\bin\vrcsetup.cmd')) 'Alias was not installed.'
     Assert-True (Test-Path -LiteralPath (Join-Path $installRoot '.vrcsetup-installed')) 'Installation marker was not created.'
