@@ -37,6 +37,8 @@ Optional tooling:
 - If a local `vrc-get` exe is present, the wizard can search packages and list versions even when the local VCC repos cache is empty.
 	- Put the exe under `setup-scripts/lib/vrc-get/` (any `*.exe` name; `vrc-get.exe` preferred)
 
+- Easy Login is a protected default VPM package (`dev.foxscore.easy-login`, version policy `latest`). Setup ensures the Vulpine Vault repository is registered and moves a verified legacy `Assets/EASY LOGIN` copy to `.vrcsetup/backups/` before installing the VPM-managed copy.
+
 - Next steps:
 - Continue modularizing by moving more logic into `commands/installer.ps1` and splitting into smaller commands.
 - Gradual translation of messages to English.

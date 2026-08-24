@@ -181,6 +181,41 @@ function Get-VpmReposPath {
     }
 }
 
+function Test-VpmRepositoryConfigured {
+    param([Parameter(Mandatory)][string]$Url)
+
+    $reposPath = Get-VpmReposPath
+    if ([string]::IsNullOrWhiteSpace($reposPath) -or -not (Test-Path $reposPath)) { return $false }
+
+    foreach ($repoFile in Get-ChildItem $reposPath -Filter '*.json' -File -ErrorAction SilentlyContinue) {
+        $repoData = Read-VccRepoJsonSafe -Path $repoFile.FullName
+        if (-not $repoData) { continue }
+        $configuredUrl = if ($repoData.repo -and $repoData.repo.url) {
+            [string]$repoData.repo.url
+        } elseif ($repoData.url) {
+            [string]$repoData.url
+        } else {
+            $null
+        }
+        if ($configuredUrl -and $configuredUrl.TrimEnd('/') -ieq $Url.TrimEnd('/')) { return $true }
+    }
+    return $false
+}
+
+function Ensure-VpmRepository {
+    param([Parameter(Mandatory)][string]$Url)
+
+    if (Test-VpmRepositoryConfigured -Url $Url) {
+        return @{ Success = $true; Added = $false; Message = 'Repository already configured.' }
+    }
+
+    $result = Invoke-VpmCapture -Arguments @('add', 'repo', $Url)
+    if ($result.ExitCode -ne 0 -or -not (Test-VpmRepositoryConfigured -Url $Url)) {
+        return @{ Success = $false; Added = $false; Message = "Unable to add VPM repository: ${Url}"; Result = $result }
+    }
+    return @{ Success = $true; Added = $true; Message = 'Repository configured.'; Result = $result }
+}
+
 function Get-AllVpmPackageNames {
     $reposPath = Get-VpmReposPath
     $names = @()

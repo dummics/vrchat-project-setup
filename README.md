@@ -132,6 +132,12 @@ In `setup-scripts/config/vrcsetup.json` you can store naming preferences used wh
 ## 🔄 Migration from Old Format
 Older config files that used a simple array of package names are migrated automatically into the new dict format with `latest` as a default version.
 
+### Easy Login policy
+
+`dev.foxscore.easy-login` is a protected default package and is resolved from Fox_score's Vulpine Vault repository (`https://foxscore.dev/vpm/index.json`). The tracked default uses `latest`: setup resolves the newest stable release available at that moment, while the project's `Packages/vpm-manifest.json` records the exact resolved version for reproducibility.
+
+If an imported avatar contains an old source copy at `Assets/EASY LOGIN`, setup verifies its package ID and moves it outside `Assets` to `.vrcsetup/backups/easy-login-assets-<timestamp>` before resolving the VPM package. This prevents duplicate Easy Login assemblies without deleting the imported copy. Run setup again on an existing project to refresh the package; close that project in Unity first.
+
 ## 📝 Changelog (summary)
 
 - v2.0 - 26/10/2025: Added support for configurable package versions, migration, and validation.

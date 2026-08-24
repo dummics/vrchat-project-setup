@@ -29,6 +29,7 @@ function Initialize-ConfigIfMissing {
             'gogoloco' = 'latest'
             'adjerry91.vrcft.templates' = 'latest'
             'com.poiyomi.toon' = 'latest'
+            'dev.foxscore.easy-login' = 'latest'
         }
         DefaultPackages = @(
             'com.vrchat.base',
@@ -37,7 +38,8 @@ function Initialize-ConfigIfMissing {
             'com.vrcfury.vrcfury',
             'gogoloco',
             'adjerry91.vrcft.templates',
-            'com.poiyomi.toon'
+            'com.poiyomi.toon',
+            'dev.foxscore.easy-login'
         )
         UnityEditorPath = ''
         UnityProjectsRoot = ''
@@ -72,20 +74,21 @@ function Save-Config {
 
 function Get-DefaultPackages {
     param($Config)
-    if (-not $Config) { return @() }
-    if ($Config.PSObject.Properties.Name -contains 'DefaultPackages' -and $Config.DefaultPackages) {
-        return @($Config.DefaultPackages)
-    }
-    # Fallback: VRChat core packages are always protected
-    return @(
+    $builtIn = @(
         'com.vrchat.base',
         'com.vrchat.avatars',
         'com.vrchat.core.vpm-resolver',
         'com.vrcfury.vrcfury',
         'gogoloco',
         'adjerry91.vrcft.templates',
-        'com.poiyomi.toon'
+        'com.poiyomi.toon',
+        'dev.foxscore.easy-login'
     )
+
+    if ($Config -and $Config.PSObject.Properties.Name -contains 'DefaultPackages' -and $Config.DefaultPackages) {
+        return @($builtIn + @($Config.DefaultPackages) | Select-Object -Unique)
+    }
+    return $builtIn
 }
 
 function Test-IsDefaultPackage {

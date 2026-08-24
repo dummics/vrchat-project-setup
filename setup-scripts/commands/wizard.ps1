@@ -290,9 +290,7 @@ function Ensure-ConfigDefaults {
     }
 
     # Ensure DefaultPackages list exists (for protected packages)
-    if (-not ($Config.PSObject.Properties.Name -contains 'DefaultPackages') -or $null -eq $Config.DefaultPackages) {
-        $Config | Add-Member -MemberType NoteProperty -Name "DefaultPackages" -Value (Get-DefaultPackages -Config $null) -Force
-    }
+    $Config | Add-Member -MemberType NoteProperty -Name "DefaultPackages" -Value @(Get-DefaultPackages -Config $Config) -Force
 
     # Ensure VpmPackages contains all default packages
     if ($Config.VpmPackages) {

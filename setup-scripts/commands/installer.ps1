@@ -126,6 +126,70 @@ function Get-VpmManifestValidationResult {
     return $result
 }
 
+function Test-PackagesIncludeEasyLogin {
+    param($Packages)
+    if (-not $Packages) { return $false }
+    return @($Packages.PSObject.Properties.Name) -contains 'dev.foxscore.easy-login'
+}
+
+function Move-LegacyEasyLoginPackage {
+    param(
+        [Parameter(Mandatory)][string]$ProjectPath,
+        $Packages,
+        [switch]$Test
+    )
+
+    $result = [pscustomobject]@{ Success = $true; Changed = $false; BackupPath = $null; Message = $null }
+    if (-not (Test-PackagesIncludeEasyLogin -Packages $Packages)) { return $result }
+
+    $resolvedProject = (Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop).Path.TrimEnd('\')
+    $legacyPath = Join-Path $resolvedProject 'Assets\EASY LOGIN'
+    if (-not (Test-Path -LiteralPath $legacyPath)) { return $result }
+
+    $packageJson = Join-Path $legacyPath 'package.json'
+    try {
+        $legacyPackage = Get-Content -LiteralPath $packageJson -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        $result.Success = $false
+        $result.Message = "Legacy Easy Login folder exists but package.json is unreadable: ${legacyPath}"
+        return $result
+    }
+    if ([string]$legacyPackage.name -ne 'dev.foxscore.easy-login') {
+        $result.Success = $false
+        $result.Message = "Refusing to move an unexpected Assets\\EASY LOGIN folder: ${legacyPath}"
+        return $result
+    }
+
+    $resolvedLegacy = (Resolve-Path -LiteralPath $legacyPath -ErrorAction Stop).Path
+    if (-not $resolvedLegacy.StartsWith($resolvedProject + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $result.Success = $false
+        $result.Message = "Legacy package resolved outside the Unity project: ${resolvedLegacy}"
+        return $result
+    }
+
+    $backupPath = Join-Path $resolvedProject ('.vrcsetup\backups\easy-login-assets-{0}' -f (Get-Date -Format 'yyyyMMdd-HHmmssfff'))
+    $result.Changed = $true
+    $result.BackupPath = $backupPath
+    if ($Test) {
+        $result.Message = "Would move legacy Easy Login to ${backupPath}"
+        return $result
+    }
+
+    try {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $backupPath) -Force | Out-Null
+        Move-Item -LiteralPath $legacyPath -Destination $backupPath
+        $legacyMeta = "${legacyPath}.meta"
+        if (Test-Path -LiteralPath $legacyMeta) {
+            Move-Item -LiteralPath $legacyMeta -Destination "${backupPath}.meta"
+        }
+        $result.Message = "Legacy Easy Login moved outside Assets to ${backupPath}"
+    } catch {
+        $result.Success = $false
+        $result.Message = "Failed to back up legacy Easy Login: $($_.Exception.Message)"
+    }
+    return $result
+}
+
 function Ensure-VpmPackagesPresentAfterImport {
     param(
         [string]$ProjectPath,
@@ -136,8 +200,19 @@ function Ensure-VpmPackagesPresentAfterImport {
 
     if ($Test) { return $script:VrcSetupStatusSuccess }
 
+    $legacyMigration = Move-LegacyEasyLoginPackage -ProjectPath $ProjectPath -Packages $Packages
+    if (-not $legacyMigration.Success) {
+        Write-Host $legacyMigration.Message -ForegroundColor Red
+        Write-VrcSetupLog -Message ("ERROR: {0}" -f $legacyMigration.Message)
+        return $script:VrcSetupStatusFailure
+    }
+    if ($legacyMigration.Changed) {
+        Write-Host $legacyMigration.Message -ForegroundColor Yellow
+        Write-VrcSetupLog -Message ("INFO: {0}" -f $legacyMigration.Message)
+    }
+
     $validation = Get-VpmManifestValidationResult -ProjectPath $ProjectPath -Packages $Packages
-    if ($validation.Valid) {
+    if ($validation.Valid -and -not $legacyMigration.Changed) {
         return $script:VrcSetupStatusSuccess
     }
 
@@ -168,6 +243,26 @@ function Install-PackagesInProject {
         $Packages,
         [switch]$Test
     )
+
+    if ((-not $Test) -and (Test-PackagesIncludeEasyLogin -Packages $Packages)) {
+        $repoResult = Ensure-VpmRepository -Url 'https://foxscore.dev/vpm/index.json'
+        if (-not $repoResult.Success) {
+            Write-Host $repoResult.Message -ForegroundColor Red
+            Write-VrcSetupLog -Message ("ERROR: {0}" -f $repoResult.Message)
+            return $script:VrcSetupStatusFailure
+        }
+    }
+
+    $legacyMigration = Move-LegacyEasyLoginPackage -ProjectPath $ProjectPath -Packages $Packages -Test:$Test
+    if (-not $legacyMigration.Success) {
+        Write-Host $legacyMigration.Message -ForegroundColor Red
+        Write-VrcSetupLog -Message ("ERROR: {0}" -f $legacyMigration.Message)
+        return $script:VrcSetupStatusFailure
+    }
+    if ($legacyMigration.Changed) {
+        Write-Host $legacyMigration.Message -ForegroundColor Yellow
+        Write-VrcSetupLog -Message ("INFO: {0}" -f $legacyMigration.Message)
+    }
 
     Push-Location $ProjectPath
     try {

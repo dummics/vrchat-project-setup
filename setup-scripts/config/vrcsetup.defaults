@@ -6,7 +6,8 @@
     "com.vrcfury.vrcfury": "latest",
     "gogoloco": "latest",
     "adjerry91.vrcft.templates": "latest",
-    "com.poiyomi.toon": "latest"
+    "com.poiyomi.toon": "latest",
+    "dev.foxscore.easy-login": "latest"
   },
   "DefaultPackages": [
     "com.vrchat.base",
@@ -15,7 +16,8 @@
     "com.vrcfury.vrcfury",
     "gogoloco",
     "adjerry91.vrcft.templates",
-    "com.poiyomi.toon"
+    "com.poiyomi.toon",
+    "dev.foxscore.easy-login"
   ],
   "UnityEditorPath": "",
   "UnityProjectsRoot": "",
