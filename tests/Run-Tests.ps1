@@ -45,7 +45,14 @@ try {
     $installExit = Invoke-PowerShellFile -Path (Join-Path $repoRoot 'Install-VrcSetup.ps1') -Arguments @('-InstallRoot', $installRoot, '-SkipPathUpdate')
     Assert-True ($installExit -eq 0) "Installer exited with ${installExit}."
     Assert-True (Test-Path -LiteralPath (Join-Path $installRoot 'bin\vrcsetup.cmd')) 'Alias was not installed.'
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $installRoot 'setup-scripts\config\vrcsetup.json'))) 'Installer copied machine-local config.'
+    $sourceConfig = Join-Path $repoRoot 'setup-scripts\config\vrcsetup.json'
+    $installedConfig = Join-Path $installRoot 'setup-scripts\config\vrcsetup.json'
+    if (Test-Path -LiteralPath $sourceConfig) {
+        Assert-True (Test-Path -LiteralPath $installedConfig) 'Installer did not migrate the existing local config.'
+        Assert-True ((Get-FileHash -LiteralPath $sourceConfig).Hash -eq (Get-FileHash -LiteralPath $installedConfig).Hash) 'Migrated config differs from the source.'
+    } else {
+        Assert-True (-not (Test-Path -LiteralPath $installedConfig)) 'Installer created a machine-local config when none existed in the source.'
+    }
 
     Write-Host '[4/6] Running installed CLI alias against a special-character project path...'
     [System.IO.Directory]::CreateDirectory((Join-Path $projectRoot 'Assets')) | Out-Null
