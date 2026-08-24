@@ -8,16 +8,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $installRootFull = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($InstallRoot))
-$binPath = Join-Path $installRootFull 'bin'
+$shellIntegrationScript = Join-Path $installRootFull 'VrcSetup-ShellIntegration.ps1'
 
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-$parts = @($userPath -split ';' | Where-Object {
-    -not [string]::IsNullOrWhiteSpace($_) -and $_.TrimEnd('\') -ine $binPath.TrimEnd('\')
-})
+if (-not (Test-Path -LiteralPath $shellIntegrationScript)) {
+    throw "The selected folder is not a complete VRChat Project Setup installation: ${installRootFull}"
+}
+. $shellIntegrationScript
+if (-not (Test-VrcSetupInstalledCopy -InstallRoot $installRootFull)) {
+    throw "Refusing to remove a folder that is not marked as an installed copy: ${installRootFull}"
+}
 
 $skipPath = $SkipPathUpdate -or $env:VRCSETUP_SKIP_PATH_UPDATE -eq '1'
-if ((-not $skipPath) -and $PSCmdlet.ShouldProcess('User PATH', "Remove ${binPath}")) {
-    [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User')
+if ($PSCmdlet.ShouldProcess('Windows user integration', 'Remove PATH entry and Start Menu shortcuts')) {
+    Remove-VrcSetupShellIntegration -InstallRoot $installRootFull -SkipPathUpdate:$skipPath
 }
 
 if ($KeepConfig) {

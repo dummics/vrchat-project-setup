@@ -10,6 +10,12 @@ $installRootFull = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmen
 $sourceRootFull = [System.IO.Path]::GetFullPath($sourceRoot)
 $sourceConfigPath = Join-Path $sourceRoot 'setup-scripts\config\vrcsetup.json'
 $installedConfigPath = Join-Path $installRootFull 'setup-scripts\config\vrcsetup.json'
+$shellIntegrationScript = Join-Path $sourceRoot 'VrcSetup-ShellIntegration.ps1'
+
+if (-not (Test-Path -LiteralPath $shellIntegrationScript)) {
+    throw "Required shell integration helper is missing: ${shellIntegrationScript}"
+}
+. $shellIntegrationScript
 
 if ($installRootFull.TrimEnd('\').Equals($sourceRootFull.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'InstallRoot must be different from the source folder.'
@@ -46,7 +52,8 @@ foreach ($runtimeItem in @(
     'setup-scripts',
     'bin',
     'vrcsetupfull.bat',
-    'Install-VrcSetup.ps1',
+    'START VRCHAT SETUP.bat',
+    'VrcSetup-ShellIntegration.ps1',
     'Repair-VrcSetup.ps1',
     'Uninstall-VrcSetup.ps1',
     'REPAIR.bat',
@@ -68,19 +75,13 @@ if ((-not (Test-Path -LiteralPath $installedConfigPath)) -and (Test-Path -Litera
 }
 
 $binPath = Join-Path $installRootFull 'bin'
-if (-not $SkipPathUpdate) {
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $parts = @($userPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    $alreadyPresent = @($parts | Where-Object { $_.TrimEnd('\') -ieq $binPath.TrimEnd('\') }).Count -gt 0
-    if (-not $alreadyPresent) {
-        $newUserPath = (@($parts) + $binPath) -join ';'
-        [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
-    }
-}
+$skipPath = $SkipPathUpdate -or $env:VRCSETUP_SKIP_PATH_UPDATE -eq '1'
+$startMenuFolder = Install-VrcSetupShellIntegration -InstallRoot $installRootFull -SkipPathUpdate:$skipPath
 
 Write-Host 'VRChat Project Setup installed successfully.' -ForegroundColor Green
 Write-Host "Install folder: ${installRootFull}" -ForegroundColor Gray
-if ($SkipPathUpdate) {
+Write-Host "Windows Search shortcuts: ${startMenuFolder}" -ForegroundColor Gray
+if ($skipPath) {
     Write-Host "Alias path (not added to PATH): ${binPath}" -ForegroundColor Yellow
 } else {
     Write-Host 'Open a new terminal, then run: vrcsetup' -ForegroundColor Cyan

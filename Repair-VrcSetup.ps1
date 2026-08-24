@@ -11,12 +11,23 @@ $defaultsPath = Join-Path $installRootFull 'setup-scripts\config\vrcsetup.defaul
 $configPath = Join-Path $installRootFull 'setup-scripts\config\vrcsetup.json'
 $binPath = Join-Path $installRootFull 'bin'
 $aliasPath = Join-Path $binPath 'vrcsetup.cmd'
+$shellIntegrationScript = Join-Path $installRootFull 'VrcSetup-ShellIntegration.ps1'
+
+if (-not (Test-Path -LiteralPath $shellIntegrationScript)) {
+    throw 'This installation is incomplete. Run INSTALL.bat again from the original package.'
+}
+. $shellIntegrationScript
+if (-not (Test-VrcSetupInstalledCopy -InstallRoot $installRootFull)) {
+    throw "The selected folder is not an installed copy: ${installRootFull}"
+}
 
 $required = @(
     $setupScript,
     (Join-Path $installRootFull 'setup-scripts\commands\installer.ps1'),
     (Join-Path $installRootFull 'setup-scripts\commands\wizard.ps1'),
     $defaultsPath,
+    (Join-Path $installRootFull 'START VRCHAT SETUP.bat'),
+    $shellIntegrationScript,
     (Join-Path $installRootFull 'Repair-VrcSetup.ps1'),
     (Join-Path $installRootFull 'Uninstall-VrcSetup.ps1'),
     (Join-Path $installRootFull 'REPAIR.bat'),
@@ -32,14 +43,14 @@ $aliasContent = @'
 @echo off
 if /i "%~1"=="repair" (
 	call "%~dp0..\REPAIR.bat" --no-pause
-	exit /b %errorlevel%
+	exit /b
 )
 if /i "%~1"=="uninstall" (
 	call "%~dp0..\UNINSTALL.bat" --no-pause
-	exit /b %errorlevel%
+	exit /b
 )
 call "%~dp0..\setup-scripts\setup.bat" %*
-exit /b %errorlevel%
+exit /b
 '@
 $normalizedAliasContent = $aliasContent -replace "`r?`n", "`r`n"
 [System.IO.File]::WriteAllText($aliasPath, $normalizedAliasContent, [System.Text.Encoding]::ASCII)
@@ -49,13 +60,7 @@ if (-not (Test-Path -LiteralPath $configPath)) {
 }
 
 $skipPath = $SkipPathUpdate -or $env:VRCSETUP_SKIP_PATH_UPDATE -eq '1'
-if (-not $skipPath) {
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $parts = @($userPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    if (@($parts | Where-Object { $_.TrimEnd('\') -ieq $binPath.TrimEnd('\') }).Count -eq 0) {
-        [Environment]::SetEnvironmentVariable('Path', ((@($parts) + $binPath) -join ';'), 'User')
-    }
-}
+$startMenuFolder = Install-VrcSetupShellIntegration -InstallRoot $installRootFull -SkipPathUpdate:$skipPath
 
 $parseErrors = @()
 foreach ($file in Get-ChildItem -LiteralPath $installRootFull -Recurse -File -Filter '*.ps1') {
@@ -78,4 +83,5 @@ try {
 }
 
 Write-Host 'VRChat Project Setup repair completed successfully.' -ForegroundColor Green
+Write-Host "Windows Search shortcuts: ${startMenuFolder}" -ForegroundColor Gray
 Write-Host 'Open a new terminal if the alias was previously unavailable.' -ForegroundColor Cyan

@@ -29,7 +29,10 @@ Incomplete project cleanup:
 
 ```
 _unityprojectsetup/
-├── vrcsetupfull.bat            # Launcher (opens the wizard)
+├── INSTALL.bat                 # Clickable per-user installer
+├── START VRCHAT SETUP.bat      # Smart installed/portable launcher
+├── REPAIR.bat / UNINSTALL.bat  # Safe clickable maintenance
+├── vrcsetupfull.bat            # Runtime launcher
 └── setup-scripts/
     ├── vrc-setup-script.ps1    # Unified entrypoint (wizard + CLI)
     ├── setup.bat               # Batch wrapper for the wizard
@@ -43,46 +46,55 @@ If the template is missing, the script generates a minimal skeleton config.
 
 ## 🚀 Quickstart
 
-### Recommended: one-click per-user install
+### Recommended for most people: install with clicks
 
-Double-click `INSTALL.bat`, or run:
+1. Download the ZIP from GitHub and choose **Extract all** in Windows.
+2. Open the extracted folder and double-click **`INSTALL.bat`**.
+3. When it finishes, press any key to open the setup wizard.
+4. Later, press the Windows key and search for **VRChat Project Setup**.
 
-```powershell
-pwsh -NoProfile -File .\Install-VrcSetup.ps1
-```
+No administrator rights are required. The installer creates a private per-user
+copy under `%LOCALAPPDATA%\Programs\VrcSetup`, adds the `vrcsetup` terminal
+command to the user `PATH`, and creates searchable shortcuts for the app, repair,
+and uninstall actions.
 
-The installer requires no administrator rights. It copies the tool to
-`%LOCALAPPDATA%\Programs\VrcSetup`, adds its `bin` folder to the current user's
-`PATH`, and installs the `vrcsetup` command. Open a new terminal after install,
-then run:
+If Windows shows a SmartScreen prompt for a downloaded ZIP, first confirm that
+the package came from this repository, then choose **More info → Run anyway**.
+
+### Use without installing
+
+Double-click **`START VRCHAT SETUP.bat`** in the extracted folder. It works as a
+portable launcher. If the tool is already installed for the current user, the
+same file intentionally opens that installed copy so configuration and repairs
+stay consistent.
+
+### Repair or uninstall with clicks
+
+- Search Windows for **Repair VRChat Project Setup** or
+  **Uninstall VRChat Project Setup**.
+- Or double-click `REPAIR.bat` / `UNINSTALL.bat` in either the downloaded package
+  or the installed folder. The launchers detect the installed copy and never
+  treat the downloaded package as something to delete.
+
+Reinstall and repair preserve `setup-scripts\config\vrcsetup.json`; the first
+install also migrates an existing local configuration found beside the source
+scripts. The advanced PowerShell uninstall can back it up with
+`Uninstall-VrcSetup.ps1 -KeepConfig`.
+
+### Terminal use (optional)
+
+After opening a new terminal, run:
 
 ```powershell
 vrcsetup
-```
-
-Maintenance commands:
-
-```powershell
 vrcsetup repair
 vrcsetup uninstall
 ```
 
-`REPAIR.bat` and `UNINSTALL.bat` provide the same operations for users who
-prefer double-clickable launchers. Reinstall and repair preserve
-`setup-scripts\config\vrcsetup.json`; the first install also migrates an existing
-local config found beside the source scripts. Uninstall can optionally back it up with
-`Uninstall-VrcSetup.ps1 -KeepConfig`.
-
-### Portable use without installation
-
-Run the script from PowerShell or via `vrcsetupfull.bat` to open the interactive wizard:
+For an explicit scripted installation:
 
 ```powershell
-# In PowerShell
-.\setup-scripts\vrc-setup-script.ps1 -Wizard
-
-# Or execute the top-level .bat (Windows)
-vrcsetupfull.bat
+pwsh -NoProfile -File .\Install-VrcSetup.ps1
 ```
 
 Note: the batch launcher now runs the wizard in the current terminal session. If `pwsh` is installed it is preferred, otherwise Windows PowerShell is used.
