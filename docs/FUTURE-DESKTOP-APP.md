@@ -18,7 +18,7 @@ This is a **setup companion**, not a replacement for VRChat Creator Companion (V
 | --- | --- |
 | Guided creation or preparation of a Unity project from an avatar package or an existing project | VRChat account, SDK distribution, official project-management workflows, and VRChat platform services |
 | Clear prerequisite checks and links to the official tools when they are missing | Installing, updating, or redefining VCC itself |
-| Applying the user's selected VPM package/configuration policy and explaining the result | General-purpose package ecosystem management beyond the setup flow |
+| Project-scoped AIO VPM management: review, add, update, or remove several direct packages in one operation | Repository publishing, ecosystem administration, or package management outside the selected project |
 | Recoverable project setup, diagnostics, repair, and an understandable activity summary | Avatar/world authoring, building, testing, and uploading |
 
 The app may hand the user to VCC at the appropriate point. It must never impersonate VCC, ask for VRChat credentials, or silently change unrelated Creator Companion projects/settings.
@@ -36,7 +36,7 @@ The app may hand the user to VCC at the appropriate point. It must never imperso
 
 1. **Guided setup shell:** choose source/project, validate Unity/VCC/VPM prerequisites, show a final review, run the existing engine, and present a success or recovery summary.
 2. **Project health and recovery:** detect interrupted `.vrcsetup` work, offer safe cleanup/resume choices, surface logs and backups, and run the already-defined repair path.
-3. **Friendly configuration:** edit package selections and defaults through simple controls, retaining an advanced view for exact versions and paths.
+3. **Friendly package management:** compare the selected project's direct VPM packages, edit several choices in one screen, review the add/update/remove plan, and apply it once. Keep an advanced view for exact versions and paths.
 4. **Optional integrations:** open the prepared project in the official tool or Unity only after the user confirms; no automation of upload/publishing flows.
 
 ## Packaging and architecture direction

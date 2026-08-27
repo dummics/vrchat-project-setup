@@ -32,14 +32,15 @@ Wizard UX notes:
 - Wizard clears the screen before running the installer to avoid leftover menu artifacts.
 - Wizard clears the screen before text prompts (drag&drop paths) to avoid overlap with the menu.
 - Action rows are visually separated (2 blank lines) and color-coded (Back = red).
-- "Setup project" is unified: choose UnityPackage or existing project.
-- VPM packages editor is 2-step: select package → choose action (change version/remove), plus add package (type-to-filter).
+- "Projects" offers a short create-from-UnityPackage path and a dedicated existing-project manager.
+- Existing-project AIO mode starts from the project's direct VPM dependencies, lets the user make several add/update/remove choices, then applies the reviewed set in one run.
+- The VPM package editor supports change version/remove plus add package (type-to-filter). Only the VRChat base/avatar/resolver foundation is required; GoGoLoco and other starter packages are removable.
 - Bugfix: "Add package" no longer throws and instantly returns to the list.
 - Versions list is SemVer-sorted (e.g. 0.1.29 > 0.1.9).
 - Version picker supports paging + filter patterns (e.g. *.9, X.X.1190, or re:<regex>).
 - In paged lists, use Left/Right to change page.
-- Advanced settings includes naming rules (prefix/suffix/regex remove) and per-unitypackage remembered project names.
-- UnityPackage extra-import folder is configurable (Advanced settings):
+- Settings includes naming rules (prefix/suffix/regex remove) and per-unitypackage remembered project names.
+- UnityPackage extra-import folder is configurable (Settings):
 	- Config key: `UnityPackagesFolder`
 	- By default it's DISABLED (no extra imports).
 	- If set, the installer will also import every `*.unitypackage` found in that folder (besides the one you selected), after the main package (can be multiple).
@@ -48,7 +49,7 @@ Optional tooling:
 - If a local `vrc-get` exe is present, the wizard can search packages and list versions even when the local VCC repos cache is empty.
 	- Put the exe under `setup-scripts/lib/vrc-get/` (any `*.exe` name; `vrc-get.exe` preferred)
 
-- Easy Login is a protected default VPM package (`dev.foxscore.easy-login`, version policy `latest`). Setup ensures the Vulpine Vault repository is registered and moves a verified legacy `Assets/EASY LOGIN` copy to `.vrcsetup/backups/` before installing the VPM-managed copy.
+- Easy Login is optional. When selected, setup ensures the Vulpine Vault repository is registered and moves a verified legacy `Assets/EASY LOGIN` copy to `.vrcsetup/backups/` before installing the VPM-managed copy.
 
 - Next steps:
 - Continue modularizing by moving more logic into `commands/installer.ps1` and splitting into smaller commands.

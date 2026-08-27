@@ -1,4 +1,4 @@
-# VRChat Project Setup
+# 🎮 VRChat Project Setup
 
 > A click-first Windows companion for preparing VRChat Unity avatar projects consistently.
 
@@ -14,14 +14,14 @@ recoverable state and useful logs.
 It is designed for creators who prefer to click through a clear wizard, while
 still providing the `vrcsetup` command for advanced users and automation.
 
-## Download
+## ⬇️ Download
 
 **[Download the latest source ZIP](https://github.com/dummics/vrchat-project-setup/archive/refs/heads/main.zip)**
 
 Extract the ZIP before running it. The downloaded source is fully usable; a
 separate release package is not required.
 
-## Quick start
+## 🚀 Quick start
 
 ### Install for the current Windows user
 
@@ -53,11 +53,14 @@ directly from the extracted source folder.
 These launchers detect the installed copy and will not treat the downloaded
 source folder as an installation to delete.
 
-## What it provides
+## ✨ What it provides
 
 - A keyboard-friendly interactive setup wizard.
-- Project preparation from a `.unitypackage` or an existing Unity folder.
-- Configurable VPM packages with `latest` or pinned versions.
+- Fast project creation from a `.unitypackage`, with an automatic suggested name
+  and one compact review screen.
+- Existing-project setup and AIO VPM management: add, update and remove several
+  packages, then apply the complete plan in one run.
+- Configurable package presets with `latest` or pinned versions.
 - Package discovery through `vrc-get`, VPM and the local VCC repository cache.
 - Remembered project names and configurable naming rules.
 - Detection and cleanup of interrupted or incomplete setup operations.
@@ -65,7 +68,7 @@ source folder as an installation to delete.
 - Backups before package-manifest changes and timestamped execution logs.
 - Portable, installed and command-line entry points backed by the same engine.
 
-## Requirements
+## 🧩 Requirements
 
 - Windows 10 or Windows 11.
 - Windows PowerShell 5.1 or PowerShell 7.
@@ -75,7 +78,7 @@ source folder as an installation to delete.
 The first-run wizard helps select Unity and project paths. PowerShell 7 is used
 when available; otherwise the built-in Windows PowerShell 5.1 is supported.
 
-## Relationship with VRChat Creator Companion
+## 🤝 Relationship with VRChat Creator Companion
 
 This project complements VRChat Creator Companion; it does not replace it.
 
@@ -87,7 +90,7 @@ official project management and platform services.
 This is an independent community utility and is not affiliated with or endorsed
 by VRChat Inc.
 
-## Source-folder layout
+## 📁 Source-folder layout
 
 The four user-facing actions stay at the first level of the downloaded source:
 
@@ -115,21 +118,24 @@ Local configuration is stored in
 and is intentionally excluded from Git because it can contain machine-specific
 paths.
 
-## Wizard workflows
+## 🧭 Wizard workflows
 
 The main wizard provides:
 
-1. **Setup project**
-   - Create and configure a project from a UnityPackage.
-   - Prepare an existing Unity project.
-   - Add VPM packages and optionally import extra UnityPackages.
+1. **Projects**
+   - Create from a UnityPackage using the suggested folder name immediately.
+   - Manage an existing Unity project and apply a complete VPM change set once.
+   - Add/update the default preset without removing unrelated project packages.
+   - Optionally import extra UnityPackages.
    - Detect and clean up incomplete project setups.
-2. **Configure VPM packages**
+2. **Default package set**
    - Search packages and select available versions.
    - Use `latest` or pin a specific version.
-3. **Advanced settings**
+   - Remove optional starter packages such as GoGoLoco, VRCFury, Poiyomi,
+     templates or Easy Login.
+3. **Settings**
    - Configure Unity paths, naming rules and remembered project names.
-4. **Reset configuration**
+   - Reset configuration when needed.
 
 When creating from a UnityPackage, the tool creates the Unity project, applies
 required manifest adjustments, installs configured VPM packages, imports the
@@ -137,7 +143,7 @@ package and waits for a bounded finalization step. Unity may still perform some
 first-open asset processing, especially for projects with many textures or
 scripts.
 
-## Terminal usage
+## ⌨️ Terminal usage
 
 After installation, open a new terminal and run:
 
@@ -167,7 +173,7 @@ Paths containing spaces, Unicode characters, `&`, parentheses and wildcard-like
 characters such as `[]` are handled literally. Wizard path fields also accept
 environment variables, `~` and paths relative to the tool folder.
 
-## Configuration and package versions
+## 📦 Configuration and package versions
 
 Packages are configured in `setup-scripts/config/vrcsetup.json`:
 
@@ -179,6 +185,11 @@ Packages are configured in `setup-scripts/config/vrcsetup.json`:
     "com.poiyomi.toon": "latest",
     "com.vrcfury.vrcfury": "latest"
   },
+  "RequiredPackages": [
+    "com.vrchat.base",
+    "com.vrchat.avatars",
+    "com.vrchat.core.vpm-resolver"
+  ],
   "UnityEditorPath": "C:\\Path\\To\\Unity.exe",
   "UnityProjectsRoot": "D:\\Unity Projects",
   "UnityPackagesFolder": null
@@ -186,17 +197,22 @@ Packages are configured in `setup-scripts/config/vrcsetup.json`:
 ```
 
 Use `latest` for convenience or an exact version for reproducible projects. The
-wizard validates configured versions before applying them. Existing older
-package-list configurations are migrated automatically.
+wizard validates configured versions before applying them. Only the three
+VRChat foundation packages in `RequiredPackages` are locked. Other starter
+packages are normal choices and can be removed. Existing older package-list
+configurations are migrated automatically without restoring removed optional
+packages.
 
-`dev.foxscore.easy-login` is managed as a protected VPM dependency. If an
-imported avatar contains an older source copy under `Assets/EASY LOGIN`, the
-tool moves it to a recoverable `.vrcsetup/backups/` location before resolving
-the package, avoiding duplicate assemblies without discarding the original.
+When `dev.foxscore.easy-login` is selected and an imported avatar contains an
+older source copy under `Assets/EASY LOGIN`, the tool moves it to a recoverable
+`.vrcsetup/backups/` location before resolving the VPM package. Easy Login is
+optional and can be removed like other non-foundation packages.
 
-## Safety and recovery
+## 🛡️ Safety and recovery
 
 - Project manifest files are backed up before modification.
+- AIO synchronization starts from the project's current direct VPM dependencies;
+  packages are removed only after the user removes them from the reviewed set.
 - Interrupted UnityPackage workflows are tracked in
   `<Project>/.vrcsetup/state.json`.
 - Cancelled incomplete creations can be removed through the wizard.
@@ -205,24 +221,25 @@ the package, avoiding duplicate assemblies without discarding the original.
   removing files.
 - Logs are written under `setup-scripts/logs/`.
 
-## Testing
+## ✅ Testing
 
 The regression suite validates both PowerShell 7 and Windows PowerShell 5.1,
-portable and installed launchers, Start-menu shortcuts, alias behavior,
-repair/uninstall safety and paths containing special characters.
+portable and installed launchers, AIO package add/remove planning, Start-menu
+shortcuts, alias behavior, repair/uninstall safety and paths containing special
+characters.
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
 ```
 
-## Future direction
+## 🪟 Future direction
 
 The long-term direction is a small Windows desktop companion built on the same
 setup engine, without duplicating Creator Companion responsibilities. See
 [Future Desktop App](docs/FUTURE-DESKTOP-APP.md).
 
-## Contributing
+## 💬 Contributing
 
 Issues and pull requests are welcome. Please describe the project type, expected
 behavior, observed behavior and any relevant sanitized log excerpt. Do not
