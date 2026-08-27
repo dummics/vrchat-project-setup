@@ -181,6 +181,67 @@ function Get-VpmReposPath {
     }
 }
 
+function Get-VpmProjectPackageSet {
+    param(
+        [Parameter(Mandatory)][string]$ProjectPath
+    )
+
+    $packages = [ordered]@{}
+    $manifestPath = Join-Path $ProjectPath 'Packages\vpm-manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        return [pscustomobject]$packages
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($manifest -and $manifest.dependencies) {
+            foreach ($dependency in @($manifest.dependencies.PSObject.Properties)) {
+                $packages[$dependency.Name] = [string]$dependency.Value
+            }
+        }
+    } catch {
+        throw "Unable to read VPM packages from '${manifestPath}': $($_.Exception.Message)"
+    }
+
+    return [pscustomobject]$packages
+}
+
+function Compare-VpmPackageSets {
+    param(
+        $CurrentPackages,
+        $DesiredPackages
+    )
+
+    $current = Copy-VpmPackageSet -Packages $CurrentPackages
+    $desired = Copy-VpmPackageSet -Packages $DesiredPackages
+    $added = @()
+    $updated = @()
+    $removed = @()
+    $unchanged = @()
+
+    foreach ($package in @($desired.PSObject.Properties)) {
+        if ($current.PSObject.Properties.Name -notcontains $package.Name) {
+            $added += $package.Name
+        } elseif ([string]$current.($package.Name) -ne [string]$package.Value) {
+            $updated += $package.Name
+        } else {
+            $unchanged += $package.Name
+        }
+    }
+    foreach ($package in @($current.PSObject.Properties)) {
+        if ($desired.PSObject.Properties.Name -notcontains $package.Name) {
+            $removed += $package.Name
+        }
+    }
+
+    return [pscustomobject]@{
+        Added = @($added | Sort-Object)
+        Updated = @($updated | Sort-Object)
+        Removed = @($removed | Sort-Object)
+        Unchanged = @($unchanged | Sort-Object)
+    }
+}
+
 function Test-VpmRepositoryConfigured {
     param([Parameter(Mandatory)][string]$Url)
 

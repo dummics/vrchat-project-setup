@@ -19,11 +19,20 @@ function Assert-True {
 try {
     [System.IO.Directory]::CreateDirectory($testRoot) | Out-Null
     [System.IO.Directory]::CreateDirectory((Join-Path $projectRoot 'Assets')) | Out-Null
+    [System.IO.Directory]::CreateDirectory((Join-Path $projectRoot 'Packages')) | Out-Null
+    [System.IO.File]::WriteAllText(
+        (Join-Path $projectRoot 'Packages\vpm-manifest.json'),
+        '{"dependencies":{"com.vrchat.base":"3.8.0","gogoloco":"1.8.6","com.example.keep":"1.0.0"},"locked":{}}'
+    )
+    [System.IO.File]::WriteAllText(
+        (Join-Path $projectRoot 'Packages\manifest.json'),
+        '{"dependencies":{"com.vrchat.base":"3.8.0","gogoloco":"1.8.6","com.example.keep":"1.0.0"}}'
+    )
     $env:VRCSETUP_INSTALL_ROOT = $installRoot
     $env:VRCSETUP_START_MENU_ROOT = $startMenuRoot
     $env:VRCSETUP_SKIP_PATH_UPDATE = '1'
 
-    Write-Host '[1/9] Parsing PowerShell files...'
+    Write-Host '[1/10] Parsing PowerShell files...'
     foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -File -Filter '*.ps1') {
         $tokens = $null
         $errors = $null
@@ -31,7 +40,7 @@ try {
         Assert-True ($errors.Count -eq 0) "Parse failure in $($file.FullName): $($errors[0].Message)"
     }
 
-    Write-Host '[2/9] Checking runtime for machine-specific owner paths...'
+    Write-Host '[2/10] Checking runtime for machine-specific owner paths...'
     $runtimeFiles = Get-ChildItem -LiteralPath $repoRoot -Recurse -File | Where-Object {
         $_.Extension -in @('.ps1', '.bat', '.cmd') -and $_.FullName -notlike "$PSScriptRoot*"
     }
@@ -48,13 +57,51 @@ try {
     $actualTopLevelLaunchers = @(Get-ChildItem -LiteralPath $repoRoot -File -Filter '*.bat' | Select-Object -ExpandProperty Name | Sort-Object)
     Assert-True (($actualTopLevelLaunchers -join '|') -ceq (($expectedTopLevelLaunchers | Sort-Object) -join '|')) 'The source root does not expose exactly the four friendly BAT launchers.'
 
-    Write-Host '[3/9] Running the portable click launcher before installation...'
+    Write-Host '[3/10] Testing removable presets and AIO package synchronization...'
+    $scriptDir = Join-Path $repoRoot 'setup-scripts'
+    . (Join-Path $scriptDir 'lib\config.ps1')
+    . (Join-Path $scriptDir 'lib\vpm.ps1')
+    . (Join-Path $scriptDir 'commands\installer.ps1')
+    . (Join-Path $scriptDir 'commands\wizard.ps1')
+
+    Assert-True ($null -eq (Normalize-UserPath -Path '')) 'Blank path input no longer returns to the previous screen.'
+
+    $legacyConfig = [pscustomobject]@{
+        VpmPackages = [pscustomobject]@{ 'com.vrchat.base' = 'latest' }
+        DefaultPackages = @('com.vrchat.base', 'gogoloco', 'com.vrcfury.vrcfury')
+    }
+    $migratedConfig = Ensure-ConfigDefaults -Config $legacyConfig
+    Assert-True ($migratedConfig.VpmPackages.PSObject.Properties.Name -notcontains 'gogoloco') 'Legacy config migration restored removed GoGoLoco.'
+    Assert-True ($migratedConfig.VpmPackages.PSObject.Properties.Name -notcontains 'com.vrcfury.vrcfury') 'Legacy config migration restored another removed optional package.'
+
+    $projectPackages = Get-VpmProjectPackageSet -ProjectPath $projectRoot
+    Assert-True ($projectPackages.PSObject.Properties.Name -contains 'gogoloco') 'Test project did not expose GoGoLoco from vpm-manifest.json.'
+    $desiredPackages = Copy-VpmPackageSet -Packages $projectPackages
+    $desiredPackages.PSObject.Properties.Remove('gogoloco')
+    $desiredPackages = Add-RequiredPackagesToSet -Packages $desiredPackages -Config $null
+    Assert-True (-not (Test-IsRequiredPackage -PackageName 'gogoloco' -Config $null)) 'GoGoLoco is still classified as required.'
+    Assert-True ($desiredPackages.PSObject.Properties.Name -notcontains 'gogoloco') 'GoGoLoco was automatically restored after removal.'
+    foreach ($requiredPackage in Get-RequiredPackages -Config $null) {
+        Assert-True ($desiredPackages.PSObject.Properties.Name -contains $requiredPackage) "Required package was not restored: ${requiredPackage}"
+    }
+    $changePlan = Compare-VpmPackageSets -CurrentPackages $projectPackages -DesiredPackages $desiredPackages
+    Assert-True ($changePlan.Removed -contains 'gogoloco') 'AIO plan did not schedule GoGoLoco for removal.'
+    Assert-True ($changePlan.Removed -notcontains 'com.example.keep') 'AIO plan removed a package that stayed selected.'
+
+    $syncOutput = @(& { Start-Installer -projectPath $projectRoot -PackagesOverride $desiredPackages -SyncPackages -Test } *>&1)
+    $syncStatus = [int]$syncOutput[-1]
+    $syncText = ($syncOutput | ForEach-Object { [string]$_ }) -join "`n"
+    Assert-True ($syncStatus -eq 0) "AIO test-mode synchronization returned ${syncStatus}."
+    Assert-True ($syncText -match 'Would remove package: gogoloco') 'AIO synchronization did not issue the GoGoLoco removal.'
+    Assert-True ($syncText -notmatch 'Would remove package: com\.example\.keep') 'AIO synchronization tried to remove a selected package.'
+
+    Write-Host '[4/10] Running the portable click launcher before installation...'
     $portableLauncher = Join-Path $repoRoot 'VRChat Project Setup.bat'
     & $portableLauncher -projectPath $projectRoot -Test *> $null
     $portableExit = $LASTEXITCODE
     Assert-True ($portableExit -eq 0) "Portable click launcher exited with ${portableExit}."
 
-    Write-Host '[4/9] Installing through the clickable BAT to a special-character path...'
+    Write-Host '[5/10] Installing through the clickable BAT to a special-character path...'
     [System.IO.Directory]::CreateDirectory($installRoot) | Out-Null
     [System.IO.Directory]::CreateDirectory((Join-Path $installRoot 'bin')) | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $installRoot 'bin\vrcsetup.cmd'), '@echo obsolete')
@@ -97,7 +144,7 @@ try {
         Assert-True (-not (Test-Path -LiteralPath $installedConfig)) 'Installer created a machine-local config when none existed in the source.'
     }
 
-    Write-Host '[5/9] Verifying the downloaded smart launcher prefers the installed copy...'
+    Write-Host '[6/10] Verifying the downloaded smart launcher prefers the installed copy...'
     $installedLauncher = Join-Path $installRoot 'setup-scripts\setup.bat'
     $installedLauncherContent = [System.IO.File]::ReadAllText($installedLauncher)
     $routeProbe = Join-Path $testRoot 'installed-route.txt'
@@ -120,7 +167,7 @@ try {
         [System.IO.File]::WriteAllText($installedLauncher, $installedLauncherContent)
     }
 
-    Write-Host '[6/9] Running installed CLI alias against a special-character project path...'
+    Write-Host '[7/10] Running installed CLI alias against a special-character project path...'
     $aliasPath = Join-Path $installRoot 'setup-scripts\bin\vrcsetup.cmd'
     Push-Location -LiteralPath $env:TEMP
     try {
@@ -131,7 +178,7 @@ try {
     }
     Assert-True ($aliasExit -eq 0) "Installed alias exited with ${aliasExit}."
 
-    Write-Host '[7/9] Verifying the runtime launcher preserves caller working directory and arguments...'
+    Write-Host '[8/10] Verifying the runtime launcher preserves caller working directory and arguments...'
     $cwdOutput = Join-Path $testRoot 'caller-cwd.txt'
     $batchPath = Join-Path $testRoot 'check-launcher.cmd'
     $launcherPath = Join-Path $installRoot 'VRChat Project Setup.bat'
@@ -149,7 +196,7 @@ try {
     $reportedCwd = (Get-Content -LiteralPath $cwdOutput -Raw).Trim().TrimEnd('\')
     Assert-True ($reportedCwd -ieq $env:TEMP.TrimEnd('\')) "Launcher changed caller directory to ${reportedCwd}."
 
-    Write-Host '[8/9] Repairing the installed copy from the downloaded BAT...'
+    Write-Host '[9/10] Repairing the installed copy from the downloaded BAT...'
     Remove-Item -LiteralPath (Join-Path $startMenuFolder 'Repair VRChat Project Setup.lnk') -Force
     & (Join-Path $repoRoot 'Repair VRChat Project Setup.bat') --no-pause *> $null
     $repairExit = $LASTEXITCODE
@@ -157,7 +204,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $startMenuFolder 'Repair VRChat Project Setup.lnk')) 'Repair did not restore the missing Start Menu shortcut.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot '.vrcsetup-installed'))) 'Repair incorrectly marked the downloaded folder as installed.'
 
-    Write-Host '[9/9] Uninstalling from the downloaded BAT without touching its folder...'
+    Write-Host '[10/10] Uninstalling from the downloaded BAT without touching its folder...'
     & (Join-Path $repoRoot 'Uninstall VRChat Project Setup.bat') --no-pause *> $null
     $uninstallExit = $LASTEXITCODE
     Assert-True ($uninstallExit -eq 0) "Source uninstall launcher exited with ${uninstallExit}."

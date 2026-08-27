@@ -41,6 +41,11 @@ function Initialize-ConfigIfMissing {
             'com.poiyomi.toon',
             'dev.foxscore.easy-login'
         )
+        RequiredPackages = @(
+            'com.vrchat.base',
+            'com.vrchat.avatars',
+            'com.vrchat.core.vpm-resolver'
+        )
         UnityEditorPath = ''
         UnityProjectsRoot = ''
         Naming = [pscustomobject]@{
@@ -98,6 +103,65 @@ function Test-IsDefaultPackage {
     )
     $defaults = Get-DefaultPackages -Config $Config
     return ($defaults -contains $PackageName)
+}
+
+function Get-RequiredPackages {
+    param($Config)
+
+    # These packages form the minimum VRChat avatar/VPM foundation. Everything
+    # else in DefaultPackages is a removable starter choice, not a lock.
+    $builtIn = @(
+        'com.vrchat.base',
+        'com.vrchat.avatars',
+        'com.vrchat.core.vpm-resolver'
+    )
+
+    if ($Config -and $Config.PSObject.Properties.Name -contains 'RequiredPackages' -and $Config.RequiredPackages) {
+        return @($builtIn + @($Config.RequiredPackages) | Select-Object -Unique)
+    }
+    return $builtIn
+}
+
+function Test-IsRequiredPackage {
+    param(
+        [string]$PackageName,
+        $Config
+    )
+
+    return ((Get-RequiredPackages -Config $Config) -contains $PackageName)
+}
+
+function Copy-VpmPackageSet {
+    param($Packages)
+
+    $copy = [ordered]@{}
+    if ($Packages -is [System.Array]) {
+        foreach ($packageName in @($Packages)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$packageName)) {
+                $copy[[string]$packageName] = 'latest'
+            }
+        }
+    } elseif ($Packages) {
+        foreach ($package in @($Packages.PSObject.Properties)) {
+            $copy[$package.Name] = [string]$package.Value
+        }
+    }
+    return [pscustomobject]$copy
+}
+
+function Add-RequiredPackagesToSet {
+    param(
+        $Packages,
+        $Config
+    )
+
+    $result = Copy-VpmPackageSet -Packages $Packages
+    foreach ($packageName in Get-RequiredPackages -Config $Config) {
+        if ($result.PSObject.Properties.Name -notcontains $packageName) {
+            $result | Add-Member -MemberType NoteProperty -Name $packageName -Value 'latest' -Force
+        }
+    }
+    return $result
 }
 
 function Find-UnityEditorPaths {

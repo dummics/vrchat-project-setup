@@ -220,6 +220,7 @@ function Normalize-UserPath {
     $p = $Path.Trim()
     $p = $p.Trim('"')
     $p = $p.Trim("'")
+    if ([string]::IsNullOrWhiteSpace($p)) { return $null }
     # PowerShell drag&drop can escape spaces and shell metacharacters
     # (for example "` " or "`&") in some hosts.
     # Remove those escape markers so Test-Path sees the real filesystem path.
@@ -247,7 +248,7 @@ function Read-WizardPathInput {
         [string]$Prompt = "Path",
         [ConsoleColor]$TitleColor = [ConsoleColor]::Cyan,
         [switch]$PreserveRelative,
-        [string]$Hint = "Drag & drop, absolute paths, %ENV% variables and ~ are supported. Relative paths use the tool folder. Press ENTER to go back."
+        [string]$Hint = "Paste or drag the path here. Press ENTER to go back."
     )
 
     Clear-Host
@@ -305,18 +306,13 @@ function Ensure-ConfigDefaults {
         $Config | Add-Member -MemberType NoteProperty -Name "UnityPackagesFolder" -Value $null -Force
     }
 
-    # Ensure DefaultPackages list exists (for protected packages)
+    # DefaultPackages is the starter preset. It does not make packages immutable.
     $Config | Add-Member -MemberType NoteProperty -Name "DefaultPackages" -Value @(Get-DefaultPackages -Config $Config) -Force
 
-    # Ensure VpmPackages contains all default packages
-    if ($Config.VpmPackages) {
-        $defaults = Get-DefaultPackages -Config $Config
-        foreach ($dpkg in $defaults) {
-            if ($Config.VpmPackages.PSObject.Properties.Name -notcontains $dpkg) {
-                $Config.VpmPackages | Add-Member -MemberType NoteProperty -Name $dpkg -Value "latest" -Force
-            }
-        }
-    }
+    # Only the VRChat foundation is locked and restored when an older config is loaded.
+    $Config | Add-Member -MemberType NoteProperty -Name "RequiredPackages" -Value @(Get-RequiredPackages -Config $Config) -Force
+    $requiredPackageSet = Add-RequiredPackagesToSet -Packages $Config.VpmPackages -Config $Config
+    $Config | Add-Member -MemberType NoteProperty -Name "VpmPackages" -Value $requiredPackageSet -Force
 
     return $Config
 }
@@ -391,7 +387,7 @@ function Advanced-NamingSettings {
         $optRemember = "Remember unitypackage names: ${remember}"
         $optUnityPackages = "UnityPackages folder (extra imports): ${commonPackagesStatus}"
 
-        $sel = Show-Menu -Title "Advanced settings" -Header "Edit your defaults. Enter to select." -Options @(
+        $sel = Show-Menu -Title "Settings" -Header "Paths and optional naming preferences." -Options @(
             $optEditor,
             $optProjectsRoot,
             $optPrefix,
@@ -399,10 +395,11 @@ function Advanced-NamingSettings {
             $optRegex,
             $optRemember,
             $optUnityPackages,
+            "Reset configuration",
             "Back"
         )
 
-        if ($sel -eq -1 -or $sel -eq 7) { Save-Config -Config $config -ConfigPath $ConfigPath; return }
+        if ($sel -eq -1 -or $sel -eq 8) { Save-Config -Config $config -ConfigPath $ConfigPath; return }
 
         switch ($sel) {
             0 {
@@ -556,6 +553,16 @@ function Advanced-NamingSettings {
                 # Persist the raw value the user typed (absolute or relative). Installer resolves relative paths from workspace root.
                 $config.UnityPackagesFolder = $inputPath
                 Save-Config -Config $config -ConfigPath $ConfigPath
+            }
+            7 {
+                $confirm = Show-Menu -Title "Reset configuration" -Header (Add-ConfirmHint -Header "Reset all saved settings?") -Options @("Yes, reset", "Cancel") -AllowCancel $false
+                if ($confirm -eq 0) {
+                    Clear-Host
+                    Start-Installer -projectPath "-reset" | Out-Null
+                    [void](Initialize-ConfigIfMissing -ConfigPath $ConfigPath -DefaultsPath $defaultsPath)
+                    Invoke-FirstRunSetup -ConfigPath $ConfigPath
+                    return
+                }
             }
         }
     }
@@ -798,21 +805,24 @@ function Resolve-VpmPackageFromSearch {
 function Edit-VpmPackages {
     param(
         [string]$ConfigPath,
-        [string]$ScriptDir
+        [string]$ScriptDir,
+        $ConfigObject,
+        [switch]$WorkingCopy
     )
 
-    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+    if ((-not $ConfigObject) -and (-not (Test-Path -LiteralPath $ConfigPath))) {
         Write-Host "Config not found. Run setup first." -ForegroundColor Red
         Read-Host "Press ENTER to continue"
         return
     }
 
-    $config = Load-Config -ConfigPath $ConfigPath
+    $config = if ($ConfigObject) { $ConfigObject } else { Load-Config -ConfigPath $ConfigPath }
     if (-not $config) {
         Write-Host "Unable to load config." -ForegroundColor Red
         Read-Host "Press ENTER to continue"
         return
     }
+    $config = Ensure-ConfigDefaults -Config $config
 
     if ($config.VpmPackages -is [System.Array]) {
         $newPackages = @{}
@@ -827,18 +837,28 @@ function Edit-VpmPackages {
         $packagesList = @($config.VpmPackages.PSObject.Properties) | Sort-Object Name
         $pkgOptions = @()
         foreach ($pkg in $packagesList) {
-            $isDefault = Test-IsDefaultPackage -PackageName $pkg.Name -Config $config
-            $lockIcon = if ($isDefault) { " [default]" } else { "" }
+            $isRequired = Test-IsRequiredPackage -PackageName $pkg.Name -Config $config
+            $lockIcon = if ($isRequired) { " [required]" } else { "" }
             $pkgOptions += ("{0}  [{1}]{2}" -f $pkg.Name, $pkg.Value, $lockIcon)
         }
         $pkgOptions += @("Add package", "Back")
 
-        $header = "Select a package, then choose an action.`nPackages marked [default] cannot be removed."
+        $header = if ($WorkingCopy) {
+            "Build the package set, then go Back to review it.`nOnly [required] VRChat packages are locked."
+        } else {
+            "Edit the default package set used for new setups.`nOnly [required] VRChat packages are locked."
+        }
         $selected = Show-Menu -Title "VPM Packages" -Header $header -Options $pkgOptions
-        if ($selected -eq -1) { return }
+        if ($selected -eq -1) {
+            if ($WorkingCopy) { return $config.VpmPackages }
+            return
+        }
 
         $picked = $pkgOptions[$selected]
-        if ($picked -eq "Back") { return }
+        if ($picked -eq "Back") {
+            if ($WorkingCopy) { return $config.VpmPackages }
+            return
+        }
 
         if ($picked -eq "Add package") {
             $manualOption = "Enter package name manually"
@@ -918,7 +938,7 @@ function Edit-VpmPackages {
             }
 
             $config.VpmPackages | Add-Member -MemberType NoteProperty -Name $newPackage -Value $version -Force
-            Save-Config -Config $config -ConfigPath $ConfigPath
+            if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
             continue
         }
 
@@ -926,10 +946,10 @@ function Edit-VpmPackages {
         $pkgProp = $packagesList[$selected]
         $pkgName = $pkgProp.Name
         $pkgVersion = $pkgProp.Value
-        $isDefaultPkg = Test-IsDefaultPackage -PackageName $pkgName -Config $config
+        $isRequiredPkg = Test-IsRequiredPackage -PackageName $pkgName -Config $config
 
-        if ($isDefaultPkg) {
-            $action = Show-Menu -Title "Package: ${pkgName} [default]" -Header "Current: ${pkgVersion}`nThis is a default package and cannot be removed." -Options @("Change version", "Back")
+        if ($isRequiredPkg) {
+            $action = Show-Menu -Title "Package: ${pkgName} [required]" -Header "Current: ${pkgVersion}`nRequired by the VRChat avatar/VPM foundation." -Options @("Change version", "Back")
             if ($action -eq -1 -or $action -eq 1) { continue }
 
             if ($action -eq 0) {
@@ -953,7 +973,7 @@ function Edit-VpmPackages {
                 }
 
                 $config.VpmPackages.($pkgName) = $newVersion
-                Save-Config -Config $config -ConfigPath $ConfigPath
+                if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
                 continue
             }
         } else {
@@ -982,7 +1002,7 @@ function Edit-VpmPackages {
             }
 
             $config.VpmPackages.($pkgName) = $newVersion
-            Save-Config -Config $config -ConfigPath $ConfigPath
+            if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
             continue
         }
 
@@ -990,7 +1010,7 @@ function Edit-VpmPackages {
             $confirm = Show-Menu -Title "Remove package" -Header (Add-ConfirmHint -Header "Remove ${pkgName}?") -Options @("Yes, remove", "Cancel") -AllowCancel $false
             if ($confirm -eq 0) {
                 $config.VpmPackages.PSObject.Properties.Remove($pkgName)
-                Save-Config -Config $config -ConfigPath $ConfigPath
+                if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
             }
             continue
         }
@@ -1097,6 +1117,147 @@ function Setup-ProjectFlow {
         return $result
     }
 
+    function Format-PackageChangeSummary {
+        param([string[]]$Names)
+
+        $items = @($Names)
+        if ($items.Count -eq 0) { return 'none' }
+        $visible = @($items | Select-Object -First 3)
+        $summary = $visible -join ', '
+        if ($items.Count -gt $visible.Count) {
+            $summary += " (+$($items.Count - $visible.Count) more)"
+        }
+        return $summary
+    }
+
+    function Invoke-ExistingProjectPackageManager {
+        param(
+            [string]$ProjectPath,
+            $Config
+        )
+
+        try {
+            $currentPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath
+        } catch {
+            Show-WizardError -Title 'Unable to read project packages' -Message $_.Exception.Message
+            return
+        }
+
+        $workingConfig = [pscustomobject]@{
+            VpmPackages = Add-RequiredPackagesToSet -Packages $currentPackages -Config $Config
+            DefaultPackages = @(Get-DefaultPackages -Config $Config)
+            RequiredPackages = @(Get-RequiredPackages -Config $Config)
+        }
+
+        while ($true) {
+            $desiredPackages = Edit-VpmPackages -ScriptDir $scriptDir -ConfigObject $workingConfig -WorkingCopy
+            if (-not $desiredPackages) { return }
+            $workingConfig.VpmPackages = Copy-VpmPackageSet -Packages $desiredPackages
+            $plan = Compare-VpmPackageSets -CurrentPackages $currentPackages -DesiredPackages $desiredPackages
+
+            $header = @(
+                "Project: $(Split-Path -Leaf $ProjectPath)",
+                "Folder: ${ProjectPath}",
+                '',
+                "Add: $(Format-PackageChangeSummary -Names $plan.Added)",
+                "Change version: $(Format-PackageChangeSummary -Names $plan.Updated)",
+                "Remove: $(Format-PackageChangeSummary -Names $plan.Removed)",
+                '',
+                'All selected changes will be applied in one run.'
+            ) -join "`n"
+
+            $options = @('Apply all changes', 'Edit package set', 'Cancel')
+            $choice = Show-Menu -Title 'VPM package manager (AIO)' -Header $header -Options $options
+            if ($choice -lt 0 -or $choice -eq 2) { return }
+            if ($choice -eq 1) { continue }
+
+            Clear-Host
+            $status = Start-Installer -projectPath $ProjectPath -PackagesOverride $desiredPackages -SyncPackages
+            Show-SetupOutcomeSummary -Status $status -ActionLabel 'Synchronize VPM packages (AIO)' -TargetPath $ProjectPath -PackagePath $null -CanLeavePartialProject:$false
+            Read-Host 'Press ENTER to return' | Out-Null
+            return
+        }
+    }
+
+    function Invoke-ExistingProjectFlow {
+        param($Config)
+
+        $projectPath = Read-WizardPathInput -Title 'Manage existing Unity project' -TitleColor ([ConsoleColor]::Yellow) -Prompt 'Project folder' -BodyLines @(
+            'Choose the Unity project you want to update.'
+        )
+        if ([string]::IsNullOrWhiteSpace($projectPath)) { return }
+        if (-not (Test-Path -LiteralPath $projectPath)) {
+            Show-WizardError -Title 'Folder not found' -Message $projectPath
+            return
+        }
+
+        $assetsPath = Join-Path $projectPath 'Assets'
+        $packagesPath = Join-Path $projectPath 'Packages'
+        if ((-not (Test-Path -LiteralPath $assetsPath)) -or (-not (Test-Path -LiteralPath $packagesPath))) {
+            Show-WizardError -Title 'Not a Unity project' -Message 'The folder must contain both Assets and Packages.'
+            return
+        }
+
+        try {
+            $currentPackages = Get-VpmProjectPackageSet -ProjectPath $projectPath
+        } catch {
+            Show-WizardError -Title 'Unable to read project packages' -Message $_.Exception.Message
+            return
+        }
+
+        $presetPackages = Add-RequiredPackagesToSet -Packages $Config.VpmPackages -Config $Config
+        $extrasInfo = Get-ConfiguredExtraUnityPackagesInfo -Config $Config -PackagePath $null
+        $header = @(
+            "Project: $(Split-Path -Leaf $projectPath)",
+            "Folder: ${projectPath}",
+            "Current VPM packages: $(@($currentPackages.PSObject.Properties).Count)",
+            '',
+            'Choose one action; package operations run together.'
+        ) -join "`n"
+        $options = @(
+            'Manage package set (AIO)',
+            "Add/update my preset ($(@($presetPackages.PSObject.Properties).Count) packages)",
+            "Add/update preset + extras ($($extrasInfo.ExtrasCount) files)",
+            'Back'
+        )
+        $choice = Show-Menu -Title 'Manage existing project' -Header $header -Options $options
+        if ($choice -lt 0 -or $choice -eq 3) { return }
+
+        if ($choice -eq 0) {
+            Invoke-ExistingProjectPackageManager -ProjectPath $projectPath -Config $Config
+            return
+        }
+
+        $includeExtras = ($choice -eq 2)
+        if ($includeExtras) {
+            $editorCheck = Test-UnityEditorPath -Path ([string]$Config.UnityEditorPath)
+            if (-not $editorCheck.Valid) {
+                Show-WizardError -Title 'Unity Editor needed for extra imports' -Message $editorCheck.Message
+                return
+            }
+        }
+        $reviewHeader = @(
+            "Project: $(Split-Path -Leaf $projectPath)",
+            "Preset packages: $(@($presetPackages.PSObject.Properties).Count)",
+            $(if ($includeExtras) { "Extra UnityPackages: $($extrasInfo.ExtrasCount)" } else { 'Extra UnityPackages: no' }),
+            '',
+            'Existing packages outside the preset will be kept.'
+        ) -join "`n"
+        $review = Show-Menu -Title 'Ready to apply' -Header $reviewHeader -Options @('Start', 'Back')
+        if ($review -ne 0) { return }
+
+        Clear-Host
+        if ($includeExtras) {
+            $status = Start-Installer -projectPath $projectPath -PackagesOverride $presetPackages -ImportExtras
+            $actionLabel = 'Apply preset and import extras'
+        } else {
+            $status = Start-Installer -projectPath $projectPath -PackagesOverride $presetPackages
+            $actionLabel = 'Apply package preset'
+        }
+        Show-SetupOutcomeSummary -Status $status -ActionLabel $actionLabel -TargetPath $projectPath -PackagePath $null -CanLeavePartialProject:$false
+        Read-Host 'Press ENTER to return' | Out-Null
+    }
+
     function New-UnityPackageFlowState {
         return [pscustomobject]@{
             PackagePath = $null
@@ -1180,9 +1341,8 @@ function Setup-ProjectFlow {
         param($State)
 
         while ($true) {
-            $packagePath = Read-WizardPathInput -Title "UnityPackage setup - Step 1/4: Select package" -Prompt "UnityPackage path" -BodyLines @(
-                "Choose the .unitypackage file to import.",
-                "The wizard will keep you inside this flow until the input is valid or you cancel."
+            $packagePath = Read-WizardPathInput -Title "Create from UnityPackage" -Prompt "UnityPackage file" -BodyLines @(
+                "Choose the .unitypackage file you want to import."
             )
 
             if ([string]::IsNullOrWhiteSpace($packagePath)) { return $false }
@@ -1212,18 +1372,6 @@ function Setup-ProjectFlow {
 
         Update-UnityPackageFlowState -State $State -Config $Config
 
-        $projectsRootValue = if ($Config -and -not [string]::IsNullOrWhiteSpace([string]$Config.UnityProjectsRoot)) {
-            [string]$Config.UnityProjectsRoot
-        } else {
-            "(missing)"
-        }
-
-        $targetPreview = if (-not [string]::IsNullOrWhiteSpace([string]$State.TargetProjectPath)) {
-            [string]$State.TargetProjectPath
-        } else {
-            "(unavailable)"
-        }
-
         $defaultPromptName = if (-not [string]::IsNullOrWhiteSpace([string]$State.SavedProjectName)) {
             [string]$State.SavedProjectName
         } else {
@@ -1231,23 +1379,13 @@ function Setup-ProjectFlow {
         }
 
         Clear-Host
-        Write-Host "UnityPackage setup - Step 2/4: Project identity" -ForegroundColor Cyan
+        Write-Host "Rename project" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "UnityPackage:" -ForegroundColor Gray
-        Write-Host "  $($State.PackagePath)" -ForegroundColor White
-        Write-Host ""
-        Write-Host "Suggested project name:" -ForegroundColor Gray
-        Write-Host "  $($State.SuggestedProjectName)" -ForegroundColor White
+        Write-Host ("Source: {0}" -f (Split-Path -Leaf $State.PackagePath)) -ForegroundColor Gray
+        Write-Host ("Suggested: {0}" -f $State.SuggestedProjectName) -ForegroundColor White
         if ($State.SavedProjectName) {
-            Write-Host "Saved name for this UnityPackage:" -ForegroundColor DarkGray
-            Write-Host "  $($State.SavedProjectName)" -ForegroundColor Gray
+            Write-Host ("Previously used: {0}" -f $State.SavedProjectName) -ForegroundColor DarkGray
         }
-        Write-Host ""
-        Write-Host "Projects root:" -ForegroundColor Gray
-        Write-Host "  ${projectsRootValue}" -ForegroundColor White
-        Write-Host ""
-        Write-Host "Target preview:" -ForegroundColor Gray
-        Write-Host "  ${targetPreview}" -ForegroundColor White
         Write-Host ""
         Write-Host ("Press ENTER to use: {0}" -f $defaultPromptName) -ForegroundColor DarkGray
 
@@ -1261,7 +1399,7 @@ function Setup-ProjectFlow {
             }
 
             Write-Host $nameCheck.Message -ForegroundColor Red
-            Write-Host "Use a single Windows folder name, not a full path." -ForegroundColor DarkGray
+            Write-Host "Enter only the folder name, not a full path." -ForegroundColor DarkGray
         }
 
         Update-UnityPackageFlowState -State $State -Config $Config
@@ -1280,28 +1418,26 @@ function Setup-ProjectFlow {
         }
 
         $extrasLabel = if ($State.ExtrasCount -gt 0) {
-            "Use existing: setup VPM + import extra UnityPackages ({0} found)" -f $State.ExtrasCount
+            "Use existing + import extras ({0})" -f $State.ExtrasCount
         } else {
-            "Use existing: setup VPM + import extra UnityPackages (0 found)"
+            "Use existing + import extras (0)"
         }
 
         $options = @(
-            "Delete existing and recreate (from UnityPackage)",
-            "Use existing: setup VPM only",
+            "Delete and recreate from UnityPackage",
+            "Use existing + apply package preset",
             $extrasLabel,
             "Back"
         )
 
         $header = @(
-            "Step 3/4: Existing target decision",
+            "Project already exists: $(Split-Path -Leaf $State.TargetProjectPath)",
+            "Folder: $($State.TargetProjectPath)",
             "",
-            "Target already exists:",
-            $State.TargetProjectPath,
-            "",
-            "Choose how to continue with this existing project."
+            "Choose what to do with it."
         ) -join "`n"
 
-        $choice = Show-Menu -Title "UnityPackage setup" -Header (Add-ConfirmHint -Header $header -Hint "Choose an action for the existing target. Use Back to return to project identity.") -Options $options -AllowCancel $false
+        $choice = Show-Menu -Title "Existing project found" -Header $header -Options $options
         if ($choice -lt 0 -or $options[$choice] -eq "Back") { return $false }
 
         switch ($choice) {
@@ -1324,16 +1460,12 @@ function Setup-ProjectFlow {
         }
 
         return @(
-            "Step 4/4: Review setup plan",
-            "",
-            "UnityPackage: $($State.PackagePath)",
-            "Project name: $($State.ProjectName)",
-            "Target: $($State.TargetProjectPath)",
-            "Target status: ${targetState}",
+            "Source: $(Split-Path -Leaf $State.PackagePath)",
+            "Project: $($State.ProjectName)",
+            "Folder: $($State.TargetProjectPath)",
+            "Status: ${targetState}",
             "Action: $($State.ActionLabel)",
-            "Extra UnityPackages: $($State.ExtrasStatus)",
-            "",
-            "Review the plan before starting setup."
+            "Extras: $($State.ExtrasStatus)"
         ) -join "`n"
     }
 
@@ -1446,8 +1578,13 @@ function Setup-ProjectFlow {
                 if (-not (Prompt-UnityPackagePackageStep -State $state)) { return }
             }
 
-            [void](Prompt-UnityPackageIdentityStep -State $state -Config $Config)
+            Update-UnityPackageFlowState -State $state -Config $Config
+            $automaticNameCheck = Test-VrcSetupProjectName -Name ([string]$state.ProjectName)
+            if (-not $automaticNameCheck.Valid) {
+                [void](Prompt-UnityPackageIdentityStep -State $state -Config $Config)
+            }
             if (-not (Prompt-UnityPackageExistingActionStep -State $state)) {
+                $state = New-UnityPackageFlowState
                 continue
             }
 
@@ -1472,7 +1609,9 @@ function Setup-ProjectFlow {
                     return
                 }
                 if ($picked -eq "Change project name") {
-                    break
+                    [void](Prompt-UnityPackageIdentityStep -State $state -Config $Config)
+                    if (-not (Prompt-UnityPackageExistingActionStep -State $state)) { continue }
+                    continue
                 }
                 if ($picked -eq "Change existing target action") {
                     if (-not (Prompt-UnityPackageExistingActionStep -State $state)) {
@@ -1489,9 +1628,9 @@ function Setup-ProjectFlow {
         }
     }
 
-    $setupChoice = Show-Menu -Title "Setup project" -Header "Choose what you're starting from:" -Options @(
-        "UnityPackage (.unitypackage) -> create new project",
-        "Existing Unity project folder",
+    $setupChoice = Show-Menu -Title "Projects" -Header "Create a project or manage one you already have." -Options @(
+        "Create from UnityPackage",
+        "Manage existing Unity project",
         "Cleanup incomplete projects",
         "Back"
     )
@@ -1507,7 +1646,13 @@ function Setup-ProjectFlow {
         return
     }
 
-    # Gate: check essential paths exist before proceeding with project creation
+    if ($setupChoice -eq 1) {
+        Invoke-ExistingProjectFlow -Config $config
+        return
+    }
+
+    # Creating a new project needs both paths. Existing-project package management
+    # is intentionally available without a configured projects root.
     $essentials = Test-ConfigEssentialsExist -Config $config
     if (-not $essentials.Ready) {
         # Try auto-fix: if Unity Editor is missing but can be auto-detected, set it now
@@ -1545,7 +1690,7 @@ function Setup-ProjectFlow {
             Write-Host "  - ${msg}" -ForegroundColor Yellow
         }
         Write-Host ""
-        Write-Host "Go to 'Advanced settings' from the main menu to fix these." -ForegroundColor Gray
+        Write-Host "Open 'Settings' from the main menu to fix these." -ForegroundColor Gray
         Read-Host "Press ENTER to continue" | Out-Null
         return
     }
@@ -1555,27 +1700,6 @@ function Setup-ProjectFlow {
         return
     }
 
-    if ($setupChoice -eq 1) {
-        $projectPath = Read-WizardPathInput -Title "Existing Unity project" -TitleColor ([ConsoleColor]::Yellow) -Prompt "Project path" -BodyLines @(
-            "Choose the Unity project folder you want to configure."
-        )
-        if ([string]::IsNullOrWhiteSpace($projectPath)) { return }
-        if (-not (Test-Path -LiteralPath $projectPath)) { Write-Host "Path not found: ${projectPath}" -ForegroundColor Red; Read-Host "Press ENTER"; return }
-
-        $assetsPath = Join-Path $projectPath "Assets"
-        if (-not (Test-Path -LiteralPath $assetsPath)) { Write-Host "Not a Unity project (missing Assets)." -ForegroundColor Red; Read-Host "Press ENTER"; return }
-
-        $confirmHeader = "Project folder: ${projectPath}`n\nProceed?"
-        $confirm = Show-Menu -Title "Confirm" -Header (Add-ConfirmHint -Header $confirmHeader) -Options @("Proceed", "Cancel") -AllowCancel $false
-        if ($confirm -ne 0) { return }
-
-        # Avoid leftover TUI lines before starting installer output
-        Clear-Host
-        $status = Start-Installer -projectPath $projectPath
-        Show-SetupOutcomeSummary -Status $status -ActionLabel "Configure existing project" -TargetPath $projectPath -PackagePath $null -CanLeavePartialProject:$false
-        Read-Host "Press ENTER to return"
-        return
-    }
 }
 
 # --- Main launcher for interactive wizard ---
@@ -1588,19 +1712,18 @@ function Start-Wizard {
         $menuConfig = $null
         if (Test-Path -LiteralPath $configPath) { $menuConfig = Load-Config -ConfigPath $configPath }
         $essentials = Test-ConfigEssentialsExist -Config $menuConfig
-        $setupLabel = "Setup project (UnityPackage or existing)"
-        $header = "Use arrows + Enter. ESC goes back in submenus. Select Exit here to close."
+        $setupLabel = "Projects"
+        $header = "Create, prepare, or update a VRChat Unity project."
         if (-not $essentials.Ready) {
-            $setupLabel = "Setup project (UnityPackage or existing)  [!]"
+            $setupLabel = "Projects  [needs setup]"
             $warnings = ($essentials.Missing | ForEach-Object { "  - $_" }) -join "`n"
-            $header = "WARNING: Some paths are missing or invalid:`n${warnings}`n  Go to 'Advanced settings' to fix.`n`n${header}"
+            $header = "Some paths need attention:`n${warnings}`n`nOpen Settings to fix them."
         }
 
         $choice = Show-Menu -Title "VRChat Project Setup Wizard" -Header $header -Options @(
             $setupLabel,
-            "Configure VPM packages",
-            "Advanced settings",
-            "Reset configuration",
+            "Default package set",
+            "Settings",
             "Exit"
         )
 
@@ -1617,14 +1740,6 @@ function Start-Wizard {
                 Advanced-NamingSettings -ConfigPath $configPath
             }
             3 {
-                $confirm = Show-Menu -Title "Reset configuration" -Header (Add-ConfirmHint -Header "Reset config file?") -Options @("Yes, reset", "Cancel") -AllowCancel $false
-                if ($confirm -eq 0) {
-                    Clear-Host
-                    Start-Installer -projectPath "-reset"
-                    Read-Host "Press ENTER to continue"
-                }
-            }
-            4 {
                 Write-Host " Goodbye!" -ForegroundColor Cyan
                 return
             }

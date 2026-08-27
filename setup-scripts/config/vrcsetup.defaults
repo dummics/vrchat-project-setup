@@ -19,6 +19,11 @@
     "com.poiyomi.toon",
     "dev.foxscore.easy-login"
   ],
+  "RequiredPackages": [
+    "com.vrchat.base",
+    "com.vrchat.avatars",
+    "com.vrchat.core.vpm-resolver"
+  ],
   "UnityEditorPath": "",
   "UnityProjectsRoot": "",
   "Naming": {

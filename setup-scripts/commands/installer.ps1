@@ -240,7 +240,8 @@ function Install-PackagesInProject {
     param(
         [string]$ProjectPath,
         $Packages,
-        [switch]$Test
+        [switch]$Test,
+        [switch]$SyncPackages
     )
 
     if ((-not $Test) -and (Test-PackagesIncludeEasyLogin -Packages $Packages)) {
@@ -267,15 +268,41 @@ function Install-PackagesInProject {
     try {
     $hadFailures = $false
 
-    # Backup manifest once before any changes (keeps logs in a sane order)
-    $manifestPath = Join-Path $ProjectPath "Packages\manifest.json"
-    if ((-not $Test) -and (Test-Path -LiteralPath $manifestPath)) {
-        try {
-            $backupPath = "${manifestPath}.bak.$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Copy-Item -LiteralPath $manifestPath -Destination $backupPath -Force
-            Write-Host "Backup manifest created: ${backupPath}" -ForegroundColor Gray
-        } catch {
-            Write-Host "Failed to create manifest backup: ${_}" -ForegroundColor Yellow
+    # Back up both package manifests once before a batch change.
+    foreach ($manifestPath in @(
+        (Join-Path $ProjectPath 'Packages\manifest.json'),
+        (Join-Path $ProjectPath 'Packages\vpm-manifest.json')
+    )) {
+        if ((-not $Test) -and (Test-Path -LiteralPath $manifestPath)) {
+            try {
+                $backupPath = "${manifestPath}.bak.$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+                Copy-Item -LiteralPath $manifestPath -Destination $backupPath -Force
+                Write-Host "Backup manifest created: ${backupPath}" -ForegroundColor Gray
+            } catch {
+                Write-Host "Failed to create manifest backup: ${_}" -ForegroundColor Yellow
+            }
+        }
+    }
+
+    if ($SyncPackages) {
+        $currentPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath
+        $desiredNames = @($Packages.PSObject.Properties.Name)
+        $packagesToRemove = @($currentPackages.PSObject.Properties.Name | Where-Object { $desiredNames -notcontains $_ })
+        foreach ($packageName in $packagesToRemove) {
+            if ($Test) {
+                Write-Host "[TEST] Would remove package: ${packageName}" -ForegroundColor DarkGray
+                Write-VrcSetupLog -Message "[TEST] Would remove package: ${packageName}"
+                continue
+            }
+
+            Write-Host "Removing package: ${packageName}" -ForegroundColor Cyan
+            $removeResult = Invoke-VpmCapture -Arguments @('remove', 'package', $packageName, '-p', $ProjectPath)
+            Write-VrcSetupCommandOutput -Entries $removeResult.OutputLines
+            if ($removeResult.ExitCode -ne 0) {
+                Write-Host "vpm reported exit code $($removeResult.ExitCode) while removing ${packageName}" -ForegroundColor Yellow
+                Write-VrcSetupLog -Message "ERROR: vpm remove failed for ${packageName} with exit code $($removeResult.ExitCode)"
+                $hadFailures = $true
+            }
         }
     }
 
@@ -334,6 +361,18 @@ function Install-PackagesInProject {
         Write-Host $validation.Message -ForegroundColor Red
         Write-VrcSetupLog -Message ("ERROR: {0}" -f $validation.Message)
         return $script:VrcSetupStatusFailure
+    }
+
+    if ($SyncPackages) {
+        $remainingPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath
+        $desiredNames = @($Packages.PSObject.Properties.Name)
+        $unexpectedPackages = @($remainingPackages.PSObject.Properties.Name | Where-Object { $desiredNames -notcontains $_ })
+        if ($unexpectedPackages.Count -gt 0) {
+            $message = "Packages still present after synchronization: $($unexpectedPackages -join ', ')"
+            Write-Host $message -ForegroundColor Red
+            Write-VrcSetupLog -Message "ERROR: ${message}"
+            return $script:VrcSetupStatusFailure
+        }
     }
 
     if ($hadFailures) {
@@ -478,7 +517,9 @@ function Start-Installer {
         [string]$NewProjectName,
         [switch]$OverwriteExistingProject,
         [switch]$ImportExtras,
-        [string]$ExcludeUnityPackagePath
+        [string]$ExcludeUnityPackagePath,
+        $PackagesOverride,
+        [switch]$SyncPackages
     )
 
     # prepare environment
@@ -513,7 +554,7 @@ function Start-Installer {
     if ($config) {
         $UNITY_PROJECTS_ROOT = $config.UnityProjectsRoot
         $UNITY_EDITOR_PATH = $config.UnityEditorPath
-        $VPM_PACKAGES = $config.VpmPackages
+        $VPM_PACKAGES = if ($null -ne $PackagesOverride) { $PackagesOverride } else { $config.VpmPackages }
     } else {
         Write-Host "Config missing (create via the wizard)." -ForegroundColor Red
         return $script:VrcSetupStatusFailure
@@ -534,6 +575,7 @@ function Start-Installer {
         Write-Host "Error: VpmPackages missing in config." -ForegroundColor Red
         return $script:VrcSetupStatusFailure
     }
+    $VPM_PACKAGES = Add-RequiredPackagesToSet -Packages $VPM_PACKAGES -Config $config
 
     # Sticky overall progress (shows immediately; logs scroll below)
     $overallProgressEnabled = $true
@@ -940,7 +982,7 @@ public static class VrcSetupPostImport
             }
         }
         if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Installing VPM packages..." } catch { } }
-        $vpmStatus = Install-PackagesInProject -ProjectPath $projectPath -Packages $VPM_PACKAGES -Test:$Test
+        $vpmStatus = Install-PackagesInProject -ProjectPath $projectPath -Packages $VPM_PACKAGES -Test:$Test -SyncPackages:$SyncPackages
         if ($vpmStatus -ne $script:VrcSetupStatusSuccess) { return $vpmStatus }
 
         if ($ImportExtras) {
