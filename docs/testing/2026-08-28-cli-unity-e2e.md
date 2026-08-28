@@ -30,6 +30,7 @@ Environment:
 | Required-package guard | Pass | A dry-run removal of `com.vrchat.base` returned exit code 1 and left the package present. |
 | Unknown-package guard | Pass | Adding a nonexistent package returned exit code 1 before changing manifests. |
 | Interactive terminal UX | Pass | Keyboard flow covered Home → Projects → Project library → disposable project → AIO package set → review → Cancel → Back. The cached library rendered 30 projects in 55 ms during the run. |
+| Installed alias portability | Pass | From a different working folder, the installed `vrcsetup` alias resolved a relative project path, listed three packages, found GoGoLoco 1.8.6 and produced the expected dry-run add plan. User configuration was hash-identical before and after the update. |
 | Automated portability suite | Pass | All 11 groups passed under both PowerShell 7 and Windows PowerShell 5.1, including special-character paths, install, alias, repair and uninstall. |
 
 ## UX findings
