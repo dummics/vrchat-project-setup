@@ -62,6 +62,8 @@ source folder as an installation to delete.
   and one compact review screen.
 - Existing-project setup and AIO VPM management: add, update and remove several
   packages, then apply the complete plan in one run.
+- A scriptable CLI for project discovery, JSON output, package search/list/add/
+  remove and UnityPackage project creation, with `-DryRun` previews.
 - Configurable package presets with `latest` or pinned versions.
 - Package discovery through `vrc-get`, VPM and the local VCC repository cache.
 - Remembered project names and configurable naming rules.
@@ -166,10 +168,34 @@ a project, reviewing the AIO add/update/remove plan and confirming the operation
 After installation, open a new terminal and run:
 
 ```powershell
+# Interactive wizard
 vrcsetup
+
+# Maintenance
 vrcsetup repair
 vrcsetup uninstall
+
+# Discover projects (add -Json for automation)
+vrcsetup projects
+vrcsetup projects -Refresh -Json
+
+# Search and inspect direct VPM dependencies
+vrcsetup packages search gogoloco
+vrcsetup packages list "D:\Unity Projects\My Avatar"
+
+# Preview or apply project-scoped AIO changes
+vrcsetup packages add "D:\Unity Projects\My Avatar" gogoloco@1.8.6 -DryRun
+vrcsetup packages add "D:\Unity Projects\My Avatar" gogoloco@1.8.6
+vrcsetup packages remove "D:\Unity Projects\My Avatar" gogoloco
+
+# Create from a UnityPackage and add packages to the configured preset
+vrcsetup create ".\My Avatar.unitypackage" -Name "My Avatar" -Package gogoloco@latest
 ```
+
+`packages add` also changes an existing direct package to the requested version.
+Unchanged packages are kept without reinstalling them. `packages remove` refuses
+to remove the required VRChat foundation packages. Add `-Json` to `projects`,
+`packages list`, or `packages search` when another script needs structured data.
 
 The engine can also be called directly:
 

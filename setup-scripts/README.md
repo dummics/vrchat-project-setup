@@ -6,6 +6,7 @@ Structure:
 - `commands/wrappers/`: optional legacy wrappers (vrcsetupscript.ps1, vrcsetup-wizard.ps1) kept for backward compatibility.
 - `commands/installer.ps1`: `Start-Installer` + helpers (UnityPackage create/import + VPM install).
 - `commands/wizard.ps1`: `Start-Wizard` logic and menu.
+- `commands/cli.ps1`: project/package/create CLI verbs and machine-readable JSON output.
 - `lib/`: shared helpers: menu, config, project scan/cache, Spectre presentation, progress, utils.
 - `maintenance/`: internal per-user install, repair, uninstall, PATH and Start-menu integration.
 
@@ -36,6 +37,7 @@ Wizard UX notes:
 - Action rows are visually separated (2 blank lines) and color-coded (Back = red).
 - "Projects" offers a short create-from-UnityPackage path and a dedicated existing-project manager.
 - Existing-project AIO mode starts from the project's direct VPM dependencies, lets the user make several add/update/remove choices, then applies the reviewed set in one run.
+- AIO synchronization skips dependencies whose exact version is unchanged.
 - The VPM package editor supports change version/remove plus add package (type-to-filter). Only the VRChat base/avatar/resolver foundation is required; GoGoLoco and other starter packages are removable.
 - Bugfix: "Add package" no longer throws and instantly returns to the list.
 - Versions list is SemVer-sorted (e.g. 0.1.29 > 0.1.9).
