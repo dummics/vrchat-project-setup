@@ -35,6 +35,8 @@ function Copy-VrcSetupTree {
         if ($normalizedRelative -ieq 'setup-scripts\config\vrcsetup.json' -or
             $normalizedRelative -ieq 'setup-scripts\maintenance\Install-VrcSetup.ps1' -or
             $normalizedRelative -like 'setup-scripts\logs\*' -or
+            $normalizedRelative -ieq 'setup-scripts\cache' -or
+            $normalizedRelative -like 'setup-scripts\cache\*' -or
             $normalizedRelative -like '*\.vpm-validation-cache\*') {
             continue
         }

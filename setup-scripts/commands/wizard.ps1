@@ -11,6 +11,8 @@ $scriptDir = [System.IO.Directory]::GetParent($PSScriptRoot).FullName
 . "${scriptDir}\lib\vpm.ps1"
 . "${scriptDir}\lib\vrcget.ps1"
 . "${scriptDir}\lib\project-state.ps1"
+. "${scriptDir}\lib\projects.ps1"
+. "${scriptDir}\lib\spectre.ps1"
 . "${scriptDir}\commands\installer.ps1"
 $configPath = Join-Path $scriptDir "config\\vrcsetup.json"
 $defaultsPath = Join-Path $scriptDir "config\\vrcsetup.defaults"
@@ -1180,11 +1182,17 @@ function Setup-ProjectFlow {
     }
 
     function Invoke-ExistingProjectFlow {
-        param($Config)
-
-        $projectPath = Read-WizardPathInput -Title 'Manage existing Unity project' -TitleColor ([ConsoleColor]::Yellow) -Prompt 'Project folder' -BodyLines @(
-            'Choose the Unity project you want to update.'
+        param(
+            $Config,
+            [string]$ProjectPath
         )
+
+        $projectPath = $ProjectPath
+        if ([string]::IsNullOrWhiteSpace($projectPath)) {
+            $projectPath = Read-WizardPathInput -Title 'Manage existing Unity project' -TitleColor ([ConsoleColor]::Yellow) -Prompt 'Project folder' -BodyLines @(
+                'Choose the Unity project you want to update.'
+            )
+        }
         if ([string]::IsNullOrWhiteSpace($projectPath)) { return }
         if (-not (Test-Path -LiteralPath $projectPath)) {
             Show-WizardError -Title 'Folder not found' -Message $projectPath
@@ -1256,6 +1264,44 @@ function Setup-ProjectFlow {
         }
         Show-SetupOutcomeSummary -Status $status -ActionLabel $actionLabel -TargetPath $projectPath -PackagePath $null -CanLeavePartialProject:$false
         Read-Host 'Press ENTER to return' | Out-Null
+    }
+
+    function Invoke-ProjectLibraryFlow {
+        param($Config)
+
+        if (-not $Config -or [string]::IsNullOrWhiteSpace([string]$Config.UnityProjectsRoot)) {
+            Show-WizardError -Title 'Projects folder not configured' -Message 'Set the projects folder under Settings, or choose a project folder manually.'
+            return
+        }
+
+        $root = [string]$Config.UnityProjectsRoot
+        $cachePath = Join-Path $scriptDir 'cache\projects.json'
+        $forceRefresh = $false
+        while ($true) {
+            try {
+                $catalog = Get-VrcSetupProjectCatalog -RootPath $root -CachePath $cachePath -ForceRefresh:$forceRefresh
+            } catch {
+                Show-WizardError -Title 'Unable to scan projects' -Message $_.Exception.Message
+                return
+            }
+            $forceRefresh = $false
+
+            [void](Show-VrcSetupProjectCatalogSpectre -Catalog $catalog -ScriptDir $scriptDir)
+            $selected = Select-VrcSetupProjectCatalogAction -Catalog $catalog -ScriptDir $scriptDir
+            if (-not $selected -or $selected.Action -eq 'back') { return }
+            if ($selected.Action -eq 'refresh') {
+                $forceRefresh = $true
+                continue
+            }
+            if ($selected.Action -eq 'manual') {
+                Invoke-ExistingProjectFlow -Config $Config
+                continue
+            }
+            if ($selected.Action -eq 'project') {
+                Invoke-ExistingProjectFlow -Config $Config -ProjectPath ([string]$selected.ProjectPath)
+                continue
+            }
+        }
     }
 
     function New-UnityPackageFlowState {
@@ -1628,26 +1674,32 @@ function Setup-ProjectFlow {
         }
     }
 
-    $setupChoice = Show-Menu -Title "Projects" -Header "Create a project or manage one you already have." -Options @(
+    $setupChoice = Show-Menu -Title "Projects" -Header "Choose from your project library, create a project or open another folder." -Options @(
+        "Project library",
         "Create from UnityPackage",
-        "Manage existing Unity project",
+        "Open project by folder",
         "Cleanup incomplete projects",
         "Back"
     )
 
-    if ($setupChoice -eq -1 -or $setupChoice -eq 3) { return }
+    if ($setupChoice -eq -1 -or $setupChoice -eq 4) { return }
 
     $config = $null
     if (Test-Path -LiteralPath $ConfigPath) { $config = Load-Config -ConfigPath $ConfigPath }
     if ($config) { $config = Ensure-ConfigDefaults -Config $config }
 
-    if ($setupChoice -eq 2) {
+    if ($setupChoice -eq 3) {
         Cleanup-IncompleteProjectsFlow -Config $config
         return
     }
 
-    if ($setupChoice -eq 1) {
+    if ($setupChoice -eq 2) {
         Invoke-ExistingProjectFlow -Config $config
+        return
+    }
+
+    if ($setupChoice -eq 0) {
+        Invoke-ProjectLibraryFlow -Config $config
         return
     }
 
