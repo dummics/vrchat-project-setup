@@ -267,6 +267,7 @@ function Install-PackagesInProject {
     Push-Location -LiteralPath $ProjectPath
     try {
     $hadFailures = $false
+    $syncPlan = $null
 
     # Back up both package manifests once before a batch change.
     foreach ($manifestPath in @(
@@ -286,6 +287,7 @@ function Install-PackagesInProject {
 
     if ($SyncPackages) {
         $currentPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath
+        $syncPlan = Compare-VpmPackageSets -CurrentPackages $currentPackages -DesiredPackages $Packages
         $desiredNames = @($Packages.PSObject.Properties.Name)
         $packagesToRemove = @($currentPackages.PSObject.Properties.Name | Where-Object { $desiredNames -notcontains $_ })
         foreach ($packageName in $packagesToRemove) {
@@ -309,6 +311,13 @@ function Install-PackagesInProject {
     foreach ($pkg in $Packages.PSObject.Properties) {
         $packageName = $pkg.Name
         $packageVersion = $pkg.Value
+
+        if ($SyncPackages -and $syncPlan -and
+            $syncPlan.Added -notcontains $packageName -and
+            $syncPlan.Updated -notcontains $packageName) {
+            Write-Host "Keeping unchanged package: ${packageName} @ ${packageVersion}" -ForegroundColor DarkGray
+            continue
+        }
 
         Write-Host "Processing package: ${packageName} : ${packageVersion}" -ForegroundColor Cyan
 

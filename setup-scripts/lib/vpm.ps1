@@ -196,7 +196,15 @@ function Get-VpmProjectPackageSet {
         $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         if ($manifest -and $manifest.dependencies) {
             foreach ($dependency in @($manifest.dependencies.PSObject.Properties)) {
-                $packages[$dependency.Name] = [string]$dependency.Value
+                $rawValue = $dependency.Value
+                $version = if ($rawValue -and $rawValue.PSObject.Properties.Name -contains 'version') {
+                    [string]$rawValue.version
+                } else {
+                    [string]$rawValue
+                }
+                if (-not [string]::IsNullOrWhiteSpace($version)) {
+                    $packages[$dependency.Name] = $version
+                }
             }
         }
     } catch {
