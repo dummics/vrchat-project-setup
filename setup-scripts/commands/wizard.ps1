@@ -145,22 +145,29 @@ function Invoke-FirstRunSetup {
         $inputRoot = Normalize-UserPath (Read-Host "  Projects folder")
 
         if (-not [string]::IsNullOrWhiteSpace($inputRoot)) {
-            if (-not (Test-Path -LiteralPath $inputRoot)) {
-                $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${inputRoot}" -Options @("Create it", "Skip")
-                if ($mkChoice -eq 0) {
-                    try {
-                        New-Item -ItemType Directory -Path $inputRoot -Force | Out-Null
-                    } catch {
-                        Show-SetupScreen -EditorValue $editorPath -ProjectsRootValue "" -ActiveStep "projects" -StatusMessage "Failed to create folder."
-                        Start-Sleep -Seconds 2
-                        $inputRoot = ""
-                    }
-                    if (-not [string]::IsNullOrWhiteSpace($inputRoot) -and -not (Test-Path -LiteralPath $inputRoot)) {
-                        $inputRoot = ""
-                    }
-                }
-                else {
+            if (-not (Test-Path -LiteralPath $inputRoot -PathType Container)) {
+                if (Test-Path -LiteralPath $inputRoot -PathType Leaf) {
+                    Show-SetupScreen -EditorValue $editorPath -ProjectsRootValue "" -ActiveStep "projects" -StatusMessage "That path is a file. Choose a folder for new projects."
+                    Start-Sleep -Seconds 2
                     $inputRoot = ""
+                }
+                elseif (-not (Test-Path -LiteralPath $inputRoot)) {
+                    $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${inputRoot}" -Options @("Create it", "Skip")
+                    if ($mkChoice -eq 0) {
+                        try {
+                            New-Item -ItemType Directory -Path $inputRoot -Force | Out-Null
+                        } catch {
+                            Show-SetupScreen -EditorValue $editorPath -ProjectsRootValue "" -ActiveStep "projects" -StatusMessage "Failed to create folder."
+                            Start-Sleep -Seconds 2
+                            $inputRoot = ""
+                        }
+                        if (-not [string]::IsNullOrWhiteSpace($inputRoot) -and -not (Test-Path -LiteralPath $inputRoot -PathType Container)) {
+                            $inputRoot = ""
+                        }
+                    }
+                    else {
+                        $inputRoot = ""
+                    }
                 }
             }
 
@@ -543,7 +550,11 @@ function Advanced-NamingSettings {
                 # Projects root
                 $newRoot = Read-WizardPathInput -Title 'Project folder' -Prompt 'Projects folder' -BodyLines @("Current: ${projectsRootStatus}", 'Paste or drag the folder where you keep VRChat Unity projects.')
                 if (-not [string]::IsNullOrWhiteSpace($newRoot)) {
-                    if (-not (Test-Path -LiteralPath $newRoot)) {
+                    if (-not (Test-Path -LiteralPath $newRoot -PathType Container)) {
+                        if (Test-Path -LiteralPath $newRoot -PathType Leaf) {
+                            Show-WizardError -Title 'A folder is required' -Message 'This path is a file. Choose the folder where you keep VRChat Unity projects.'
+                            continue
+                        }
                         $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${newRoot}" -Options @("Create it", "Cancel")
                         if ($mkChoice -eq 0) {
                             try {
@@ -553,7 +564,7 @@ function Advanced-NamingSettings {
                                 Read-Host "Press ENTER to continue" | Out-Null
                                 continue
                             }
-                            if (-not (Test-Path -LiteralPath $newRoot)) {
+                            if (-not (Test-Path -LiteralPath $newRoot -PathType Container)) {
                                 Write-Host "Folder still doesn't exist after creation attempt." -ForegroundColor Red
                                 Read-Host "Press ENTER to continue" | Out-Null
                                 continue
@@ -691,10 +702,6 @@ function Select-VpmVersion {
             $header += "No matches for current filter.`n"
         }
 
-        if ($total -gt $pageSize) {
-            $header += "Tip: use Left/Right to change page faster.`n"
-        }
-
         $optLatest = "latest"
         $optPrev = "< Prev page"
         $optNext = "Next page >"
@@ -713,10 +720,8 @@ function Select-VpmVersion {
         if (-not [string]::IsNullOrWhiteSpace($filterPattern)) { $options += $optClearFilter }
         $options += @($optEnter, $optBack)
 
-        $sel = Show-Menu -Title "Select version" -Header $header -Options $options -EnableHorizontalNav ($total -gt $pageSize)
+        $sel = Show-Menu -Title "Select version" -Header $header -Options $options
         if ($sel -eq -1) { return $null }
-        if ($sel -eq -2) { $page--; continue }
-        if ($sel -eq -3) { $page++; continue }
 
         $picked = $options[$sel]
         if ($picked -eq $optBack) { return $null }
@@ -1856,7 +1861,7 @@ function Start-Wizard {
             'Exit'
         )
 
-        if ($choice -eq -1) { continue }
+        if ($choice -eq -1) { return }
 
         switch ($choice) {
             0 {

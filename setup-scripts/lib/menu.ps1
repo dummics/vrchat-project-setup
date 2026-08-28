@@ -634,6 +634,12 @@ function Show-ChecklistPaged {
     $itemsArr = @($Items)
     if ($itemsArr.Count -eq 0) { return @() }
 
+    $spectreChecklist = Get-Command -Name 'Show-VrcSetupSpectreChecklist' -ErrorAction SilentlyContinue
+    if ($spectreChecklist) {
+        $spectreResult = Show-VrcSetupSpectreChecklist -Items $itemsArr -ToLabel $ToLabel -Title $Title -Header $Header -DefaultSelected:$DefaultSelected -MaxVisible $MaxVisible -AllowCancel:$AllowCancel
+        if ($null -ne $spectreResult -or $AllowCancel) { return $spectreResult }
+    }
+
     $theme = Get-TuiTheme
     $tui = Start-TuiFrame -UseVt (Test-VtSupported)
     $needsFullRender = $true

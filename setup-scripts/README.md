@@ -18,7 +18,8 @@ pwsh -NoProfile -File '.\setup-scripts\maintenance\Install-VrcSetup.ps1'
 
 Open a new terminal and run `vrcsetup`. Use `vrcsetup repair` to restore the
 alias, per-user PATH entry, missing config, and run a smoke test; use
-`vrcsetup uninstall` to remove the per-user installation.
+`vrcsetup uninstall` to remove the per-user installation after confirmation.
+Use `vrcsetup uninstall --yes` only in an unattended script.
 - `config/`: configuration templates + local config.
 	- `vrcsetup.defaults` is tracked in repo and used as the first-run seed.
 	- `vrcsetup.json` is generated on first run (or by the wizard), is local-only and gitignored (it contains local paths).
@@ -27,8 +28,8 @@ alias, per-user PATH entry, missing config, and run a smoke test; use
 
 Wizard UX notes:
 - Project library scans the configured projects root, reuses unchanged cached metadata, and opens a listed project directly in AIO package management.
-- PowerShell 7 uses the bundled Spectre.Console assemblies across the complete interactive wizard: menus, path prompts, package search and project library. Windows PowerShell 5.1 uses the built-in text fallback.
-- The home screen separates `Create project` from `Manage projects`; every Spectre screen shows its keyboard controls and an explicit Back action.
+- PowerShell 7 uses the bundled Spectre.Console assemblies across the complete interactive wizard: menus, path prompts, package search, version selection, project library and cleanup selection. Windows PowerShell 5.1 uses the built-in text fallback.
+- The home screen separates `Create project` from `Manage projects`; every Spectre screen shows its keyboard controls and supports `Esc` or an explicit Back action.
 - Spectre panels use a restrained blue/slate palette, while required VPM packages appear first in the canonical base/avatar/resolver order and optional packages follow alphabetically.
 - VT/ANSI escape sequences are opt-in: set `VRCSETUP_TUI_VT=1` only if your terminal supports them.
 - Backend commands avoid printing progress lines to keep the TUI clean.

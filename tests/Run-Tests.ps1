@@ -56,6 +56,10 @@ try {
     )
     $actualTopLevelLaunchers = @(Get-ChildItem -LiteralPath $repoRoot -File -Filter '*.bat' | Select-Object -ExpandProperty Name | Sort-Object)
     Assert-True (($actualTopLevelLaunchers -join '|') -ceq (($expectedTopLevelLaunchers | Sort-Object) -join '|')) 'The source root does not expose exactly the four friendly BAT launchers.'
+    $uninstallLauncherText = Get-Content -LiteralPath (Join-Path $repoRoot 'Uninstall VRChat Project Setup.bat') -Raw
+    $aliasLauncherText = Get-Content -LiteralPath (Join-Path $repoRoot 'setup-scripts\bin\vrcsetup.cmd') -Raw
+    Assert-True ($uninstallLauncherText -match 'CONFIRM_UNINSTALL=1' -and $uninstallLauncherText -match '"--yes"') 'Uninstall no longer requires an explicit --yes flag for unattended removal.'
+    Assert-True ($aliasLauncherText -match '(?s)"uninstall".*?shift.*?--no-pause %\*') 'The alias does not forward explicit uninstall flags safely.'
 
     Write-Host '[3/11] Testing removable presets and AIO package synchronization...'
     $scriptDir = Join-Path $repoRoot 'setup-scripts'
@@ -66,6 +70,12 @@ try {
     . (Join-Path $scriptDir 'commands\cli.ps1')
 
     Assert-True ($null -eq (Normalize-UserPath -Path '')) 'Blank path input no longer returns to the previous screen.'
+    $fileInsteadOfProjectRoot = Join-Path $projectRoot 'Packages\manifest.json'
+    $invalidRootStatus = Test-ConfigEssentialsExist -Config ([pscustomobject]@{
+        UnityEditorPath = $null
+        UnityProjectsRoot = $fileInsteadOfProjectRoot
+    })
+    Assert-True ($invalidRootStatus.Missing -contains "Projects root not found: ${fileInsteadOfProjectRoot}") 'A file path was accepted as the projects root.'
 
     $legacyConfig = [pscustomobject]@{
         VpmPackages = [pscustomobject]@{ 'com.vrchat.base' = 'latest' }
@@ -277,8 +287,8 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $startMenuFolder 'Repair VRChat Project Setup.lnk')) 'Repair did not restore the missing Start Menu shortcut.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot '.vrcsetup-installed'))) 'Repair incorrectly marked the downloaded folder as installed.'
 
-    Write-Host '[11/11] Uninstalling from the downloaded BAT without touching its folder...'
-    & (Join-Path $repoRoot 'Uninstall VRChat Project Setup.bat') --no-pause *> $null
+    Write-Host '[11/11] Uninstalling through the terminal alias without touching its source folder...'
+    & $aliasPath uninstall --yes *> $null
     $uninstallExit = $LASTEXITCODE
     Assert-True ($uninstallExit -eq 0) "Source uninstall launcher exited with ${uninstallExit}."
     $uninstallDeadline = [DateTime]::UtcNow.AddSeconds(10)

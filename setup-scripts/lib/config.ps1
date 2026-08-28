@@ -283,7 +283,7 @@ function Test-ConfigEssentialsExist {
 
     if ([string]::IsNullOrWhiteSpace($root)) {
         $missing += "Projects root is not set"
-    } elseif (-not (Test-Path -LiteralPath $root)) {
+    } elseif (-not (Test-Path -LiteralPath $root -PathType Container)) {
         $missing += "Projects root not found: ${root}"
     }
 

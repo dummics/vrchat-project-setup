@@ -101,11 +101,16 @@ function Show-VrcSetupSpectreMenu {
         [int]$Current = 0,
         [bool]$AllowCancel = $true,
         [bool]$EnableHorizontalNav = $false,
+        [switch]$SkipFrame,
         [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
     )
 
     if (-not $Options) { return -1 }
-    if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
+    if ($SkipFrame) {
+        if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $null }
+    } elseif (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) {
+        return $null
+    }
 
     $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
     $prompt.Title = '[#DDEAF2]Choose an action[/]'
@@ -113,7 +118,8 @@ function Show-VrcSetupSpectreMenu {
     $prompt.WrapAround = $true
     $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
     $prompt.MoreChoicesText = '[#78909F]Use Up/Down then Enter. Type to jump through a long list.[/]'
-    [Spectre.Console.AnsiConsole]::MarkupLine('[#78909F]Up/Down to move  ·  Enter to select  ·  Choose Back to return[/]')
+    $keyboardHint = if ($AllowCancel) { 'Up/Down to move  ·  Enter to select  ·  Esc or Back to return' } else { 'Up/Down to move  ·  Enter to select' }
+    [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]${keyboardHint}[/]")
     $choiceIndex = @{}
     for ($index = 0; $index -lt $Options.Count; $index++) {
         $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
@@ -122,12 +128,14 @@ function Show-VrcSetupSpectreMenu {
     }
 
     try {
+        if ($AllowCancel) {
+            $prompt.CancelResult = [System.Func[string]] { return '__VRCSETUP_CANCELLED__' }
+        }
         $selected = Invoke-VrcSetupSpectreStringPrompt -Prompt $prompt
+        if ($selected -eq '__VRCSETUP_CANCELLED__') { return -1 }
         if ($choiceIndex.ContainsKey($selected)) { return [int]$choiceIndex[$selected] }
         return -1
     } catch {
-        # ESC is handled by Spectre where the host supports it.  Falling back to
-        # the existing keyboard renderer keeps older console hosts usable.
         if ($AllowCancel) { return -1 }
         throw
     }
@@ -216,6 +224,17 @@ function Invoke-VrcSetupSpectreStringPrompt {
     return [string]$closedMethod.Invoke($null, @($Prompt))
 }
 
+function Invoke-VrcSetupSpectreListPrompt {
+    param([Parameter(Mandatory)]$Prompt)
+
+    $method = [Spectre.Console.AnsiConsole].GetMethods() | Where-Object {
+        $_.Name -eq 'Prompt' -and $_.IsGenericMethodDefinition -and $_.GetParameters().Count -eq 1
+    } | Select-Object -First 1
+    if (-not $method) { throw 'Spectre.Console prompt method was not found.' }
+    $closedMethod = $method.MakeGenericMethod([System.Collections.Generic.List[string]])
+    return $closedMethod.Invoke($null, @($Prompt))
+}
+
 function Show-VrcSetupProjectCatalogSpectre {
     param(
         [Parameter(Mandatory)]$Catalog,
@@ -255,6 +274,63 @@ function Show-VrcSetupProjectCatalogSpectre {
     return $true
 }
 
+function Show-VrcSetupSpectreChecklist {
+    param(
+        [Parameter(Mandatory)]$Items,
+        [scriptblock]$ToLabel,
+        [string]$Title = 'Select items',
+        [string]$Header = '',
+        [bool]$DefaultSelected = $true,
+        [int]$MaxVisible = 15,
+        [bool]$AllowCancel = $true,
+        [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
+    )
+
+    $itemsArr = @($Items)
+    if ($itemsArr.Count -eq 0) { return @() }
+    if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
+
+    $prompt = [Spectre.Console.MultiSelectionPrompt[string]]::new()
+    $prompt.Title = '[#DDEAF2]Choose projects to delete[/]'
+    $prompt.PageSize = [Math]::Min(14, [Math]::Max(4, $MaxVisible))
+    $prompt.WrapAround = $true
+    $prompt.Required = $false
+    $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
+    $prompt.InstructionsText = '[#78909F]Up/Down to move  ·  Space to toggle  ·  Enter to confirm  ·  Esc to return[/]'
+    $prompt.MoreChoicesText = '[#78909F]Use Up/Down to browse the remaining projects.[/]'
+
+    $itemByChoice = @{}
+    for ($index = 0; $index -lt $itemsArr.Count; $index++) {
+        $label = if ($ToLabel) { [string](& $ToLabel $itemsArr[$index] $index) } else { [string]$itemsArr[$index] }
+        $choice = $label
+        $suffix = 2
+        while ($itemByChoice.ContainsKey($choice)) {
+            $choice = "${label} (${suffix})"
+            $suffix++
+        }
+        $displayChoice = ConvertTo-VrcSetupSpectreText $choice
+        $itemByChoice[$displayChoice] = $itemsArr[$index]
+        $choiceItem = $prompt.AddChoice($displayChoice)
+        if ($DefaultSelected) { [void]$choiceItem.Select() }
+    }
+
+    try {
+        if ($AllowCancel) {
+            $prompt.CancelResult = [System.Func[System.Collections.Generic.List[string]]] { return [System.Collections.Generic.List[string]]::new() }
+        }
+        $selectedDisplayChoices = Invoke-VrcSetupSpectreListPrompt -Prompt $prompt
+        if ($null -eq $selectedDisplayChoices) { return $null }
+        $selectedItems = @()
+        foreach ($choice in @($selectedDisplayChoices)) {
+            if ($itemByChoice.ContainsKey([string]$choice)) { $selectedItems += $itemByChoice[[string]$choice] }
+        }
+        return $selectedItems
+    } catch {
+        if ($AllowCancel) { return $null }
+        throw
+    }
+}
+
 function Select-VrcSetupProjectCatalogAction {
     param(
         [Parameter(Mandatory)]$Catalog,
@@ -277,7 +353,10 @@ function Select-VrcSetupProjectCatalogAction {
     $choices['Back'] = [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
 
     $labels = @($choices.Keys)
-    $index = Show-Menu -Title 'Project library' -Header "Select a project to manage, refresh the list, or open a different folder." -Options $labels
+    $index = Show-VrcSetupSpectreMenu -Title 'Project library' -Options $labels -AllowCancel:$true -ScriptDir $ScriptDir -SkipFrame
+    if ($null -eq $index) {
+        $index = Show-Menu -Title 'Project library' -Header "Select a project to manage, refresh the list, or open a different folder." -Options $labels
+    }
     if ($index -lt 0) { return [pscustomobject]@{ Action = 'back'; ProjectPath = $null } }
     return $choices[$labels[$index]]
 }

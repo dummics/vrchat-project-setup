@@ -1,5 +1,16 @@
 @echo off
 setlocal
+set "NO_PAUSE=0"
+set "CONFIRM_UNINSTALL=1"
+
+:parseArgs
+if "%~1"=="" goto argsParsed
+if /i "%~1"=="--no-pause" set "NO_PAUSE=1"
+if /i "%~1"=="--yes" set "CONFIRM_UNINSTALL=0"
+shift
+goto parseArgs
+
+:argsParsed
 if exist "%~dp0.vrcsetup-installed" (
 	set "TARGET_ROOT=%~dp0."
 ) else if defined VRCSETUP_INSTALL_ROOT (
@@ -11,11 +22,11 @@ if exist "%~dp0.vrcsetup-installed" (
 if not exist "%TARGET_ROOT%\.vrcsetup-installed" (
 	echo VRChat Project Setup is not installed for this user.
 	echo Nothing was removed. The downloaded folder is safe.
-	if /i not "%~1"=="--no-pause" pause
+	if "%NO_PAUSE%"=="0" pause
 	exit /b 2
 )
 
-if /i not "%~1"=="--no-pause" (
+if "%CONFIRM_UNINSTALL%"=="1" (
 	echo This removes VRChat Project Setup, its terminal alias, and Windows shortcuts.
 	choice /C YN /N /M "Continue? [Y/N]: "
 	if errorlevel 2 (

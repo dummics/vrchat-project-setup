@@ -181,6 +181,8 @@ vrcsetup
 # Maintenance
 vrcsetup repair
 vrcsetup uninstall
+# For an unattended script only; interactive uninstall always asks first.
+vrcsetup uninstall --yes
 
 # Discover projects (add -Json for automation)
 vrcsetup projects
@@ -276,7 +278,7 @@ optional and can be removed like other non-foundation packages.
 
 The regression suite validates both PowerShell 7 and Windows PowerShell 5.1,
 portable and installed launchers, AIO package add/remove planning, Start-menu
-shortcuts, alias behavior, repair/uninstall safety and paths containing special
+shortcuts, alias behavior, repair/uninstall confirmation, folder validation and paths containing special
 characters.
 
 ```powershell
