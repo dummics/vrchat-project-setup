@@ -326,8 +326,29 @@ try {
 
     Write-Host '[10/11] Repairing the installed copy from the downloaded BAT...'
     Remove-Item -LiteralPath (Join-Path $startMenuFolder 'Repair VRChat Project Setup.lnk') -Force
-    & (Join-Path $repoRoot 'Repair VRChat Project Setup.bat') --no-pause *> $null
-    $repairExit = $LASTEXITCODE
+    $lockedSpectreDll = Join-Path $installRoot 'setup-scripts\lib\spectre\Spectre.Console.Ansi.dll'
+    $lockJob = Start-Job -ScriptBlock {
+        param($dllPath)
+        Add-Type -LiteralPath $dllPath -ErrorAction Stop
+        'ready'
+        Start-Sleep -Seconds 20
+    } -ArgumentList $lockedSpectreDll
+    try {
+        $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
+        $lockerReady = $false
+        while ([DateTime]::UtcNow -lt $readyDeadline) {
+            if (@(Receive-Job -Job $lockJob -Keep -ErrorAction SilentlyContinue) -contains 'ready') {
+                $lockerReady = $true
+                break
+            }
+            Start-Sleep -Milliseconds 100
+        }
+        Assert-True $lockerReady 'Test process did not lock the installed Spectre runtime.'
+        & (Join-Path $repoRoot 'Repair VRChat Project Setup.bat') --no-pause *> $null
+        $repairExit = $LASTEXITCODE
+    } finally {
+        Remove-Job -Job $lockJob -Force -ErrorAction SilentlyContinue
+    }
     Assert-True ($repairExit -eq 0) "Source repair launcher exited with ${repairExit}."
     Assert-True (Test-Path -LiteralPath (Join-Path $startMenuFolder 'Repair VRChat Project Setup.lnk')) 'Repair did not restore the missing Start Menu shortcut.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot '.vrcsetup-installed'))) 'Repair incorrectly marked the downloaded folder as installed.'

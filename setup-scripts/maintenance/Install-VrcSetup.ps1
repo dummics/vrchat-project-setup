@@ -45,8 +45,36 @@ function Copy-VrcSetupTree {
         if ($item.PSIsContainer) {
             Copy-VrcSetupTree -Source $item.FullName -Destination $target -Relative $childRelative
         } else {
-            Copy-Item -LiteralPath $item.FullName -Destination $target -Force
+            try {
+                Copy-Item -LiteralPath $item.FullName -Destination $target -Force
+            } catch {
+                # Spectre assemblies stay locked for the lifetime of an open terminal
+                # session. An identical runtime file needs no update, so continue
+                # updating the rest of the installation instead of failing Repair.
+                if ((Test-VrcSetupFilesMatch -Source $item.FullName -Destination $target)) {
+                    continue
+                }
+                throw
+            }
         }
+    }
+}
+
+function Test-VrcSetupFilesMatch {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination
+    )
+
+    try {
+        if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) { return $false }
+        $sourceItem = Get-Item -LiteralPath $Source -ErrorAction Stop
+        $destinationItem = Get-Item -LiteralPath $Destination -ErrorAction Stop
+        if ($sourceItem.Length -ne $destinationItem.Length) { return $false }
+        return (Get-FileHash -LiteralPath $Source -Algorithm SHA256 -ErrorAction Stop).Hash -eq
+            (Get-FileHash -LiteralPath $Destination -Algorithm SHA256 -ErrorAction Stop).Hash
+    } catch {
+        return $false
     }
 }
 
