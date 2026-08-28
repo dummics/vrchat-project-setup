@@ -243,7 +243,8 @@ function Show-VrcSetupProjectCatalogSpectre {
 
     if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $false }
 
-    [void](Write-VrcSetupSpectreFrame -Title 'Project library' -Header ("Projects under: {0}`nFound: {1}" -f $Catalog.RootPath, $Catalog.ProjectCount) -ScriptDir $ScriptDir)
+    $sortLabel = if ([string]$Catalog.SortOrder -eq 'name') { 'Name (A-Z)' } else { 'Recently updated' }
+    [void](Write-VrcSetupSpectreFrame -Title 'Project library' -Header ("Projects under: {0}`nFound: {1}  |  Order: {2}" -f $Catalog.RootPath, $Catalog.ProjectCount, $sortLabel) -ScriptDir $ScriptDir)
     [Spectre.Console.AnsiConsole]::WriteLine()
 
     if ($Catalog.ProjectCount -eq 0) {
@@ -339,7 +340,7 @@ function Select-VrcSetupProjectCatalogAction {
 
     $choices = [ordered]@{}
     foreach ($project in @($Catalog.Projects)) {
-        $label = "$($project.RelativePath)  |  $($project.Kind)  |  $($project.PackageCount) VPM"
+        $label = "$($project.RelativePath)  ·  $($project.Kind)  ·  $($project.PackageCount) packages"
         $uniqueLabel = $label
         $suffix = 2
         while ($choices.Contains($uniqueLabel)) {
@@ -348,8 +349,10 @@ function Select-VrcSetupProjectCatalogAction {
         }
         $choices[$uniqueLabel] = [pscustomobject]@{ Action = 'project'; ProjectPath = [string]$project.Path }
     }
-    $choices['Refresh project scan'] = [pscustomobject]@{ Action = 'refresh'; ProjectPath = $null }
-    $choices['Choose a different folder'] = [pscustomobject]@{ Action = 'manual'; ProjectPath = $null }
+    $sortLabel = if ([string]$Catalog.SortOrder -eq 'name') { 'Name (A-Z)' } else { 'Recently updated' }
+    $choices["Change sort order ($sortLabel)"] = [pscustomobject]@{ Action = 'sort'; ProjectPath = $null }
+    $choices['Refresh project list'] = [pscustomobject]@{ Action = 'refresh'; ProjectPath = $null }
+    $choices['Choose a project folder'] = [pscustomobject]@{ Action = 'manual'; ProjectPath = $null }
     $choices['Back'] = [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
 
     $labels = @($choices.Keys)

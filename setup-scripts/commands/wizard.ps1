@@ -342,6 +342,10 @@ function Ensure-ConfigDefaults {
         $Config | Add-Member -MemberType NoteProperty -Name "UnityPackagesFolder" -Value $null -Force
     }
 
+    if ([string]$Config.ProjectLibrarySort -notin @('recent', 'name')) {
+        $Config | Add-Member -MemberType NoteProperty -Name "ProjectLibrarySort" -Value 'recent' -Force
+    }
+
     # DefaultPackages is the starter preset. It does not make packages immutable.
     $Config | Add-Member -MemberType NoteProperty -Name "DefaultPackages" -Value @(Get-DefaultPackages -Config $Config) -Force
 
@@ -1279,26 +1283,27 @@ function Setup-ProjectFlow {
         $extrasInfo = Get-ConfiguredExtraUnityPackagesInfo -Config $Config -PackagePath $null
         $header = @(
             "Project: $(Split-Path -Leaf $projectPath)",
-            "Folder: ${projectPath}",
-            "Current VPM packages: $(@($currentPackages.PSObject.Properties).Count)",
             '',
-            'Choose one action; package operations run together.'
+            'Choose how you want to update it.'
         ) -join "`n"
-        $options = @(
-            'Manage package set (AIO)',
-            "Add/update my preset ($(@($presetPackages.PSObject.Properties).Count) packages)",
-            "Add/update preset + extras ($($extrasInfo.ExtrasCount) files)",
-            'Back'
-        )
-        $choice = Show-Menu -Title 'Manage existing project' -Header $header -Options $options
-        if ($choice -lt 0 -or $choice -eq 3) { return }
+        $options = @('Manage packages', 'Apply my default packages')
+        $actions = @('manage', 'apply-default')
+        if ($extrasInfo.ExtrasCount -gt 0) {
+            $extraLabel = if ($extrasInfo.ExtrasCount -eq 1) { 'extra UnityPackage' } else { 'extra UnityPackages' }
+            $options += "Apply default packages + import $($extrasInfo.ExtrasCount) ${extraLabel}"
+            $actions += 'apply-extras'
+        }
+        $options += 'Back'
+        $actions += 'back'
+        $choice = Show-Menu -Title 'Update project' -Header $header -Options $options
+        if ($choice -lt 0 -or $actions[$choice] -eq 'back') { return }
 
-        if ($choice -eq 0) {
+        if ($actions[$choice] -eq 'manage') {
             Invoke-ExistingProjectPackageManager -ProjectPath $projectPath -Config $Config
             return
         }
 
-        $includeExtras = ($choice -eq 2)
+        $includeExtras = ($actions[$choice] -eq 'apply-extras')
         if ($includeExtras) {
             $editorCheck = Test-UnityEditorPath -Path ([string]$Config.UnityEditorPath)
             if (-not $editorCheck.Valid) {
@@ -1308,8 +1313,8 @@ function Setup-ProjectFlow {
         }
         $reviewHeader = @(
             "Project: $(Split-Path -Leaf $projectPath)",
-            "Preset packages: $(@($presetPackages.PSObject.Properties).Count)",
-            $(if ($includeExtras) { "Extra UnityPackages: $($extrasInfo.ExtrasCount)" } else { 'Extra UnityPackages: no' }),
+            "Default packages: $(@($presetPackages.PSObject.Properties).Count)",
+            $(if ($includeExtras) { "Extra UnityPackages: $($extrasInfo.ExtrasCount)" } else { 'Extra UnityPackages: none' }),
             '',
             'Existing packages outside the preset will be kept.'
         ) -join "`n"
@@ -1319,17 +1324,20 @@ function Setup-ProjectFlow {
         Clear-Host
         if ($includeExtras) {
             $status = Start-Installer -projectPath $projectPath -PackagesOverride $presetPackages -ImportExtras
-            $actionLabel = 'Apply preset and import extras'
+            $actionLabel = 'Apply default packages and import extras'
         } else {
             $status = Start-Installer -projectPath $projectPath -PackagesOverride $presetPackages
-            $actionLabel = 'Apply package preset'
+            $actionLabel = 'Apply default packages'
         }
         Show-SetupOutcomeSummary -Status $status -ActionLabel $actionLabel -TargetPath $projectPath -PackagePath $null -CanLeavePartialProject:$false
         Read-Host 'Press ENTER to return' | Out-Null
     }
 
     function Invoke-ProjectLibraryFlow {
-        param($Config)
+        param(
+            $Config,
+            [string]$ConfigPath
+        )
 
         if (-not $Config -or [string]::IsNullOrWhiteSpace([string]$Config.UnityProjectsRoot)) {
             Show-WizardError -Title 'Projects folder not configured' -Message 'Set the projects folder under Settings, or choose a project folder manually.'
@@ -1339,9 +1347,10 @@ function Setup-ProjectFlow {
         $root = [string]$Config.UnityProjectsRoot
         $cachePath = Join-Path $scriptDir 'cache\projects.json'
         $forceRefresh = $false
+        $sortOrder = if ([string]$Config.ProjectLibrarySort -eq 'name') { 'name' } else { 'recent' }
         while ($true) {
             try {
-                $catalog = Get-VrcSetupProjectCatalog -RootPath $root -CachePath $cachePath -ForceRefresh:$forceRefresh
+                $catalog = Get-VrcSetupProjectCatalog -RootPath $root -CachePath $cachePath -ForceRefresh:$forceRefresh -SortOrder $sortOrder
             } catch {
                 Show-WizardError -Title 'Unable to scan projects' -Message $_.Exception.Message
                 return
@@ -1353,6 +1362,15 @@ function Setup-ProjectFlow {
             if (-not $selected -or $selected.Action -eq 'back') { return }
             if ($selected.Action -eq 'refresh') {
                 $forceRefresh = $true
+                continue
+            }
+            if ($selected.Action -eq 'sort') {
+                $sortChoice = Show-Menu -Title 'Project library order' -Header 'Choose how projects are listed.' -Options @('Recently updated', 'Name (A-Z)', 'Back')
+                if ($sortChoice -eq 0) { $sortOrder = 'recent' }
+                elseif ($sortChoice -eq 1) { $sortOrder = 'name' }
+                else { continue }
+                $Config | Add-Member -MemberType NoteProperty -Name 'ProjectLibrarySort' -Value $sortOrder -Force
+                Save-Config -Config $Config -ConfigPath $ConfigPath
                 continue
             }
             if ($selected.Action -eq 'manual') {
@@ -1779,7 +1797,7 @@ function Setup-ProjectFlow {
     }
 
     if ($setupChoice -eq 2) {
-        Invoke-ProjectLibraryFlow -Config $config
+        Invoke-ProjectLibraryFlow -Config $config -ConfigPath $ConfigPath
         return
     }
 

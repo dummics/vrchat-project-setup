@@ -135,8 +135,11 @@ projects**. It then provides:
 2. **Manage projects**
    - Open the project library: it scans the configured root and nearby nested
      folders, then shows project type, Unity version and direct VPM package count.
-   - Select a listed project and go directly to its AIO package actions.
-   - Refresh the index explicitly or choose a folder outside the configured root.
+   - Starts with projects updated most recently; change the library order to
+     alphabetical whenever that is more useful.
+   - Select a listed project and manage packages, apply default packages, or
+     import configured extras only when they exist.
+   - Refresh the list explicitly or choose a folder outside the configured root.
    - Manage an existing Unity project and apply a complete VPM change set once.
    - Add/update the default preset without removing unrelated project packages.
    - Optionally import extra UnityPackages.
@@ -167,6 +170,10 @@ scans reuse unchanged metadata and re-read only new or modified projects. The
 generated index lives under `setup-scripts/cache/`, is local to the portable or
 installed copy, and is never committed or copied during installation.
 
+The default order is **recently updated**. Choose **Change sort order** in the
+library to persist **Name (A-Z)** instead. The same preference is used by
+`vrcsetup projects`; use `-Sort recent` or `-Sort name` for a one-off CLI order.
+
 The library reads project metadata only. Package changes still require choosing
 a project, reviewing the AIO add/update/remove plan and confirming the operation.
 
@@ -187,6 +194,7 @@ vrcsetup uninstall --yes
 # Discover projects (add -Json for automation)
 vrcsetup projects
 vrcsetup projects -Refresh -Json
+vrcsetup projects -Sort name
 
 # Search and inspect direct VPM dependencies
 vrcsetup packages search gogoloco

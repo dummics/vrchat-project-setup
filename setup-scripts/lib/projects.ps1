@@ -131,11 +131,32 @@ function Find-VrcSetupUnityProjectPaths {
     return @($results | Sort-Object -Unique)
 }
 
+function Sort-VrcSetupProjectCatalogProjects {
+    param(
+        [AllowEmptyCollection()]$Projects,
+        [ValidateSet('recent', 'name')][string]$SortOrder = 'recent'
+    )
+
+    $items = @($Projects)
+    if ($SortOrder -eq 'name') {
+        return @($items | Sort-Object Name, RelativePath, Path)
+    }
+
+    return @($items | Sort-Object @{ Expression = {
+        $updatedAt = [DateTime]::MinValue
+        if ([DateTime]::TryParse([string]$_.LastModifiedUtc, [ref]$updatedAt)) {
+            return $updatedAt.ToUniversalTime()
+        }
+        return [DateTime]::MinValue
+    }; Descending = $true }, RelativePath, Path)
+}
+
 function Get-VrcSetupProjectCatalog {
     param(
         [Parameter(Mandatory)][string]$RootPath,
         [Parameter(Mandatory)][string]$CachePath,
         [switch]$ForceRefresh,
+        [ValidateSet('recent', 'name')][string]$SortOrder = 'recent',
         [ValidateRange(0, 5)][int]$MaxDepth = 2
     )
 
@@ -173,7 +194,7 @@ function Get-VrcSetupProjectCatalog {
             $refreshed++
         }
     }
-    $projects = @($projects | Sort-Object Kind, Name, Path)
+    $projects = @(Sort-VrcSetupProjectCatalogProjects -Projects $projects -SortOrder $SortOrder)
 
     $catalog = [pscustomobject]@{
         SchemaVersion = 1
@@ -193,6 +214,7 @@ function Get-VrcSetupProjectCatalog {
         RootPath = $root
         ScannedAtUtc = $catalog.ScannedAtUtc
         Projects = $projects
+        SortOrder = $SortOrder
         ProjectCount = $projects.Count
         CacheHits = $cacheHits
         Refreshed = $refreshed

@@ -8,6 +8,7 @@ param(
     [switch]$Json,
     [switch]$DryRun,
     [switch]$Refresh,
+    [ValidateSet('recent', 'name')][string]$Sort,
     [string]$Name,
     [string[]]$Package
 )
@@ -29,7 +30,7 @@ if ($Wizard -or ((-not $Command) -and (-not $projectPath))) {
 }
 
 if ($Command) {
-    $cliOutput = @(Invoke-VrcSetupCli -Command $Command -Arguments $Arguments -ScriptDir $scriptDir -ConfigPath $configPath -Json:$Json -DryRun:($DryRun -or $Test) -Refresh:$Refresh -Name $Name -Package $Package)
+    $cliOutput = @(Invoke-VrcSetupCli -Command $Command -Arguments $Arguments -ScriptDir $scriptDir -ConfigPath $configPath -Json:$Json -DryRun:($DryRun -or $Test) -Refresh:$Refresh -SortOrder $Sort -Name $Name -Package $Package)
     if ($cliOutput.Count -eq 0) {
         exit 1
     }

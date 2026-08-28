@@ -84,6 +84,7 @@ try {
     $migratedConfig = Ensure-ConfigDefaults -Config $legacyConfig
     Assert-True ($migratedConfig.VpmPackages.PSObject.Properties.Name -notcontains 'gogoloco') 'Legacy config migration restored removed GoGoLoco.'
     Assert-True ($migratedConfig.VpmPackages.PSObject.Properties.Name -notcontains 'com.vrcfury.vrcfury') 'Legacy config migration restored another removed optional package.'
+    Assert-True ($migratedConfig.ProjectLibrarySort -eq 'recent') 'Legacy config migration did not default the project library to recently updated.'
 
     $projectPackages = Get-VpmProjectPackageSet -ProjectPath $projectRoot
     Assert-True ($projectPackages.PSObject.Properties.Name -contains 'gogoloco') 'Test project did not expose GoGoLoco from vpm-manifest.json.'
@@ -139,7 +140,7 @@ try {
 
     Write-Host '[4/11] Scanning and incrementally refreshing the project library...'
     $libraryRoot = Join-Path $testRoot 'Unity Projects [shared] & café'
-    $avatarProject = Join-Path $libraryRoot 'Avatar [daily] & café'
+    $avatarProject = Join-Path $libraryRoot 'Z Avatar [daily] & café'
     $worldProject = Join-Path $libraryRoot 'Grouped\World Portal'
     foreach ($path in @($avatarProject, $worldProject)) {
         [System.IO.Directory]::CreateDirectory((Join-Path $path 'Assets')) | Out-Null
@@ -156,6 +157,8 @@ try {
         (Join-Path $worldProject 'Packages\vpm-manifest.json'),
         '{"dependencies":{"com.vrchat.base":"3.8.0","com.vrchat.worlds":"3.8.0"},"locked":{}}'
     )
+    [System.IO.File]::SetLastWriteTimeUtc((Join-Path $avatarProject 'Packages\vpm-manifest.json'), [DateTime]'2099-01-02T00:00:00Z')
+    [System.IO.File]::SetLastWriteTimeUtc((Join-Path $worldProject 'Packages\vpm-manifest.json'), [DateTime]'2099-01-01T00:00:00Z')
     $catalogCache = Join-Path $testRoot 'cache\projects.json'
     $firstCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache -ForceRefresh
     Assert-True ($firstCatalog.ProjectCount -eq 2) 'Initial scan did not find exactly the two Unity projects.'
@@ -163,6 +166,19 @@ try {
     Assert-True (($firstCatalog.Projects | Where-Object Path -eq $avatarProject).Kind -eq 'Avatar') 'Avatar project type was not detected from VPM dependencies.'
     Assert-True (($firstCatalog.Projects | Where-Object Path -eq $worldProject).Kind -eq 'World') 'Nested world project was not detected.'
     Assert-True (Test-Path -LiteralPath $catalogCache) 'Project library cache was not written.'
+    Assert-True ($firstCatalog.Projects[0].Path -eq $avatarProject) 'Project library did not list the most recently updated project first.'
+    $alphabeticalCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache -SortOrder name
+    Assert-True ($alphabeticalCatalog.Projects[0].Path -eq $worldProject) 'Project library name ordering did not list projects alphabetically.'
+    $cliCatalogConfigPath = Join-Path $testRoot 'config\projects.json'
+    [System.IO.Directory]::CreateDirectory((Split-Path -Parent $cliCatalogConfigPath)) | Out-Null
+    [pscustomobject]@{
+        UnityProjectsRoot = $libraryRoot
+        VpmPackages = [pscustomobject]@{ 'com.vrchat.base' = 'latest' }
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cliCatalogConfigPath -Encoding UTF8
+    $cliProjectsOutput = @(& { Invoke-VrcSetupCli -Command 'projects' -ScriptDir $scriptDir -ConfigPath $cliCatalogConfigPath -Json -SortOrder name } *>&1)
+    $cliProjectsStatus = [int]$cliProjectsOutput[-1]
+    $cliProjects = (($cliProjectsOutput[0..($cliProjectsOutput.Count - 2)] | ForEach-Object { [string]$_ }) -join "`n") | ConvertFrom-Json
+    Assert-True ($cliProjectsStatus -eq 0 -and $cliProjects[0].Name -eq 'World Portal') 'CLI project sorting did not honor -Sort name.'
 
     $secondCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache
     Assert-True ($secondCatalog.CacheHits -eq 2 -and $secondCatalog.Refreshed -eq 0) 'Unchanged projects were not reused from the incremental cache.'
@@ -260,6 +276,14 @@ try {
         Pop-Location
     }
     Assert-True ($aliasExit -eq 0) "Installed alias exited with ${aliasExit}."
+    [pscustomobject]@{
+        UnityProjectsRoot = $libraryRoot
+        VpmPackages = [pscustomobject]@{ 'com.vrchat.base' = 'latest' }
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $installedConfig -Encoding UTF8
+    $installedSortOutput = @(& $aliasPath projects -Sort name -Json)
+    $installedSortExit = $LASTEXITCODE
+    $installedSortedProjects = (($installedSortOutput | ForEach-Object { [string]$_ }) -join "`n") | ConvertFrom-Json
+    Assert-True ($installedSortExit -eq 0 -and $installedSortedProjects[0].Name -eq 'World Portal') 'Installed CLI alias did not forward projects -Sort name.'
 
     Write-Host '[9/11] Verifying the runtime launcher preserves caller working directory and arguments...'
     $cwdOutput = Join-Path $testRoot 'caller-cwd.txt'

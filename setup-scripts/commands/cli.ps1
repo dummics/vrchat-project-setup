@@ -3,7 +3,7 @@ function Write-VrcSetupCliHelp {
 VRChat Project Setup CLI
 
 Usage:
-  vrcsetup projects [-Refresh] [-Json]
+  vrcsetup projects [-Refresh] [-Sort recent|name] [-Json]
   vrcsetup packages list <project> [-Json]
   vrcsetup packages search <words> [-Json]
   vrcsetup packages add <project> <package[@version]> [...] [-DryRun]
@@ -15,6 +15,7 @@ Usage:
 
 Examples:
   vrcsetup projects
+  vrcsetup projects -Sort name
   vrcsetup packages search gogoloco
   vrcsetup packages add "D:\Unity Projects\Avatar" gogoloco@1.8.6
   vrcsetup packages remove "D:\Unity Projects\Avatar" gogoloco -DryRun
@@ -162,6 +163,7 @@ function Invoke-VrcSetupCli {
         [switch]$Json,
         [switch]$DryRun,
         [switch]$Refresh,
+        [ValidateSet('recent', 'name')][string]$SortOrder,
         [string]$Name,
         [string[]]$Package
     )
@@ -185,14 +187,15 @@ function Invoke-VrcSetupCli {
             return 1
         }
         try {
-            $catalog = Get-VrcSetupProjectCatalog -RootPath ([string]$config.UnityProjectsRoot) -CachePath (Join-Path $ScriptDir 'cache\projects.json') -ForceRefresh:$Refresh
+            $effectiveSort = if ($SortOrder) { $SortOrder } elseif ([string]$config.ProjectLibrarySort -eq 'name') { 'name' } else { 'recent' }
+            $catalog = Get-VrcSetupProjectCatalog -RootPath ([string]$config.UnityProjectsRoot) -CachePath (Join-Path $ScriptDir 'cache\projects.json') -ForceRefresh:$Refresh -SortOrder $effectiveSort
         } catch {
             Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
             return 1
         }
-        $rows = @($catalog.Projects | Select-Object Name, Kind, UnityVersion, PackageCount, Status, Path)
+        $rows = @($catalog.Projects | Select-Object Name, Kind, UnityVersion, PackageCount, @{ Name = 'LastUpdatedUtc'; Expression = { $_.LastModifiedUtc } }, Status, Path)
         Write-VrcSetupCliData -Data $rows -Json:$Json
-        if (-not $Json) { Write-Host "Projects: $($catalog.ProjectCount) | cache reused: $($catalog.CacheHits) | refreshed: $($catalog.Refreshed) | $($catalog.DurationMs) ms" -ForegroundColor DarkGray }
+        if (-not $Json) { Write-Host "Projects: $($catalog.ProjectCount) | order: $($catalog.SortOrder) | cache reused: $($catalog.CacheHits) | refreshed: $($catalog.Refreshed) | $($catalog.DurationMs) ms" -ForegroundColor DarkGray }
         return 0
     }
 

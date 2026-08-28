@@ -57,6 +57,7 @@ function Initialize-ConfigIfMissing {
         SavedProjectNames = [pscustomobject]@{}
         LastProjectName = ''
         LastUnityPackagePath = ''
+        ProjectLibrarySort = 'recent'
         UnityPackagesFolder = $null
     }
 
