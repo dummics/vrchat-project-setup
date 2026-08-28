@@ -625,6 +625,7 @@ function Show-ChecklistPaged {
         [string]$Header = "",
         $Items,
         [scriptblock]$ToLabel,
+        [string]$PromptTitle = 'Choose items',
         [bool]$DefaultSelected = $true,
         [int]$MaxVisible = 15,
         [bool]$AllowCancel = $true
@@ -636,7 +637,7 @@ function Show-ChecklistPaged {
 
     $spectreChecklist = Get-Command -Name 'Show-VrcSetupSpectreChecklist' -ErrorAction SilentlyContinue
     if ($spectreChecklist) {
-        $spectreResult = Show-VrcSetupSpectreChecklist -Items $itemsArr -ToLabel $ToLabel -Title $Title -Header $Header -DefaultSelected:$DefaultSelected -MaxVisible $MaxVisible -AllowCancel:$AllowCancel
+        $spectreResult = Show-VrcSetupSpectreChecklist -Items $itemsArr -ToLabel $ToLabel -Title $Title -PromptTitle $PromptTitle -Header $Header -DefaultSelected:$DefaultSelected -MaxVisible $MaxVisible -AllowCancel:$AllowCancel
         if ($null -ne $spectreResult -or $AllowCancel) { return $spectreResult }
     }
 

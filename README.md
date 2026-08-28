@@ -137,8 +137,10 @@ projects**. It then provides:
      folders, then shows project type, Unity version and direct VPM package count.
    - Starts with projects updated most recently; change the library order to
      alphabetical whenever that is more useful.
-   - Select a listed project and manage packages, apply default packages, or
-     import configured extras only when they exist.
+   - Select a listed project and manage packages with checkbox toggles: keep or
+     remove optional packages in bulk, search and select packages to add (or
+     paste comma-separated IDs), or set selected packages to `latest`, then
+     review one combined change.
    - Refresh the list explicitly or choose a folder outside the configured root.
    - Manage an existing Unity project and apply a complete VPM change set once.
    - Add/update the default preset without removing unrelated project packages.
@@ -170,8 +172,9 @@ scans reuse unchanged metadata and re-read only new or modified projects. The
 generated index lives under `setup-scripts/cache/`, is local to the portable or
 installed copy, and is never committed or copied during installation.
 
-The default order is **recently updated**. Choose **Change sort order** in the
-library to persist **Name (A-Z)** instead. The same preference is used by
+The default order is **recently updated**, using the project folder timestamp
+shown by Windows Explorer. Choose **Change sort order** in the library to
+persist **Name (A-Z)** instead. The same preference is used by
 `vrcsetup projects`; use `-Sort recent` or `-Sort name` for a one-off CLI order.
 
 The library reads project metadata only. Package changes still require choosing

@@ -27,7 +27,7 @@ Use `vrcsetup uninstall --yes` only in an unattended script.
 	- `unity-test-framework.dependencies.json` is tracked and provides the Unity Test Framework dependency snippet.
 
 Wizard UX notes:
-- Project library scans the configured projects root, reuses unchanged cached metadata, and lists recently updated projects first by default. Its small sort screen can persist an alphabetical order instead; CLI supports one-off `projects -Sort recent|name`.
+- Project library scans the configured projects root, tracks the Windows Explorer project-folder timestamp even when reusing cache metadata, and lists recently updated projects first by default. Its small sort screen can persist an alphabetical order instead; CLI supports one-off `projects -Sort recent|name`.
 - PowerShell 7 uses the bundled Spectre.Console assemblies across the complete interactive wizard: menus, path prompts, package search, version selection, project library and cleanup selection. Windows PowerShell 5.1 uses the built-in text fallback.
 - The home screen separates `Create project` from `Manage projects`; every Spectre screen shows its keyboard controls and supports `Esc` or an explicit Back action.
 - Spectre panels use a restrained blue/slate palette, while required VPM packages appear first in the canonical base/avatar/resolver order and optional packages follow alphabetically.
@@ -37,7 +37,7 @@ Wizard UX notes:
 - Wizard clears the screen before text prompts (drag&drop paths) to avoid overlap with the menu.
 - Action rows are visually separated (2 blank lines) and color-coded (Back = red).
 - `Create project` offers a short UnityPackage path; `Manage projects` contains the library, a direct folder picker and incomplete-project cleanup.
-- Existing-project package management starts from the project's direct VPM dependencies, lets the user make several add/update/remove choices, then applies the reviewed set in one run. The short update menu hides extra-import choices until extra UnityPackages are actually configured.
+- Existing-project package management uses checkboxes for optional installed packages: uncheck several packages to remove them together, search/select packages or paste multiple IDs to add at `latest`, or select several installed packages to update together. Everything stays staged until one review/apply action. The short update menu hides extra-import choices until extra UnityPackages are actually configured.
 - AIO synchronization skips dependencies whose exact version is unchanged.
 - The VPM package editor supports change version/remove plus add package (type-to-filter). Only the VRChat base/avatar/resolver foundation is required; GoGoLoco and other starter packages are removable.
 - Bugfix: "Add package" no longer throws and instantly returns to the list.

@@ -280,6 +280,7 @@ function Show-VrcSetupSpectreChecklist {
         [Parameter(Mandatory)]$Items,
         [scriptblock]$ToLabel,
         [string]$Title = 'Select items',
+        [string]$PromptTitle = 'Choose items',
         [string]$Header = '',
         [bool]$DefaultSelected = $true,
         [int]$MaxVisible = 15,
@@ -292,7 +293,7 @@ function Show-VrcSetupSpectreChecklist {
     if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
 
     $prompt = [Spectre.Console.MultiSelectionPrompt[string]]::new()
-    $prompt.Title = '[#DDEAF2]Choose projects to delete[/]'
+    $prompt.Title = "[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $PromptTitle)[/]"
     $prompt.PageSize = [Math]::Min(14, [Math]::Max(4, $MaxVisible))
     $prompt.WrapAround = $true
     $prompt.Required = $false

@@ -8,7 +8,8 @@ function Test-VrcSetupUnityProject {
 function Get-VrcSetupProjectFingerprint {
     param([Parameter(Mandatory)][string]$ProjectPath)
 
-    $parts = @()
+    $projectFolder = Get-Item -LiteralPath $ProjectPath -ErrorAction Stop
+    $parts = @("project-folder:$($projectFolder.LastWriteTimeUtc.Ticks)")
     foreach ($relativePath in @('Packages\vpm-manifest.json', 'ProjectSettings\ProjectVersion.txt')) {
         $path = Join-Path $ProjectPath $relativePath
         if (Test-Path -LiteralPath $path -PathType Leaf) {
@@ -143,8 +144,15 @@ function Sort-VrcSetupProjectCatalogProjects {
     }
 
     return @($items | Sort-Object @{ Expression = {
+        $value = $_.LastModifiedUtc
+        if ($value -is [DateTime]) {
+            return $value.ToUniversalTime()
+        }
+        if ($value -is [DateTimeOffset]) {
+            return $value.UtcDateTime
+        }
         $updatedAt = [DateTime]::MinValue
-        if ([DateTime]::TryParse([string]$_.LastModifiedUtc, [ref]$updatedAt)) {
+        if ([DateTime]::TryParse([string]$value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$updatedAt)) {
             return $updatedAt.ToUniversalTime()
         }
         return [DateTime]::MinValue

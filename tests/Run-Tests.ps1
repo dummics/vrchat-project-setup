@@ -102,6 +102,15 @@ try {
     Assert-True ($changePlan.Removed -contains 'gogoloco') 'AIO plan did not schedule GoGoLoco for removal.'
     Assert-True ($changePlan.Removed -notcontains 'com.example.keep') 'AIO plan removed a package that stayed selected.'
 
+    $toggleResult = Set-VrcSetupOptionalPackageSelection -Packages $projectPackages -SelectedPackageNames @('com.example.keep') -Config $null
+    Assert-True ($toggleResult.PSObject.Properties.Name -notcontains 'gogoloco') 'Toggling an optional package off did not stage its removal.'
+    Assert-True ($toggleResult.PSObject.Properties.Name -contains 'com.example.keep') 'Toggling an optional package on did not keep it selected.'
+    Assert-True ($toggleResult.PSObject.Properties.Name -contains 'com.vrchat.base') 'Toggling optional packages removed a required package.'
+    $bulkAdded = Add-VrcSetupPackagesAtLatest -Packages $toggleResult -PackageNames @('com.example.one', 'com.example.two')
+    Assert-True ($bulkAdded.'com.example.one' -eq 'latest' -and $bulkAdded.'com.example.two' -eq 'latest') 'Bulk package add did not stage every package at latest.'
+    $bulkUpdated = Set-VrcSetupPackagesToLatest -Packages $projectPackages -PackageNames @('gogoloco', 'com.example.keep')
+    Assert-True ($bulkUpdated.gogoloco -eq 'latest' -and $bulkUpdated.'com.example.keep' -eq 'latest') 'Bulk package update did not stage every selected package.'
+
     $syncOutput = @(& { Start-Installer -projectPath $projectRoot -PackagesOverride $desiredPackages -SyncPackages -Test } *>&1)
     $syncStatus = [int]$syncOutput[-1]
     $syncText = ($syncOutput | ForEach-Object { [string]$_ }) -join "`n"
@@ -182,6 +191,10 @@ try {
 
     $secondCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache
     Assert-True ($secondCatalog.CacheHits -eq 2 -and $secondCatalog.Refreshed -eq 0) 'Unchanged projects were not reused from the incremental cache.'
+    [System.IO.Directory]::SetLastWriteTimeUtc($worldProject, [DateTime]'2099-01-03T00:00:00Z')
+    $folderUpdatedCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache
+    Assert-True ($folderUpdatedCatalog.CacheHits -eq 1 -and $folderUpdatedCatalog.Refreshed -eq 1) 'A changed project folder timestamp did not refresh the cached project metadata.'
+    Assert-True ($folderUpdatedCatalog.Projects[0].Path -eq $worldProject) 'Project library did not use the project folder timestamp for recent ordering.'
     [System.IO.File]::WriteAllText(
         (Join-Path $avatarProject 'Packages\vpm-manifest.json'),
         '{"dependencies":{"com.vrchat.base":"3.8.0","com.vrchat.avatars":"3.8.0","gogoloco":"1.8.6"},"locked":{}}'
