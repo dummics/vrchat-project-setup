@@ -1507,8 +1507,13 @@ function Setup-ProjectFlow {
             }
             $forceRefresh = $false
 
-            [void](Show-VrcSetupProjectCatalogSpectre -Catalog $catalog -ScriptDir $scriptDir)
-            $selected = Select-VrcSetupProjectCatalogAction -Catalog $catalog -ScriptDir $scriptDir
+            $selected = Show-VrcSetupProjectCatalogSpectre -Catalog $catalog -ScriptDir $scriptDir
+            if ($null -eq $selected) {
+                # Windows PowerShell and redirected consoles keep the compact text fallback.
+                $selected = Select-VrcSetupProjectCatalogAction -Catalog $catalog -ScriptDir $scriptDir
+            } elseif ($selected.Action -eq 'library') {
+                $selected = Select-VrcSetupProjectCatalogLibraryAction -Catalog $catalog -ScriptDir $scriptDir
+            }
             if (-not $selected -or $selected.Action -eq 'back') { return }
             if ($selected.Action -eq 'refresh') {
                 $forceRefresh = $true

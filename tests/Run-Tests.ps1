@@ -174,6 +174,8 @@ try {
     Assert-True ($firstCatalog.Refreshed -eq 2 -and $firstCatalog.CacheHits -eq 0) 'Initial scan incorrectly reused cached metadata.'
     Assert-True (($firstCatalog.Projects | Where-Object Path -eq $avatarProject).Kind -eq 'Avatar') 'Avatar project type was not detected from VPM dependencies.'
     Assert-True (($firstCatalog.Projects | Where-Object Path -eq $worldProject).Kind -eq 'World') 'Nested world project was not detected.'
+    $libraryRow = Format-VrcSetupProjectCatalogRow -Project $firstCatalog.Projects[0] -Index 1
+    Assert-True ($libraryRow -match 'Z Avatar' -and $libraryRow -match 'Avatar' -and $libraryRow -match '2 packages') 'Project library rows did not include the project, type, and package count in one selectable table row.'
     Assert-True (Test-Path -LiteralPath $catalogCache) 'Project library cache was not written.'
     Assert-True ($firstCatalog.Projects[0].Path -eq $avatarProject) 'Project library did not list the most recently updated project first.'
     $alphabeticalCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache -SortOrder name

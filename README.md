@@ -134,7 +134,8 @@ projects**. It then provides:
    - Review the project name, target folder and import action before starting.
 2. **Manage projects**
    - Open the project library: it scans the configured root and nearby nested
-     folders, then shows project type, Unity version and direct VPM package count.
+     folders, then shows one keyboard-selectable project table with project type,
+     Unity version, VPM package count and last-updated time.
    - Starts with projects updated most recently; change the library order to
      alphabetical whenever that is more useful.
    - Select a listed project and manage packages with checkbox toggles: keep or

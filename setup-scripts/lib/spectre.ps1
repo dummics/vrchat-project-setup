@@ -235,44 +235,88 @@ function Invoke-VrcSetupSpectreListPrompt {
     return $closedMethod.Invoke($null, @($Prompt))
 }
 
+function Format-VrcSetupProjectCatalogCell {
+    param(
+        [AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][int]$Width
+    )
+
+    $value = ([string]$Text -replace '[\r\n]+', ' ').Trim()
+    if ($value.Length -gt $Width) {
+        $value = $value.Substring(0, [Math]::Max(0, $Width - 1)) + '…'
+    }
+    return $value.PadRight($Width)
+}
+
+function Format-VrcSetupProjectCatalogRow {
+    param(
+        [Parameter(Mandatory)]$Project,
+        [Parameter(Mandatory)][int]$Index
+    )
+
+    $packages = if ([string]$Project.Status -eq 'Ready') {
+        '{0} packages' -f $Project.PackageCount
+    } else {
+        [string]$Project.Status
+    }
+    $updated = 'Unknown'
+    try {
+        $updated = ([datetime]::Parse([string]$Project.LastModifiedUtc)).ToLocalTime().ToString('dd MMM yyyy HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+    } catch { }
+
+    return ('{0,2}  {1}  {2}  {3}  {4}  {5}' -f
+        $Index,
+        (Format-VrcSetupProjectCatalogCell -Text ([string]$Project.RelativePath) -Width 28),
+        (Format-VrcSetupProjectCatalogCell -Text ([string]$Project.Kind) -Width 11),
+        (Format-VrcSetupProjectCatalogCell -Text ([string]$Project.UnityVersion) -Width 12),
+        (Format-VrcSetupProjectCatalogCell -Text $packages -Width 15),
+        $updated)
+}
+
 function Show-VrcSetupProjectCatalogSpectre {
     param(
         [Parameter(Mandatory)]$Catalog,
         [Parameter(Mandatory)][string]$ScriptDir
     )
 
-    if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $false }
+    if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $null }
 
     $sortLabel = if ([string]$Catalog.SortOrder -eq 'name') { 'Name (A-Z)' } else { 'Recently updated' }
     [void](Write-VrcSetupSpectreFrame -Title 'Project library' -Header ("Projects under: {0}`nFound: {1}  |  Order: {2}" -f $Catalog.RootPath, $Catalog.ProjectCount, $sortLabel) -ScriptDir $ScriptDir)
-    [Spectre.Console.AnsiConsole]::WriteLine()
-
-    if ($Catalog.ProjectCount -eq 0) {
-        [Spectre.Console.AnsiConsole]::MarkupLine('[yellow]No Unity projects found.[/]')
-    } else {
-        $table = [Spectre.Console.Table]::new()
-        $table.Border = [Spectre.Console.TableBorder]::Rounded
-        $table.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
-        [void][Spectre.Console.TableExtensions]::AddColumns($table, [string[]]@('Project', 'Type', 'Unity', 'VPM'))
-        foreach ($project in @($Catalog.Projects | Select-Object -First 18)) {
-            $packageText = if ($project.Status -eq 'Ready') { [string]$project.PackageCount } else { [string]$project.Status }
-            [void][Spectre.Console.TableExtensions]::AddRow($table, [string[]]@(
-                (ConvertTo-VrcSetupSpectreText ([string]$project.RelativePath)),
-                (ConvertTo-VrcSetupSpectreText ([string]$project.Kind)),
-                (ConvertTo-VrcSetupSpectreText ([string]$project.UnityVersion)),
-                (ConvertTo-VrcSetupSpectreText $packageText)
-            ))
-        }
-        [Spectre.Console.AnsiConsole]::Write($table)
-        if ($Catalog.ProjectCount -gt 18) {
-            [Spectre.Console.AnsiConsole]::MarkupLine("[grey]... and $($Catalog.ProjectCount - 18) more projects.[/]")
-        }
-    }
-
     $scanSummary = "Scan: $($Catalog.DurationMs) ms | cache reused: $($Catalog.CacheHits) | refreshed: $($Catalog.Refreshed)"
     [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]$(ConvertTo-VrcSetupSpectreText $scanSummary)[/]")
     [Spectre.Console.AnsiConsole]::WriteLine()
-    return $true
+
+    $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
+    $prompt.Title = '[#DDEAF2] #   Project                       Type         Unity         Packages         Updated[/]'
+    $prompt.PageSize = [Math]::Min(16, [Math]::Max(4, $Catalog.ProjectCount + 1))
+    $prompt.WrapAround = $true
+    $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
+    $prompt.MoreChoicesText = '[#78909F]Use Up/Down to browse the project table. Type to jump to a project.[/]'
+    $prompt.InstructionsText = '[#78909F]Up/Down to select a project  ·  Enter to manage it  ·  Esc to return[/]'
+
+    $choiceActions = @{}
+    $index = 1
+    foreach ($project in @($Catalog.Projects)) {
+        $displayChoice = ConvertTo-VrcSetupSpectreText (Format-VrcSetupProjectCatalogRow -Project $project -Index $index)
+        $choiceActions[$displayChoice] = [pscustomobject]@{ Action = 'project'; ProjectPath = [string]$project.Path }
+        [void]$prompt.AddChoice($displayChoice)
+        $index++
+    }
+
+    $libraryActionsChoice = '[#75D7F7]Library actions…[/]'
+    $choiceActions[$libraryActionsChoice] = [pscustomobject]@{ Action = 'library'; ProjectPath = $null }
+    [void]$prompt.AddChoice($libraryActionsChoice)
+
+    try {
+        $prompt.CancelResult = [System.Func[string]] { return '__VRCSETUP_CANCELLED__' }
+        $selected = Invoke-VrcSetupSpectreStringPrompt -Prompt $prompt
+        if ($selected -eq '__VRCSETUP_CANCELLED__') { return [pscustomobject]@{ Action = 'back'; ProjectPath = $null } }
+        if ($choiceActions.ContainsKey($selected)) { return $choiceActions[$selected] }
+        return [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
+    } catch {
+        return [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
+    }
 }
 
 function Show-VrcSetupSpectreChecklist {
@@ -360,6 +404,28 @@ function Select-VrcSetupProjectCatalogAction {
     $index = Show-VrcSetupSpectreMenu -Title 'Project library' -Options $labels -AllowCancel:$true -ScriptDir $ScriptDir -SkipFrame
     if ($null -eq $index) {
         $index = Show-Menu -Title 'Project library' -Header "Select a project to manage, refresh the list, or open a different folder." -Options $labels
+    }
+    if ($index -lt 0) { return [pscustomobject]@{ Action = 'back'; ProjectPath = $null } }
+    return $choices[$labels[$index]]
+}
+
+function Select-VrcSetupProjectCatalogLibraryAction {
+    param(
+        [Parameter(Mandatory)]$Catalog,
+        [Parameter(Mandatory)][string]$ScriptDir
+    )
+
+    $sortLabel = if ([string]$Catalog.SortOrder -eq 'name') { 'Name (A-Z)' } else { 'Recently updated' }
+    $choices = [ordered]@{
+        "Change project order ($sortLabel)" = [pscustomobject]@{ Action = 'sort'; ProjectPath = $null }
+        'Refresh project list' = [pscustomobject]@{ Action = 'refresh'; ProjectPath = $null }
+        'Choose a different project folder' = [pscustomobject]@{ Action = 'manual'; ProjectPath = $null }
+        'Back to project table' = [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
+    }
+    $labels = @($choices.Keys)
+    $index = Show-VrcSetupSpectreMenu -Title 'Project library actions' -Header 'Choose an action for the current project library.' -Options $labels -AllowCancel:$true -ScriptDir $ScriptDir
+    if ($null -eq $index) {
+        $index = Show-Menu -Title 'Project library actions' -Header 'Choose an action for the current project library.' -Options $labels
     }
     if ($index -lt 0) { return [pscustomobject]@{ Action = 'back'; ProjectPath = $null } }
     return $choices[$labels[$index]]
