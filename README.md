@@ -56,6 +56,8 @@ source folder as an installation to delete.
 ## ✨ What it provides
 
 - A keyboard-friendly interactive setup wizard.
+- A cached project library that scans the configured projects folder, recognizes
+  avatar/world projects and opens package management without asking for a path.
 - Fast project creation from a `.unitypackage`, with an automatic suggested name
   and one compact review screen.
 - Existing-project setup and AIO VPM management: add, update and remove several
@@ -75,8 +77,9 @@ source folder as an installation to delete.
 - VRChat Creator Companion and a compatible Unity Editor installation.
 - Internet access when package metadata or packages must be downloaded.
 
-The first-run wizard helps select Unity and project paths. PowerShell 7 is used
-when available; otherwise the built-in Windows PowerShell 5.1 is supported.
+The first-run wizard helps select Unity and project paths. PowerShell 7 uses the
+bundled Spectre.Console project-library UI; the built-in Windows PowerShell 5.1
+menu remains a fully supported fallback. No extra PowerShell module is required.
 
 ## 🤝 Relationship with VRChat Creator Companion
 
@@ -123,6 +126,10 @@ paths.
 The main wizard provides:
 
 1. **Projects**
+   - Open the project library: it scans the configured root and nearby nested
+     folders, then shows project type, Unity version and direct VPM package count.
+   - Select a listed project and go directly to its AIO package actions.
+   - Refresh the index explicitly or choose a folder outside the configured root.
    - Create from a UnityPackage using the suggested folder name immediately.
    - Manage an existing Unity project and apply a complete VPM change set once.
    - Add/update the default preset without removing unrelated project packages.
@@ -142,6 +149,17 @@ required manifest adjustments, installs configured VPM packages, imports the
 package and waits for a bounded finalization step. Unity may still perform some
 first-open asset processing, especially for projects with many textures or
 scripts.
+
+### Project library and cache
+
+The first project-library scan reads each Unity project's
+`ProjectSettings/ProjectVersion.txt` and `Packages/vpm-manifest.json`. Later
+scans reuse unchanged metadata and re-read only new or modified projects. The
+generated index lives under `setup-scripts/cache/`, is local to the portable or
+installed copy, and is never committed or copied during installation.
+
+The library reads project metadata only. Package changes still require choosing
+a project, reviewing the AIO add/update/remove plan and confirming the operation.
 
 ## ⌨️ Terminal usage
 

@@ -6,7 +6,7 @@ Structure:
 - `commands/wrappers/`: optional legacy wrappers (vrcsetupscript.ps1, vrcsetup-wizard.ps1) kept for backward compatibility.
 - `commands/installer.ps1`: `Start-Installer` + helpers (UnityPackage create/import + VPM install).
 - `commands/wizard.ps1`: `Start-Wizard` logic and menu.
-- `lib/`: shared helpers: menu, config, progress, utils.
+- `lib/`: shared helpers: menu, config, project scan/cache, Spectre presentation, progress, utils.
 - `maintenance/`: internal per-user install, repair, uninstall, PATH and Start-menu integration.
 
 Recommended install from the repository root:
@@ -25,6 +25,8 @@ alias, per-user PATH entry, missing config, and run a smoke test; use
 	- `unity-test-framework.dependencies.json` is tracked and provides the Unity Test Framework dependency snippet.
 
 Wizard UX notes:
+- Project library scans the configured projects root, reuses unchanged cached metadata, and opens a listed project directly in AIO package management.
+- PowerShell 7 uses the bundled Spectre.Console assemblies for the project-library surface; Windows PowerShell 5.1 uses the built-in text fallback.
 - Main menu uses arrow-key selection.
 - TUI rendering is more stable (reduced flicker) and uses a modernized color theme.
 - VT/ANSI escape sequences are opt-in: set `VRCSETUP_TUI_VT=1` only if your terminal supports them.

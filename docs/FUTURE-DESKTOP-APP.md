@@ -39,6 +39,21 @@ The app may hand the user to VCC at the appropriate point. It must never imperso
 3. **Friendly package management:** compare the selected project's direct VPM packages, edit several choices in one screen, review the add/update/remove plan, and apply it once. Keep an advanced view for exact versions and paths.
 4. **Optional integrations:** open the prepared project in the official tool or Unity only after the user confirms; no automation of upload/publishing flows.
 
+## Current foundation: project library
+
+The terminal application now owns a reusable project-catalog backend. It scans
+the configured projects root, recognizes Unity projects from their standard
+folders, reads Unity/VPM metadata, classifies avatar and world projects, and
+keeps an incremental local cache so unchanged projects do not need to be parsed
+again. Selecting a catalog entry routes into the existing project-scoped AIO
+package workflow.
+
+This is intentionally implemented below the presentation layer. Spectre.Console
+is the current polished terminal client; a future Windows shell can consume the
+same catalog records and refresh rules instead of introducing another scanner or
+package engine. Creator Companion remains the official owner of its project list
+and VRChat platform workflows; this tool does not modify or impersonate that UI.
+
 ## Packaging and architecture direction
 
 - Ship per-user, without administrator rights, under `%LOCALAPPDATA%\Programs\VrcSetup` or the packaging equivalent.
@@ -51,7 +66,9 @@ The app may hand the user to VCC at the appropriate point. It must never imperso
 ## Incremental delivery
 
 1. Stabilize the present click-first script lifecycle: portable launch, install detection, installed command, repair, uninstall, Start-menu discoverability, and tests.
-2. Extract the setup decisions from terminal rendering so the current wizard and a future UI share one engine and one state/configuration model.
+2. Continue extracting setup decisions from terminal rendering. The project
+   scanner/cache is already shared backend work; creation and package orchestration
+   should follow the same boundary.
 3. Build a small Windows shell around the established engine; initially cover only the common happy path plus cancellation and recovery.
 4. Package, test, and evolve the app only after real creator usability review confirms the flow is clearer than the script wizard.
 
