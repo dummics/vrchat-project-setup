@@ -193,6 +193,8 @@ try {
 
     $secondCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache
     Assert-True ($secondCatalog.CacheHits -eq 2 -and $secondCatalog.Refreshed -eq 0) 'Unchanged projects were not reused from the incremental cache.'
+    $cachedLibraryRow = Format-VrcSetupProjectCatalogRow -Project $secondCatalog.Projects[0] -Index 1
+    Assert-True ($cachedLibraryRow -match '02 Jan 2099' -and $cachedLibraryRow -notmatch 'Unknown') 'Project library rows did not retain the last-updated time after reading the scan cache.'
     [System.IO.Directory]::SetLastWriteTimeUtc($worldProject, [DateTime]'2099-01-03T00:00:00Z')
     $folderUpdatedCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache
     Assert-True ($folderUpdatedCatalog.CacheHits -eq 1 -and $folderUpdatedCatalog.Refreshed -eq 1) 'A changed project folder timestamp did not refresh the cached project metadata.'

@@ -261,7 +261,12 @@ function Format-VrcSetupProjectCatalogRow {
     }
     $updated = 'Unknown'
     try {
-        $updated = ([datetime]::Parse([string]$Project.LastModifiedUtc)).ToLocalTime().ToString('dd MMM yyyy HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+        $lastModified = if ($Project.LastModifiedUtc -is [datetime]) {
+            [datetime]$Project.LastModifiedUtc
+        } else {
+            [datetime]::Parse([string]$Project.LastModifiedUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        }
+        $updated = $lastModified.ToLocalTime().ToString('dd MMM yyyy HH:mm', [Globalization.CultureInfo]::InvariantCulture)
     } catch { }
 
     return ('{0,2}  {1}  {2}  {3}  {4}  {5}' -f
@@ -293,7 +298,7 @@ function Show-VrcSetupProjectCatalogSpectre {
     $prompt.WrapAround = $true
     $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
     $prompt.MoreChoicesText = '[#78909F]Use Up/Down to browse the project table. Type to jump to a project.[/]'
-    $prompt.InstructionsText = '[#78909F]Up/Down to select a project  ·  Enter to manage it  ·  Esc to return[/]'
+    [Spectre.Console.AnsiConsole]::MarkupLine('[#78909F]Up/Down to select a project  ·  Enter to manage it  ·  Esc to return[/]')
 
     $choiceActions = @{}
     $index = 1
