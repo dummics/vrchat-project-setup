@@ -30,7 +30,21 @@ if ($Wizard -or ((-not $Command) -and (-not $projectPath))) {
 }
 
 if ($Command) {
-    $cliOutput = @(Invoke-VrcSetupCli -Command $Command -Arguments $Arguments -ScriptDir $scriptDir -ConfigPath $configPath -Json:$Json -DryRun:($DryRun -or $Test) -Refresh:$Refresh -SortOrder $Sort -Name $Name -Package $Package)
+    $cliParameters = @{
+        Command = $Command
+        Arguments = $Arguments
+        ScriptDir = $scriptDir
+        ConfigPath = $configPath
+        Json = $Json
+        DryRun = ($DryRun -or $Test)
+        Refresh = $Refresh
+        Name = $Name
+        Package = $Package
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Sort)) {
+        $cliParameters.SortOrder = $Sort
+    }
+    $cliOutput = @(Invoke-VrcSetupCli @cliParameters)
     if ($cliOutput.Count -eq 0) {
         exit 1
     }

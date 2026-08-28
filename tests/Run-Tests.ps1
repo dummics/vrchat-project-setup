@@ -297,6 +297,10 @@ try {
     $installedSortExit = $LASTEXITCODE
     $installedSortedProjects = (($installedSortOutput | ForEach-Object { [string]$_ }) -join "`n") | ConvertFrom-Json
     Assert-True ($installedSortExit -eq 0 -and $installedSortedProjects[0].Name -eq 'World Portal') 'Installed CLI alias did not forward projects -Sort name.'
+    $installedDefaultSortOutput = @(& $aliasPath projects -Json)
+    $installedDefaultSortExit = $LASTEXITCODE
+    $installedDefaultSortedProjects = (($installedDefaultSortOutput | ForEach-Object { [string]$_ }) -join "`n") | ConvertFrom-Json
+    Assert-True ($installedDefaultSortExit -eq 0 -and $installedDefaultSortedProjects[0].Name -eq 'World Portal') 'Installed CLI alias did not use the default recent ordering when -Sort was omitted.'
 
     Write-Host '[9/11] Verifying the runtime launcher preserves caller working directory and arguments...'
     $cwdOutput = Join-Path $testRoot 'caller-cwd.txt'
