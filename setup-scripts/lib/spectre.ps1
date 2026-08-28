@@ -25,6 +25,186 @@ function ConvertTo-VrcSetupSpectreText {
     return [Spectre.Console.Markup]::Escape($Text)
 }
 
+function Get-VrcSetupSpectreScriptDir {
+    # This file lives under setup-scripts\lib.  Deriving the runtime root keeps
+    # the interactive UI portable when the downloaded source is moved or when
+    # the installed copy is used through its Start menu shortcut.
+    return [System.IO.Directory]::GetParent($PSScriptRoot).FullName
+}
+
+function New-VrcSetupSpectreStyle {
+    param(
+        [Parameter(Mandatory)][string]$Foreground,
+        [string]$Background
+    )
+
+    $foregroundColor = [Spectre.Console.Color]::FromHex($Foreground)
+    $backgroundColor = if ([string]::IsNullOrWhiteSpace($Background)) {
+        $null
+    } else {
+        [Spectre.Console.Color]::FromHex($Background)
+    }
+    return [Spectre.Console.Style]::new($foregroundColor, $backgroundColor, $null)
+}
+
+function ConvertTo-VrcSetupSpectreChoice {
+    param([AllowEmptyString()][string]$Text)
+
+    $safe = ConvertTo-VrcSetupSpectreText $Text
+    if ($Text -match '^Required\s+·\s+(.*)$') {
+        return "[#F6C451]Required[/]  [#78909F]·[/]  [#DDEAF2]$($matches[1] | ForEach-Object { ConvertTo-VrcSetupSpectreText $_ })[/]"
+    }
+    if ($Text -match '^Optional\s+·\s+(.*)$') {
+        return "[#A8B6C1]Optional[/]  [#78909F]·[/]  [#DDEAF2]$($matches[1] | ForEach-Object { ConvertTo-VrcSetupSpectreText $_ })[/]"
+    }
+    if ($Text -match '^(Back|Cancel)$') { return "[#78909F]$safe[/]" }
+    if ($Text -match '^(Exit|Reset|Delete|Remove)') { return "[#FB7185]$safe[/]" }
+    if ($Text -match '^(Create|Manage|Add|Apply|Start|Open|Search|Refresh|Choose|Change|Set)') { return "[#75D7F7]$safe[/]" }
+    return "[#DDEAF2]$safe[/]"
+}
+
+function Write-VrcSetupSpectreFrame {
+    param(
+        [Parameter(Mandatory)][string]$Title,
+        [AllowEmptyString()][string]$Header,
+        [Parameter(Mandatory)][string]$ScriptDir
+    )
+
+    if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $false }
+
+    [Spectre.Console.AnsiConsole]::Clear()
+    $rule = [Spectre.Console.Rule]::new("[#6BD5FF]$(ConvertTo-VrcSetupSpectreText $Title)[/]")
+    $rule.Justification = [Spectre.Console.Justify]::Left
+    $rule.Style = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
+    [Spectre.Console.AnsiConsole]::Write($rule)
+
+    if (-not [string]::IsNullOrWhiteSpace($Header)) {
+        [Spectre.Console.AnsiConsole]::WriteLine()
+        $body = [Spectre.Console.Markup]::new("[#B7C7D3]$(ConvertTo-VrcSetupSpectreText $Header)[/]")
+        $panel = [Spectre.Console.Panel]::new($body)
+        $panel.Border = [Spectre.Console.BoxBorder]::Rounded
+        $panel.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
+        $panel.Padding = [Spectre.Console.Padding]::new(1, 0, 1, 0)
+        $panel.Expand = $false
+        [Spectre.Console.AnsiConsole]::Write($panel)
+    }
+
+    [Spectre.Console.AnsiConsole]::WriteLine()
+    return $true
+}
+
+function Show-VrcSetupSpectreMenu {
+    param(
+        [string]$Title = 'VRChat Project Setup',
+        [string]$Header = '',
+        [Parameter(Mandatory)][string[]]$Options,
+        [int]$Current = 0,
+        [bool]$AllowCancel = $true,
+        [bool]$EnableHorizontalNav = $false,
+        [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
+    )
+
+    if (-not $Options) { return -1 }
+    if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
+
+    $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
+    $prompt.Title = '[#DDEAF2]Choose an action[/]'
+    $prompt.PageSize = [Math]::Min(14, [Math]::Max(4, $Options.Count))
+    $prompt.WrapAround = $true
+    $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
+    $prompt.MoreChoicesText = '[#78909F]Use Up/Down then Enter. Type to jump through a long list.[/]'
+    [Spectre.Console.AnsiConsole]::MarkupLine('[#78909F]Up/Down to move  ·  Enter to select  ·  Choose Back to return[/]')
+    $choiceIndex = @{}
+    for ($index = 0; $index -lt $Options.Count; $index++) {
+        $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
+        $choiceIndex[$displayChoice] = $index
+        [void]$prompt.AddChoice($displayChoice)
+    }
+
+    try {
+        $selected = Invoke-VrcSetupSpectreStringPrompt -Prompt $prompt
+        if ($choiceIndex.ContainsKey($selected)) { return [int]$choiceIndex[$selected] }
+        return -1
+    } catch {
+        # ESC is handled by Spectre where the host supports it.  Falling back to
+        # the existing keyboard renderer keeps older console hosts usable.
+        if ($AllowCancel) { return -1 }
+        throw
+    }
+}
+
+function Read-VrcSetupSpectreTextInput {
+    param(
+        [Parameter(Mandatory)][string]$Title,
+        [AllowEmptyString()][string]$Header,
+        [Parameter(Mandatory)][string]$Prompt,
+        [string]$Hint = 'Leave blank to go back.',
+        [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
+    )
+
+    if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
+    if (-not [string]::IsNullOrWhiteSpace($Hint)) {
+        [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]$(ConvertTo-VrcSetupSpectreText $Hint)[/]")
+    }
+
+    $textPrompt = [Spectre.Console.TextPrompt[string]]::new("[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $Prompt)[/]")
+    $textPrompt.AllowEmpty = $true
+    $textPrompt.PromptStyle = New-VrcSetupSpectreStyle -Foreground '#75D7F7'
+    return Invoke-VrcSetupSpectreStringPrompt -Prompt $textPrompt
+}
+
+function Show-VrcSetupSpectreFilterMenu {
+    param(
+        [string]$Title = 'VRChat Project Setup',
+        [string]$Header = '',
+        [Parameter(Mandatory)][string[]]$Options,
+        [string[]]$PinnedOptions = @(),
+        [string]$Placeholder = 'Type to filter...',
+        [bool]$AllowCancel = $true,
+        [int]$MaxVisible = 15,
+        [bool]$EnterReturnsFilterWhenNoMatch = $true,
+        [bool]$ShowListMarkers = $false,
+        [bool]$ReturnSelectionWithFilter = $false,
+        [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
+    )
+
+    if (-not $Options) { return $null }
+    if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $null }
+
+    $filter = Read-VrcSetupSpectreTextInput -Title $Title -Header $Header -Prompt $Placeholder -Hint 'Type a few words, then press Enter. Leave blank to browse.' -ScriptDir $ScriptDir
+    if ($null -eq $filter) { return $null }
+    $filter = [string]$filter
+    $tokens = @($filter.Split(@(' ', "`t"), [System.StringSplitOptions]::RemoveEmptyEntries))
+    $candidates = @($Options | Where-Object { $PinnedOptions -notcontains $_ })
+    $matches = if ($tokens.Count -eq 0) {
+        $candidates
+    } else {
+        @($candidates | Where-Object {
+            $candidate = [string]$_
+            (@($tokens | Where-Object { $candidate -notlike "*$_*" }).Count -eq 0)
+        })
+    }
+
+    $selectionOptions = @($PinnedOptions) + @($matches)
+    if ($selectionOptions.Count -eq 0 -and $EnterReturnsFilterWhenNoMatch -and -not [string]::IsNullOrWhiteSpace($filter)) {
+        $selectionOptions = @($filter)
+    }
+    if ($selectionOptions.Count -eq 0) { return $null }
+
+    $resultHeader = if ([string]::IsNullOrWhiteSpace($filter)) {
+        'Choose an action or package.'
+    } else {
+        "Matches for: ${filter}"
+    }
+    $selectedIndex = Show-VrcSetupSpectreMenu -Title $Title -Header $resultHeader -Options $selectionOptions -AllowCancel:$AllowCancel -ScriptDir $ScriptDir
+    if ($selectedIndex -lt 0) { return $null }
+    $selected = [string]$selectionOptions[$selectedIndex]
+    if ($ReturnSelectionWithFilter) {
+        return [pscustomobject]@{ Selection = $selected; Filter = $filter }
+    }
+    return $selected
+}
+
 function Invoke-VrcSetupSpectreStringPrompt {
     param([Parameter(Mandatory)]$Prompt)
 
@@ -44,18 +224,15 @@ function Show-VrcSetupProjectCatalogSpectre {
 
     if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $false }
 
-    [Spectre.Console.AnsiConsole]::Clear()
-    $rule = [Spectre.Console.Rule]::new('[aqua]VRChat Project Setup - Project library[/]')
-    $rule.Justification = [Spectre.Console.Justify]::Left
-    [Spectre.Console.AnsiConsole]::Write($rule)
-    [Spectre.Console.AnsiConsole]::MarkupLine("[grey]Projects found under $(ConvertTo-VrcSetupSpectreText $Catalog.RootPath)[/]")
+    [void](Write-VrcSetupSpectreFrame -Title 'Project library' -Header ("Projects under: {0}`nFound: {1}" -f $Catalog.RootPath, $Catalog.ProjectCount) -ScriptDir $ScriptDir)
     [Spectre.Console.AnsiConsole]::WriteLine()
 
     if ($Catalog.ProjectCount -eq 0) {
         [Spectre.Console.AnsiConsole]::MarkupLine('[yellow]No Unity projects found.[/]')
     } else {
         $table = [Spectre.Console.Table]::new()
-        $table.Border = [Spectre.Console.TableBorder]::Simple
+        $table.Border = [Spectre.Console.TableBorder]::Rounded
+        $table.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
         [void][Spectre.Console.TableExtensions]::AddColumns($table, [string[]]@('Project', 'Type', 'Unity', 'VPM'))
         foreach ($project in @($Catalog.Projects | Select-Object -First 18)) {
             $packageText = if ($project.Status -eq 'Ready') { [string]$project.PackageCount } else { [string]$project.Status }
@@ -73,7 +250,7 @@ function Show-VrcSetupProjectCatalogSpectre {
     }
 
     $scanSummary = "Scan: $($Catalog.DurationMs) ms | cache reused: $($Catalog.CacheHits) | refreshed: $($Catalog.Refreshed)"
-    [Spectre.Console.AnsiConsole]::MarkupLine("[grey]$(ConvertTo-VrcSetupSpectreText $scanSummary)[/]")
+    [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]$(ConvertTo-VrcSetupSpectreText $scanSummary)[/]")
     [Spectre.Console.AnsiConsole]::WriteLine()
     return $true
 }
@@ -99,18 +276,8 @@ function Select-VrcSetupProjectCatalogAction {
     $choices['Choose a different folder'] = [pscustomobject]@{ Action = 'manual'; ProjectPath = $null }
     $choices['Back'] = [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
 
-    if (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir) {
-        $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
-        $prompt.Title = '[white]Choose a project or action[/]'
-        $prompt.PageSize = 14
-        $prompt.MoreChoicesText = '[grey]Move with arrow keys, then press Enter[/]'
-        foreach ($label in $choices.Keys) { [void]$prompt.AddChoice([string]$label) }
-        $selected = Invoke-VrcSetupSpectreStringPrompt -Prompt $prompt
-        return $choices[$selected]
-    }
-
     $labels = @($choices.Keys)
-    $index = Show-Menu -Title 'Project library' -Header "Projects: $($Catalog.ProjectCount)`nRoot: $($Catalog.RootPath)" -Options $labels
+    $index = Show-Menu -Title 'Project library' -Header "Select a project to manage, refresh the list, or open a different folder." -Options $labels
     if ($index -lt 0) { return [pscustomobject]@{ Action = 'back'; ProjectPath = $null } }
     return $choices[$labels[$index]]
 }

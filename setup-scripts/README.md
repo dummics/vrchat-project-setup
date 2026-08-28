@@ -27,15 +27,15 @@ alias, per-user PATH entry, missing config, and run a smoke test; use
 
 Wizard UX notes:
 - Project library scans the configured projects root, reuses unchanged cached metadata, and opens a listed project directly in AIO package management.
-- PowerShell 7 uses the bundled Spectre.Console assemblies for the project-library surface; Windows PowerShell 5.1 uses the built-in text fallback.
-- Main menu uses arrow-key selection.
-- TUI rendering is more stable (reduced flicker) and uses a modernized color theme.
+- PowerShell 7 uses the bundled Spectre.Console assemblies across the complete interactive wizard: menus, path prompts, package search and project library. Windows PowerShell 5.1 uses the built-in text fallback.
+- The home screen separates `Create project` from `Manage projects`; every Spectre screen shows its keyboard controls and an explicit Back action.
+- Spectre panels use a restrained blue/slate palette, while required VPM packages appear first in the canonical base/avatar/resolver order and optional packages follow alphabetically.
 - VT/ANSI escape sequences are opt-in: set `VRCSETUP_TUI_VT=1` only if your terminal supports them.
 - Backend commands avoid printing progress lines to keep the TUI clean.
 - Wizard clears the screen before running the installer to avoid leftover menu artifacts.
 - Wizard clears the screen before text prompts (drag&drop paths) to avoid overlap with the menu.
 - Action rows are visually separated (2 blank lines) and color-coded (Back = red).
-- "Projects" offers a short create-from-UnityPackage path and a dedicated existing-project manager.
+- `Create project` offers a short UnityPackage path; `Manage projects` contains the library, a direct folder picker and incomplete-project cleanup.
 - Existing-project AIO mode starts from the project's direct VPM dependencies, lets the user make several add/update/remove choices, then applies the reviewed set in one run.
 - AIO synchronization skips dependencies whose exact version is unchanged.
 - The VPM package editor supports change version/remove plus add package (type-to-filter). Only the VRChat base/avatar/resolver foundation is required; GoGoLoco and other starter packages are removable.
@@ -43,7 +43,7 @@ Wizard UX notes:
 - Versions list is SemVer-sorted (e.g. 0.1.29 > 0.1.9).
 - Version picker supports paging + filter patterns (e.g. *.9, X.X.1190, or re:<regex>).
 - In paged lists, use Left/Right to change page.
-- Settings includes naming rules (prefix/suffix/regex remove) and per-unitypackage remembered project names.
+- Settings presents Unity Editor and project-folder paths first, with project-name rules (prefix/suffix/cleanup rules) and per-UnityPackage remembered names in a separate screen.
 - UnityPackage extra-import folder is configurable (Settings):
 	- Config key: `UnityPackagesFolder`
 	- By default it's DISABLED (no extra imports).

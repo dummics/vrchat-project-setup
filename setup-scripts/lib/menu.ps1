@@ -215,6 +215,15 @@ function Show-Menu {
 
     if (-not $Options) { return -1 }
 
+    # The default interactive experience is Spectre.Console.  The legacy
+    # renderer remains a narrow fallback for Windows PowerShell and redirected
+    # output, where the bundled Spectre runtime is intentionally unavailable.
+    $spectreMenu = Get-Command -Name 'Show-VrcSetupSpectreMenu' -ErrorAction SilentlyContinue
+    if ($spectreMenu -and -not $EnableHorizontalNav) {
+        $spectreResult = Show-VrcSetupSpectreMenu -Title $Title -Header $Header -Options $Options -Current $Current -AllowCancel:$AllowCancel -EnableHorizontalNav:$EnableHorizontalNav
+        if ($null -ne $spectreResult) { return [int]$spectreResult }
+    }
+
     $theme = Get-TuiTheme
     $tui = Start-TuiFrame -UseVt (Test-VtSupported)
     try {
@@ -352,6 +361,13 @@ function Show-MenuFilter {
     )
 
     if (-not $Options) { return $null }
+
+    $spectreFilterMenu = Get-Command -Name 'Show-VrcSetupSpectreFilterMenu' -ErrorAction SilentlyContinue
+    if ($spectreFilterMenu) {
+        $spectreResult = Show-VrcSetupSpectreFilterMenu -Title $Title -Header $Header -Options $Options -PinnedOptions $PinnedOptions -Placeholder $Placeholder -AllowCancel:$AllowCancel -MaxVisible $MaxVisible -EnterReturnsFilterWhenNoMatch:$EnterReturnsFilterWhenNoMatch -ShowListMarkers:$ShowListMarkers -ReturnSelectionWithFilter:$ReturnSelectionWithFilter
+        if ($null -ne $spectreResult) { return $spectreResult }
+        if ($AllowCancel) { return $null }
+    }
 
     $filter = ""
     $current = 0

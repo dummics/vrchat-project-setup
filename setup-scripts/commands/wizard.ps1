@@ -253,6 +253,13 @@ function Read-WizardPathInput {
         [string]$Hint = "Paste or drag the path here. Press ENTER to go back."
     )
 
+    $spectreTextInput = Get-Command -Name 'Read-VrcSetupSpectreTextInput' -ErrorAction SilentlyContinue
+    if ($spectreTextInput) {
+        $body = @($BodyLines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+        $value = Read-VrcSetupSpectreTextInput -Title $Title -Header $body -Prompt $Prompt -Hint $Hint
+        return Normalize-UserPath $value -PreserveRelative:$PreserveRelative
+    }
+
     Clear-Host
     if (-not [string]::IsNullOrWhiteSpace($Title)) {
         Write-Host $Title -ForegroundColor $TitleColor
@@ -273,6 +280,26 @@ function Read-WizardPathInput {
     }
 
     return Normalize-UserPath (Read-Host $Prompt) -PreserveRelative:$PreserveRelative
+}
+
+function Read-WizardTextInput {
+    param(
+        [string]$Title,
+        [string]$Prompt,
+        [string[]]$BodyLines = @(),
+        [string]$Hint = 'Leave blank to clear or go back.'
+    )
+
+    $spectreTextInput = Get-Command -Name 'Read-VrcSetupSpectreTextInput' -ErrorAction SilentlyContinue
+    if ($spectreTextInput) {
+        $body = @($BodyLines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+        return Read-VrcSetupSpectreTextInput -Title $Title -Header $body -Prompt $Prompt -Hint $Hint
+    }
+
+    Clear-Host
+    if ($Title) { Write-Host $Title -ForegroundColor Cyan; Write-Host '' }
+    foreach ($line in $BodyLines) { Write-Host $line -ForegroundColor Gray }
+    return Read-Host $Prompt
 }
 
 function Add-ConfirmHint {
@@ -345,6 +372,85 @@ function Apply-ProjectNamingRules {
     return $name
 }
 
+function Edit-ProjectNamingSettings {
+    param(
+        $Config,
+        [string]$ConfigPath
+    )
+
+    while ($true) {
+        $patterns = @($Config.Naming.RegexRemovePatterns)
+        $remember = if ($Config.Naming.RememberUnityPackageNames) { 'On' } else { 'Off' }
+        $choice = Show-Menu -Title 'Project names' -Header 'These preferences only affect new projects created from a UnityPackage.' -Options @(
+            "Prefix: '$($Config.Naming.DefaultPrefix)'",
+            "Suffix: '$($Config.Naming.DefaultSuffix)'",
+            "Remember a chosen name: ${remember}",
+            "Name cleanup rules: $($patterns.Count)",
+            'Back'
+        )
+        if ($choice -lt 0 -or $choice -eq 4) { return }
+
+        switch ($choice) {
+            0 {
+                $value = Read-WizardTextInput -Title 'Project name prefix' -Prompt 'Prefix' -BodyLines @('Optional text placed before the suggested project name.')
+                $Config.Naming.DefaultPrefix = if ($value) { $value } else { '' }
+                Save-Config -Config $Config -ConfigPath $ConfigPath
+            }
+            1 {
+                $value = Read-WizardTextInput -Title 'Project name suffix' -Prompt 'Suffix' -BodyLines @('Optional text placed after the suggested project name.')
+                $Config.Naming.DefaultSuffix = if ($value) { $value } else { '' }
+                Save-Config -Config $Config -ConfigPath $ConfigPath
+            }
+            2 {
+                $Config.Naming.RememberUnityPackageNames = -not $Config.Naming.RememberUnityPackageNames
+                Save-Config -Config $Config -ConfigPath $ConfigPath
+            }
+            3 {
+                while ($true) {
+                    $patterns = @($Config.Naming.RegexRemovePatterns)
+                    $options = @($patterns) + @('Add cleanup rule', 'Remove cleanup rule', 'Back')
+                    $ruleChoice = Show-Menu -Title 'Name cleanup rules' -Header 'Optional rules remove text from an automatically suggested project name.' -Options $options
+                    if ($ruleChoice -lt 0 -or $options[$ruleChoice] -eq 'Back') { break }
+
+                    if ($options[$ruleChoice] -eq 'Add cleanup rule') {
+                        $newPattern = Read-WizardTextInput -Title 'Add cleanup rule' -Prompt 'Regex rule' -BodyLines @('Only use this if you already know the text pattern you want removed.') -Hint 'Leave blank to return.'
+                        if ([string]::IsNullOrWhiteSpace($newPattern)) { continue }
+                        try { [void][regex]::new($newPattern) }
+                        catch {
+                            Show-WizardError -Title 'Invalid cleanup rule' -Message 'That regular expression cannot be used. Nothing was saved.'
+                            continue
+                        }
+                        $Config.Naming.RegexRemovePatterns += @($newPattern)
+                        Save-Config -Config $Config -ConfigPath $ConfigPath
+                        continue
+                    }
+
+                    if ($options[$ruleChoice] -eq 'Remove cleanup rule') {
+                        if ($patterns.Count -eq 0) { continue }
+                        $removeIndex = Show-Menu -Title 'Remove cleanup rule' -Header 'Choose the rule to remove.' -Options ($patterns + @('Back'))
+                        if ($removeIndex -ge 0 -and $removeIndex -lt $patterns.Count) {
+                            $Config.Naming.RegexRemovePatterns = @($patterns | Where-Object { $_ -ne $patterns[$removeIndex] })
+                            Save-Config -Config $Config -ConfigPath $ConfigPath
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+function Get-SettingsPathSummary {
+    param(
+        [string]$Path,
+        [switch]$Invalid
+    )
+
+    if ($Invalid) { return 'Invalid' }
+    if ([string]::IsNullOrWhiteSpace($Path)) { return 'Not set' }
+    if (-not (Test-Path -LiteralPath $Path)) { return 'Not found' }
+    return 'Ready'
+}
+
 function Advanced-NamingSettings {
     param(
         [string]$ConfigPath
@@ -360,8 +466,6 @@ function Advanced-NamingSettings {
     $config = Ensure-ConfigDefaults -Config $config
 
     while ($true) {
-        $patternsCount = @($config.Naming.RegexRemovePatterns).Count
-        $remember = if ($config.Naming.RememberUnityPackageNames) { "ON" } else { "OFF" }
         $workspaceRoot = [System.IO.Directory]::GetParent($scriptDir).FullName
         $commonPackagesStatus = 'DISABLED'
         if ($config -and -not [string]::IsNullOrWhiteSpace([string]$config.UnityPackagesFolder)) {
@@ -374,34 +478,34 @@ function Advanced-NamingSettings {
         }
 
         $editorStatus = Get-PathStatus -Path ([string]$config.UnityEditorPath)
+        $editorInvalid = $false
         # Extra check: if editor path exists but isn't Unity.exe, flag it
         if (-not [string]::IsNullOrWhiteSpace([string]$config.UnityEditorPath) -and (Test-Path -LiteralPath ([string]$config.UnityEditorPath))) {
             $editorValidation = Test-UnityEditorPath -Path ([string]$config.UnityEditorPath)
-            if (-not $editorValidation.Valid) { $editorStatus = "INVALID: $($editorValidation.Message)" }
+            if (-not $editorValidation.Valid) {
+                $editorStatus = "INVALID: $($editorValidation.Message)"
+                $editorInvalid = $true
+            }
         }
         $projectsRootStatus = Get-PathStatus -Path ([string]$config.UnityProjectsRoot)
+        $editorSummary = Get-SettingsPathSummary -Path ([string]$config.UnityEditorPath) -Invalid:$editorInvalid
+        $projectsRootSummary = Get-SettingsPathSummary -Path ([string]$config.UnityProjectsRoot)
+        $commonPackagesSummary = if ($commonPackagesStatus -eq 'DISABLED') {
+            'Disabled'
+        } else {
+            Get-SettingsPathSummary -Path $resolvedCommon
+        }
 
-        $optEditor = "Unity Editor path: ${editorStatus}"
-        $optProjectsRoot = "Projects root: ${projectsRootStatus}"
-        $optPrefix = "Prefix: '$($config.Naming.DefaultPrefix)'"
-        $optSuffix = "Suffix: '$($config.Naming.DefaultSuffix)'"
-        $optRegex = "Regex remove patterns: ${patternsCount}"
-        $optRemember = "Remember unitypackage names: ${remember}"
-        $optUnityPackages = "UnityPackages folder (extra imports): ${commonPackagesStatus}"
-
-        $sel = Show-Menu -Title "Settings" -Header "Paths and optional naming preferences." -Options @(
-            $optEditor,
-            $optProjectsRoot,
-            $optPrefix,
-            $optSuffix,
-            $optRegex,
-            $optRemember,
-            $optUnityPackages,
-            "Reset configuration",
-            "Back"
+        $sel = Show-Menu -Title 'Settings' -Header 'Set the Unity Editor and project folder first. Other options only affect new projects.' -Options @(
+            "Unity Editor  ·  ${editorSummary}",
+            "Project folder  ·  ${projectsRootSummary}",
+            'Project names',
+            "Extra UnityPackages  ·  ${commonPackagesSummary}",
+            'Reset all settings',
+            'Back'
         )
 
-        if ($sel -eq -1 -or $sel -eq 8) { Save-Config -Config $config -ConfigPath $ConfigPath; return }
+        if ($sel -eq -1 -or $sel -eq 5) { Save-Config -Config $config -ConfigPath $ConfigPath; return }
 
         switch ($sel) {
             0 {
@@ -420,9 +524,7 @@ function Advanced-NamingSettings {
                     Save-Config -Config $config -ConfigPath $ConfigPath
                 }
                 elseif ($pick -eq $found.Count) {
-                    Clear-Host
-                    Write-Host "Drag Unity.exe here or paste the full path:" -ForegroundColor Yellow
-                    $newPath = Normalize-UserPath (Read-Host "Unity.exe path")
+                    $newPath = Read-WizardPathInput -Title 'Unity Editor' -Prompt 'Unity.exe path' -BodyLines @('Paste or drag the Unity.exe file here.')
                     if (-not [string]::IsNullOrWhiteSpace($newPath)) {
                         $validation = Test-UnityEditorPath -Path $newPath
                         if ($validation.Valid) {
@@ -439,10 +541,7 @@ function Advanced-NamingSettings {
             }
             1 {
                 # Projects root
-                Clear-Host
-                Write-Host "Current projects root: ${projectsRootStatus}" -ForegroundColor Gray
-                Write-Host "Drag a folder here or paste the path:" -ForegroundColor Yellow
-                $newRoot = Normalize-UserPath (Read-Host "Projects folder")
+                $newRoot = Read-WizardPathInput -Title 'Project folder' -Prompt 'Projects folder' -BodyLines @("Current: ${projectsRootStatus}", 'Paste or drag the folder where you keep VRChat Unity projects.')
                 if (-not [string]::IsNullOrWhiteSpace($newRoot)) {
                     if (-not (Test-Path -LiteralPath $newRoot)) {
                         $mkChoice = Show-Menu -Title "Folder not found" -Header "Create folder?`n${newRoot}" -Options @("Create it", "Cancel")
@@ -468,57 +567,9 @@ function Advanced-NamingSettings {
                 }
             }
             2 {
-                $p = Read-Host "Default prefix (blank to clear)"
-                $config.Naming.DefaultPrefix = if ($p) { $p } else { "" }
-                Save-Config -Config $config -ConfigPath $ConfigPath
+                Edit-ProjectNamingSettings -Config $config -ConfigPath $ConfigPath
             }
             3 {
-                $s = Read-Host "Default suffix (blank to clear)"
-                $config.Naming.DefaultSuffix = if ($s) { $s } else { "" }
-                Save-Config -Config $config -ConfigPath $ConfigPath
-            }
-            4 {
-                while ($true) {
-                    $patterns = @($config.Naming.RegexRemovePatterns)
-                    $opts = @()
-                    foreach ($pat in $patterns) { $opts += $pat }
-                    $opts += @("Add pattern", "Remove pattern", "Back")
-
-                    $pSel = Show-Menu -Title "Regex remove patterns" -Header "These patterns will be removed from the suggested project name." -Options $opts
-                    if ($pSel -eq -1 -or $opts[$pSel] -eq "Back") { break }
-
-                    if ($opts[$pSel] -eq "Add pattern") {
-                        $newPat = Read-Host "Regex pattern to remove"
-                        if ([string]::IsNullOrWhiteSpace($newPat)) { continue }
-                        try {
-                            [void][regex]::new($newPat)
-                        }
-                        catch {
-                            Write-Host "Invalid regex." -ForegroundColor Red
-                            Read-Host "Press ENTER"
-                            continue
-                        }
-                        $config.Naming.RegexRemovePatterns += @($newPat)
-                        Save-Config -Config $config -ConfigPath $ConfigPath
-                        continue
-                    }
-
-                    if ($opts[$pSel] -eq "Remove pattern") {
-                        if ($patterns.Count -eq 0) { continue }
-                        $idx = Show-Menu -Title "Remove which pattern?" -Options $patterns
-                        if ($idx -eq -1) { continue }
-                        $toRemove = $patterns[$idx]
-                        $config.Naming.RegexRemovePatterns = @($patterns | Where-Object { $_ -ne $toRemove })
-                        Save-Config -Config $config -ConfigPath $ConfigPath
-                        continue
-                    }
-                }
-            }
-            5 {
-                $config.Naming.RememberUnityPackageNames = -not $config.Naming.RememberUnityPackageNames
-                Save-Config -Config $config -ConfigPath $ConfigPath
-            }
-            6 {
                 $inputPath = Read-WizardPathInput -Title "UnityPackages folder (extra imports)" -Prompt "Folder path" -PreserveRelative -BodyLines @(
                     "When you create a project from a UnityPackage, the installer can also import all *.unitypackage found in this folder.",
                     "",
@@ -556,8 +607,8 @@ function Advanced-NamingSettings {
                 $config.UnityPackagesFolder = $inputPath
                 Save-Config -Config $config -ConfigPath $ConfigPath
             }
-            7 {
-                $confirm = Show-Menu -Title "Reset configuration" -Header (Add-ConfirmHint -Header "Reset all saved settings?") -Options @("Yes, reset", "Cancel") -AllowCancel $false
+            4 {
+                $confirm = Show-Menu -Title 'Reset all settings' -Header (Add-ConfirmHint -Header 'This restores the initial configuration and clears saved paths.') -Options @('Reset settings', 'Cancel') -AllowCancel $false
                 if ($confirm -eq 0) {
                     Clear-Host
                     Start-Installer -projectPath "-reset" | Out-Null
@@ -836,19 +887,22 @@ function Edit-VpmPackages {
     }
 
     while ($true) {
-        $packagesList = @($config.VpmPackages.PSObject.Properties) | Sort-Object Name
+        # Keep the locked VRChat foundation together and first.  Optional tools
+        # remain alphabetical immediately after it, so the daily package view is
+        # predictable without making removable packages look locked.
+        $packagesList = @(Get-OrderedVpmPackageProperties -Packages $config.VpmPackages -Config $config)
         $pkgOptions = @()
         foreach ($pkg in $packagesList) {
             $isRequired = Test-IsRequiredPackage -PackageName $pkg.Name -Config $config
-            $lockIcon = if ($isRequired) { " [required]" } else { "" }
-            $pkgOptions += ("{0}  [{1}]{2}" -f $pkg.Name, $pkg.Value, $lockIcon)
+            $kind = if ($isRequired) { 'Required' } else { 'Optional' }
+            $pkgOptions += ("${kind}  ·  {0}  ·  {1}" -f $pkg.Name, $pkg.Value)
         }
-        $pkgOptions += @("Add package", "Back")
+        $pkgOptions += @('Add package', 'Back')
 
         $header = if ($WorkingCopy) {
-            "Build the package set, then go Back to review it.`nOnly [required] VRChat packages are locked."
+            "Required packages are first and cannot be removed. Optional packages are below them.`nMake changes, then go Back to review the project update."
         } else {
-            "Edit the default package set used for new setups.`nOnly [required] VRChat packages are locked."
+            "Required packages are first and cannot be removed. Optional packages can be changed or removed.`nThis set is used for new projects."
         }
         $selected = Show-Menu -Title "VPM Packages" -Header $header -Options $pkgOptions
         if ($selected -eq -1) {
@@ -951,7 +1005,7 @@ function Edit-VpmPackages {
         $isRequiredPkg = Test-IsRequiredPackage -PackageName $pkgName -Config $config
 
         if ($isRequiredPkg) {
-            $action = Show-Menu -Title "Package: ${pkgName} [required]" -Header "Current: ${pkgVersion}`nRequired by the VRChat avatar/VPM foundation." -Options @("Change version", "Back")
+            $action = Show-Menu -Title "Required package" -Header "${pkgName}`nCurrent version: ${pkgVersion}`nThis package is part of the VRChat foundation and stays installed." -Options @('Change version', 'Back')
             if ($action -eq -1 -or $action -eq 1) { continue }
 
             if ($action -eq 0) {
@@ -979,7 +1033,7 @@ function Edit-VpmPackages {
                 continue
             }
         } else {
-            $action = Show-Menu -Title "Package: ${pkgName}" -Header "Current: ${pkgVersion}" -Options @("Change version", "Remove package", "Back")
+            $action = Show-Menu -Title 'Optional package' -Header "${pkgName}`nCurrent version: ${pkgVersion}" -Options @('Change version', 'Remove package', 'Back')
             if ($action -eq -1 -or $action -eq 2) { continue }
         }
 
@@ -1020,7 +1074,10 @@ function Edit-VpmPackages {
 }
 
 function Setup-ProjectFlow {
-    param([string]$ConfigPath)
+    param(
+        [string]$ConfigPath,
+        [ValidateSet('create', 'manage')][string]$StartAt
+    )
 
     function Cleanup-IncompleteProjectsFlow {
         param($Config)
@@ -1674,13 +1731,31 @@ function Setup-ProjectFlow {
         }
     }
 
-    $setupChoice = Show-Menu -Title "Projects" -Header "Choose from your project library, create a project or open another folder." -Options @(
-        "Project library",
-        "Create from UnityPackage",
-        "Open project by folder",
-        "Cleanup incomplete projects",
-        "Back"
-    )
+    $setupChoice = if ($StartAt -eq 'create') {
+        0
+    } elseif ($StartAt -eq 'manage') {
+        Show-Menu -Title 'Manage projects' -Header 'Open a project directly, browse your library, or remove incomplete test projects.' -Options @(
+            'Manage a project by folder',
+            'Project library',
+            'Clean up incomplete projects',
+            'Back'
+        )
+    } else {
+        Show-Menu -Title 'Projects' -Header 'Create a new project first, or manage a project you already have.' -Options @(
+            'Create from UnityPackage',
+            'Manage a project by folder',
+            'Project library',
+            'Clean up incomplete projects',
+            'Back'
+        )
+    }
+
+    if ($StartAt -eq 'manage') {
+        if ($setupChoice -lt 0 -or $setupChoice -eq 3) { return }
+        # The manage-only view does not contain the create action; normalize its
+        # selected row to the shared action indices below.
+        $setupChoice++
+    }
 
     if ($setupChoice -eq -1 -or $setupChoice -eq 4) { return }
 
@@ -1693,12 +1768,12 @@ function Setup-ProjectFlow {
         return
     }
 
-    if ($setupChoice -eq 2) {
+    if ($setupChoice -eq 1) {
         Invoke-ExistingProjectFlow -Config $config
         return
     }
 
-    if ($setupChoice -eq 0) {
+    if ($setupChoice -eq 2) {
         Invoke-ProjectLibraryFlow -Config $config
         return
     }
@@ -1764,34 +1839,39 @@ function Start-Wizard {
         $menuConfig = $null
         if (Test-Path -LiteralPath $configPath) { $menuConfig = Load-Config -ConfigPath $configPath }
         $essentials = Test-ConfigEssentialsExist -Config $menuConfig
-        $setupLabel = "Projects"
-        $header = "Create, prepare, or update a VRChat Unity project."
+        $createLabel = 'Create project'
+        $manageLabel = 'Manage projects'
+        $header = 'Create a VRChat Unity project or manage packages in one you already have.'
         if (-not $essentials.Ready) {
-            $setupLabel = "Projects  [needs setup]"
+            $createLabel = 'Create project  ·  needs setup'
             $warnings = ($essentials.Missing | ForEach-Object { "  - $_" }) -join "`n"
             $header = "Some paths need attention:`n${warnings}`n`nOpen Settings to fix them."
         }
 
         $choice = Show-Menu -Title "VRChat Project Setup Wizard" -Header $header -Options @(
-            $setupLabel,
-            "Default package set",
-            "Settings",
-            "Exit"
+            $createLabel,
+            $manageLabel,
+            'Default package set',
+            'Settings',
+            'Exit'
         )
 
         if ($choice -eq -1) { continue }
 
         switch ($choice) {
             0 {
-                Setup-ProjectFlow -ConfigPath $configPath
+                Setup-ProjectFlow -ConfigPath $configPath -StartAt 'create'
             }
             1 {
-                Edit-VpmPackages -ConfigPath $configPath -ScriptDir $scriptDir
+                Setup-ProjectFlow -ConfigPath $configPath -StartAt 'manage'
             }
             2 {
-                Advanced-NamingSettings -ConfigPath $configPath
+                Edit-VpmPackages -ConfigPath $configPath -ScriptDir $scriptDir
             }
             3 {
+                Advanced-NamingSettings -ConfigPath $configPath
+            }
+            4 {
                 Write-Host " Goodbye!" -ForegroundColor Cyan
                 return
             }

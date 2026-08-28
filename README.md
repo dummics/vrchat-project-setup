@@ -79,9 +79,10 @@ source folder as an installation to delete.
 - VRChat Creator Companion and a compatible Unity Editor installation.
 - Internet access when package metadata or packages must be downloaded.
 
-The first-run wizard helps select Unity and project paths. PowerShell 7 uses the
-bundled Spectre.Console project-library UI; the built-in Windows PowerShell 5.1
-menu remains a fully supported fallback. No extra PowerShell module is required.
+The first-run wizard helps select Unity and project paths. In PowerShell 7, the
+bundled Spectre.Console runtime presents every interactive menu, path prompt and
+package browser in a consistent panel layout. Windows PowerShell 5.1 and redirected
+sessions use a simple text fallback. No extra PowerShell module is required.
 
 ## 🤝 Relationship with VRChat Creator Companion
 
@@ -125,25 +126,31 @@ paths.
 
 ## 🧭 Wizard workflows
 
-The main wizard provides:
+The main wizard starts with two clear actions: **Create project** and **Manage
+projects**. It then provides:
 
-1. **Projects**
+1. **Create project**
+   - Create from a UnityPackage using the suggested folder name immediately.
+   - Review the project name, target folder and import action before starting.
+2. **Manage projects**
    - Open the project library: it scans the configured root and nearby nested
      folders, then shows project type, Unity version and direct VPM package count.
    - Select a listed project and go directly to its AIO package actions.
    - Refresh the index explicitly or choose a folder outside the configured root.
-   - Create from a UnityPackage using the suggested folder name immediately.
    - Manage an existing Unity project and apply a complete VPM change set once.
    - Add/update the default preset without removing unrelated project packages.
    - Optionally import extra UnityPackages.
    - Detect and clean up incomplete project setups.
-2. **Default package set**
+3. **Default package set**
+   - Shows the required VRChat foundation first, in base/avatar/resolver order.
+   - Keeps required packages installed while making optional packages easy to edit or remove.
    - Search packages and select available versions.
    - Use `latest` or pin a specific version.
    - Remove optional starter packages such as GoGoLoco, VRCFury, Poiyomi,
      templates or Easy Login.
-3. **Settings**
-   - Configure Unity paths, naming rules and remembered project names.
+4. **Settings**
+   - Set Unity Editor and project folder paths first.
+   - Keep project naming rules and extra UnityPackage imports in separate, smaller screens.
    - Reset configuration when needed.
 
 When creating from a UnityPackage, the tool creates the Unity project, applies

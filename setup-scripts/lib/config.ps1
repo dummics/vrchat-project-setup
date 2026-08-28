@@ -131,6 +131,24 @@ function Test-IsRequiredPackage {
     return ((Get-RequiredPackages -Config $Config) -contains $PackageName)
 }
 
+function Get-OrderedVpmPackageProperties {
+    param(
+        $Packages,
+        $Config
+    )
+
+    if (-not $Packages) { return @() }
+    $properties = @($Packages.PSObject.Properties)
+    $required = @(
+        foreach ($requiredName in @(Get-RequiredPackages -Config $Config)) {
+            $property = @($properties | Where-Object { $_.Name -eq $requiredName } | Select-Object -First 1)
+            if ($property.Count -gt 0) { $property[0] }
+        }
+    )
+    $optional = @($properties | Where-Object { -not (Test-IsRequiredPackage -PackageName $_.Name -Config $Config) } | Sort-Object Name)
+    return @($required + $optional)
+}
+
 function Copy-VpmPackageSet {
     param($Packages)
 

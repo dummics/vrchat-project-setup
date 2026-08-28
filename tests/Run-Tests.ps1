@@ -114,6 +114,19 @@ try {
     $requiredRemoveOutput = @(& { Invoke-VrcSetupCli -Command 'packages' -Arguments @('remove', $projectRoot, 'com.vrchat.base') -ScriptDir $scriptDir -ConfigPath (Join-Path $scriptDir 'config\vrcsetup.json') -DryRun } *>&1)
     Assert-True ([int]$requiredRemoveOutput[-1] -eq 1) 'CLI allowed removal of a required package.'
 
+    $packageOrderConfig = [pscustomobject]@{
+        VpmPackages = [pscustomobject]@{
+            'gogoloco' = 'latest'
+            'com.vrchat.core.vpm-resolver' = 'latest'
+            'com.vrcfury.vrcfury' = 'latest'
+            'com.vrchat.base' = 'latest'
+            'com.vrchat.avatars' = 'latest'
+        }
+    }
+    $orderedDefaultPackages = @(Get-OrderedVpmPackageProperties -Packages $packageOrderConfig.VpmPackages -Config $packageOrderConfig | ForEach-Object Name)
+    Assert-True (($orderedDefaultPackages[0..2] -join ',') -eq 'com.vrchat.base,com.vrchat.avatars,com.vrchat.core.vpm-resolver') 'Required VPM packages were not kept first in their canonical order.'
+    Assert-True ((($orderedDefaultPackages | Select-Object -Skip 3) -join ',') -eq (($orderedDefaultPackages | Select-Object -Skip 3 | Sort-Object) -join ',')) 'Optional VPM packages were not sorted after required packages.'
+
     Write-Host '[4/11] Scanning and incrementally refreshing the project library...'
     $libraryRoot = Join-Path $testRoot 'Unity Projects [shared] & café'
     $avatarProject = Join-Path $libraryRoot 'Avatar [daily] & café'

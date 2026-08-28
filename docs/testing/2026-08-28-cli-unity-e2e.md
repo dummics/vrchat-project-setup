@@ -30,6 +30,7 @@ Environment:
 | Required-package guard | Pass | A dry-run removal of `com.vrchat.base` returned exit code 1 and left the package present. |
 | Unknown-package guard | Pass | Adding a nonexistent package returned exit code 1 before changing manifests. |
 | Interactive terminal UX | Pass | Keyboard flow covered Home → Projects → Project library → disposable project → AIO package set → review → Cancel → Back. The cached library rendered 30 projects in 55 ms during the run. |
+| Spectre Console UX refinement | Pass | PowerShell 7 showed consistent Spectre panels for Home, Manage projects, Settings, package list, package details and package search. Keyboard navigation selected a required package, returned with Back, and filtered `gogoloco` with a text prompt plus arrow-key selection. |
 | Installed alias portability | Pass | From a different working folder, the installed `vrcsetup` alias resolved a relative project path, listed three packages, found GoGoLoco 1.8.6 and produced the expected dry-run add plan. User configuration was hash-identical before and after the update. |
 | Automated portability suite | Pass | All 11 groups passed under both PowerShell 7 and Windows PowerShell 5.1, including special-character paths, install, alias, repair and uninstall. |
 
@@ -39,9 +40,14 @@ Environment:
   `create`. Destructive package intent has a `-DryRun` path.
 - JSON is available on read/search operations without terminal decoration.
 - Project selection no longer requires copying a path in the interactive flow.
-- The Spectre project library is readable and fast. The nested package editor is
-  still the established keyboard TUI rather than Spectre; it was clear in the
-  tested flow and made no changes after Cancel.
+- The Spectre surface is now consistent across navigation, path prompts and
+  package search, with an explicit short keyboard hint and a Back action on
+  each screen.
+- The home separates **Create project** from **Manage projects**. Settings use
+  short `Ready` / `Not set` / `Not found` states instead of wrapping long paths;
+  the full path appears only in its focused editor screen.
+- Required packages appear first in base/avatar/resolver order and remain
+  protected. Optional packages follow alphabetically and are clearly removable.
 - Initial Unity creation remains dominated by SDK compilation and shader import,
   not by the small UnityPackage. Subsequent package-only operations are much
   faster, especially after unchanged-package skipping.
@@ -54,3 +60,6 @@ Environment:
    deselected packages and installs only added or version-changed packages.
 3. The public CLI lacked first-class project/package verbs. It now supports
    discovery, search, list, add/change, remove, create, dry-run and JSON output.
+4. The main wizard mixed creation, management and long path values in plain text
+   menus. It now presents clear create/manage paths in compact Spectre panels,
+   with focused settings and package screens.
