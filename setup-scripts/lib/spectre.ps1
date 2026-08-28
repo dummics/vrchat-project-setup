@@ -59,7 +59,7 @@ function ConvertTo-VrcSetupSpectreChoice {
     }
     if ($Text -match '^(Back|Cancel)$') { return "[#78909F]$safe[/]" }
     if ($Text -match '^(Exit|Reset|Delete|Remove)') { return "[#FB7185]$safe[/]" }
-    if ($Text -match '^(Create|Manage|Add|Apply|Start|Open|Search|Refresh|Choose|Change|Set)') { return "[#75D7F7]$safe[/]" }
+    if ($Text -match '^(Create|Manage|Add|Apply|Start|Open|Search|Refresh|Choose|Change|Set|Go|Enter)') { return "[#75D7F7]$safe[/]" }
     return "[#DDEAF2]$safe[/]"
 }
 
@@ -101,6 +101,7 @@ function Show-VrcSetupSpectreMenu {
         [int]$Current = 0,
         [bool]$AllowCancel = $true,
         [bool]$EnableHorizontalNav = $false,
+        [ValidateRange(4, 30)][int]$MaxVisible = 14,
         [switch]$SkipFrame,
         [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
     )
@@ -114,10 +115,10 @@ function Show-VrcSetupSpectreMenu {
 
     $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
     $prompt.Title = '[#DDEAF2]Choose an action[/]'
-    $prompt.PageSize = [Math]::Min(14, [Math]::Max(4, $Options.Count))
+    $prompt.PageSize = [Math]::Min($MaxVisible, [Math]::Max(4, $Options.Count))
     $prompt.WrapAround = $true
     $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
-    $prompt.MoreChoicesText = '[#78909F]Use Up/Down then Enter. Type to jump through a long list.[/]'
+    $prompt.MoreChoicesText = '[#78909F]More items below — use Up/Down to scroll. Type to jump.[/]'
     $keyboardHint = if ($AllowCancel) { 'Up/Down to move  ·  Enter to select  ·  Esc or Back to return' } else { 'Up/Down to move  ·  Enter to select' }
     [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]${keyboardHint}[/]")
     $choiceIndex = @{}
@@ -254,11 +255,15 @@ function Format-VrcSetupProjectCatalogRow {
         [Parameter(Mandatory)][int]$Index
     )
 
-    $packages = if ([string]$Project.Status -eq 'Ready') {
+    $packages = if ([string]$Project.PackageMetadataSource -eq 'EmbeddedPackages') {
+        '{0} packages*' -f $Project.PackageCount
+    } elseif ([string]$Project.Status -eq 'Ready') {
         '{0} packages' -f $Project.PackageCount
     } else {
         [string]$Project.Status
     }
+    $unityVersion = [string]$Project.UnityVersion
+    if ([string]$Project.UnityVersionSource -eq 'GeneratedProject') { $unityVersion += '*' }
     $updated = 'Unknown'
     try {
         $lastModified = if ($Project.LastModifiedUtc -is [datetime]) {
@@ -273,7 +278,7 @@ function Format-VrcSetupProjectCatalogRow {
         $Index,
         (Format-VrcSetupProjectCatalogCell -Text ([string]$Project.RelativePath) -Width 28),
         (Format-VrcSetupProjectCatalogCell -Text ([string]$Project.Kind) -Width 11),
-        (Format-VrcSetupProjectCatalogCell -Text ([string]$Project.UnityVersion) -Width 12),
+        (Format-VrcSetupProjectCatalogCell -Text $unityVersion -Width 13),
         (Format-VrcSetupProjectCatalogCell -Text $packages -Width 15),
         $updated)
 }
@@ -287,17 +292,24 @@ function Show-VrcSetupProjectCatalogSpectre {
     if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $null }
 
     $sortLabel = if ([string]$Catalog.SortOrder -eq 'name') { 'Name (A-Z)' } else { 'Recently updated' }
-    [void](Write-VrcSetupSpectreFrame -Title 'Project library' -Header ("Projects under: {0}`nFound: {1}  |  Order: {2}" -f $Catalog.RootPath, $Catalog.ProjectCount, $sortLabel) -ScriptDir $ScriptDir)
+    $recoveredCount = @($Catalog.Projects | Where-Object {
+        [string]$_.PackageMetadataSource -eq 'EmbeddedPackages' -or [string]$_.UnityVersionSource -eq 'GeneratedProject'
+    }).Count
+    $header = "Projects under: {0}`nFound: {1}  |  Order: {2}" -f $Catalog.RootPath, $Catalog.ProjectCount, $sortLabel
+    if ($recoveredCount -gt 0) {
+        $header += "`n* Recovered from embedded/generated files because canonical metadata is missing."
+    }
+    [void](Write-VrcSetupSpectreFrame -Title 'Project library' -Header $header -ScriptDir $ScriptDir)
     $scanSummary = "Scan: $($Catalog.DurationMs) ms | cache reused: $($Catalog.CacheHits) | refreshed: $($Catalog.Refreshed)"
     [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]$(ConvertTo-VrcSetupSpectreText $scanSummary)[/]")
     [Spectre.Console.AnsiConsole]::WriteLine()
 
     $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
-    $prompt.Title = '[#DDEAF2] #   Project                       Type         Unity         Packages         Updated[/]'
+    $prompt.Title = '[#DDEAF2] #   Project                       Type         Unity          Packages         Updated[/]'
     $prompt.PageSize = [Math]::Min(16, [Math]::Max(4, $Catalog.ProjectCount + 1))
     $prompt.WrapAround = $true
     $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
-    $prompt.MoreChoicesText = '[#78909F]Use Up/Down to browse the project table. Type to jump to a project.[/]'
+    $prompt.MoreChoicesText = '[#78909F]More projects below — use Up/Down to scroll. Type to jump.[/]'
     [Spectre.Console.AnsiConsole]::MarkupLine('[#78909F]Up/Down to select a project  ·  Enter to manage it  ·  Esc to return[/]')
 
     $choiceActions = @{}
@@ -347,8 +359,8 @@ function Show-VrcSetupSpectreChecklist {
     $prompt.WrapAround = $true
     $prompt.Required = $false
     $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
-    $prompt.InstructionsText = '[#78909F]Up/Down to move  ·  Space to toggle  ·  Enter to confirm  ·  Esc to return[/]'
-    $prompt.MoreChoicesText = '[#78909F]Use Up/Down to browse the remaining projects.[/]'
+    [Spectre.Console.AnsiConsole]::MarkupLine('[#78909F]Up/Down to move  ·  Space to toggle  ·  Enter to confirm  ·  Esc to return[/]')
+    $prompt.MoreChoicesText = '[#78909F]More items below — use Up/Down to scroll.[/]'
 
     $itemByChoice = @{}
     for ($index = 0; $index -lt $itemsArr.Count; $index++) {

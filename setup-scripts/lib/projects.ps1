@@ -10,7 +10,12 @@ function Get-VrcSetupProjectFingerprint {
 
     $projectFolder = Get-Item -LiteralPath $ProjectPath -ErrorAction Stop
     $parts = @("project-folder:$($projectFolder.LastWriteTimeUtc.Ticks)")
-    foreach ($relativePath in @('Packages\vpm-manifest.json', 'ProjectSettings\ProjectVersion.txt')) {
+    foreach ($relativePath in @(
+        'Packages\vpm-manifest.json',
+        'Packages\manifest.json',
+        'Packages\packages-lock.json',
+        'ProjectSettings\ProjectVersion.txt'
+    )) {
         $path = Join-Path $ProjectPath $relativePath
         if (Test-Path -LiteralPath $path -PathType Leaf) {
             $file = Get-Item -LiteralPath $path
@@ -19,7 +24,63 @@ function Get-VrcSetupProjectFingerprint {
             $parts += "${relativePath}:missing"
         }
     }
+    $packagesPath = Join-Path $ProjectPath 'Packages'
+    if (Test-Path -LiteralPath $packagesPath -PathType Container) {
+        $embeddedPackages = @(
+            Get-ChildItem -LiteralPath $packagesPath -Directory -Force -ErrorAction SilentlyContinue |
+                Sort-Object Name |
+                ForEach-Object { "$($_.Name):$($_.LastWriteTimeUtc.Ticks)" }
+        )
+        $parts += "embedded-packages:$($embeddedPackages -join ',')"
+    }
+    $generatedProject = @(
+        Get-ChildItem -LiteralPath $ProjectPath -File -Filter '*.csproj' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+    )
+    if ($generatedProject.Count -gt 0) {
+        $parts += "generated-project:$($generatedProject[0].Name):$($generatedProject[0].Length):$($generatedProject[0].LastWriteTimeUtc.Ticks)"
+    }
     return ($parts -join '|')
+}
+
+function Get-VrcSetupEmbeddedPackageNames {
+    param([Parameter(Mandatory)][string]$PackagesPath)
+
+    if (-not (Test-Path -LiteralPath $PackagesPath -PathType Container)) { return @() }
+
+    $names = @()
+    foreach ($directory in Get-ChildItem -LiteralPath $PackagesPath -Directory -Force -ErrorAction SilentlyContinue) {
+        $packageName = $null
+        $packageJsonPath = Join-Path $directory.FullName 'package.json'
+        if (Test-Path -LiteralPath $packageJsonPath -PathType Leaf) {
+            try {
+                $packageJson = Get-Content -LiteralPath $packageJsonPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                $packageName = [string]$packageJson.name
+            } catch { }
+        }
+        if ([string]::IsNullOrWhiteSpace($packageName)) { $packageName = $directory.Name }
+        if (-not [string]::IsNullOrWhiteSpace($packageName)) { $names += $packageName }
+    }
+    return @($names | Sort-Object -Unique)
+}
+
+function Get-VrcSetupGeneratedUnityVersion {
+    param([Parameter(Mandatory)][string]$ProjectPath)
+
+    foreach ($projectFile in @(
+        Get-ChildItem -LiteralPath $ProjectPath -File -Filter '*.csproj' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending
+    )) {
+        try {
+            $match = Select-String -LiteralPath $projectFile.FullName -Pattern '<UnityVersion>\s*([^<]+?)\s*</UnityVersion>' -ErrorAction Stop | Select-Object -First 1
+            if ($match -and $match.Matches.Count -gt 0) {
+                $version = $match.Matches[0].Groups[1].Value.Trim()
+                if ($version -match '^20\d{2}\.\d+\.\d+[abfp]\d+$') { return $version }
+            }
+        } catch { }
+    }
+    return $null
 }
 
 function Get-VrcSetupProjectMetadata {
@@ -30,9 +91,11 @@ function Get-VrcSetupProjectMetadata {
 
     $fullPath = [System.IO.Path]::GetFullPath($ProjectPath).TrimEnd('\')
     $manifestPath = Join-Path $fullPath 'Packages\vpm-manifest.json'
+    $packagesPath = Join-Path $fullPath 'Packages'
     $versionPath = Join-Path $fullPath 'ProjectSettings\ProjectVersion.txt'
     $packageNames = @()
     $manifestStatus = 'No VPM manifest'
+    $packageMetadataSource = 'None'
 
     if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
         try {
@@ -41,16 +104,35 @@ function Get-VrcSetupProjectMetadata {
                 $packageNames = @($manifest.dependencies.PSObject.Properties.Name | Sort-Object)
             }
             $manifestStatus = 'Ready'
+            $packageMetadataSource = 'VpmManifest'
         } catch {
             $manifestStatus = 'Invalid VPM manifest'
         }
     }
 
+    if ($packageNames.Count -eq 0) {
+        $embeddedPackageNames = @(Get-VrcSetupEmbeddedPackageNames -PackagesPath $packagesPath)
+        if ($embeddedPackageNames.Count -gt 0) {
+            $packageNames = $embeddedPackageNames
+            $packageMetadataSource = 'EmbeddedPackages'
+            $manifestStatus = if ($manifestStatus -eq 'Invalid VPM manifest') { 'Recovered (invalid manifest)' } else { 'Recovered' }
+        }
+    }
+
     $unityVersion = 'Unknown'
+    $unityVersionSource = 'None'
     if (Test-Path -LiteralPath $versionPath -PathType Leaf) {
         $versionLine = Get-Content -LiteralPath $versionPath -TotalCount 1 -ErrorAction SilentlyContinue
         if ([string]$versionLine -match '^m_EditorVersion:\s*(.+?)\s*$') {
             $unityVersion = $Matches[1]
+            $unityVersionSource = 'ProjectVersion'
+        }
+    }
+    if ($unityVersion -eq 'Unknown') {
+        $generatedVersion = Get-VrcSetupGeneratedUnityVersion -ProjectPath $fullPath
+        if (-not [string]::IsNullOrWhiteSpace($generatedVersion)) {
+            $unityVersion = $generatedVersion
+            $unityVersionSource = 'GeneratedProject'
         }
     }
 
@@ -94,6 +176,8 @@ function Get-VrcSetupProjectMetadata {
         PackageCount = @($packageNames).Count
         PackageNames = @($packageNames)
         Status = $manifestStatus
+        PackageMetadataSource = $packageMetadataSource
+        UnityVersionSource = $unityVersionSource
         LastModifiedUtc = $modified.ToString('o')
         Fingerprint = Get-VrcSetupProjectFingerprint -ProjectPath $fullPath
     }

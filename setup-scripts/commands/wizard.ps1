@@ -655,7 +655,9 @@ function Select-VpmVersion {
         $sourceLabel = "VCC repos"
     }
 
-    $pageSize = 20
+    # Keep navigation/search actions visible instead of placing them below a
+    # long prompt viewport.
+    $pageSize = 10
     $page = 0
     $filterPattern = $null
 
@@ -707,12 +709,12 @@ function Select-VpmVersion {
         }
 
         $optLatest = "latest"
-        $optPrev = "< Prev page"
+        $optPrev = "< Previous page"
         $optNext = "Next page >"
-        $optJump = "Jump to range"
-        $optSetFilter = "Set filter"
-        $optClearFilter = "Clear filter"
-        $optEnter = "Enter manually"
+        $optJump = "Go to version range..."
+        $optSetFilter = "Search versions..."
+        $optClearFilter = "Clear search"
+        $optEnter = "Enter exact version..."
         $optBack = "Back"
 
         $options = @($optLatest)
@@ -724,7 +726,7 @@ function Select-VpmVersion {
         if (-not [string]::IsNullOrWhiteSpace($filterPattern)) { $options += $optClearFilter }
         $options += @($optEnter, $optBack)
 
-        $sel = Show-Menu -Title "Select version" -Header $header -Options $options
+        $sel = Show-Menu -Title "Select version" -Header $header -Options $options -MaxVisible 20
         if ($sel -eq -1) { return $null }
 
         $picked = $options[$sel]
@@ -864,6 +866,66 @@ function Resolve-VpmPackageFromSearch {
     }
 }
 
+function Format-VrcSetupPackageCell {
+    param(
+        [AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][int]$Width
+    )
+
+    $value = ([string]$Text -replace '[\r\n]+', ' ').Trim()
+    if ($value.Length -gt $Width) {
+        $value = $value.Substring(0, [Math]::Max(0, $Width - 3)) + '...'
+    }
+    return $value.PadRight($Width)
+}
+
+function Get-VrcSetupFriendlyPackageName {
+    param([Parameter(Mandatory)][string]$PackageName)
+
+    $knownNames = @{
+        'com.vrchat.base' = 'VRChat SDK Base'
+        'com.vrchat.avatars' = 'VRChat SDK Avatars'
+        'com.vrchat.worlds' = 'VRChat SDK Worlds'
+        'com.vrchat.core.vpm-resolver' = 'VRChat Package Resolver'
+        'com.vrcfury.vrcfury' = 'VRCFury'
+        'com.poiyomi.toon' = 'Poiyomi Toon Shader'
+        'adjerry91.vrcft.templates' = 'VRCFury Templates'
+        'dev.foxscore.easy-login' = 'Easy Login'
+        'gogoloco' = 'GoGo Loco'
+    }
+    if ($knownNames.ContainsKey($PackageName)) { return [string]$knownNames[$PackageName] }
+
+    $leaf = @($PackageName -split '\.')[-1]
+    if ([string]::IsNullOrWhiteSpace($leaf)) { return $PackageName }
+    return [Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase(($leaf -replace '[-_]+', ' '))
+}
+
+function Format-VrcSetupPackageRow {
+    param(
+        [string]$Role = '',
+        [AllowEmptyString()][string]$DisplayName = '',
+        [Parameter(Mandatory)][string]$PackageName,
+        [AllowEmptyString()][string]$Version = ''
+    )
+
+    $friendlyName = if ([string]::IsNullOrWhiteSpace($DisplayName)) {
+        Get-VrcSetupFriendlyPackageName -PackageName $PackageName
+    } else {
+        $DisplayName
+    }
+    if ([string]::IsNullOrWhiteSpace($Role)) {
+        return ('{0}  {1}  {2}' -f
+            (Format-VrcSetupPackageCell -Text $friendlyName -Width 28),
+            (Format-VrcSetupPackageCell -Text $PackageName -Width 38),
+            (Format-VrcSetupPackageCell -Text $Version -Width 14)).TrimEnd()
+    }
+    return ('{0}  {1}  {2}  {3}' -f
+        (Format-VrcSetupPackageCell -Text $Role -Width 9),
+        (Format-VrcSetupPackageCell -Text $friendlyName -Width 28),
+        (Format-VrcSetupPackageCell -Text $PackageName -Width 38),
+        (Format-VrcSetupPackageCell -Text $Version -Width 14)).TrimEnd()
+}
+
 function Edit-VpmPackages {
     param(
         [string]$ConfigPath,
@@ -904,14 +966,14 @@ function Edit-VpmPackages {
         foreach ($pkg in $packagesList) {
             $isRequired = Test-IsRequiredPackage -PackageName $pkg.Name -Config $config
             $kind = if ($isRequired) { 'Required' } else { 'Optional' }
-            $pkgOptions += ("${kind}  ·  {0}  ·  {1}" -f $pkg.Name, $pkg.Value)
+            $pkgOptions += (Format-VrcSetupPackageRow -Role $kind -PackageName $pkg.Name -Version ([string]$pkg.Value))
         }
         $pkgOptions += @('Add package', 'Back')
 
         $header = if ($WorkingCopy) {
-            "Required packages are first and cannot be removed. Optional packages are below them.`nMake changes, then go Back to review the project update."
+            "Required packages are first and cannot be removed. Optional packages are below them.`nMake changes, then go Back to review the project update.`n`nRole       Package name                  Package ID                              Version"
         } else {
-            "Required packages are first and cannot be removed. Optional packages can be changed or removed.`nThis set is used for new projects."
+            "Required packages are first and cannot be removed. Optional packages can be changed or removed.`nThis set is used for new projects.`n`nRole       Package name                  Package ID                              Version"
         }
         $selected = Show-Menu -Title "VPM Packages" -Header $header -Options $pkgOptions
         if ($selected -eq -1) {
@@ -1304,7 +1366,7 @@ function Setup-ProjectFlow {
                 }
                 $keptPackages = Show-ChecklistPaged -Title 'Toggle installed packages' -PromptTitle 'Choose packages to keep' -Header 'Checked packages stay installed. Uncheck packages to remove them together during review.' -Items $optionalPackages -DefaultSelected $true -MaxVisible 14 -ToLabel {
                     param($package, $index)
-                    return "$($package.Name)  ·  $($package.Value)"
+                    return Format-VrcSetupPackageRow -PackageName $package.Name -Version ([string]$package.Value)
                 }
                 if ($null -eq $keptPackages) { continue }
                 $workingConfig.VpmPackages = Set-VrcSetupOptionalPackageSelection -Packages $workingConfig.VpmPackages -SelectedPackageNames @($keptPackages | ForEach-Object Name) -Config $workingConfig
@@ -1330,8 +1392,7 @@ function Setup-ProjectFlow {
                     }
                     $selectedMatches = Show-ChecklistPaged -Title 'Search results' -PromptTitle 'Choose packages to add' -Header 'Selected packages use their latest version and are added together during review.' -Items $matches -DefaultSelected $false -MaxVisible 14 -ToLabel {
                         param($match, $index)
-                        $name = if ([string]::IsNullOrWhiteSpace([string]$match.DisplayName)) { [string]$match.Id } else { "$($match.DisplayName)  ·  $($match.Id)" }
-                        return $name
+                        return Format-VrcSetupPackageRow -DisplayName ([string]$match.DisplayName) -PackageName ([string]$match.Id) -Version ([string]$match.LatestVersion)
                     }
                     if ($null -eq $selectedMatches -or $selectedMatches.Count -eq 0) { continue }
                     $newPackageIds = @($selectedMatches | ForEach-Object Id | Select-Object -Unique)
@@ -1360,7 +1421,7 @@ function Setup-ProjectFlow {
                 $packagesToUpdate = Show-ChecklistPaged -Title 'Update packages' -PromptTitle 'Choose packages to update' -Header 'Select packages to set to their latest version together. Required packages can be updated but not removed.' -Items $installedPackages -DefaultSelected $false -MaxVisible 14 -ToLabel {
                     param($package, $index)
                     $kind = if (Test-IsRequiredPackage -PackageName $package.Name -Config $workingConfig) { 'Required' } else { 'Optional' }
-                    return "${kind}  ·  $($package.Name)  ·  $($package.Value)"
+                    return Format-VrcSetupPackageRow -Role $kind -PackageName $package.Name -Version ([string]$package.Value)
                 }
                 if ($null -eq $packagesToUpdate -or $packagesToUpdate.Count -eq 0) { continue }
                 $invalidPackageIds = @($packagesToUpdate | Where-Object { -not (Test-VpmPackageExists -PackageName $_.Name -ScriptDir $scriptDir) } | ForEach-Object Name)

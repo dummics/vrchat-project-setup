@@ -167,11 +167,15 @@ scripts.
 
 ### Project library and cache
 
-The first project-library scan reads each Unity project's
-`ProjectSettings/ProjectVersion.txt` and `Packages/vpm-manifest.json`. Later
-scans reuse unchanged metadata and re-read only new or modified projects. The
-generated index lives under `setup-scripts/cache/`, is local to the portable or
-installed copy, and is never committed or copied during installation.
+The first project-library scan treats `ProjectSettings/ProjectVersion.txt` and
+`Packages/vpm-manifest.json` as the canonical metadata sources. If either file
+is missing, the library can recover package names/type from embedded package
+folders and the Unity version from a generated root `.csproj`; recovered values
+are marked with `*` instead of being presented as canonical. If no reliable
+version source remains, the version stays `Unknown`. Later scans reuse unchanged
+metadata and re-read only new or modified projects. The generated index lives
+under `setup-scripts/cache/`, is local to the portable or installed copy, and is
+never committed or copied during installation.
 
 The default order is **recently updated**, using the project folder timestamp
 shown by Windows Explorer. Choose **Change sort order** in the library to

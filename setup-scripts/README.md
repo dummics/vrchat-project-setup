@@ -27,10 +27,10 @@ Use `vrcsetup uninstall --yes` only in an unattended script.
 	- `unity-test-framework.dependencies.json` is tracked and provides the Unity Test Framework dependency snippet.
 
 Wizard UX notes:
-- Project library scans the configured projects root, tracks the Windows Explorer project-folder timestamp even when reusing cache metadata, and lists recently updated projects first by default. Its small sort screen can persist an alphabetical order instead; CLI supports one-off `projects -Sort recent|name`.
+- Project library scans the configured projects root, tracks the Windows Explorer project-folder timestamp even when reusing cache metadata, and lists recently updated projects first by default. Missing canonical project metadata falls back to embedded package folders and generated root `.csproj` files, with recovered values visibly marked. Its small sort screen can persist an alphabetical order instead; CLI supports one-off `projects -Sort recent|name`.
 - PowerShell 7 uses the bundled Spectre.Console assemblies across the complete interactive wizard: menus, path prompts, package search, version selection, project library and cleanup selection. Windows PowerShell 5.1 uses the built-in text fallback.
 - The home screen separates `Create project` from `Manage projects`; every Spectre screen shows its keyboard controls and supports `Esc` or an explicit Back action.
-- Spectre panels use a restrained blue/slate palette, while required VPM packages appear first in the canonical base/avatar/resolver order and optional packages follow alphabetically.
+- Spectre panels use a restrained blue/slate palette. Package pickers use aligned human name, canonical ID and version columns; required VPM packages appear first in the canonical base/avatar/resolver order and optional packages follow alphabetically.
 - VT/ANSI escape sequences are opt-in: set `VRCSETUP_TUI_VT=1` only if your terminal supports them.
 - Backend commands avoid printing progress lines to keep the TUI clean.
 - Wizard clears the screen before running the installer to avoid leftover menu artifacts.
@@ -42,7 +42,7 @@ Wizard UX notes:
 - The VPM package editor supports change version/remove plus add package (type-to-filter). Only the VRChat base/avatar/resolver foundation is required; GoGoLoco and other starter packages are removable.
 - Bugfix: "Add package" no longer throws and instantly returns to the list.
 - Versions list is SemVer-sorted (e.g. 0.1.29 > 0.1.9).
-- Version picker supports paging + filter patterns (e.g. *.9, X.X.1190, or re:<regex>).
+- Version picker keeps paging, search/filter, exact entry and Back actions visible while browsing short pages (patterns include `*.9`, `X.X.1190`, or `re:<regex>`).
 - In paged lists, use Left/Right to change page.
 - Settings presents Unity Editor and project-folder paths first, with project-name rules (prefix/suffix/cleanup rules) and per-UnityPackage remembered names in a separate screen.
 - UnityPackage extra-import folder is configurable (Settings):

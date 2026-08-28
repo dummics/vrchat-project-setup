@@ -146,6 +146,10 @@ try {
     $orderedDefaultPackages = @(Get-OrderedVpmPackageProperties -Packages $packageOrderConfig.VpmPackages -Config $packageOrderConfig | ForEach-Object Name)
     Assert-True (($orderedDefaultPackages[0..2] -join ',') -eq 'com.vrchat.base,com.vrchat.avatars,com.vrchat.core.vpm-resolver') 'Required VPM packages were not kept first in their canonical order.'
     Assert-True ((($orderedDefaultPackages | Select-Object -Skip 3) -join ',') -eq (($orderedDefaultPackages | Select-Object -Skip 3 | Sort-Object) -join ',')) 'Optional VPM packages were not sorted after required packages.'
+    $packageRow = Format-VrcSetupPackageRow -Role 'Required' -PackageName 'com.vrchat.avatars' -Version '3.10.1'
+    Assert-True ($packageRow -match '^Required\s+VRChat SDK Avatars\s+com\.vrchat\.avatars\s+3\.10\.1$') 'Package rows are not aligned into role, friendly name, package ID, and version columns.'
+    $searchPackageRow = Format-VrcSetupPackageRow -DisplayName 'Avatar Tools' -PackageName 'com.example.avatar-tools' -Version '1.2.3'
+    Assert-True ($searchPackageRow -match '^Avatar Tools\s+com\.example\.avatar-tools\s+1\.2\.3$') 'Package checklist rows retained an empty role column.'
 
     Write-Host '[4/11] Scanning and incrementally refreshing the project library...'
     $libraryRoot = Join-Path $testRoot 'Unity Projects [shared] & café'
@@ -166,14 +170,30 @@ try {
         (Join-Path $worldProject 'Packages\vpm-manifest.json'),
         '{"dependencies":{"com.vrchat.base":"3.8.0","com.vrchat.worlds":"3.8.0"},"locked":{}}'
     )
+    $recoveredProject = Join-Path $libraryRoot 'ZZ Recovered Avatar'
+    [System.IO.Directory]::CreateDirectory((Join-Path $recoveredProject 'Assets')) | Out-Null
+    [System.IO.Directory]::CreateDirectory((Join-Path $recoveredProject 'Packages\com.vrchat.avatars')) | Out-Null
+    [System.IO.Directory]::CreateDirectory((Join-Path $recoveredProject 'Packages\com.vrchat.base')) | Out-Null
+    [System.IO.Directory]::CreateDirectory((Join-Path $recoveredProject 'Packages\com.vrchat.core.vpm-resolver')) | Out-Null
+    [System.IO.Directory]::CreateDirectory((Join-Path $recoveredProject 'ProjectSettings')) | Out-Null
+    [System.IO.File]::WriteAllText(
+        (Join-Path $recoveredProject 'Assembly-CSharp.csproj'),
+        '<Project><PropertyGroup><UnityVersion>2022.3.22f1</UnityVersion></PropertyGroup></Project>'
+    )
+    [System.IO.Directory]::SetLastWriteTimeUtc($recoveredProject, [DateTime]'2000-01-01T00:00:00Z')
     [System.IO.File]::SetLastWriteTimeUtc((Join-Path $avatarProject 'Packages\vpm-manifest.json'), [DateTime]'2099-01-02T00:00:00Z')
     [System.IO.File]::SetLastWriteTimeUtc((Join-Path $worldProject 'Packages\vpm-manifest.json'), [DateTime]'2099-01-01T00:00:00Z')
     $catalogCache = Join-Path $testRoot 'cache\projects.json'
     $firstCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache -ForceRefresh
-    Assert-True ($firstCatalog.ProjectCount -eq 2) 'Initial scan did not find exactly the two Unity projects.'
-    Assert-True ($firstCatalog.Refreshed -eq 2 -and $firstCatalog.CacheHits -eq 0) 'Initial scan incorrectly reused cached metadata.'
+    Assert-True ($firstCatalog.ProjectCount -eq 3) 'Initial scan did not find exactly the three Unity projects.'
+    Assert-True ($firstCatalog.Refreshed -eq 3 -and $firstCatalog.CacheHits -eq 0) 'Initial scan incorrectly reused cached metadata.'
     Assert-True (($firstCatalog.Projects | Where-Object Path -eq $avatarProject).Kind -eq 'Avatar') 'Avatar project type was not detected from VPM dependencies.'
     Assert-True (($firstCatalog.Projects | Where-Object Path -eq $worldProject).Kind -eq 'World') 'Nested world project was not detected.'
+    $recoveredMetadata = $firstCatalog.Projects | Where-Object Path -eq $recoveredProject
+    Assert-True ($recoveredMetadata.Kind -eq 'Avatar' -and $recoveredMetadata.PackageCount -eq 3) 'Embedded package folders were not used when the VPM manifest was missing.'
+    Assert-True ($recoveredMetadata.UnityVersion -eq '2022.3.22f1' -and $recoveredMetadata.UnityVersionSource -eq 'GeneratedProject') 'Generated project metadata was not used as the Unity version fallback.'
+    $recoveredRow = Format-VrcSetupProjectCatalogRow -Project $recoveredMetadata -Index 1
+    Assert-True ($recoveredRow -match '2022\.3\.22f1\*' -and $recoveredRow -match '3 packages\*') 'Recovered project metadata is not marked in the project table.'
     $libraryRow = Format-VrcSetupProjectCatalogRow -Project $firstCatalog.Projects[0] -Index 1
     Assert-True ($libraryRow -match 'Z Avatar' -and $libraryRow -match 'Avatar' -and $libraryRow -match '2 packages') 'Project library rows did not include the project, type, and package count in one selectable table row.'
     Assert-True (Test-Path -LiteralPath $catalogCache) 'Project library cache was not written.'
@@ -192,12 +212,12 @@ try {
     Assert-True ($cliProjectsStatus -eq 0 -and $cliProjects[0].Name -eq 'World Portal') 'CLI project sorting did not honor -Sort name.'
 
     $secondCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache
-    Assert-True ($secondCatalog.CacheHits -eq 2 -and $secondCatalog.Refreshed -eq 0) 'Unchanged projects were not reused from the incremental cache.'
+    Assert-True ($secondCatalog.CacheHits -eq 3 -and $secondCatalog.Refreshed -eq 0) 'Unchanged projects were not reused from the incremental cache.'
     $cachedLibraryRow = Format-VrcSetupProjectCatalogRow -Project $secondCatalog.Projects[0] -Index 1
     Assert-True ($cachedLibraryRow -match '02 Jan 2099' -and $cachedLibraryRow -notmatch 'Unknown') 'Project library rows did not retain the last-updated time after reading the scan cache.'
     [System.IO.Directory]::SetLastWriteTimeUtc($worldProject, [DateTime]'2099-01-03T00:00:00Z')
     $folderUpdatedCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache
-    Assert-True ($folderUpdatedCatalog.CacheHits -eq 1 -and $folderUpdatedCatalog.Refreshed -eq 1) 'A changed project folder timestamp did not refresh the cached project metadata.'
+    Assert-True ($folderUpdatedCatalog.CacheHits -eq 2 -and $folderUpdatedCatalog.Refreshed -eq 1) 'A changed project folder timestamp did not refresh the cached project metadata.'
     Assert-True ($folderUpdatedCatalog.Projects[0].Path -eq $worldProject) 'Project library did not use the project folder timestamp for recent ordering.'
     [System.IO.File]::WriteAllText(
         (Join-Path $avatarProject 'Packages\vpm-manifest.json'),
@@ -205,7 +225,7 @@ try {
     )
     $thirdCatalog = Get-VrcSetupProjectCatalog -RootPath $libraryRoot -CachePath $catalogCache
     $updatedAvatar = $thirdCatalog.Projects | Where-Object Path -eq $avatarProject
-    Assert-True ($thirdCatalog.CacheHits -eq 1 -and $thirdCatalog.Refreshed -eq 1) 'A changed project did not refresh independently.'
+    Assert-True ($thirdCatalog.CacheHits -eq 2 -and $thirdCatalog.Refreshed -eq 1) 'A changed project did not refresh independently.'
     Assert-True ($updatedAvatar.PackageCount -eq 3 -and $updatedAvatar.PackageNames -contains 'gogoloco') 'Refreshed metadata did not include the changed VPM package set.'
 
     Write-Host '[5/11] Running the portable click launcher before installation...'

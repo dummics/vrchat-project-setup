@@ -50,12 +50,12 @@ function Test-IsActionOption {
     $t = $Text.Trim()
     if (Test-IsBackOption -Text $t) { return $true }
     if ($t -eq 'Add package') { return $true }
-    if ($t -eq 'Enter manually') { return $true }
+    if ($t -eq 'Enter manually' -or $t -eq 'Enter exact version...') { return $true }
     if ($t -eq 'Enter package name manually') { return $true }
     if ($t -eq 'Search packages' -or $t -eq 'SEARCH PACKAGES') { return $true }
-    if ($t -eq 'Set filter' -or $t -eq 'Clear filter') { return $true }
-    if ($t -eq 'Jump to range') { return $true }
-    if ($t -eq '< Prev page' -or $t -eq 'Next page >') { return $true }
+    if ($t -eq 'Set filter' -or $t -eq 'Clear filter' -or $t -eq 'Search versions...' -or $t -eq 'Clear search') { return $true }
+    if ($t -eq 'Jump to range' -or $t -eq 'Go to version range...') { return $true }
+    if ($t -eq '< Prev page' -or $t -eq 'Next page >' -or $t -eq '< Previous page') { return $true }
     if ($t -like '(*)') { return $true }
     return $false
 }
@@ -210,7 +210,8 @@ function Show-Menu {
         [string[]]$Options,
         [int]$Current = 0,
         [bool]$AllowCancel = $true,
-        [bool]$EnableHorizontalNav = $false
+        [bool]$EnableHorizontalNav = $false,
+        [ValidateRange(4, 30)][int]$MaxVisible = 14
     )
 
     if (-not $Options) { return -1 }
@@ -220,7 +221,7 @@ function Show-Menu {
     # output, where the bundled Spectre runtime is intentionally unavailable.
     $spectreMenu = Get-Command -Name 'Show-VrcSetupSpectreMenu' -ErrorAction SilentlyContinue
     if ($spectreMenu -and -not $EnableHorizontalNav) {
-        $spectreResult = Show-VrcSetupSpectreMenu -Title $Title -Header $Header -Options $Options -Current $Current -AllowCancel:$AllowCancel -EnableHorizontalNav:$EnableHorizontalNav
+        $spectreResult = Show-VrcSetupSpectreMenu -Title $Title -Header $Header -Options $Options -Current $Current -AllowCancel:$AllowCancel -EnableHorizontalNav:$EnableHorizontalNav -MaxVisible $MaxVisible
         if ($null -ne $spectreResult) { return [int]$spectreResult }
     }
 
