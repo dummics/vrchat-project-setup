@@ -137,6 +137,7 @@ function Search-VrcGetPackages {
         $first = $lines[0]
         $id = $null
         $display = $null
+        $latestVersion = $null
 
         if ($lines.Count -ge 2 -and $lines[1] -match "^\((.+)\)$") {
             $id = $Matches[1]
@@ -144,6 +145,7 @@ function Search-VrcGetPackages {
 
         if ($first -match "^(.+?)\s+version\s+(.+)$") {
             $namePart = $Matches[1].Trim()
+            $latestVersion = $Matches[2].Trim()
             if (-not $id) {
                 $id = $namePart
             } else {
@@ -165,6 +167,7 @@ function Search-VrcGetPackages {
         $results += [pscustomobject]@{
             Id = $id
             DisplayName = $display
+            LatestVersion = $latestVersion
             Description = $desc
         }
     }

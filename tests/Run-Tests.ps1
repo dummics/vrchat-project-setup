@@ -22,7 +22,7 @@ try {
     [System.IO.Directory]::CreateDirectory((Join-Path $projectRoot 'Packages')) | Out-Null
     [System.IO.File]::WriteAllText(
         (Join-Path $projectRoot 'Packages\vpm-manifest.json'),
-        '{"dependencies":{"com.vrchat.base":"3.8.0","gogoloco":"1.8.6","com.example.keep":"1.0.0"},"locked":{}}'
+        '{"dependencies":{"com.vrchat.base":{"version":"3.8.0"},"gogoloco":{"version":"1.8.6"},"com.example.keep":"1.0.0"},"locked":{}}'
     )
     [System.IO.File]::WriteAllText(
         (Join-Path $projectRoot 'Packages\manifest.json'),
@@ -63,6 +63,7 @@ try {
     . (Join-Path $scriptDir 'lib\vpm.ps1')
     . (Join-Path $scriptDir 'commands\installer.ps1')
     . (Join-Path $scriptDir 'commands\wizard.ps1')
+    . (Join-Path $scriptDir 'commands\cli.ps1')
 
     Assert-True ($null -eq (Normalize-UserPath -Path '')) 'Blank path input no longer returns to the previous screen.'
 
@@ -76,6 +77,8 @@ try {
 
     $projectPackages = Get-VpmProjectPackageSet -ProjectPath $projectRoot
     Assert-True ($projectPackages.PSObject.Properties.Name -contains 'gogoloco') 'Test project did not expose GoGoLoco from vpm-manifest.json.'
+    Assert-True ($projectPackages.'com.vrchat.base' -eq '3.8.0') 'Object-shaped VPM dependency version was not parsed.'
+    Assert-True ($projectPackages.'com.example.keep' -eq '1.0.0') 'String-shaped VPM dependency version was not parsed.'
     $desiredPackages = Copy-VpmPackageSet -Packages $projectPackages
     $desiredPackages.PSObject.Properties.Remove('gogoloco')
     $desiredPackages = Add-RequiredPackagesToSet -Packages $desiredPackages -Config $null
@@ -94,6 +97,22 @@ try {
     Assert-True ($syncStatus -eq 0) "AIO test-mode synchronization returned ${syncStatus}."
     Assert-True ($syncText -match 'Would remove package: gogoloco') 'AIO synchronization did not issue the GoGoLoco removal.'
     Assert-True ($syncText -notmatch 'Would remove package: com\.example\.keep') 'AIO synchronization tried to remove a selected package.'
+    Assert-True ($syncText -notmatch 'Would add package: com\.vrchat\.base') 'AIO synchronization reprocessed an unchanged package.'
+    Assert-True ($syncText -notmatch 'Would add package: com\.example\.keep') 'AIO synchronization reprocessed another unchanged package.'
+
+    $cliListOutput = @(Invoke-VrcSetupCli -Command 'packages' -Arguments @('list', $projectRoot) -ScriptDir $scriptDir -ConfigPath (Join-Path $scriptDir 'config\vrcsetup.json') -Json)
+    $cliListStatus = [int]$cliListOutput[-1]
+    $cliListJson = (($cliListOutput[0..($cliListOutput.Count - 2)] | ForEach-Object { [string]$_ }) -join "`n") | ConvertFrom-Json
+    Assert-True ($cliListStatus -eq 0) 'CLI package list returned a failure status.'
+    Assert-True (($cliListJson | Where-Object Package -eq 'gogoloco').Version -eq '1.8.6') 'CLI package list did not return the parsed GoGoLoco version.'
+
+    $cliRemoveOutput = @(& { Invoke-VrcSetupCli -Command 'packages' -Arguments @('remove', $projectRoot, 'gogoloco') -ScriptDir $scriptDir -ConfigPath (Join-Path $scriptDir 'config\vrcsetup.json') -DryRun } *>&1)
+    $cliRemoveStatus = [int]$cliRemoveOutput[-1]
+    $cliRemoveText = ($cliRemoveOutput | ForEach-Object { [string]$_ }) -join "`n"
+    Assert-True ($cliRemoveStatus -eq 0 -and $cliRemoveText -match 'Remove:\s+gogoloco') 'CLI dry-run removal did not produce the expected AIO plan.'
+
+    $requiredRemoveOutput = @(& { Invoke-VrcSetupCli -Command 'packages' -Arguments @('remove', $projectRoot, 'com.vrchat.base') -ScriptDir $scriptDir -ConfigPath (Join-Path $scriptDir 'config\vrcsetup.json') -DryRun } *>&1)
+    Assert-True ([int]$requiredRemoveOutput[-1] -eq 1) 'CLI allowed removal of a required package.'
 
     Write-Host '[4/11] Scanning and incrementally refreshing the project library...'
     $libraryRoot = Join-Path $testRoot 'Unity Projects [shared] & café'
