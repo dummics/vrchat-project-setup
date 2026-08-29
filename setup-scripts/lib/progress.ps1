@@ -35,6 +35,7 @@ function Show-ProcessProgress {
 
     $useWriteProgress = $true
     if ($env:VRCSETUP_PROGRESS_PLAIN -eq '1') { $useWriteProgress = ${false} }
+    if ($env:VRCSETUP_EMBEDDED_PROGRESS -eq '1') { $AllowCancel = ${false} }
     try {
         if (${null} -eq ${Host} -or ${null} -eq ${Host}.UI -or ${null} -eq ${Host}.UI.RawUI) { $useWriteProgress = ${false} }
     } catch { $useWriteProgress = ${false} }

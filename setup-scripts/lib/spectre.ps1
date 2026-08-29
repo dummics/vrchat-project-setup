@@ -466,6 +466,303 @@ function Show-VrcSetupSpectrePackageWorkspace {
     }
 }
 
+function New-VrcSetupSaveReviewRenderable {
+    param(
+        [string[]]$Added = @(),
+        [string[]]$Updated = @(),
+        [string[]]$Removed = @(),
+        [int]$ExtrasCount = 0,
+        [ValidateRange(0, 1)][int]$SelectedIndex = 0
+    )
+
+    $table = [Spectre.Console.Table]::new()
+    $table.Border = [Spectre.Console.TableBorder]::Rounded
+    $table.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
+    $table.ShowHeaders = $true
+    $table.ShowRowSeparators = $false
+    $table.Expand = $false
+    $changeColumn = [Spectre.Console.TableColumn]::new('[#78909F]Change[/]')
+    $changeColumn.Width = 15
+    $detailsColumn = [Spectre.Console.TableColumn]::new('[#78909F]Packages[/]')
+    $detailsColumn.Width = 52
+    [void]$table.AddColumn($changeColumn)
+    [void]$table.AddColumn($detailsColumn)
+
+    foreach ($row in @(
+        @{ Label = 'Add'; Values = @($Added); Color = '#67E8A5' },
+        @{ Label = 'Change version'; Values = @($Updated); Color = '#F6C451' },
+        @{ Label = 'Remove'; Values = @($Removed); Color = '#FB7185' }
+    )) {
+        $details = if ($row.Values.Count -gt 0) { $row.Values -join ', ' } else { 'None' }
+        [void]$table.Rows.Add([Spectre.Console.Rendering.IRenderable[]]@(
+            [Spectre.Console.Markup]::new("[$($row.Color)]$(ConvertTo-VrcSetupSpectreText $row.Label)[/]"),
+            [Spectre.Console.Markup]::new("[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $details)[/]")
+        ))
+    }
+    if ($ExtrasCount -gt 0) {
+        [void]$table.Rows.Add([Spectre.Console.Rendering.IRenderable[]]@(
+            [Spectre.Console.Markup]::new('[#75D7F7]Saved imports[/]'),
+            [Spectre.Console.Markup]::new("[#DDEAF2]${ExtrasCount} UnityPackage$(if ($ExtrasCount -eq 1) { '' } else { 's' })[/]")
+        ))
+    }
+
+    $changeCount = @($Added).Count + @($Updated).Count + @($Removed).Count
+    if ($ExtrasCount -gt 0) { $changeCount++ }
+    $saveText = if ($changeCount -eq 1) { 'Save 1 change' } else { "Save ${changeCount} changes" }
+    $buttonWidth = 66
+    $buttonLabel = "ENTER   ${saveText}"
+    $buttonLabel = $buttonLabel.PadLeft([Math]::Floor(($buttonWidth + $buttonLabel.Length) / 2)).PadRight($buttonWidth)
+    $saveMarkup = if ($SelectedIndex -eq 0) {
+        "[black on #67E8A5]$(ConvertTo-VrcSetupSpectreText $buttonLabel)[/]"
+    } else {
+        "[bold #67E8A5]$(ConvertTo-VrcSetupSpectreText $buttonLabel)[/]"
+    }
+    $savePanel = [Spectre.Console.Panel]::new([Spectre.Console.Markup]::new($saveMarkup))
+    $savePanel.Border = [Spectre.Console.BoxBorder]::Rounded
+    $savePanel.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#67E8A5'
+    $savePanel.Width = 72
+    $savePanel.Padding = [Spectre.Console.Padding]::new(1, 0)
+
+    $backMarkup = if ($SelectedIndex -eq 1) { '[black on #75D7F7]  Back  [/]' } else { '[#78909F]  Back[/]' }
+    return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]@(
+        $table,
+        [Spectre.Console.Text]::new(' '),
+        [Spectre.Console.Text]::new(' '),
+        $savePanel,
+        [Spectre.Console.Text]::new(' '),
+        [Spectre.Console.Markup]::new($backMarkup),
+        [Spectre.Console.Text]::new(' '),
+        [Spectre.Console.Markup]::new('[#78909F]Up/Down Choose     Enter Confirm     Esc Back[/]')
+    ))
+}
+
+function Show-VrcSetupSpectreSaveReview {
+    param(
+        [Parameter(Mandatory)][string]$ProjectName,
+        [string[]]$Added = @(),
+        [string[]]$Updated = @(),
+        [string[]]$Removed = @(),
+        [int]$ExtrasCount = 0,
+        [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
+    )
+
+    if (-not (Write-VrcSetupSpectreFrame -Title 'Review changes' -Header $ProjectName -ScriptDir $ScriptDir)) { return $null }
+    $state = [pscustomobject]@{ SelectedIndex = 0; Done = $false; Confirmed = $false }
+    $initial = New-VrcSetupSaveReviewRenderable -Added $Added -Updated $Updated -Removed $Removed -ExtrasCount $ExtrasCount -SelectedIndex 0
+    $live = [Spectre.Console.AnsiConsole]::Live($initial)
+    $live.AutoClear = $true
+    $cursorWasVisible = $true
+    try {
+        try { $cursorWasVisible = [Console]::CursorVisible; [Console]::CursorVisible = $false } catch { }
+        $live.Start([System.Action[Spectre.Console.LiveDisplayContext]]{
+            param($context)
+            $context.Refresh()
+            while (-not $state.Done) {
+                $key = [Console]::ReadKey($true)
+                $refresh = $false
+                switch ($key.Key) {
+                    'UpArrow' { if ($state.SelectedIndex -ne 0) { $state.SelectedIndex = 0; $refresh = $true } }
+                    'DownArrow' { if ($state.SelectedIndex -ne 1) { $state.SelectedIndex = 1; $refresh = $true } }
+                    'Escape' { $state.Done = $true; $state.Confirmed = $false }
+                    'Enter' { $state.Done = $true; $state.Confirmed = ($state.SelectedIndex -eq 0) }
+                }
+                if ($refresh) {
+                    $next = New-VrcSetupSaveReviewRenderable -Added $Added -Updated $Updated -Removed $Removed -ExtrasCount $ExtrasCount -SelectedIndex $state.SelectedIndex
+                    $context.UpdateTarget($next)
+                    $context.Refresh()
+                }
+            }
+        })
+    } catch {
+        return $null
+    } finally {
+        try { [Console]::CursorVisible = $cursorWasVisible } catch { }
+    }
+    return [bool]$state.Confirmed
+}
+
+function New-VrcSetupProgressRenderable {
+    param(
+        [string[]]$Lines = @(),
+        [int]$ScrollIndex = 0,
+        [ValidateRange(5, 20)][int]$MaxVisible = 12,
+        [ValidateSet('Running', 'Success', 'Failed', 'Cancelled')][string]$Status = 'Running',
+        [bool]$Follow = $true,
+        [TimeSpan]$Elapsed = [TimeSpan]::Zero,
+        [AllowEmptyString()][string]$LogFile = ''
+    )
+
+    $items = @($Lines)
+    $maxStart = [Math]::Max(0, $items.Count - $MaxVisible)
+    $start = [Math]::Max(0, [Math]::Min($ScrollIndex, $maxStart))
+    $visible = @(if ($items.Count -eq 0) { 'Starting...' } else { $items | Select-Object -Skip $start -First $MaxVisible })
+    while ($visible.Count -lt $MaxVisible) { $visible += '' }
+    $safeLines = @($visible | ForEach-Object {
+        $line = ([string]$_ -replace '[\x00-\x1F\x7F]', ' ').Trim()
+        if ($line.Length -gt 68) { $line = $line.Substring(0, 65) + '...' }
+        ConvertTo-VrcSetupSpectreText $line
+    })
+
+    $statusColor = switch ($Status) {
+        'Success' { '#67E8A5' }
+        'Failed' { '#FB7185' }
+        'Cancelled' { '#F6C451' }
+        default { '#75D7F7' }
+    }
+    $rangeEnd = if ($items.Count -eq 0) { 0 } else { [Math]::Min($items.Count, $start + $MaxVisible) }
+    $rangeStart = if ($items.Count -eq 0) { 0 } else { $start + 1 }
+    $followLabel = if ($Follow) { 'Following latest' } else { 'Paused for review' }
+    $elapsedText = '{0:mm\:ss}' -f $Elapsed
+    $summary = "[$statusColor]${Status}[/]  [#78909F]${elapsedText}  ·  ${rangeStart}-${rangeEnd} of $($items.Count)  ·  ${followLabel}[/]"
+
+    $logBody = [Spectre.Console.Markup]::new("[#DDEAF2]$($safeLines -join "`n")[/]")
+    $logPanel = [Spectre.Console.Panel]::new($logBody)
+    $logPanel.Header = [Spectre.Console.PanelHeader]::new(' Progress ')
+    $logPanel.Border = [Spectre.Console.BoxBorder]::Rounded
+    $logPanel.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
+    $logPanel.Width = 74
+    $logPanel.Padding = [Spectre.Console.Padding]::new(1, 0)
+
+    $hints = if ($Status -eq 'Running') {
+        'Up/Down Scroll  ·  PgUp/PgDn Page  ·  Home First  ·  End Follow'
+    } else {
+        'Up/Down Scroll  ·  PgUp/PgDn Page  ·  Home First  ·  End Last  ·  Enter Continue'
+    }
+    $renderables = @(
+        [Spectre.Console.Markup]::new($summary),
+        [Spectre.Console.Text]::new(' '),
+        $logPanel,
+        [Spectre.Console.Text]::new(' '),
+        [Spectre.Console.Markup]::new("[#78909F]${hints}[/]")
+    )
+    if ($Status -ne 'Running' -and -not [string]::IsNullOrWhiteSpace($LogFile)) {
+        $renderables += [Spectre.Console.Markup]::new("[#607D8B]Full log: $(ConvertTo-VrcSetupSpectreText $LogFile)[/]")
+    }
+    return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$renderables)
+}
+
+function Invoke-VrcSetupSpectreOperation {
+    param(
+        [Parameter(Mandatory)][string]$Title,
+        [Parameter(Mandatory)][string]$Header,
+        [Parameter(Mandatory)][scriptblock]$Operation,
+        [object[]]$ArgumentList = @(),
+        [ValidateRange(5, 20)][int]$MaxVisible = 12,
+        [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
+    )
+
+    if (-not (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)) { return $null }
+    if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
+
+    $effectiveMaxVisible = $MaxVisible
+    try {
+        $availableRows = [Math]::Max(5, [Console]::WindowHeight - 13)
+        $effectiveMaxVisible = [Math]::Min($MaxVisible, $availableRows)
+    } catch { }
+
+    $job = Start-ThreadJob -ScriptBlock $Operation -ArgumentList $ArgumentList
+    $state = [pscustomobject]@{
+        Lines = [System.Collections.Generic.List[string]]::new()
+        ScrollIndex = 0
+        Follow = $true
+        Done = $false
+        Exit = $false
+        Status = 'Running'
+        ResultStatus = 1
+        LogFile = ''
+        OutputIndex = 0
+        InformationIndex = 0
+        ErrorIndex = 0
+        WarningIndex = 0
+    }
+    $started = Get-Date
+    $initial = New-VrcSetupProgressRenderable -Lines @() -ScrollIndex 0 -MaxVisible $effectiveMaxVisible -Status Running -Follow:$true -Elapsed ([TimeSpan]::Zero)
+    $live = [Spectre.Console.AnsiConsole]::Live($initial)
+    $live.AutoClear = $true
+    $cursorWasVisible = $true
+    try {
+        try { $cursorWasVisible = [Console]::CursorVisible; [Console]::CursorVisible = $false } catch { }
+        $live.Start([System.Action[Spectre.Console.LiveDisplayContext]]{
+            param($context)
+            $context.Refresh()
+            while (-not $state.Exit) {
+                $entries = @()
+                while ($state.OutputIndex -lt $job.Output.Count) {
+                    $entries += $job.Output[$state.OutputIndex]
+                    $state.OutputIndex++
+                }
+                while ($state.InformationIndex -lt $job.Information.Count) {
+                    $entries += $job.Information[$state.InformationIndex]
+                    $state.InformationIndex++
+                }
+                while ($state.ErrorIndex -lt $job.Error.Count) {
+                    $entries += $job.Error[$state.ErrorIndex]
+                    $state.ErrorIndex++
+                }
+                while ($state.WarningIndex -lt $job.Warning.Count) {
+                    $entries += $job.Warning[$state.WarningIndex]
+                    $state.WarningIndex++
+                }
+                foreach ($entry in @($entries)) {
+                    if ($entry -and $entry.PSObject.Properties.Name -contains 'VrcSetupOperationResult') {
+                        $state.ResultStatus = [int]$entry.Status
+                        $state.LogFile = [string]$entry.LogFile
+                        continue
+                    }
+                    $text = if ($entry -is [System.Management.Automation.InformationRecord]) { [string]$entry.MessageData } else { [string]$entry }
+                    foreach ($line in @($text -split '\r?\n')) {
+                        $clean = ($line -replace '[\x00-\x1F\x7F]', ' ').Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($clean)) { [void]$state.Lines.Add($clean) }
+                    }
+                }
+                if ($state.Lines.Count -gt 1000) { $state.Lines.RemoveRange(0, $state.Lines.Count - 1000) }
+
+                if ($job.State -in @('Completed', 'Failed', 'Stopped') -and -not $state.Done) {
+                    $state.Done = $true
+                    if ($job.State -eq 'Stopped' -or $state.ResultStatus -eq 2) { $state.Status = 'Cancelled' }
+                    elseif ($job.State -eq 'Completed' -and $state.ResultStatus -eq 0) { $state.Status = 'Success' }
+                    else { $state.Status = 'Failed' }
+                    $state.Follow = $true
+                }
+
+                $maxStart = [Math]::Max(0, $state.Lines.Count - $effectiveMaxVisible)
+                if ($state.Follow) { $state.ScrollIndex = $maxStart }
+                try {
+                    if ([Console]::KeyAvailable) {
+                        $key = [Console]::ReadKey($true)
+                        switch ($key.Key) {
+                            'UpArrow' { $state.Follow = $false; $state.ScrollIndex = [Math]::Max(0, $state.ScrollIndex - 1) }
+                            'DownArrow' {
+                                $state.ScrollIndex = [Math]::Min($maxStart, $state.ScrollIndex + 1)
+                                if ($state.ScrollIndex -ge $maxStart) { $state.Follow = $true }
+                            }
+                            'PageUp' { $state.Follow = $false; $state.ScrollIndex = [Math]::Max(0, $state.ScrollIndex - $effectiveMaxVisible) }
+                            'PageDown' {
+                                $state.ScrollIndex = [Math]::Min($maxStart, $state.ScrollIndex + $effectiveMaxVisible)
+                                if ($state.ScrollIndex -ge $maxStart) { $state.Follow = $true }
+                            }
+                            'Home' { $state.Follow = $false; $state.ScrollIndex = 0 }
+                            'End' { $state.Follow = $true; $state.ScrollIndex = $maxStart }
+                            'Enter' { if ($state.Done) { $state.Exit = $true } }
+                            'Escape' { if ($state.Done) { $state.Exit = $true } }
+                        }
+                    }
+                } catch { }
+
+                $next = New-VrcSetupProgressRenderable -Lines @($state.Lines) -ScrollIndex $state.ScrollIndex -MaxVisible $effectiveMaxVisible -Status $state.Status -Follow:$state.Follow -Elapsed ((Get-Date) - $started) -LogFile $state.LogFile
+                $context.UpdateTarget($next)
+                $context.Refresh()
+                if (-not $state.Exit) { Start-Sleep -Milliseconds 120 }
+            }
+        })
+    } finally {
+        try { [Console]::CursorVisible = $cursorWasVisible } catch { }
+        if ($job.State -in @('Running', 'NotStarted')) { Stop-Job -Job $job -ErrorAction SilentlyContinue }
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    }
+    return [pscustomobject]@{ Status = [int]$state.ResultStatus; LogFile = [string]$state.LogFile }
+}
+
 function Read-VrcSetupSpectreTextInput {
     param(
         [Parameter(Mandatory)][string]$Title,

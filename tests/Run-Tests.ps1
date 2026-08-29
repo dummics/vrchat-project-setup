@@ -190,13 +190,21 @@ try {
     Assert-True ($wizardText -match "'Save changes'" -and $wizardText -notmatch "'Apply changes'") 'The package workspace does not expose one UI-like Save changes action.'
     $menuText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\menu.ps1') -Raw
     $spectreText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\spectre.ps1') -Raw
+    $progressText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\progress.ps1') -Raw
     Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $spectreText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
     Assert-True ($menuText -notmatch "\[string\]\$PromptTitle = 'Choose an action'" -and $spectreText -notmatch "\[string\]\$PromptTitle = 'Choose an action'") 'Menus still default to technical action instructions.'
     Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Left/Right Change version' -and $spectreText -match 'Space Include/remove') 'The direct package-table controls are missing.'
     Assert-True ($spectreText -match "Label = 'Version'" -and $spectreText -match "Label = 'After saving'" -and $spectreText -notmatch "Label = 'Installed'|Label = 'State'") 'The package workspace returned to technical duplicate columns.'
+    Assert-True ($spectreText -match 'function Show-VrcSetupSpectreSaveReview' -and $spectreText -match 'function Invoke-VrcSetupSpectreOperation') 'The polished save review or embedded progress surface is missing.'
+    Assert-True ($wizardText -match 'Invoke-VrcSetupInstallerWithProgress' -and $wizardText -match 'Show-VrcSetupSpectreSaveReview') 'The interactive wizard bypasses the embedded review/progress flow.'
+    Assert-True ($wizardText -match 'VRCSETUP_EMBEDDED_PROGRESS' -and $progressText -match 'VRCSETUP_EMBEDDED_PROGRESS') 'Embedded progress does not isolate the viewport keyboard from process cancellation input.'
     if ($PSVersionTable.PSVersion.Major -ge 7 -and (Initialize-VrcSetupSpectre -ScriptDir $scriptDir)) {
         $workspaceRenderable = New-VrcSetupPackageWorkspaceRenderable -Items $workspaceItems -SelectedIndex 0 -PendingCount 3
         Assert-True ($workspaceRenderable -is [Spectre.Console.Rows]) 'The package workspace did not build a Spectre renderable.'
+        $reviewRenderable = New-VrcSetupSaveReviewRenderable -Added @('Easy Login') -Updated @('VRCFury') -Removed @() -SelectedIndex 0
+        Assert-True ($reviewRenderable -is [Spectre.Console.Rows]) 'The save review did not build a Spectre renderable.'
+        $progressRenderable = New-VrcSetupProgressRenderable -Lines @('Preparing project', 'Adding Easy Login') -ScrollIndex 0 -Status Running -Follow:$true -Elapsed ([TimeSpan]::FromSeconds(2))
+        Assert-True ($progressRenderable -is [Spectre.Console.Rows]) 'The embedded progress viewport did not build a Spectre renderable.'
     }
 
     Write-Host '[4/11] Scanning and incrementally refreshing the project library...'

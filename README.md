@@ -149,6 +149,10 @@ projects**. It then provides:
    - Recognize required packages recorded by VPM as resolved/locked dependencies,
      avoiding false missing-package failures and repeated installs.
    - Include saved UnityPackages in the same final Save action when needed.
+   - Review the staged changes in a dedicated confirmation surface, then keep
+     the complete operation inside a fixed, scrollable progress panel. Page
+     keys can inspect earlier messages without switching to a full-log screen;
+     the timestamped session log remains available after completion.
    - Detect and clean up incomplete project setups.
 3. **Default package set**
    - Shows the required VRChat foundation first, in base/avatar/resolver order.

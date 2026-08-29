@@ -56,6 +56,10 @@ disclosure rather than the default path. Package search, presets and optional
 saved imports remain shortcuts on the same surface, with one visually separated
 Save action. A future desktop table can replace keyboard focus with row clicks
 or compact cell controls without changing the staged-change model underneath.
+The same principle applies while work is running: the terminal client keeps a
+bounded, scrollable activity viewport inside the current flow and exposes the
+full diagnostic log only after completion. A desktop client can map that model
+to an always-visible activity drawer without changing operation or log data.
 
 This is intentionally implemented below the presentation layer. Spectre.Console
 is the current polished terminal client; a future Windows shell can consume the

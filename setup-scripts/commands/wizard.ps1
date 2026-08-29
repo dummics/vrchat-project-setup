@@ -1175,6 +1175,52 @@ function Format-VrcSetupPackageWorkspaceRow {
         (Format-VrcSetupPackageCell -Text $result -Width 18)).TrimEnd()
 }
 
+function Invoke-VrcSetupInstallerWithProgress {
+    param(
+        [Parameter(Mandatory)][string]$ProjectPath,
+        [string]$Title = 'Working',
+        [string]$Header = '',
+        [string]$NewProjectName,
+        [switch]$OverwriteExistingProject,
+        [switch]$ImportExtras,
+        [string]$ExcludeUnityPackagePath,
+        $PackagesOverride,
+        [switch]$SyncPackages
+    )
+
+    $installerParams = [ordered]@{ projectPath = $ProjectPath }
+    if (-not [string]::IsNullOrWhiteSpace($NewProjectName)) { $installerParams.NewProjectName = $NewProjectName }
+    if ($OverwriteExistingProject) { $installerParams.OverwriteExistingProject = $true }
+    if ($ImportExtras) { $installerParams.ImportExtras = $true }
+    if (-not [string]::IsNullOrWhiteSpace($ExcludeUnityPackagePath)) { $installerParams.ExcludeUnityPackagePath = $ExcludeUnityPackagePath }
+    if ($null -ne $PackagesOverride) { $installerParams.PackagesOverride = $PackagesOverride }
+    if ($SyncPackages) { $installerParams.SyncPackages = $true }
+
+    $progressCommand = Get-Command -Name 'Invoke-VrcSetupSpectreOperation' -ErrorAction SilentlyContinue
+    if ($progressCommand) {
+        $operation = {
+            param($runtimeRoot, $parameters)
+            $env:VRCSETUP_PROGRESS_PLAIN = '1'
+            $env:VRCSETUP_EMBEDDED_PROGRESS = '1'
+            . (Join-Path $runtimeRoot 'commands\installer.ps1')
+            $status = Start-Installer @parameters
+            [pscustomobject]@{
+                VrcSetupOperationResult = $true
+                Status = [int]$status
+                LogFile = [string]$global:VRCSETUP_LOGFILE
+            }
+        }
+        $tuiResult = Invoke-VrcSetupSpectreOperation -Title $Title -Header $Header -Operation $operation -ArgumentList @($scriptDir, $installerParams) -ScriptDir $scriptDir
+        if ($null -ne $tuiResult) {
+            return [pscustomobject]@{ Status = [int]$tuiResult.Status; LogFile = [string]$tuiResult.LogFile; UsedTui = $true }
+        }
+    }
+
+    Clear-Host
+    $status = Start-Installer @installerParams
+    return [pscustomobject]@{ Status = [int]$status; LogFile = [string]$global:VRCSETUP_LOGFILE; UsedTui = $false }
+}
+
 function Setup-ProjectFlow {
     param(
         [string]$ConfigPath,
@@ -1517,13 +1563,26 @@ function Setup-ProjectFlow {
                 '',
                 'This is the only confirmation before saving these changes.'
             ) -join "`n"
-            $applyChoice = Show-Menu -Title 'Save changes' -Header $reviewHeader -Options @('Save now', 'Back')
-            if ($applyChoice -ne 0) { continue }
+            $projectName = Split-Path -Leaf $ProjectPath
+            $friendlyAdded = @($plan.Added | ForEach-Object { Get-VrcSetupFriendlyPackageName -PackageName $_ })
+            $friendlyUpdated = @($plan.Updated | ForEach-Object { Get-VrcSetupFriendlyPackageName -PackageName $_ })
+            $friendlyRemoved = @($plan.Removed | ForEach-Object { Get-VrcSetupFriendlyPackageName -PackageName $_ })
+            $reviewConfirmed = $null
+            if (Get-Command -Name 'Show-VrcSetupSpectreSaveReview' -ErrorAction SilentlyContinue) {
+                $reviewConfirmed = Show-VrcSetupSpectreSaveReview -ProjectName $projectName -Added $friendlyAdded -Updated $friendlyUpdated -Removed $friendlyRemoved -ExtrasCount $(if ($includeExtras) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -ScriptDir $scriptDir
+            }
+            if ($null -eq $reviewConfirmed) {
+                $applyChoice = Show-Menu -Title 'Save changes' -Header $reviewHeader -Options @('Save now', 'Back')
+                $reviewConfirmed = ($applyChoice -eq 0)
+            }
+            if (-not $reviewConfirmed) { continue }
 
-            Clear-Host
-            $status = Start-Installer -projectPath $ProjectPath -PackagesOverride $desiredPackages -SyncPackages -ImportExtras:$includeExtras
-            Show-SetupOutcomeSummary -Status $status -ActionLabel 'Apply project changes' -TargetPath $ProjectPath -PackagePath $null -CanLeavePartialProject:$false
-            Read-Host 'Press ENTER to return' | Out-Null
+            $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $ProjectPath -Title 'Saving project' -Header $projectName -PackagesOverride $desiredPackages -SyncPackages -ImportExtras:$includeExtras
+            $status = [int]$execution.Status
+            if (-not $execution.UsedTui) {
+                Show-SetupOutcomeSummary -Status $status -ActionLabel 'Apply project changes' -TargetPath $ProjectPath -PackagePath $null -CanLeavePartialProject:$false
+                Read-Host 'Press ENTER to return' | Out-Null
+            }
             return
         }
     }
@@ -1893,30 +1952,31 @@ function Setup-ProjectFlow {
             Save-Config -Config $Config -ConfigPath $ConfigPath
         }
 
-        Clear-Host
-
         $status = 1
+        $execution = $null
         $canLeavePartialProject = ($State.ExistingAction -eq 'create-new' -or $State.ExistingAction -eq 'overwrite')
         switch ($State.ExistingAction) {
             'overwrite' {
                 $confirmDel = Show-Menu -Title "Confirm delete" -Header (Add-ConfirmHint -Header ("This will DELETE the existing folder:`n{0}`n`nContinue?" -f $State.TargetProjectPath)) -Options @("Delete and recreate", "Cancel") -AllowCancel $false
                 if ($confirmDel -ne 0) { return [pscustomobject]@{ Executed = $false; Status = $null } }
-                Clear-Host
-                $status = Start-Installer -projectPath $State.PackagePath -NewProjectName $State.ProjectName -OverwriteExistingProject
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.PackagePath -Title 'Creating project' -Header $State.ProjectName -NewProjectName $State.ProjectName -OverwriteExistingProject
             }
             'use-existing-vpm' {
-                $status = Start-Installer -projectPath $State.TargetProjectPath
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.TargetProjectPath -Title 'Updating project' -Header $State.ProjectName
             }
             'use-existing-extras' {
-                $status = Start-Installer -projectPath $State.TargetProjectPath -ImportExtras -ExcludeUnityPackagePath $State.PackagePath
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.TargetProjectPath -Title 'Importing packages' -Header $State.ProjectName -ImportExtras -ExcludeUnityPackagePath $State.PackagePath
             }
             default {
-                $status = Start-Installer -projectPath $State.PackagePath -NewProjectName $State.ProjectName
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.PackagePath -Title 'Creating project' -Header $State.ProjectName -NewProjectName $State.ProjectName
             }
         }
 
-        Show-SetupOutcomeSummary -Status $status -ActionLabel $State.ActionLabel -TargetPath $State.TargetProjectPath -PackagePath $State.PackagePath -CanLeavePartialProject:$canLeavePartialProject
-        Read-Host "Press ENTER to return" | Out-Null
+        $status = [int]$execution.Status
+        if (-not $execution.UsedTui) {
+            Show-SetupOutcomeSummary -Status $status -ActionLabel $State.ActionLabel -TargetPath $State.TargetProjectPath -PackagePath $State.PackagePath -CanLeavePartialProject:$canLeavePartialProject
+            Read-Host "Press ENTER to return" | Out-Null
+        }
         return [pscustomobject]@{ Executed = $true; Status = $status }
     }
 
