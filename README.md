@@ -139,13 +139,13 @@ projects**. It then provides:
    - Starts with projects updated most recently; change the library order to
      alphabetical whenever that is more useful.
    - Select a listed project and land directly in one package workspace. The
-     table keeps installed and future versions visible together; selecting a
-     package exposes its version/remove actions, while Add, defaults and Apply
-     remain on the same screen.
+     bordered table keeps installed and future versions visible together. From
+     the focused row, change version with Enter/V or add/remove with Space;
+     package search and the optional preset remain shortcuts on the same screen.
    - Refresh the list explicitly or choose a folder outside the configured root.
-   - Manage an existing Unity project and apply a complete VPM change set once.
+   - Manage an existing Unity project and save a complete VPM change set once.
    - Stage the default preset without removing unrelated project packages.
-   - Include saved UnityPackages in the same final Apply action when needed.
+   - Include saved UnityPackages in the same final Save action when needed.
    - Detect and clean up incomplete project setups.
 3. **Default package set**
    - Shows the required VRChat foundation first, in base/avatar/resolver order.

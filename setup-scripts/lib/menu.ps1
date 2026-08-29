@@ -49,7 +49,7 @@ function Test-IsActionOption {
     if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
     $t = $Text.Trim() -replace '^\+\s+', ''
     if (Test-IsBackOption -Text $t) { return $true }
-    if ($t -match '^(Add|Apply|Use my|Include \d+ saved|Do not import \d+ saved)') { return $true }
+    if ($t -match '^(Add|Apply|Save|Start|Use my|Include \d+ saved|Do not import \d+ saved|Clean up)') { return $true }
     if ($t -eq 'Add package') { return $true }
     if ($t -eq 'Enter manually' -or $t -eq 'Enter exact version...') { return $true }
     if ($t -eq 'Enter package name manually') { return $true }
@@ -208,11 +208,12 @@ function Show-Menu {
     param(
         [string]$Title = "",
         [string]$Header = "",
-        [string]$PromptTitle = 'Choose an action',
+        [string]$PromptTitle = '',
         [string[]]$Options,
         [int]$Current = 0,
         [bool]$AllowCancel = $true,
         [bool]$EnableHorizontalNav = $false,
+        [int[]]$SectionBreaks = @(),
         [ValidateRange(4, 30)][int]$MaxVisible = 14
     )
 
@@ -223,7 +224,7 @@ function Show-Menu {
     # output, where the bundled Spectre runtime is intentionally unavailable.
     $spectreMenu = Get-Command -Name 'Show-VrcSetupSpectreMenu' -ErrorAction SilentlyContinue
     if ($spectreMenu -and -not $EnableHorizontalNav) {
-        $spectreResult = Show-VrcSetupSpectreMenu -Title $Title -Header $Header -PromptTitle $PromptTitle -Options $Options -Current $Current -AllowCancel:$AllowCancel -EnableHorizontalNav:$EnableHorizontalNav -MaxVisible $MaxVisible
+        $spectreResult = Show-VrcSetupSpectreMenu -Title $Title -Header $Header -PromptTitle $PromptTitle -Options $Options -Current $Current -AllowCancel:$AllowCancel -EnableHorizontalNav:$EnableHorizontalNav -SectionBreaks $SectionBreaks -MaxVisible $MaxVisible
         if ($null -ne $spectreResult) { return [int]$spectreResult }
     }
 
@@ -269,17 +270,22 @@ function Show-Menu {
                 break
             }
         }
-        $hasFooter = ($footerStart -lt $Options.Count)
+        $breakIndices = @(
+            @($SectionBreaks) + $(if ($footerStart -lt $Options.Count) { $footerStart }) |
+                Where-Object { $_ -gt 0 -and $_ -lt $Options.Count } |
+                Sort-Object -Unique
+        )
 
         $rowForIndex = @()
         for ($i = 0; $i -lt $Options.Count; $i++) {
-            $extra = if ($hasFooter -and $i -ge $footerStart) { $spacerLines } else { 0 }
+            $extra = @($breakIndices | Where-Object { $_ -le $i }).Count * $spacerLines
             $rowForIndex += ($optionsTop + $i + $extra)
         }
 
-        if ($hasFooter) {
-            Write-ConsoleAt -Left 0 -Top ($optionsTop + $footerStart) -Text "" -ForegroundColor $theme.MutedFg -BackgroundColor ([Console]::BackgroundColor) -ClearToEnd
-            Write-ConsoleAt -Left 0 -Top ($optionsTop + $footerStart + 1) -Text "" -ForegroundColor $theme.MutedFg -BackgroundColor ([Console]::BackgroundColor) -ClearToEnd
+        for ($breakPosition = 0; $breakPosition -lt $breakIndices.Count; $breakPosition++) {
+            $breakTop = $optionsTop + $breakIndices[$breakPosition] + ($breakPosition * $spacerLines)
+            Write-ConsoleAt -Left 0 -Top $breakTop -Text "" -ForegroundColor $theme.MutedFg -BackgroundColor ([Console]::BackgroundColor) -ClearToEnd
+            Write-ConsoleAt -Left 0 -Top ($breakTop + 1) -Text "" -ForegroundColor $theme.MutedFg -BackgroundColor ([Console]::BackgroundColor) -ClearToEnd
         }
 
         function Render-MenuLine {

@@ -507,7 +507,7 @@ function Advanced-NamingSettings {
             Get-SettingsPathSummary -Path $resolvedCommon
         }
 
-        $sel = Show-Menu -Title 'Settings' -Header 'Set the Unity Editor and project folder first. Other options only affect new projects.' -Options @(
+        $sel = Show-Menu -Title 'Settings' -Header 'Unity and project folders are used everywhere. The other choices affect new projects.' -SectionBreaks @(2) -Options @(
             "Unity Editor  ·  ${editorSummary}",
             "Project folder  ·  ${projectsRootSummary}",
             'Project names',
@@ -1314,34 +1314,71 @@ function Setup-ProjectFlow {
             $plan = Compare-VpmPackageSets -CurrentPackages $currentPackages -DesiredPackages $desiredPackages
             $packageChanges = @($plan.Added).Count + @($plan.Updated).Count + @($plan.Removed).Count
             $workspaceItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $currentPackages -DesiredPackages $desiredPackages -Config $workingConfig)
-            $changeLabel = if ($packageChanges -eq 0) { 'No package changes' } elseif ($packageChanges -eq 1) { '1 package change ready' } else { "${packageChanges} package changes ready" }
-            $importsLabel = if ($includeExtras) { "  ·  $($ExtrasInfo.ExtrasCount) saved import(s) included" } else { '' }
-            $header = @(
-                "Project: $(Split-Path -Leaf $ProjectPath)",
-                "${changeLabel}${importsLabel}"
-            ) -join "`n"
-            $options = @($workspaceItems | ForEach-Object { Format-VrcSetupPackageWorkspaceRow -Item $_ })
-            $actions = @($workspaceItems | ForEach-Object { [pscustomobject]@{ Kind = 'package'; Item = $_ } })
-            $options += '+ Add packages'
-            $actions += [pscustomobject]@{ Kind = 'add'; Item = $null }
-            $options += 'Use my default package set'
-            $actions += [pscustomobject]@{ Kind = 'defaults'; Item = $null }
-            if ($ExtrasInfo -and $ExtrasInfo.ExtrasCount -gt 0) {
-                $options += $(if ($includeExtras) { "Do not import $($ExtrasInfo.ExtrasCount) saved UnityPackages" } else { "Include $($ExtrasInfo.ExtrasCount) saved UnityPackages" })
-                $actions += [pscustomobject]@{ Kind = 'extras'; Item = $null }
+            $directAction = $null
+            $workspaceSelection = $null
+            $workspaceCommand = Get-Command -Name 'Show-VrcSetupSpectrePackageWorkspace' -ErrorAction SilentlyContinue
+            if ($workspaceCommand) {
+                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -ScriptDir $scriptDir
             }
-            $applyLabel = if ($packageChanges -eq 0) { 'Apply changes' } elseif ($packageChanges -eq 1) { 'Apply 1 package change' } else { "Apply ${packageChanges} package changes" }
-            $options += $applyLabel
-            $actions += [pscustomobject]@{ Kind = 'apply'; Item = $null }
-            $options += 'Back'
-            $actions += [pscustomobject]@{ Kind = 'back'; Item = $null }
 
-            $choice = Show-Menu -Title 'Project packages' -Header $header -PromptTitle 'Package                         Installed       After changes   Status' -Options $options -MaxVisible 18
-            if ($choice -lt 0 -or $actions[$choice].Kind -eq 'back') { return }
-            $action = $actions[$choice]
+            if ($workspaceSelection) {
+                if ($workspaceSelection.Action -eq 'back') { return }
+                if ($workspaceSelection.Action -in @('toggle', 'version')) {
+                    $package = $workspaceItems | Where-Object Name -eq $workspaceSelection.PackageName | Select-Object -First 1
+                    if (-not $package) { continue }
+                    $action = [pscustomobject]@{ Kind = 'package'; Item = $package }
+                    $directAction = [string]$workspaceSelection.Action
+                } else {
+                    $kind = if ($workspaceSelection.Action -eq 'save') { 'apply' } else { [string]$workspaceSelection.Action }
+                    $action = [pscustomobject]@{ Kind = $kind; Item = $null }
+                }
+            } else {
+                $changeLabel = if ($packageChanges -eq 0) { 'No package changes' } elseif ($packageChanges -eq 1) { '1 package change ready' } else { "${packageChanges} package changes ready" }
+                $importsLabel = if ($includeExtras) { "  ·  $($ExtrasInfo.ExtrasCount) saved import(s) included" } else { '' }
+                $header = "Project: $(Split-Path -Leaf $ProjectPath)`n${changeLabel}${importsLabel}"
+                $options = @($workspaceItems | ForEach-Object { Format-VrcSetupPackageWorkspaceRow -Item $_ })
+                $actions = @($workspaceItems | ForEach-Object { [pscustomobject]@{ Kind = 'package'; Item = $_ } })
+                $options += 'Add package'
+                $actions += [pscustomobject]@{ Kind = 'add'; Item = $null }
+                $options += 'Use my package set'
+                $actions += [pscustomobject]@{ Kind = 'defaults'; Item = $null }
+                if ($ExtrasInfo -and $ExtrasInfo.ExtrasCount -gt 0) {
+                    $options += $(if ($includeExtras) { "Skip $($ExtrasInfo.ExtrasCount) saved UnityPackages" } else { "Include $($ExtrasInfo.ExtrasCount) saved UnityPackages" })
+                    $actions += [pscustomobject]@{ Kind = 'extras'; Item = $null }
+                }
+                $saveLabel = if ($packageChanges -eq 0) { 'Save changes' } elseif ($packageChanges -eq 1) { 'Save 1 change' } else { "Save ${packageChanges} changes" }
+                $options += $saveLabel
+                $actions += [pscustomobject]@{ Kind = 'apply'; Item = $null }
+                $options += 'Back'
+                $actions += [pscustomobject]@{ Kind = 'back'; Item = $null }
+
+                $choice = Show-Menu -Title 'Project packages' -Header $header -PromptTitle 'Package                         Installed       After save      State' -Options $options -MaxVisible 18
+                if ($choice -lt 0 -or $actions[$choice].Kind -eq 'back') { return }
+                $action = $actions[$choice]
+            }
 
             if ($action.Kind -eq 'package') {
                 $package = $action.Item
+                if ($directAction -eq 'toggle') {
+                    if ($package.DesiredVersion) {
+                        $nextPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
+                        $nextPackages.PSObject.Properties.Remove([string]$package.Name)
+                        $workingConfig.VpmPackages = $nextPackages
+                    } else {
+                        $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames @([string]$package.Name)
+                        if ($package.CurrentVersion) { $workingConfig.VpmPackages.($package.Name) = [string]$package.CurrentVersion }
+                    }
+                    continue
+                }
+                if ($directAction -eq 'version') {
+                    $selectedVersion = Select-VpmVersion -PackageName ([string]$package.Name) -CurrentVersion ([string]$package.DesiredVersion)
+                    if ($selectedVersion) {
+                        $nextPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
+                        $nextPackages | Add-Member -MemberType NoteProperty -Name ([string]$package.Name) -Value ([string]$selectedVersion) -Force
+                        $workingConfig.VpmPackages = $nextPackages
+                    }
+                    continue
+                }
                 $detailHeader = @(
                     [string]$package.FriendlyName,
                     "Installed: $(if ($package.CurrentVersion) { $package.CurrentVersion } else { 'Not installed' })",
@@ -1390,7 +1427,7 @@ function Setup-ProjectFlow {
             }
 
             if ($action.Kind -eq 'add') {
-                $query = Read-WizardTextInput -Title 'Add packages' -Prompt 'Package name or ID' -BodyLines @('Search by a readable name, or paste one or more package IDs separated by commas.') -Hint 'Leave blank to return.'
+                $query = Read-WizardTextInput -Title 'Find a package' -Prompt 'Name or package ID' -BodyLines @('Search by name. You can also paste one or more package IDs separated by commas.') -Hint 'Leave blank to return.'
                 if ([string]::IsNullOrWhiteSpace($query)) { continue }
                 $enteredIds = @($query -split '[,;\r\n]+' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
                 $newPackageIds = @()
@@ -1408,7 +1445,7 @@ function Setup-ProjectFlow {
                         Show-WizardError -Title 'No packages found' -Message 'Try another name or enter the exact package ID.' -Details (Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25)
                         continue
                     }
-                    $selectedMatches = Show-ChecklistPaged -Title 'Add packages' -PromptTitle 'Choose packages' -Header 'Select everything you want to add. New packages use their latest version.' -Items $matches -DefaultSelected $false -MaxVisible 14 -ToLabel {
+                    $selectedMatches = Show-ChecklistPaged -Title 'Add to project' -PromptTitle 'Select packages' -Header 'Select everything you want to add. New packages use their latest version.' -Items $matches -DefaultSelected $false -MaxVisible 14 -ToLabel {
                         param($match, $index)
                         return Format-VrcSetupPackageRow -DisplayName ([string]$match.DisplayName) -PackageName ([string]$match.Id) -Version ([string]$match.LatestVersion)
                     }
@@ -1440,7 +1477,7 @@ function Setup-ProjectFlow {
             }
 
             if ($packageChanges -eq 0 -and -not $includeExtras) {
-                Show-WizardError -Title 'Nothing to apply' -Message 'Choose a package, add one, or include your saved imports first.'
+                Show-WizardError -Title 'Nothing to save' -Message 'Change a package, add one, or include your saved imports first.'
                 continue
             }
 
@@ -1460,9 +1497,9 @@ function Setup-ProjectFlow {
                 "Remove: $(Format-PackageChangeSummary -Names $plan.Removed)",
                 $(if ($includeExtras) { "Saved UnityPackages: $($ExtrasInfo.ExtrasCount)" } else { 'Saved UnityPackages: none' }),
                 '',
-                'This is the only confirmation before the project changes.'
+                'This is the only confirmation before saving these changes.'
             ) -join "`n"
-            $applyChoice = Show-Menu -Title 'Apply changes' -Header $reviewHeader -Options @('Apply now', 'Back')
+            $applyChoice = Show-Menu -Title 'Save changes' -Header $reviewHeader -Options @('Save now', 'Back')
             if ($applyChoice -ne 0) { continue }
 
             Clear-Host
@@ -1891,11 +1928,11 @@ function Setup-ProjectFlow {
             while ($true) {
                 Update-UnityPackageFlowState -State $state -Config $Config
 
-                $options = @("Start setup", "Change project name")
+                $options = @("Change project name")
                 if (-not [string]::IsNullOrWhiteSpace([string]$state.TargetProjectPath) -and (Test-Path -LiteralPath ([string]$state.TargetProjectPath))) {
                     $options += "Change existing target action"
                 }
-                $options += @("Choose another UnityPackage", "Cancel")
+                $options += @("Choose another UnityPackage", "Start setup", "Cancel")
 
                 $choice = Show-Menu -Title "UnityPackage setup" -Header (Get-UnityPackageReviewHeader -State $state) -Options $options
                 if ($choice -eq -1) { return }
@@ -1931,17 +1968,17 @@ function Setup-ProjectFlow {
     $setupChoice = if ($StartAt -eq 'create') {
         0
     } elseif ($StartAt -eq 'manage') {
-        Show-Menu -Title 'Manage projects' -Header 'Open a project directly, browse your library, or remove incomplete test projects.' -Options @(
-            'Manage a project by folder',
+        Show-Menu -Title 'Manage projects' -Header 'Choose a project from your library, or open another project folder manually.' -SectionBreaks @(1) -Options @(
             'Project library',
+            'Manage a project by folder',
             'Clean up incomplete projects',
             'Back'
         )
     } else {
-        Show-Menu -Title 'Projects' -Header 'Create a new project first, or manage a project you already have.' -Options @(
+        Show-Menu -Title 'Projects' -Header 'Create a project, choose one from your library, or open another folder manually.' -SectionBreaks @(1, 2) -Options @(
             'Create from UnityPackage',
-            'Manage a project by folder',
             'Project library',
+            'Manage a project by folder',
             'Clean up incomplete projects',
             'Back'
         )
@@ -1949,9 +1986,9 @@ function Setup-ProjectFlow {
 
     if ($StartAt -eq 'manage') {
         if ($setupChoice -lt 0 -or $setupChoice -eq 3) { return }
-        # The manage-only view does not contain the create action; normalize its
-        # selected row to the shared action indices below.
-        $setupChoice++
+        $setupChoice = @(2, 1, 3)[$setupChoice]
+    } elseif ($StartAt -ne 'create' -and $setupChoice -ge 0 -and $setupChoice -lt 4) {
+        $setupChoice = @(0, 2, 1, 3)[$setupChoice]
     }
 
     if ($setupChoice -eq -1 -or $setupChoice -eq 4) { return }

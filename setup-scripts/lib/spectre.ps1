@@ -58,7 +58,7 @@ function ConvertTo-VrcSetupSpectreChoice {
         return "[#A8B6C1]Optional[/]  [#78909F]·[/]  [#DDEAF2]$($matches[1] | ForEach-Object { ConvertTo-VrcSetupSpectreText $_ })[/]"
     }
     if ($Text -match '^(Back|Cancel)$') { return "[#78909F]$safe[/]" }
-    if ($Text -match '^(Exit|Reset|Delete|Remove)') { return "[#FB7185]$safe[/]" }
+    if ($Text -match '^(Exit|Reset|Delete|Remove|Clean up)') { return "[#FB7185]$safe[/]" }
     if ($Text -match '^(\+\s+)?(Create|Manage|Add|Apply|Use|Include|Start|Open|Search|Refresh|Choose|Change|Set|Go|Enter)') { return "[#75D7F7]$safe[/]" }
     return "[#DDEAF2]$safe[/]"
 }
@@ -97,11 +97,12 @@ function Show-VrcSetupSpectreMenu {
     param(
         [string]$Title = 'VRChat Project Setup',
         [string]$Header = '',
-        [string]$PromptTitle = 'Choose an action',
+        [string]$PromptTitle = '',
         [Parameter(Mandatory)][string[]]$Options,
         [int]$Current = 0,
         [bool]$AllowCancel = $true,
         [bool]$EnableHorizontalNav = $false,
+        [int[]]$SectionBreaks = @(),
         [ValidateRange(4, 30)][int]$MaxVisible = 14,
         [switch]$SkipFrame,
         [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
@@ -115,7 +116,7 @@ function Show-VrcSetupSpectreMenu {
     }
 
     $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
-    $prompt.Title = "[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $PromptTitle)[/]"
+    $prompt.Title = if ([string]::IsNullOrWhiteSpace($PromptTitle)) { '' } else { "[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $PromptTitle)[/]" }
     $prompt.PageSize = [Math]::Min($MaxVisible, [Math]::Max(4, $Options.Count))
     $prompt.WrapAround = $true
     $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
@@ -131,25 +132,27 @@ function Show-VrcSetupSpectreMenu {
             break
         }
     }
-    if ($footerStart -gt 0 -and $footerStart -lt $Options.Count) {
-        $prompt.PageSize = [Math]::Min($MaxVisible, [Math]::Max(4, $Options.Count + 1))
+    $breakIndices = @(
+        @($SectionBreaks) + $(if ($footerStart -gt 0 -and $footerStart -lt $Options.Count) { $footerStart }) |
+            Where-Object { $_ -gt 0 -and $_ -lt $Options.Count } |
+            Sort-Object -Unique
+    )
+    if ($breakIndices.Count -gt 0) {
+        $prompt.PageSize = [Math]::Min($MaxVisible, [Math]::Max(4, $Options.Count + $breakIndices.Count))
     }
-    for ($index = 0; $index -lt $footerStart; $index++) {
+    $activeGroup = $null
+    $breakOrdinal = 0
+    for ($index = 0; $index -lt $Options.Count; $index++) {
+        if ($breakIndices -contains $index) {
+            $breakOrdinal++
+            $groupWhitespace = ' ' * $breakOrdinal
+            $activeGroup = $prompt.AddChoice("[#78909F]${groupWhitespace}[/]")
+        }
         $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
         $choiceIndex[$displayChoice] = $index
-        [void]$prompt.AddChoice($displayChoice)
-    }
-    if ($footerStart -gt 0 -and $footerStart -lt $Options.Count) {
-        $actionGroup = $prompt.AddChoice('[#78909F]Actions[/]')
-        for ($index = $footerStart; $index -lt $Options.Count; $index++) {
-            $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
-            $choiceIndex[$displayChoice] = $index
-            [void]$actionGroup.AddChild($displayChoice)
-        }
-    } else {
-        for ($index = $footerStart; $index -lt $Options.Count; $index++) {
-            $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
-            $choiceIndex[$displayChoice] = $index
+        if ($null -ne $activeGroup) {
+            [void]$activeGroup.AddChild($displayChoice)
+        } else {
             [void]$prompt.AddChoice($displayChoice)
         }
     }
@@ -166,6 +169,216 @@ function Show-VrcSetupSpectreMenu {
         if ($AllowCancel) { return -1 }
         throw
     }
+}
+
+function New-VrcSetupPackageWorkspaceRenderable {
+    param(
+        [Parameter(Mandatory)]$Items,
+        [Parameter(Mandatory)][int]$SelectedIndex,
+        [Parameter(Mandatory)][int]$PendingCount,
+        [bool]$IncludeExtras = $false,
+        [bool]$HasExtras = $false,
+        [ValidateRange(4, 20)][int]$MaxVisible = 10
+    )
+
+    $itemsArray = @($Items)
+    $table = [Spectre.Console.Table]::new()
+    $table.Border = [Spectre.Console.TableBorder]::Rounded
+    $table.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
+    $table.ShowHeaders = $true
+    $table.ShowRowSeparators = $false
+    $table.Expand = $false
+
+    foreach ($columnInfo in @(
+        @{ Label = 'Package'; Width = 27 },
+        @{ Label = 'Installed'; Width = 12 },
+        @{ Label = 'After save'; Width = 12 },
+        @{ Label = 'State'; Width = 9 }
+    )) {
+        $column = [Spectre.Console.TableColumn]::new("[#78909F]$($columnInfo.Label)[/]")
+        $column.Width = [int]$columnInfo.Width
+        $column.NoWrap = $true
+        [void]$table.AddColumn($column)
+    }
+
+    $offset = 0
+    if ($itemsArray.Count -gt $MaxVisible) {
+        if ($SelectedIndex -ge $itemsArray.Count) {
+            $offset = $itemsArray.Count - $MaxVisible
+        } else {
+            $offset = [Math]::Floor($SelectedIndex / $MaxVisible) * $MaxVisible
+        }
+    }
+    $end = [Math]::Min($itemsArray.Count - 1, $offset + $MaxVisible - 1)
+    for ($index = $offset; $index -le $end; $index++) {
+        $item = $itemsArray[$index]
+        $isSelected = ($SelectedIndex -eq $index)
+        $installed = if ([string]::IsNullOrWhiteSpace([string]$item.CurrentVersion)) { '-' } else { [string]$item.CurrentVersion }
+        $after = switch ([string]$item.Status) {
+            'Add' { [string]$item.DesiredVersion; break }
+            'Update' { [string]$item.DesiredVersion; break }
+            'Remove' { 'Remove'; break }
+            default { '-' }
+        }
+        $stateLabel = switch ([string]$item.Status) {
+            'Add' { 'Add'; break }
+            'Update' { 'Update'; break }
+            'Remove' { 'Remove'; break }
+            'Required' { 'Required'; break }
+            default { 'Installed' }
+        }
+        $packageText = ('{0}{1}' -f $(if ($isSelected) { '> ' } else { '  ' }), [string]$item.FriendlyName)
+        $rawCells = @(
+            (Format-VrcSetupPackageCell -Text $packageText -Width 27),
+            (Format-VrcSetupPackageCell -Text $installed -Width 12),
+            (Format-VrcSetupPackageCell -Text $after -Width 12),
+            (Format-VrcSetupPackageCell -Text $stateLabel -Width 9)
+        )
+        $cells = @()
+        for ($cellIndex = 0; $cellIndex -lt $rawCells.Count; $cellIndex++) {
+            $safeText = ConvertTo-VrcSetupSpectreText ([string]$rawCells[$cellIndex])
+            if ($isSelected) {
+                $markup = "[black on #75D7F7]${safeText}[/]"
+            } elseif ($cellIndex -eq 3 -and $stateLabel -eq 'Add') {
+                $markup = "[#67E8A5]${safeText}[/]"
+            } elseif ($cellIndex -eq 3 -and $stateLabel -eq 'Update') {
+                $markup = "[#F6C451]${safeText}[/]"
+            } elseif ($cellIndex -eq 3 -and $stateLabel -eq 'Remove') {
+                $markup = "[#FB7185]${safeText}[/]"
+            } elseif ($cellIndex -eq 3 -and $stateLabel -eq 'Required') {
+                $markup = "[#78909F]${safeText}[/]"
+            } else {
+                $markup = "[#DDEAF2]${safeText}[/]"
+            }
+            $cells += [Spectre.Console.Markup]::new($markup)
+        }
+        [void]$table.Rows.Add([Spectre.Console.Rendering.IRenderable[]]$cells)
+    }
+
+    $renderables = @($table)
+    if ($itemsArray.Count -gt $MaxVisible) {
+        $rangeEnd = [Math]::Min($itemsArray.Count, $offset + $MaxVisible)
+        $renderables += [Spectre.Console.Markup]::new("[#78909F]  Showing $($offset + 1)-${rangeEnd} of $($itemsArray.Count) packages[/]")
+    }
+    $renderables += [Spectre.Console.Markup]::new('')
+    $renderables += [Spectre.Console.Markup]::new('[#78909F]Up/Down Select  ·  Enter or V Version  ·  Space Add/Remove  ·  A Add package[/]')
+    $secondaryHints = @('S Save', 'Esc Back')
+    $secondaryHints += 'D My package set'
+    if ($HasExtras) { $secondaryHints += 'I Saved imports' }
+    $renderables += [Spectre.Console.Markup]::new("[#78909F]$($secondaryHints -join '  ·  ')[/]")
+    $renderables += [Spectre.Console.Markup]::new('')
+
+    $saveSelected = ($SelectedIndex -eq $itemsArray.Count)
+    $canSave = ($PendingCount -gt 0 -or $IncludeExtras)
+    $saveText = if ($canSave) {
+        if ($PendingCount -eq 1) { 'Save 1 change' } elseif ($PendingCount -gt 1) { "Save ${PendingCount} changes" } else { 'Save changes' }
+    } else {
+        'No changes to save'
+    }
+    if ($saveSelected -and $canSave) {
+        $saveMarkup = "[black on #67E8A5]  $(ConvertTo-VrcSetupSpectreText $saveText)  [/]"
+    } elseif ($canSave) {
+        $saveMarkup = "[#67E8A5]  $(ConvertTo-VrcSetupSpectreText $saveText)[/]"
+    } else {
+        $saveMarkup = "[#607D8B]  $(ConvertTo-VrcSetupSpectreText $saveText)[/]"
+    }
+    $renderables += [Spectre.Console.Markup]::new($saveMarkup)
+    return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$renderables)
+}
+
+function Show-VrcSetupSpectrePackageWorkspace {
+    param(
+        [Parameter(Mandatory)]$Items,
+        [Parameter(Mandatory)][string]$ProjectName,
+        [Parameter(Mandatory)][int]$PendingCount,
+        [bool]$IncludeExtras = $false,
+        [int]$ExtrasCount = 0,
+        [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
+    )
+
+    if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $null }
+    $itemsArray = @($Items)
+    if ($itemsArray.Count -eq 0) { return $null }
+    $changeText = if ($PendingCount -eq 0) { 'No package changes' } elseif ($PendingCount -eq 1) { '1 package change ready' } else { "${PendingCount} package changes ready" }
+    if ($IncludeExtras -and $ExtrasCount -gt 0) { $changeText += "  ·  ${ExtrasCount} saved import(s) included" }
+    if (-not (Write-VrcSetupSpectreFrame -Title 'Project packages' -Header "Project: ${ProjectName}`n${changeText}" -ScriptDir $ScriptDir)) { return $null }
+
+    $state = [pscustomobject]@{
+        SelectedIndex = 0
+        Done = $false
+        Action = $null
+        PackageName = $null
+    }
+    $hasExtras = ($ExtrasCount -gt 0)
+    $initial = New-VrcSetupPackageWorkspaceRenderable -Items $itemsArray -SelectedIndex 0 -PendingCount $PendingCount -IncludeExtras:$IncludeExtras -HasExtras:$hasExtras
+    $live = [Spectre.Console.AnsiConsole]::Live($initial)
+    $live.AutoClear = $true
+    $cursorWasVisible = $true
+    try {
+        try { $cursorWasVisible = [Console]::CursorVisible; [Console]::CursorVisible = $false } catch { }
+        $live.Start([System.Action[Spectre.Console.LiveDisplayContext]]{
+            param($context)
+            $context.Refresh()
+            while (-not $state.Done) {
+                $key = [Console]::ReadKey($true)
+                $refresh = $false
+                switch ($key.Key) {
+                    'UpArrow' {
+                        if ($state.SelectedIndex -gt 0) { $state.SelectedIndex--; $refresh = $true }
+                    }
+                    'DownArrow' {
+                        if ($state.SelectedIndex -lt $itemsArray.Count) { $state.SelectedIndex++; $refresh = $true }
+                    }
+                    'Home' { $state.SelectedIndex = 0; $refresh = $true }
+                    'End' { $state.SelectedIndex = $itemsArray.Count; $refresh = $true }
+                    'Escape' { $state.Action = 'back'; $state.Done = $true }
+                    'Enter' {
+                        if ($state.SelectedIndex -eq $itemsArray.Count) {
+                            $state.Action = 'save'
+                        } else {
+                            $state.Action = 'version'
+                            $state.PackageName = [string]$itemsArray[$state.SelectedIndex].Name
+                        }
+                        $state.Done = $true
+                    }
+                    'Spacebar' {
+                        if ($state.SelectedIndex -lt $itemsArray.Count -and -not $itemsArray[$state.SelectedIndex].Required) {
+                            $state.Action = 'toggle'
+                            $state.PackageName = [string]$itemsArray[$state.SelectedIndex].Name
+                            $state.Done = $true
+                        }
+                    }
+                    default {
+                        switch ([char]::ToUpperInvariant($key.KeyChar)) {
+                            'A' { $state.Action = 'add'; $state.Done = $true }
+                            'D' { $state.Action = 'defaults'; $state.Done = $true }
+                            'I' { if ($hasExtras) { $state.Action = 'extras'; $state.Done = $true } }
+                            'S' { $state.Action = 'save'; $state.Done = $true }
+                            'V' {
+                                if ($state.SelectedIndex -lt $itemsArray.Count) {
+                                    $state.Action = 'version'
+                                    $state.PackageName = [string]$itemsArray[$state.SelectedIndex].Name
+                                    $state.Done = $true
+                                }
+                            }
+                        }
+                    }
+                }
+                if ($refresh) {
+                    $next = New-VrcSetupPackageWorkspaceRenderable -Items $itemsArray -SelectedIndex $state.SelectedIndex -PendingCount $PendingCount -IncludeExtras:$IncludeExtras -HasExtras:$hasExtras
+                    $context.UpdateTarget($next)
+                    $context.Refresh()
+                }
+            }
+        })
+    } catch {
+        return $null
+    } finally {
+        try { [Console]::CursorVisible = $cursorWasVisible } catch { }
+    }
+
+    if (-not $state.Action) { return $null }
+    return [pscustomobject]@{ Action = [string]$state.Action; PackageName = [string]$state.PackageName }
 }
 
 function Read-VrcSetupSpectreTextInput {
@@ -227,7 +440,7 @@ function Show-VrcSetupSpectreFilterMenu {
     if ($selectionOptions.Count -eq 0) { return $null }
 
     $resultHeader = if ([string]::IsNullOrWhiteSpace($filter)) {
-        'Choose an action or package.'
+        'Select a result.'
     } else {
         "Matches for: ${filter}"
     }
@@ -347,7 +560,7 @@ function Show-VrcSetupProjectCatalogSpectre {
         $index++
     }
 
-    $libraryActionsChoice = '[#75D7F7]Library actions…[/]'
+    $libraryActionsChoice = '[#75D7F7]More options…[/]'
     $choiceActions[$libraryActionsChoice] = [pscustomobject]@{ Action = 'library'; ProjectPath = $null }
     [void]$prompt.AddChoice($libraryActionsChoice)
 
@@ -466,9 +679,9 @@ function Select-VrcSetupProjectCatalogLibraryAction {
         'Back to project table' = [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
     }
     $labels = @($choices.Keys)
-    $index = Show-VrcSetupSpectreMenu -Title 'Project library actions' -Header 'Choose an action for the current project library.' -Options $labels -AllowCancel:$true -ScriptDir $ScriptDir
+    $index = Show-VrcSetupSpectreMenu -Title 'Project library options' -Header 'Refresh the list, change its order, or open another project folder.' -Options $labels -AllowCancel:$true -ScriptDir $ScriptDir
     if ($null -eq $index) {
-        $index = Show-Menu -Title 'Project library actions' -Header 'Choose an action for the current project library.' -Options $labels
+        $index = Show-Menu -Title 'Project library options' -Header 'Refresh the list, change its order, or open another project folder.' -Options $labels
     }
     if ($index -lt 0) { return [pscustomobject]@{ Action = 'back'; ProjectPath = $null } }
     return $choices[$labels[$index]]

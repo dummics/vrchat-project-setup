@@ -165,6 +165,17 @@ try {
     Assert-True ($mergedDefaults.gogoloco -eq 'latest' -and $mergedDefaults.'com.example.default' -eq '2.0.0') 'Using the default package set did not stage its package versions.'
     $wizardText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\wizard.ps1') -Raw
     Assert-True ($wizardText -notmatch "'Toggle installed packages'|'Update selected packages'|'Review and apply'") 'The old procedural package-manager selectors are still present.'
+    Assert-True ($wizardText -match 'Show-VrcSetupSpectrePackageWorkspace') 'The project package manager is not using the direct interactive workspace.'
+    Assert-True ($wizardText -match "'Save changes'" -and $wizardText -notmatch "'Apply changes'") 'The package workspace does not expose one UI-like Save changes action.'
+    $menuText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\menu.ps1') -Raw
+    $spectreText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\spectre.ps1') -Raw
+    Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $spectreText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
+    Assert-True ($menuText -notmatch "\[string\]\$PromptTitle = 'Choose an action'" -and $spectreText -notmatch "\[string\]\$PromptTitle = 'Choose an action'") 'Menus still default to technical action instructions.'
+    Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Enter or V Version' -and $spectreText -match 'Space Add/Remove') 'The direct package-table controls are missing.'
+    if ($PSVersionTable.PSVersion.Major -ge 7 -and (Initialize-VrcSetupSpectre -ScriptDir $scriptDir)) {
+        $workspaceRenderable = New-VrcSetupPackageWorkspaceRenderable -Items $workspaceItems -SelectedIndex 0 -PendingCount 3
+        Assert-True ($workspaceRenderable -is [Spectre.Console.Rows]) 'The package workspace did not build a Spectre renderable.'
+    }
 
     Write-Host '[4/11] Scanning and incrementally refreshing the project library...'
     $libraryRoot = Join-Path $testRoot 'Unity Projects [shared] & café'

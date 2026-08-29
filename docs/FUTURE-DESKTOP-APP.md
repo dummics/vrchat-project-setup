@@ -49,11 +49,12 @@ again. Selecting a catalog entry routes into the existing project-scoped AIO
 package workflow.
 
 The terminal package workspace follows the same presentation contract: one
-project-scoped list carries the installed version, intended version and change
-state. Selecting a row opens contextual package actions, while Add, presets,
-optional saved imports and Apply remain global actions on that same surface. A
-future desktop table can replace keyboard focus with row clicks without changing
-the staged-change model underneath.
+project-scoped bordered table carries the installed version, intended version
+and change state. Version and add/remove operations act directly on the focused
+row; package search, presets and optional saved imports remain shortcuts on the
+same surface, with one final Save action. A future desktop table can replace
+keyboard focus with row clicks or compact cell controls without changing the
+staged-change model underneath.
 
 This is intentionally implemented below the presentation layer. Spectre.Console
 is the current polished terminal client; a future Windows shell can consume the
