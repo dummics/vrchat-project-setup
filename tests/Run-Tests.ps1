@@ -150,6 +150,21 @@ try {
     Assert-True ($packageRow -match '^Required\s+VRChat SDK Avatars\s+com\.vrchat\.avatars\s+3\.10\.1$') 'Package rows are not aligned into role, friendly name, package ID, and version columns.'
     $searchPackageRow = Format-VrcSetupPackageRow -DisplayName 'Avatar Tools' -PackageName 'com.example.avatar-tools' -Version '1.2.3'
     Assert-True ($searchPackageRow -match '^Avatar Tools\s+com\.example\.avatar-tools\s+1\.2\.3$') 'Package checklist rows retained an empty role column.'
+    $workspaceDesired = Copy-VpmPackageSet -Packages $projectPackages
+    $workspaceDesired.PSObject.Properties.Remove('gogoloco')
+    $workspaceDesired.'com.example.keep' = 'latest'
+    $workspaceDesired = Add-VrcSetupPackagesAtLatest -Packages $workspaceDesired -PackageNames @('com.example.new')
+    $workspaceItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $projectPackages -DesiredPackages $workspaceDesired -Config $null)
+    Assert-True (($workspaceItems | Where-Object Name -eq 'gogoloco').Status -eq 'Remove') 'The package workspace did not keep a staged removal visible.'
+    Assert-True (($workspaceItems | Where-Object Name -eq 'com.example.keep').Status -eq 'Update') 'The package workspace did not expose a staged version change.'
+    Assert-True (($workspaceItems | Where-Object Name -eq 'com.example.new').Status -eq 'Add') 'The package workspace did not expose a staged addition.'
+    $workspaceRow = Format-VrcSetupPackageWorkspaceRow -Item ($workspaceItems | Where-Object Name -eq 'com.example.keep')
+    Assert-True ($workspaceRow -match '^Keep\s+1\.0\.0\s+latest\s+Update$') 'The package workspace row is not aligned into readable installed, future, and status columns.'
+    $mergedDefaults = Merge-VrcSetupPackageSets -BasePackages $projectPackages -PackagesToAdd ([pscustomobject]@{ 'gogoloco' = 'latest'; 'com.example.default' = '2.0.0' })
+    Assert-True ($mergedDefaults.'com.example.keep' -eq '1.0.0') 'Using the default package set removed an existing non-default package.'
+    Assert-True ($mergedDefaults.gogoloco -eq 'latest' -and $mergedDefaults.'com.example.default' -eq '2.0.0') 'Using the default package set did not stage its package versions.'
+    $wizardText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\wizard.ps1') -Raw
+    Assert-True ($wizardText -notmatch "'Toggle installed packages'|'Update selected packages'|'Review and apply'") 'The old procedural package-manager selectors are still present.'
 
     Write-Host '[4/11] Scanning and incrementally refreshing the project library...'
     $libraryRoot = Join-Path $testRoot 'Unity Projects [shared] & café'
@@ -295,10 +310,11 @@ try {
         Assert-True (Test-Path -LiteralPath $routeProbe) 'Downloaded launcher did not route to the installed copy.'
 
         Remove-Item -LiteralPath $routeProbe -Force
-        $mainShortcutPath = Join-Path $startMenuFolder 'VRChat Project Setup.lnk'
-        $shortcutProcess = Start-Process -FilePath $mainShortcutPath -PassThru -Wait
-        Assert-True ($shortcutProcess.ExitCode -eq 0) "Start Menu shortcut exited with $($shortcutProcess.ExitCode)."
-        Assert-True (Test-Path -LiteralPath $routeProbe) 'Start Menu shortcut did not launch the installed copy.'
+        $hiddenRunner = Join-Path $PSScriptRoot 'Run-Hidden.vbs'
+        $hiddenArguments = '"{0}" "{1}"' -f $hiddenRunner, $installedLauncher
+        $shortcutProcess = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\wscript.exe') -ArgumentList $hiddenArguments -PassThru -Wait -WindowStyle Hidden
+        Assert-True ($shortcutProcess.ExitCode -eq 0) "Hidden installed launcher exited with $($shortcutProcess.ExitCode)."
+        Assert-True (Test-Path -LiteralPath $routeProbe) 'Hidden launcher test did not reach the installed copy.'
     } finally {
         [System.IO.File]::WriteAllText($installedLauncher, $installedLauncherContent)
     }

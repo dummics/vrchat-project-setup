@@ -643,143 +643,41 @@ function Select-VpmVersion {
     )
 
     $available = @()
-    $sourceLabel = $null
 
     $vrcGetVersions = Get-VrcGetAvailableVersions -PackageName $PackageName -ScriptDir $scriptDir
     if ($vrcGetVersions.Count -gt 0) {
         $available = $vrcGetVersions
-        $sourceLabel = "vrc-get"
     }
     else {
         $available = Get-VpmAvailableVersions -PackageName $PackageName
-        $sourceLabel = "VCC repos"
     }
 
-    # Keep navigation/search actions visible instead of placing them below a
-    # long prompt viewport.
-    $pageSize = 10
-    $page = 0
-    $filterPattern = $null
-
     while ($true) {
-        $filtered = @($available)
-        if (-not [string]::IsNullOrWhiteSpace($filterPattern)) {
-            $filtered = @($available | Where-Object { Test-VersionMatchesPattern -Version $_ -Pattern $filterPattern })
-        }
-
-        $total = $filtered.Count
-
-        if ($total -le 0) {
-            $page = 0
-        }
-        else {
-            $maxPage = [Math]::Max(0, [Math]::Floor(($total - 1) / $pageSize))
-            if ($page -gt $maxPage) { $page = $maxPage }
-            if ($page -lt 0) { $page = 0 }
-        }
-
-        $startIdx = if ($total -gt 0) { $page * $pageSize } else { 0 }
-        $endIdx = if ($total -gt 0) { [Math]::Min($startIdx + $pageSize - 1, $total - 1) } else { -1 }
-
-        $pageItems = @()
-        if ($total -gt 0) {
-            if ($startIdx -eq $endIdx) {
-                $pageItems = @($filtered[$startIdx])
-            }
-            else {
-                $pageItems = @($filtered[$startIdx..$endIdx])
-            }
-        }
-
-        $header = "Package: ${PackageName}`nCurrent: ${CurrentVersion}`n"
+        $friendlyName = Get-VrcSetupFriendlyPackageName -PackageName $PackageName
+        $header = "Package: ${friendlyName}`nCurrent version: $(if ($CurrentVersion) { $CurrentVersion } else { 'Not installed' })`n"
         if ($available.Count -gt 0) {
-            $header += "Versions found: ${($available.Count)} (from ${sourceLabel})`n"
+            $header += "Versions available: $($available.Count)`nScroll the list or start typing to jump to a version."
         }
         else {
-            $header += "No versions found. You can still enter manually.`n"
+            $header += 'No versions were found. You can still enter one manually.'
         }
 
-        $fLabel = if ([string]::IsNullOrWhiteSpace($filterPattern)) { "(none)" } else { $filterPattern }
-        $header += "Filter: ${fLabel}`n"
-        if ($total -gt 0) {
-            $header += ("Showing: {0}-{1} of {2} (page {3})`n" -f ($startIdx + 1), ($endIdx + 1), $total, ($page + 1))
-        }
-        else {
-            $header += "No matches for current filter.`n"
-        }
-
-        $optLatest = "latest"
-        $optPrev = "< Previous page"
-        $optNext = "Next page >"
-        $optJump = "Go to version range..."
-        $optSetFilter = "Search versions..."
-        $optClearFilter = "Clear search"
-        $optEnter = "Enter exact version..."
-        $optBack = "Back"
-
-        $options = @($optLatest)
-        $options += @($pageItems)
-        if ($total -gt $pageSize) { $options += $optJump }
-        if ($page -gt 0) { $options += $optPrev }
-        if (($page + 1) * $pageSize -lt $total) { $options += $optNext }
-        $options += $optSetFilter
-        if (-not [string]::IsNullOrWhiteSpace($filterPattern)) { $options += $optClearFilter }
-        $options += @($optEnter, $optBack)
-
-        $sel = Show-Menu -Title "Select version" -Header $header -Options $options -MaxVisible 20
+        $latestOption = 'Latest compatible version'
+        $manualOption = 'Enter an exact version'
+        $backOption = 'Back'
+        $options = @($latestOption, $manualOption) + @($available) + @($backOption)
+        $sel = Show-Menu -Title 'Choose version' -Header $header -PromptTitle 'Version' -Options $options -MaxVisible 18
         if ($sel -eq -1) { return $null }
 
         $picked = $options[$sel]
-        if ($picked -eq $optBack) { return $null }
-
-        if ($picked -eq $optPrev) { $page--; continue }
-        if ($picked -eq $optNext) { $page++; continue }
-
-        if ($picked -eq $optSetFilter) {
-            Write-Host "Filter pattern examples:" -ForegroundColor DarkGray
-            Write-Host "  *.9        (ends with .9)" -ForegroundColor DarkGray
-            Write-Host "  X.X.1190   (digits.digits.1190)" -ForegroundColor DarkGray
-            Write-Host "  re:1190$   (regex mode)" -ForegroundColor DarkGray
-            $newFilter = Read-Host "Filter (*, ?, X) or re:<regex> (blank = cancel)"
-            if (-not [string]::IsNullOrWhiteSpace($newFilter)) {
-                $filterPattern = $newFilter.Trim()
-                $page = 0
-            }
-            continue
-        }
-
-        if ($picked -eq $optClearFilter) {
-            $filterPattern = $null
-            $page = 0
-            continue
-        }
-
-        if ($picked -eq $optJump) {
-            if ($total -le 0) { continue }
-            $in = Read-Host "Range start-end (e.g. 41-60) or start (e.g. 81). Blank = cancel"
-            if ([string]::IsNullOrWhiteSpace($in)) { continue }
-            $txt = $in.Trim()
-            $start = $null
-            if ($txt -match '^(?<a>\d+)\s*-\s*(?<b>\d+)$') {
-                $start = [int]$Matches['a']
-            }
-            elseif ($txt -match '^(?<a>\d+)$') {
-                $start = [int]$Matches['a']
-            }
-            if ($null -eq $start -or $start -lt 1) { continue }
-            $idx = $start - 1
-            if ($idx -ge $total) { $idx = $total - 1 }
-            $page = [Math]::Floor($idx / $pageSize)
-            continue
-        }
-
-        if ($picked -eq $optEnter) {
-            $manual = Read-Host "Version (or 'latest')"
+        if ($picked -eq $backOption) { return $null }
+        if ($picked -eq $latestOption) { return 'latest' }
+        if ($picked -eq $manualOption) {
+            $manual = Read-Host "Exact version (or 'latest')"
             if ([string]::IsNullOrWhiteSpace($manual)) { return $null }
             return $manual.Trim()
         }
 
-        # Selected a version or "latest"
         return $picked
     }
 }
@@ -1202,6 +1100,78 @@ function Set-VrcSetupPackagesToLatest {
     return $result
 }
 
+function Merge-VrcSetupPackageSets {
+    param(
+        [Parameter(Mandatory)]$BasePackages,
+        [Parameter(Mandatory)]$PackagesToAdd
+    )
+
+    $result = Copy-VpmPackageSet -Packages $BasePackages
+    foreach ($package in @($PackagesToAdd.PSObject.Properties)) {
+        $result | Add-Member -MemberType NoteProperty -Name ([string]$package.Name) -Value ([string]$package.Value) -Force
+    }
+    return $result
+}
+
+function Get-VrcSetupPackageWorkspaceItems {
+    param(
+        [Parameter(Mandatory)]$CurrentPackages,
+        [Parameter(Mandatory)]$DesiredPackages,
+        $Config
+    )
+
+    $names = @(
+        @($CurrentPackages.PSObject.Properties.Name) + @($DesiredPackages.PSObject.Properties.Name) |
+            Select-Object -Unique
+    )
+    $items = foreach ($packageName in $names) {
+        $hasCurrent = $CurrentPackages.PSObject.Properties.Name -contains $packageName
+        $hasDesired = $DesiredPackages.PSObject.Properties.Name -contains $packageName
+        $currentVersion = if ($hasCurrent) { [string]$CurrentPackages.($packageName) } else { '' }
+        $desiredVersion = if ($hasDesired) { [string]$DesiredPackages.($packageName) } else { '' }
+        $required = Test-IsRequiredPackage -PackageName $packageName -Config $Config
+        $status = if (-not $hasCurrent -and $hasDesired) {
+            'Add'
+        } elseif ($hasCurrent -and -not $hasDesired) {
+            'Remove'
+        } elseif ($currentVersion -ne $desiredVersion) {
+            'Update'
+        } elseif ($required) {
+            'Required'
+        } else {
+            'Installed'
+        }
+
+        [pscustomobject]@{
+            Name = [string]$packageName
+            FriendlyName = Get-VrcSetupFriendlyPackageName -PackageName ([string]$packageName)
+            CurrentVersion = $currentVersion
+            DesiredVersion = $desiredVersion
+            Required = [bool]$required
+            Status = $status
+        }
+    }
+
+    return @($items | Sort-Object @{ Expression = { if ($_.Required) { 0 } else { 1 } } }, FriendlyName, Name)
+}
+
+function Format-VrcSetupPackageWorkspaceRow {
+    param([Parameter(Mandatory)]$Item)
+
+    $installed = if ([string]::IsNullOrWhiteSpace([string]$Item.CurrentVersion)) { '-' } else { [string]$Item.CurrentVersion }
+    $after = switch ([string]$Item.Status) {
+        'Add' { [string]$Item.DesiredVersion; break }
+        'Update' { [string]$Item.DesiredVersion; break }
+        'Remove' { 'Remove'; break }
+        default { '-' }
+    }
+    return ('{0}  {1}  {2}  {3}' -f
+        (Format-VrcSetupPackageCell -Text ([string]$Item.FriendlyName) -Width 30),
+        (Format-VrcSetupPackageCell -Text $installed -Width 14),
+        (Format-VrcSetupPackageCell -Text $after -Width 14),
+        (Format-VrcSetupPackageCell -Text ([string]$Item.Status) -Width 10)).TrimEnd()
+}
+
 function Setup-ProjectFlow {
     param(
         [string]$ConfigPath,
@@ -1321,7 +1291,8 @@ function Setup-ProjectFlow {
     function Invoke-ExistingProjectPackageManager {
         param(
             [string]$ProjectPath,
-            $Config
+            $Config,
+            $ExtrasInfo
         )
 
         try {
@@ -1336,75 +1307,116 @@ function Setup-ProjectFlow {
             DefaultPackages = @(Get-DefaultPackages -Config $Config)
             RequiredPackages = @(Get-RequiredPackages -Config $Config)
         }
+        $includeExtras = $false
 
         while ($true) {
             $desiredPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
             $plan = Compare-VpmPackageSets -CurrentPackages $currentPackages -DesiredPackages $desiredPackages
+            $packageChanges = @($plan.Added).Count + @($plan.Updated).Count + @($plan.Removed).Count
+            $workspaceItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $currentPackages -DesiredPackages $desiredPackages -Config $workingConfig)
+            $changeLabel = if ($packageChanges -eq 0) { 'No package changes' } elseif ($packageChanges -eq 1) { '1 package change ready' } else { "${packageChanges} package changes ready" }
+            $importsLabel = if ($includeExtras) { "  ·  $($ExtrasInfo.ExtrasCount) saved import(s) included" } else { '' }
             $header = @(
                 "Project: $(Split-Path -Leaf $ProjectPath)",
-                '',
-                "Pending: $($plan.Added.Count) add  ·  $($plan.Updated.Count) update  ·  $($plan.Removed.Count) remove",
-                'Nothing changes until you review and apply it.'
+                "${changeLabel}${importsLabel}"
             ) -join "`n"
-            $choice = Show-Menu -Title 'Manage packages' -Header $header -Options @(
-                'Toggle installed packages',
-                'Add packages',
-                'Update selected packages',
-                'Review and apply',
-                'Back'
-            )
-            if ($choice -lt 0 -or $choice -eq 4) { return }
+            $options = @($workspaceItems | ForEach-Object { Format-VrcSetupPackageWorkspaceRow -Item $_ })
+            $actions = @($workspaceItems | ForEach-Object { [pscustomobject]@{ Kind = 'package'; Item = $_ } })
+            $options += '+ Add packages'
+            $actions += [pscustomobject]@{ Kind = 'add'; Item = $null }
+            $options += 'Use my default package set'
+            $actions += [pscustomobject]@{ Kind = 'defaults'; Item = $null }
+            if ($ExtrasInfo -and $ExtrasInfo.ExtrasCount -gt 0) {
+                $options += $(if ($includeExtras) { "Do not import $($ExtrasInfo.ExtrasCount) saved UnityPackages" } else { "Include $($ExtrasInfo.ExtrasCount) saved UnityPackages" })
+                $actions += [pscustomobject]@{ Kind = 'extras'; Item = $null }
+            }
+            $applyLabel = if ($packageChanges -eq 0) { 'Apply changes' } elseif ($packageChanges -eq 1) { 'Apply 1 package change' } else { "Apply ${packageChanges} package changes" }
+            $options += $applyLabel
+            $actions += [pscustomobject]@{ Kind = 'apply'; Item = $null }
+            $options += 'Back'
+            $actions += [pscustomobject]@{ Kind = 'back'; Item = $null }
 
-            if ($choice -eq 0) {
-                $optionalPackages = @(
-                    Get-OrderedVpmPackageProperties -Packages $workingConfig.VpmPackages -Config $workingConfig |
-                        Where-Object { -not (Test-IsRequiredPackage -PackageName $_.Name -Config $workingConfig) }
-                )
-                if ($optionalPackages.Count -eq 0) {
-                    Show-WizardError -Title 'No optional packages' -Message 'Only the required VRChat foundation is installed.'
-                    continue
+            $choice = Show-Menu -Title 'Project packages' -Header $header -PromptTitle 'Package                         Installed       After changes   Status' -Options $options -MaxVisible 18
+            if ($choice -lt 0 -or $actions[$choice].Kind -eq 'back') { return }
+            $action = $actions[$choice]
+
+            if ($action.Kind -eq 'package') {
+                $package = $action.Item
+                $detailHeader = @(
+                    [string]$package.FriendlyName,
+                    "Installed: $(if ($package.CurrentVersion) { $package.CurrentVersion } else { 'Not installed' })",
+                    "After changes: $(if ($package.DesiredVersion) { $package.DesiredVersion } else { 'Remove' })"
+                ) -join "`n"
+                $detailOptions = @()
+                $detailActions = @()
+                if (-not $package.Required) {
+                    if ($package.DesiredVersion) {
+                        $detailOptions += $(if ($package.CurrentVersion) { 'Remove from project' } else { 'Cancel addition' })
+                        $detailActions += 'remove'
+                    } else {
+                        $detailOptions += 'Keep package'
+                        $detailActions += 'keep'
+                    }
                 }
-                $keptPackages = Show-ChecklistPaged -Title 'Toggle installed packages' -PromptTitle 'Choose packages to keep' -Header 'Checked packages stay installed. Uncheck packages to remove them together during review.' -Items $optionalPackages -DefaultSelected $true -MaxVisible 14 -ToLabel {
-                    param($package, $index)
-                    return Format-VrcSetupPackageRow -PackageName $package.Name -Version ([string]$package.Value)
+                if ($package.DesiredVersion -ne 'latest') {
+                    $detailOptions += 'Use latest version'
+                    $detailActions += 'latest'
                 }
-                if ($null -eq $keptPackages) { continue }
-                $workingConfig.VpmPackages = Set-VrcSetupOptionalPackageSelection -Packages $workingConfig.VpmPackages -SelectedPackageNames @($keptPackages | ForEach-Object Name) -Config $workingConfig
+                $detailOptions += 'Choose version'
+                $detailActions += 'version'
+                $detailOptions += 'Back'
+                $detailActions += 'back'
+                $detailChoice = Show-Menu -Title 'Package details' -Header $detailHeader -Options $detailOptions -MaxVisible 8
+                if ($detailChoice -lt 0 -or $detailActions[$detailChoice] -eq 'back') { continue }
+                $detailAction = $detailActions[$detailChoice]
+                if ($detailAction -eq 'remove') {
+                    $nextPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
+                    $nextPackages.PSObject.Properties.Remove([string]$package.Name)
+                    $workingConfig.VpmPackages = $nextPackages
+                } elseif ($detailAction -eq 'keep') {
+                    $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames @([string]$package.Name)
+                    if ($package.CurrentVersion) { $workingConfig.VpmPackages.($package.Name) = [string]$package.CurrentVersion }
+                } elseif ($detailAction -eq 'latest') {
+                    $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames @([string]$package.Name)
+                } elseif ($detailAction -eq 'version') {
+                    $selectedVersion = Select-VpmVersion -PackageName ([string]$package.Name) -CurrentVersion ([string]$package.DesiredVersion)
+                    if ($selectedVersion) {
+                        $nextPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
+                        $nextPackages | Add-Member -MemberType NoteProperty -Name ([string]$package.Name) -Value ([string]$selectedVersion) -Force
+                        $workingConfig.VpmPackages = $nextPackages
+                    }
+                }
                 continue
             }
 
-            if ($choice -eq 1) {
-                $addMethod = Show-Menu -Title 'Add packages' -Header 'Search by package name, or paste multiple exact package IDs.' -Options @('Search packages', 'Paste package IDs', 'Back')
-                if ($addMethod -lt 0 -or $addMethod -eq 2) { continue }
-
+            if ($action.Kind -eq 'add') {
+                $query = Read-WizardTextInput -Title 'Add packages' -Prompt 'Package name or ID' -BodyLines @('Search by a readable name, or paste one or more package IDs separated by commas.') -Hint 'Leave blank to return.'
+                if ([string]::IsNullOrWhiteSpace($query)) { continue }
+                $enteredIds = @($query -split '[,;\r\n]+' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
                 $newPackageIds = @()
-                if ($addMethod -eq 0) {
+                $allExact = $enteredIds.Count -gt 1
+                if ($enteredIds.Count -eq 1) { $allExact = Test-VpmPackageExists -PackageName $enteredIds[0] -ScriptDir $scriptDir }
+                if ($allExact) {
+                    $newPackageIds = @($enteredIds | Where-Object { $workingConfig.VpmPackages.PSObject.Properties.Name -notcontains $_ })
+                } else {
                     if ([string]::IsNullOrWhiteSpace((Get-VrcGetExecutablePath -ScriptDir $scriptDir))) {
-                        Show-WizardError -Title 'Package search unavailable' -Message 'Search needs vrc-get. Paste exact package IDs instead.'
+                        Show-WizardError -Title 'Package search unavailable' -Message 'Enter the exact package ID instead.'
                         continue
                     }
-                    $query = Read-WizardTextInput -Title 'Search packages' -Prompt 'Search terms' -BodyLines @('Select one or more matching packages in the next screen.') -Hint 'Leave blank to return.'
-                    if ([string]::IsNullOrWhiteSpace($query)) { continue }
                     $matches = @(Search-VrcGetPackages -Query $query.Trim() -ScriptDir $scriptDir | Where-Object { $workingConfig.VpmPackages.PSObject.Properties.Name -notcontains $_.Id })
                     if ($matches.Count -eq 0) {
-                        Show-WizardError -Title 'No new packages found' -Message 'No matching package is available to add.' -Details (Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25)
+                        Show-WizardError -Title 'No packages found' -Message 'Try another name or enter the exact package ID.' -Details (Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25)
                         continue
                     }
-                    $selectedMatches = Show-ChecklistPaged -Title 'Search results' -PromptTitle 'Choose packages to add' -Header 'Selected packages use their latest version and are added together during review.' -Items $matches -DefaultSelected $false -MaxVisible 14 -ToLabel {
+                    $selectedMatches = Show-ChecklistPaged -Title 'Add packages' -PromptTitle 'Choose packages' -Header 'Select everything you want to add. New packages use their latest version.' -Items $matches -DefaultSelected $false -MaxVisible 14 -ToLabel {
                         param($match, $index)
                         return Format-VrcSetupPackageRow -DisplayName ([string]$match.DisplayName) -PackageName ([string]$match.Id) -Version ([string]$match.LatestVersion)
                     }
                     if ($null -eq $selectedMatches -or $selectedMatches.Count -eq 0) { continue }
                     $newPackageIds = @($selectedMatches | ForEach-Object Id | Select-Object -Unique)
-                } else {
-                    $rawPackageIds = Read-WizardTextInput -Title 'Paste package IDs' -Prompt 'Package IDs' -BodyLines @('Paste one or more exact package IDs separated by commas.', 'New packages use the latest version and are added together during review.') -Hint 'Leave blank to return.'
-                    $packageIds = @($rawPackageIds -split '[,;\r\n]+' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-                    if ($packageIds.Count -eq 0) { continue }
-                    $newPackageIds = @($packageIds | Where-Object { $workingConfig.VpmPackages.PSObject.Properties.Name -notcontains $_ })
                 }
-
                 if ($newPackageIds.Count -eq 0) {
-                    Show-WizardError -Title 'Already installed' -Message 'Every entered package is already in this project.'
+                    Show-WizardError -Title 'Already selected' -Message 'Those packages are already part of this project.'
                     continue
                 }
                 $invalidPackageIds = @($newPackageIds | Where-Object { -not (Test-VpmPackageExists -PackageName $_ -ScriptDir $scriptDir) })
@@ -1416,26 +1428,28 @@ function Setup-ProjectFlow {
                 continue
             }
 
-            if ($choice -eq 2) {
-                $installedPackages = @(Get-OrderedVpmPackageProperties -Packages $workingConfig.VpmPackages -Config $workingConfig)
-                $packagesToUpdate = Show-ChecklistPaged -Title 'Update packages' -PromptTitle 'Choose packages to update' -Header 'Select packages to set to their latest version together. Required packages can be updated but not removed.' -Items $installedPackages -DefaultSelected $false -MaxVisible 14 -ToLabel {
-                    param($package, $index)
-                    $kind = if (Test-IsRequiredPackage -PackageName $package.Name -Config $workingConfig) { 'Required' } else { 'Optional' }
-                    return Format-VrcSetupPackageRow -Role $kind -PackageName $package.Name -Version ([string]$package.Value)
-                }
-                if ($null -eq $packagesToUpdate -or $packagesToUpdate.Count -eq 0) { continue }
-                $invalidPackageIds = @($packagesToUpdate | Where-Object { -not (Test-VpmPackageExists -PackageName $_.Name -ScriptDir $scriptDir) } | ForEach-Object Name)
-                if ($invalidPackageIds.Count -gt 0) {
-                    Show-WizardError -Title 'Package not found' -Message ("Could not update: {0}" -f ($invalidPackageIds -join ', ')) -Details (Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25)
-                    continue
-                }
-                $workingConfig.VpmPackages = Set-VrcSetupPackagesToLatest -Packages $workingConfig.VpmPackages -PackageNames @($packagesToUpdate | ForEach-Object Name)
+            if ($action.Kind -eq 'defaults') {
+                $presetPackages = Add-RequiredPackagesToSet -Packages $Config.VpmPackages -Config $Config
+                $workingConfig.VpmPackages = Merge-VrcSetupPackageSets -BasePackages $currentPackages -PackagesToAdd $presetPackages
                 continue
             }
 
-            if ($plan.Added.Count -eq 0 -and $plan.Updated.Count -eq 0 -and $plan.Removed.Count -eq 0) {
-                Show-WizardError -Title 'No pending changes' -Message 'Toggle packages, add IDs, or select packages to update first.'
+            if ($action.Kind -eq 'extras') {
+                $includeExtras = -not $includeExtras
                 continue
+            }
+
+            if ($packageChanges -eq 0 -and -not $includeExtras) {
+                Show-WizardError -Title 'Nothing to apply' -Message 'Choose a package, add one, or include your saved imports first.'
+                continue
+            }
+
+            if ($includeExtras) {
+                $editorCheck = Test-UnityEditorPath -Path ([string]$Config.UnityEditorPath)
+                if (-not $editorCheck.Valid) {
+                    Show-WizardError -Title 'Unity Editor needed for saved imports' -Message $editorCheck.Message
+                    continue
+                }
             }
 
             $reviewHeader = @(
@@ -1444,15 +1458,16 @@ function Setup-ProjectFlow {
                 "Add: $(Format-PackageChangeSummary -Names $plan.Added)",
                 "Update: $(Format-PackageChangeSummary -Names $plan.Updated)",
                 "Remove: $(Format-PackageChangeSummary -Names $plan.Removed)",
+                $(if ($includeExtras) { "Saved UnityPackages: $($ExtrasInfo.ExtrasCount)" } else { 'Saved UnityPackages: none' }),
                 '',
-                'All listed changes run together.'
+                'This is the only confirmation before the project changes.'
             ) -join "`n"
-            $applyChoice = Show-Menu -Title 'Review package changes' -Header $reviewHeader -Options @('Apply all changes', 'Back')
+            $applyChoice = Show-Menu -Title 'Apply changes' -Header $reviewHeader -Options @('Apply now', 'Back')
             if ($applyChoice -ne 0) { continue }
 
             Clear-Host
-            $status = Start-Installer -projectPath $ProjectPath -PackagesOverride $desiredPackages -SyncPackages
-            Show-SetupOutcomeSummary -Status $status -ActionLabel 'Synchronize VPM packages' -TargetPath $ProjectPath -PackagePath $null -CanLeavePartialProject:$false
+            $status = Start-Installer -projectPath $ProjectPath -PackagesOverride $desiredPackages -SyncPackages -ImportExtras:$includeExtras
+            Show-SetupOutcomeSummary -Status $status -ActionLabel 'Apply project changes' -TargetPath $ProjectPath -PackagePath $null -CanLeavePartialProject:$false
             Read-Host 'Press ENTER to return' | Out-Null
             return
         }
@@ -1483,65 +1498,8 @@ function Setup-ProjectFlow {
             return
         }
 
-        try {
-            $currentPackages = Get-VpmProjectPackageSet -ProjectPath $projectPath
-        } catch {
-            Show-WizardError -Title 'Unable to read project packages' -Message $_.Exception.Message
-            return
-        }
-
-        $presetPackages = Add-RequiredPackagesToSet -Packages $Config.VpmPackages -Config $Config
         $extrasInfo = Get-ConfiguredExtraUnityPackagesInfo -Config $Config -PackagePath $null
-        $header = @(
-            "Project: $(Split-Path -Leaf $projectPath)",
-            '',
-            'Choose how you want to update it.'
-        ) -join "`n"
-        $options = @('Manage packages', 'Apply my default packages')
-        $actions = @('manage', 'apply-default')
-        if ($extrasInfo.ExtrasCount -gt 0) {
-            $extraLabel = if ($extrasInfo.ExtrasCount -eq 1) { 'extra UnityPackage' } else { 'extra UnityPackages' }
-            $options += "Apply default packages + import $($extrasInfo.ExtrasCount) ${extraLabel}"
-            $actions += 'apply-extras'
-        }
-        $options += 'Back'
-        $actions += 'back'
-        $choice = Show-Menu -Title 'Update project' -Header $header -Options $options
-        if ($choice -lt 0 -or $actions[$choice] -eq 'back') { return }
-
-        if ($actions[$choice] -eq 'manage') {
-            Invoke-ExistingProjectPackageManager -ProjectPath $projectPath -Config $Config
-            return
-        }
-
-        $includeExtras = ($actions[$choice] -eq 'apply-extras')
-        if ($includeExtras) {
-            $editorCheck = Test-UnityEditorPath -Path ([string]$Config.UnityEditorPath)
-            if (-not $editorCheck.Valid) {
-                Show-WizardError -Title 'Unity Editor needed for extra imports' -Message $editorCheck.Message
-                return
-            }
-        }
-        $reviewHeader = @(
-            "Project: $(Split-Path -Leaf $projectPath)",
-            "Default packages: $(@($presetPackages.PSObject.Properties).Count)",
-            $(if ($includeExtras) { "Extra UnityPackages: $($extrasInfo.ExtrasCount)" } else { 'Extra UnityPackages: none' }),
-            '',
-            'Existing packages outside the preset will be kept.'
-        ) -join "`n"
-        $review = Show-Menu -Title 'Ready to apply' -Header $reviewHeader -Options @('Start', 'Back')
-        if ($review -ne 0) { return }
-
-        Clear-Host
-        if ($includeExtras) {
-            $status = Start-Installer -projectPath $projectPath -PackagesOverride $presetPackages -ImportExtras
-            $actionLabel = 'Apply default packages and import extras'
-        } else {
-            $status = Start-Installer -projectPath $projectPath -PackagesOverride $presetPackages
-            $actionLabel = 'Apply default packages'
-        }
-        Show-SetupOutcomeSummary -Status $status -ActionLabel $actionLabel -TargetPath $projectPath -PackagePath $null -CanLeavePartialProject:$false
-        Read-Host 'Press ENTER to return' | Out-Null
+        Invoke-ExistingProjectPackageManager -ProjectPath $projectPath -Config $Config -ExtrasInfo $extrasInfo
     }
 
     function Invoke-ProjectLibraryFlow {

@@ -59,7 +59,7 @@ function ConvertTo-VrcSetupSpectreChoice {
     }
     if ($Text -match '^(Back|Cancel)$') { return "[#78909F]$safe[/]" }
     if ($Text -match '^(Exit|Reset|Delete|Remove)') { return "[#FB7185]$safe[/]" }
-    if ($Text -match '^(Create|Manage|Add|Apply|Start|Open|Search|Refresh|Choose|Change|Set|Go|Enter)') { return "[#75D7F7]$safe[/]" }
+    if ($Text -match '^(\+\s+)?(Create|Manage|Add|Apply|Use|Include|Start|Open|Search|Refresh|Choose|Change|Set|Go|Enter)') { return "[#75D7F7]$safe[/]" }
     return "[#DDEAF2]$safe[/]"
 }
 
@@ -97,6 +97,7 @@ function Show-VrcSetupSpectreMenu {
     param(
         [string]$Title = 'VRChat Project Setup',
         [string]$Header = '',
+        [string]$PromptTitle = 'Choose an action',
         [Parameter(Mandatory)][string[]]$Options,
         [int]$Current = 0,
         [bool]$AllowCancel = $true,
@@ -114,7 +115,7 @@ function Show-VrcSetupSpectreMenu {
     }
 
     $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
-    $prompt.Title = '[#DDEAF2]Choose an action[/]'
+    $prompt.Title = "[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $PromptTitle)[/]"
     $prompt.PageSize = [Math]::Min($MaxVisible, [Math]::Max(4, $Options.Count))
     $prompt.WrapAround = $true
     $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
@@ -122,10 +123,35 @@ function Show-VrcSetupSpectreMenu {
     $keyboardHint = if ($AllowCancel) { 'Up/Down to move  ·  Enter to select  ·  Esc or Back to return' } else { 'Up/Down to move  ·  Enter to select' }
     [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]${keyboardHint}[/]")
     $choiceIndex = @{}
-    for ($index = 0; $index -lt $Options.Count; $index++) {
+    $footerStart = $Options.Count
+    for ($index = $Options.Count - 1; $index -ge 0; $index--) {
+        if (Test-IsFooterOption -Text $Options[$index]) {
+            $footerStart = $index
+        } else {
+            break
+        }
+    }
+    if ($footerStart -gt 0 -and $footerStart -lt $Options.Count) {
+        $prompt.PageSize = [Math]::Min($MaxVisible, [Math]::Max(4, $Options.Count + 1))
+    }
+    for ($index = 0; $index -lt $footerStart; $index++) {
         $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
         $choiceIndex[$displayChoice] = $index
         [void]$prompt.AddChoice($displayChoice)
+    }
+    if ($footerStart -gt 0 -and $footerStart -lt $Options.Count) {
+        $actionGroup = $prompt.AddChoice('[#78909F]Actions[/]')
+        for ($index = $footerStart; $index -lt $Options.Count; $index++) {
+            $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
+            $choiceIndex[$displayChoice] = $index
+            [void]$actionGroup.AddChild($displayChoice)
+        }
+    } else {
+        for ($index = $footerStart; $index -lt $Options.Count; $index++) {
+            $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
+            $choiceIndex[$displayChoice] = $index
+            [void]$prompt.AddChoice($displayChoice)
+        }
     }
 
     try {

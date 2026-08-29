@@ -138,14 +138,14 @@ projects**. It then provides:
      Unity version, VPM package count and last-updated time.
    - Starts with projects updated most recently; change the library order to
      alphabetical whenever that is more useful.
-   - Select a listed project and manage packages with checkbox toggles: keep or
-     remove optional packages in bulk, search and select packages to add (or
-     paste comma-separated IDs), or set selected packages to `latest`, then
-     review one combined change.
+   - Select a listed project and land directly in one package workspace. The
+     table keeps installed and future versions visible together; selecting a
+     package exposes its version/remove actions, while Add, defaults and Apply
+     remain on the same screen.
    - Refresh the list explicitly or choose a folder outside the configured root.
    - Manage an existing Unity project and apply a complete VPM change set once.
-   - Add/update the default preset without removing unrelated project packages.
-   - Optionally import extra UnityPackages.
+   - Stage the default preset without removing unrelated project packages.
+   - Include saved UnityPackages in the same final Apply action when needed.
    - Detect and clean up incomplete project setups.
 3. **Default package set**
    - Shows the required VRChat foundation first, in base/avatar/resolver order.
@@ -301,6 +301,9 @@ characters.
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
 ```
+
+The test runner launches its Start Menu/BAT probe through `wscript.exe` and the
+included zero-window helper, so automated test runs do not flash a child console.
 
 ## 🪟 Future direction
 

@@ -48,6 +48,13 @@ keeps an incremental local cache so unchanged projects do not need to be parsed
 again. Selecting a catalog entry routes into the existing project-scoped AIO
 package workflow.
 
+The terminal package workspace follows the same presentation contract: one
+project-scoped list carries the installed version, intended version and change
+state. Selecting a row opens contextual package actions, while Add, presets,
+optional saved imports and Apply remain global actions on that same surface. A
+future desktop table can replace keyboard focus with row clicks without changing
+the staged-change model underneath.
+
 This is intentionally implemented below the presentation layer. Spectre.Console
 is the current polished terminal client; a future Windows shell can consume the
 same catalog records and refresh rules instead of introducing another scanner or

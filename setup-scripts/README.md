@@ -37,12 +37,12 @@ Wizard UX notes:
 - Wizard clears the screen before text prompts (drag&drop paths) to avoid overlap with the menu.
 - Action rows are visually separated (2 blank lines) and color-coded (Back = red).
 - `Create project` offers a short UnityPackage path; `Manage projects` contains the library, a direct folder picker and incomplete-project cleanup.
-- Existing-project package management uses checkboxes for optional installed packages: uncheck several packages to remove them together, search/select packages or paste multiple IDs to add at `latest`, or select several installed packages to update together. Everything stays staged until one review/apply action. The short update menu hides extra-import choices until extra UnityPackages are actually configured.
+- Existing-project package management is one workspace instead of a chain of procedure menus. Its table shows readable package names, installed versions, the state after Apply and any staged Add/Update/Remove change. Selecting a row opens only that package's actions; Add, defaults, saved UnityPackage imports and the single Apply action stay in the same list.
 - AIO synchronization skips dependencies whose exact version is unchanged.
 - The VPM package editor supports change version/remove plus add package (type-to-filter). Only the VRChat base/avatar/resolver foundation is required; GoGoLoco and other starter packages are removable.
 - Bugfix: "Add package" no longer throws and instantly returns to the list.
 - Versions list is SemVer-sorted (e.g. 0.1.29 > 0.1.9).
-- Version picker keeps paging, search/filter, exact entry and Back actions visible while browsing short pages (patterns include `*.9`, `X.X.1190`, or `re:<regex>`).
+- Version picker uses one scrollable list with a visible depth indicator and native type-to-jump matching; latest and exact-version entry stay at the top.
 - In paged lists, use Left/Right to change page.
 - Settings presents Unity Editor and project-folder paths first, with project-name rules (prefix/suffix/cleanup rules) and per-UnityPackage remembered names in a separate screen.
 - UnityPackage extra-import folder is configurable (Settings):

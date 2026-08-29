@@ -47,8 +47,9 @@ function Test-IsBackOption {
 function Test-IsActionOption {
     param([string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
-    $t = $Text.Trim()
+    $t = $Text.Trim() -replace '^\+\s+', ''
     if (Test-IsBackOption -Text $t) { return $true }
+    if ($t -match '^(Add|Apply|Use my|Include \d+ saved|Do not import \d+ saved)') { return $true }
     if ($t -eq 'Add package') { return $true }
     if ($t -eq 'Enter manually' -or $t -eq 'Enter exact version...') { return $true }
     if ($t -eq 'Enter package name manually') { return $true }
@@ -207,6 +208,7 @@ function Show-Menu {
     param(
         [string]$Title = "",
         [string]$Header = "",
+        [string]$PromptTitle = 'Choose an action',
         [string[]]$Options,
         [int]$Current = 0,
         [bool]$AllowCancel = $true,
@@ -221,7 +223,7 @@ function Show-Menu {
     # output, where the bundled Spectre runtime is intentionally unavailable.
     $spectreMenu = Get-Command -Name 'Show-VrcSetupSpectreMenu' -ErrorAction SilentlyContinue
     if ($spectreMenu -and -not $EnableHorizontalNav) {
-        $spectreResult = Show-VrcSetupSpectreMenu -Title $Title -Header $Header -Options $Options -Current $Current -AllowCancel:$AllowCancel -EnableHorizontalNav:$EnableHorizontalNav -MaxVisible $MaxVisible
+        $spectreResult = Show-VrcSetupSpectreMenu -Title $Title -Header $Header -PromptTitle $PromptTitle -Options $Options -Current $Current -AllowCancel:$AllowCancel -EnableHorizontalNav:$EnableHorizontalNav -MaxVisible $MaxVisible
         if ($null -ne $spectreResult) { return [int]$spectreResult }
     }
 
@@ -248,6 +250,11 @@ function Show-Menu {
                 Write-ConsoleAt -Left 0 -Top $row -Text $line -ForegroundColor $theme.HeaderFg -BackgroundColor ([Console]::BackgroundColor) -ClearToEnd
                 $row++
             }
+            $row += 1
+        }
+
+        if ($PromptTitle) {
+            Write-ConsoleAt -Left 0 -Top $row -Text $PromptTitle -ForegroundColor $theme.HeaderFg -BackgroundColor ([Console]::BackgroundColor) -ClearToEnd
             $row += 1
         }
 
