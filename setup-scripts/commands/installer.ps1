@@ -10,6 +10,7 @@ $scriptDir = [System.IO.Directory]::GetParent($PSScriptRoot).FullName
 . "$scriptDir\lib\utils.ps1"
 . "$scriptDir\lib\progress.ps1"
 . "$scriptDir\lib\vpm.ps1"
+. "$scriptDir\lib\vrcget.ps1"
 . "$scriptDir\lib\config.ps1"
 . "$scriptDir\lib\project-state.ps1"
 
@@ -55,6 +56,45 @@ function Write-VrcSetupCommandOutput {
     }
 }
 
+function Get-VrcSetupVrcGetPackageAction {
+    param(
+        [AllowEmptyString()][string]$CurrentVersion,
+        [Parameter(Mandatory)][string]$TargetVersion
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CurrentVersion)) { return 'install' }
+    if ((Compare-SemVer -A $TargetVersion -B $CurrentVersion) -lt 0) { return 'downgrade' }
+    return 'upgrade'
+}
+
+function Test-VrcSetupPackageCommandFailed {
+    param([Parameter(Mandatory)]$Result)
+    if ([int]$Result.ExitCode -ne 0) { return $true }
+    return ([string]$Result.Output -match '(?im)^.*\b(ERR|error)\b.*(could not|get match|failed|not found)')
+}
+
+function Restore-VrcSetupPackageBatch {
+    param(
+        [Parameter(Mandatory)]$ManifestBackups,
+        [Parameter(Mandatory)][string]$ProjectPath
+    )
+
+    $restored = $true
+    foreach ($backup in @($ManifestBackups.GetEnumerator())) {
+        try {
+            Copy-Item -LiteralPath ([string]$backup.Value) -Destination ([string]$backup.Key) -Force
+        } catch {
+            $restored = $false
+            Write-VrcSetupLog -Message "ERROR: Failed to restore manifest backup $($backup.Value): $($_.Exception.Message)"
+        }
+    }
+    if (-not $restored) { return $false }
+
+    $resolveResult = Invoke-VpmCapture -Arguments @('resolve', 'project', $ProjectPath)
+    Write-VrcSetupCommandOutput -Entries $resolveResult.OutputLines
+    return ($resolveResult.ExitCode -eq 0)
+}
+
 function Get-VpmManifestValidationResult {
     param(
         [string]$ProjectPath,
@@ -68,6 +108,7 @@ function Get-VpmManifestValidationResult {
         ManifestPath = $manifestPath
         VpmManifestPath = $vpmManifestPath
         MissingPackages = @()
+        VersionMismatches = @()
         Message = $null
     }
 
@@ -92,37 +133,69 @@ function Get-VpmManifestValidationResult {
     }
 
     try {
-        $dependencyNames = @()
+        $dependencyNames = [System.Collections.Generic.List[string]]::new()
+        $actualVersions = @{}
+        $actualVersionPriorities = @{}
+
+        function Add-VrcSetupManifestPackages {
+            param($ManifestPackages, [int]$Priority)
+            if (-not $ManifestPackages) { return }
+            foreach ($dependency in @($ManifestPackages.PSObject.Properties)) {
+                [void]$dependencyNames.Add([string]$dependency.Name)
+                $rawValue = $dependency.Value
+                $version = if ($rawValue -and $rawValue.PSObject.Properties.Name -contains 'version') {
+                    [string]$rawValue.version
+                } else {
+                    [string]$rawValue
+                }
+                if (-not [string]::IsNullOrWhiteSpace($version)) {
+                    $name = [string]$dependency.Name
+                    $existingPriority = if ($actualVersionPriorities.ContainsKey($name)) { [int]$actualVersionPriorities[$name] } else { -1 }
+                    if ($Priority -ge $existingPriority) {
+                        $actualVersions[$name] = $version
+                        $actualVersionPriorities[$name] = $Priority
+                    }
+                }
+            }
+        }
 
         if (Test-Path -LiteralPath $manifestPath) {
             $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            if ($manifest -and $manifest.dependencies) {
-                $dependencyNames += @($manifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
-            }
+            if ($manifest) { Add-VrcSetupManifestPackages -ManifestPackages $manifest.dependencies -Priority 0 }
         }
 
         if (Test-Path -LiteralPath $vpmManifestPath) {
             $vpmManifest = Get-Content -LiteralPath $vpmManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            if ($vpmManifest -and $vpmManifest.dependencies) {
-                $dependencyNames += @($vpmManifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
-            }
+            if ($vpmManifest) { Add-VrcSetupManifestPackages -ManifestPackages $vpmManifest.dependencies -Priority 1 }
             if ($vpmManifest -and $vpmManifest.locked) {
                 # VPM can keep packages that are supplied by another package only
                 # in `locked`. They are installed and valid even when adding them
                 # explicitly does not create a second direct dependency entry.
-                $dependencyNames += @($vpmManifest.locked.PSObject.Properties | ForEach-Object { $_.Name })
+                Add-VrcSetupManifestPackages -ManifestPackages $vpmManifest.locked -Priority 2
             }
         }
 
         $dependencyNames = @($dependencyNames | Sort-Object -Unique)
 
         $missing = @($expectedPackages | Where-Object { $dependencyNames -notcontains $_ })
+        $versionMismatches = @()
+        foreach ($expectedPackage in @($Packages.PSObject.Properties)) {
+            $expectedVersion = [string]$expectedPackage.Value
+            if ($expectedVersion -eq 'latest' -or -not $actualVersions.ContainsKey([string]$expectedPackage.Name)) { continue }
+            $foundVersion = [string]$actualVersions[[string]$expectedPackage.Name]
+            if ($foundVersion -ne $expectedVersion) {
+                $versionMismatches += ('{0}: expected {1}, found {2}' -f $expectedPackage.Name, $expectedVersion, $foundVersion)
+            }
+        }
         $result.MissingPackages = $missing
-        if ($missing.Count -eq 0) {
+        $result.VersionMismatches = $versionMismatches
+        if ($missing.Count -eq 0 -and $versionMismatches.Count -eq 0) {
             $result.Valid = $true
-            $result.Message = "All configured VPM packages are present in the project manifests."
-        } else {
+            $result.Message = "All configured VPM packages and requested versions are present in the project manifests."
+        } elseif ($missing.Count -gt 0) {
             $result.Message = ("Missing configured VPM packages in project manifests: {0}" -f ($missing -join ", "))
+        } else {
+            $result.Message = ("Configured VPM package versions were not applied: {0}" -f ($versionMismatches -join "; "))
         }
     } catch {
         $result.Message = ("Failed to read project manifests: {0}" -f $_.Exception.Message)
@@ -250,6 +323,13 @@ function Install-PackagesInProject {
         [switch]$SyncPackages
     )
 
+    try {
+        $Packages = Resolve-VrcSetupSdkPackageSet -Packages $Packages -ScriptDir $scriptDir
+    } catch {
+        Write-Host "Unable to align VRChat SDK versions: $($_.Exception.Message)" -ForegroundColor Red
+        return $script:VrcSetupStatusFailure
+    }
+
     if ((-not $Test) -and (Test-PackagesIncludeEasyLogin -Packages $Packages)) {
         $repoResult = Ensure-VpmRepository -Url 'https://foxscore.dev/vpm/index.json'
         if (-not $repoResult.Success) {
@@ -276,6 +356,7 @@ function Install-PackagesInProject {
     $syncPlan = $null
 
     # Back up both package manifests once before a batch change.
+    $manifestBackups = [ordered]@{}
     foreach ($manifestPath in @(
         (Join-Path $ProjectPath 'Packages\manifest.json'),
         (Join-Path $ProjectPath 'Packages\vpm-manifest.json')
@@ -284,6 +365,7 @@ function Install-PackagesInProject {
             try {
                 $backupPath = "${manifestPath}.bak.$(Get-Date -Format 'yyyyMMdd-HHmmss')"
                 Copy-Item -LiteralPath $manifestPath -Destination $backupPath -Force
+                $manifestBackups[$manifestPath] = $backupPath
                 Write-Host "Backup manifest created: ${backupPath}" -ForegroundColor Gray
             } catch {
                 Write-Host "Failed to create manifest backup: ${_}" -ForegroundColor Yellow
@@ -291,11 +373,12 @@ function Install-PackagesInProject {
         }
     }
 
+    $configuredPackageNames = @($Packages.PSObject.Properties | ForEach-Object { $_.Name })
+    $currentPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath -IncludeLockedPackages $configuredPackageNames
     if ($SyncPackages) {
-        $currentPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath
         $syncPlan = Compare-VpmPackageSets -CurrentPackages $currentPackages -DesiredPackages $Packages
-        $desiredNames = @($Packages.PSObject.Properties.Name)
-        $packagesToRemove = @($currentPackages.PSObject.Properties.Name | Where-Object { $desiredNames -notcontains $_ })
+        $desiredNames = @($Packages.PSObject.Properties | ForEach-Object { $_.Name })
+        $packagesToRemove = @($currentPackages.PSObject.Properties | ForEach-Object { $_.Name } | Where-Object { $desiredNames -notcontains $_ })
         foreach ($packageName in $packagesToRemove) {
             if ($Test) {
                 Write-Host "[TEST] Would remove package: ${packageName}" -ForegroundColor DarkGray
@@ -311,6 +394,11 @@ function Install-PackagesInProject {
                 Write-VrcSetupLog -Message "ERROR: vpm remove failed for ${packageName} with exit code $($removeResult.ExitCode)"
                 $hadFailures = $true
             }
+        }
+        if ($hadFailures) {
+            $restored = Restore-VrcSetupPackageBatch -ManifestBackups $manifestBackups -ProjectPath $ProjectPath
+            Write-Host $(if ($restored) { 'Package removals failed. The previous manifests were restored.' } else { 'Package removals failed and automatic restore was incomplete. Review the session log.' }) -ForegroundColor Red
+            return $script:VrcSetupStatusFailure
         }
     }
 
@@ -335,7 +423,22 @@ function Install-PackagesInProject {
 
         try {
             $cmdOutput = @()
-            if ($packageVersion -eq "latest") {
+            $isPrerelease = ([string]$packageVersion -match '-')
+            $vrcGetPath = if ($isPrerelease) { Get-VrcGetExecutablePath -ScriptDir $scriptDir } else { $null }
+            if ($isPrerelease -and -not [string]::IsNullOrWhiteSpace($vrcGetPath)) {
+                $currentNames = @($currentPackages.PSObject.Properties | ForEach-Object { $_.Name })
+                $currentVersion = if ($currentNames -contains $packageName) { [string]$currentPackages.($packageName) } else { '' }
+                $vrcGetAction = Get-VrcSetupVrcGetPackageAction -CurrentVersion $currentVersion -TargetVersion ([string]$packageVersion)
+                Write-Host "Applying prerelease package: ${packageName} @ ${packageVersion}" -ForegroundColor Cyan
+                $cmdResult = Invoke-VrcGetCapture -Arguments @($vrcGetAction, $packageName, [string]$packageVersion, '--prerelease', '-p', $ProjectPath, '-y') -ScriptDir $scriptDir
+                Write-VrcSetupCommandOutput -Entries @([string]$cmdResult.Output -split '\r?\n')
+                if (Test-VrcSetupPackageCommandFailed -Result $cmdResult) {
+                    Write-Host "vrc-get reported exit code $($cmdResult.ExitCode) for ${packageName}" -ForegroundColor Yellow
+                    Write-VrcSetupLog -Message "ERROR: vrc-get ${vrcGetAction} failed for ${packageName} with exit code $($cmdResult.ExitCode)"
+                    $hadFailures = $true
+                }
+                continue
+            } elseif ($packageVersion -eq "latest") {
                 Write-Host "Adding package: ${packageName} (latest)" -ForegroundColor Cyan
                 $cmdResult = Invoke-VpmCapture -Arguments @('add', 'package', "${packageName}")
             } else {
@@ -343,7 +446,7 @@ function Install-PackagesInProject {
                 $cmdResult = Invoke-VpmCapture -Arguments @('add', 'package', "${packageName}@${packageVersion}")
             }
             Write-VrcSetupCommandOutput -Entries $cmdResult.OutputLines
-            if ($cmdResult.ExitCode -ne 0) {
+            if (Test-VrcSetupPackageCommandFailed -Result $cmdResult) {
                 Write-Host "vpm reported exit code $($cmdResult.ExitCode) for ${packageName}" -ForegroundColor Yellow
                 Write-VrcSetupLog -Message "ERROR: vpm add failed for ${packageName} with exit code $($cmdResult.ExitCode)"
                 $hadFailures = $true
@@ -353,6 +456,12 @@ function Install-PackagesInProject {
             Write-VrcSetupLog -Message "ERROR: Failed to add ${packageName} : ${_}"
             $hadFailures = $true
         }
+    }
+
+    if ($hadFailures) {
+        $restored = Restore-VrcSetupPackageBatch -ManifestBackups $manifestBackups -ProjectPath $ProjectPath
+        Write-Host $(if ($restored) { 'A package operation failed. The previous manifests were restored.' } else { 'A package operation failed and automatic restore was incomplete. Review the session log.' }) -ForegroundColor Red
+        return $script:VrcSetupStatusFailure
     }
 
     if ($Test) {
@@ -380,19 +489,14 @@ function Install-PackagesInProject {
 
     if ($SyncPackages) {
         $remainingPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath
-        $desiredNames = @($Packages.PSObject.Properties.Name)
-        $unexpectedPackages = @($remainingPackages.PSObject.Properties.Name | Where-Object { $desiredNames -notcontains $_ })
+        $desiredNames = @($Packages.PSObject.Properties | ForEach-Object { $_.Name })
+        $unexpectedPackages = @($remainingPackages.PSObject.Properties | ForEach-Object { $_.Name } | Where-Object { $desiredNames -notcontains $_ })
         if ($unexpectedPackages.Count -gt 0) {
             $message = "Packages still present after synchronization: $($unexpectedPackages -join ', ')"
             Write-Host $message -ForegroundColor Red
             Write-VrcSetupLog -Message "ERROR: ${message}"
             return $script:VrcSetupStatusFailure
         }
-    }
-
-    if ($hadFailures) {
-        Write-Host "One or more VPM package operations failed." -ForegroundColor Red
-        return $script:VrcSetupStatusFailure
     }
 
     return $script:VrcSetupStatusSuccess

@@ -639,17 +639,15 @@ function Advanced-NamingSettings {
 function Select-VpmVersion {
     param(
         [string]$PackageName,
-        [string]$CurrentVersion
+        [string]$CurrentVersion,
+        [object]$AvailableVersions
     )
 
-    $available = @()
-
-    $vrcGetVersions = Get-VrcGetAvailableVersions -PackageName $PackageName -ScriptDir $scriptDir
-    if ($vrcGetVersions.Count -gt 0) {
-        $available = $vrcGetVersions
-    }
-    else {
-        $available = Get-VpmAvailableVersions -PackageName $PackageName
+    $available = if ($PSBoundParameters.ContainsKey('AvailableVersions')) {
+        @($AvailableVersions)
+    } else {
+        $vrcGetVersions = @(Get-VrcGetAvailableVersions -PackageName $PackageName -ScriptDir $scriptDir)
+        if ($vrcGetVersions.Count -gt 0) { @($vrcGetVersions) } else { @(Get-VpmAvailableVersions -PackageName $PackageName) }
     }
 
     while ($true) {
@@ -676,7 +674,12 @@ function Select-VpmVersion {
         if ($picked -eq $manualOption) {
             $manual = Read-Host "Version (or 'latest')"
             if ([string]::IsNullOrWhiteSpace($manual)) { return $null }
-            return $manual.Trim()
+            $manual = $manual.Trim()
+            if ($PSBoundParameters.ContainsKey('AvailableVersions') -and $manual -ne 'latest' -and $available -notcontains $manual) {
+                Show-WizardError -Title 'Version not available for this SDK' -Message 'Choose a version shared by every VRChat SDK component in this project.' -Details "Requested: ${manual}"
+                continue
+            }
+            return $manual
         }
 
         return $picked
@@ -985,7 +988,12 @@ function Edit-VpmPackages {
                     continue
                 }
 
-                $newVersion = Select-VpmVersion -PackageName $pkgName -CurrentVersion $pkgVersion
+                $sdkNames = @(Get-VrcSetupSdkPackageNames | Where-Object { $config.VpmPackages.PSObject.Properties.Name -contains $_ })
+                $selectParams = @{ PackageName = $pkgName; CurrentVersion = $pkgVersion }
+                if (Test-IsVrcSetupSdkPackage -PackageName $pkgName) {
+                    $selectParams.AvailableVersions = @(Get-VrcSetupCommonPackageVersions -PackageNames $sdkNames -ScriptDir $ScriptDir)
+                }
+                $newVersion = Select-VpmVersion @selectParams
                 if ($null -eq $newVersion) { continue }
 
                 $validation = Test-VpmPackageVersion -PackageName $pkgName -Version $newVersion -ScriptDir $ScriptDir
@@ -998,7 +1006,7 @@ function Edit-VpmPackages {
                     continue
                 }
 
-                $config.VpmPackages.($pkgName) = $newVersion
+                $config.VpmPackages = Set-VrcSetupPackageVersion -Packages $config.VpmPackages -PackageName $pkgName -Version $newVersion
                 if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
                 continue
             }
@@ -1014,7 +1022,12 @@ function Edit-VpmPackages {
                 continue
             }
 
-            $newVersion = Select-VpmVersion -PackageName $pkgName -CurrentVersion $pkgVersion
+            $selectParams = @{ PackageName = $pkgName; CurrentVersion = $pkgVersion }
+            if (Test-IsVrcSetupSdkPackage -PackageName $pkgName) {
+                $sdkNames = @(Get-VrcSetupSdkPackageNames | Where-Object { $config.VpmPackages.PSObject.Properties.Name -contains $_ })
+                $selectParams.AvailableVersions = @(Get-VrcSetupCommonPackageVersions -PackageNames $sdkNames -ScriptDir $ScriptDir)
+            }
+            $newVersion = Select-VpmVersion @selectParams
             if ($null -eq $newVersion) { continue }
 
             $validation = Test-VpmPackageVersion -PackageName $pkgName -Version $newVersion -ScriptDir $ScriptDir
@@ -1027,7 +1040,7 @@ function Edit-VpmPackages {
                 continue
             }
 
-            $config.VpmPackages.($pkgName) = $newVersion
+            $config.VpmPackages = Set-VrcSetupPackageVersion -Packages $config.VpmPackages -PackageName $pkgName -Version $newVersion
             if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
             continue
         }
@@ -1153,26 +1166,41 @@ function Get-VrcSetupPackageWorkspaceItems {
         }
     }
 
-    return @($items | Sort-Object @{ Expression = { if ($_.Required) { 0 } else { 1 } } }, FriendlyName, Name)
+    $foundationOrder = @('com.vrchat.base', 'com.vrchat.avatars', 'com.vrchat.worlds', 'com.vrchat.core.vpm-resolver')
+    return @($items | Sort-Object @{
+        Expression = {
+            $foundationIndex = [array]::IndexOf($foundationOrder, [string]$_.Name)
+            if ($foundationIndex -ge 0) { return $foundationIndex }
+            if ($_.Required) { return 10 }
+            return 20
+        }
+    }, FriendlyName, Name)
 }
 
 function Format-VrcSetupPackageWorkspaceRow {
     param([Parameter(Mandatory)]$Item)
 
+    $windowWidth = 120
+    try { $windowWidth = [Console]::WindowWidth } catch { }
+    $isNarrow = ($windowWidth -lt 100)
+    $packageWidth = if ($isNarrow) { 24 } else { 32 }
+    $versionWidth = if ($isNarrow) { 32 } else { 36 }
+    $outcomeWidth = if ($isNarrow) { 12 } else { 18 }
+
     $installed = if ([string]::IsNullOrWhiteSpace([string]$Item.CurrentVersion)) { '' } else { [string]$Item.CurrentVersion }
     $selectedVersion = if ([string]::IsNullOrWhiteSpace([string]$Item.DesiredVersion)) { '' } elseif ([string]$Item.DesiredVersion -eq 'latest') { 'Newest' } else { [string]$Item.DesiredVersion }
     $version = if ($Item.Status -eq 'Update') { "${installed} -> ${selectedVersion}" } elseif ($Item.Status -eq 'Add') { $selectedVersion } else { $installed }
     $result = switch ([string]$Item.Status) {
-        'Add' { 'Will be added'; break }
-        'Update' { 'Will change'; break }
-        'Remove' { 'Will be removed'; break }
-        'Required' { 'Always included'; break }
+        'Add' { $(if ($isNarrow) { 'Add' } else { 'Will be added' }); break }
+        'Update' { $(if ($isNarrow) { 'Change' } else { 'Will change' }); break }
+        'Remove' { $(if ($isNarrow) { 'Remove' } else { 'Will be removed' }); break }
+        'Required' { $(if ($isNarrow) { 'Always' } else { 'Always included' }); break }
         default { 'Included' }
     }
     return ('{0}  {1}  {2}' -f
-        (Format-VrcSetupPackageCell -Text ([string]$Item.FriendlyName) -Width 30),
-        (Format-VrcSetupPackageCell -Text $version -Width 24),
-        (Format-VrcSetupPackageCell -Text $result -Width 18)).TrimEnd()
+        (Format-VrcSetupPackageCell -Text ([string]$Item.FriendlyName) -Width $packageWidth),
+        (Format-VrcSetupPackageCell -Text $version -Width $versionWidth),
+        (Format-VrcSetupPackageCell -Text $result -Width $outcomeWidth)).TrimEnd()
 }
 
 function Invoke-VrcSetupInstallerWithProgress {
@@ -1357,18 +1385,29 @@ function Setup-ProjectFlow {
             RequiredPackages = @(Get-RequiredPackages -Config $Config)
         }
         $includeExtras = $false
+        $workspaceSelectedIndex = 0
 
         while ($true) {
+            try {
+                $workingConfig.VpmPackages = Resolve-VrcSetupSdkPackageSet -Packages $workingConfig.VpmPackages -ScriptDir $scriptDir
+            } catch {
+                Show-WizardError -Title 'Unable to align VRChat SDK versions' -Message $_.Exception.Message
+                return
+            }
             $desiredPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
             $plan = Compare-VpmPackageSets -CurrentPackages $currentPackages -DesiredPackages $desiredPackages
-            $packageChanges = @($plan.Added).Count + @($plan.Updated).Count + @($plan.Removed).Count
             $workspaceItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $currentPackages -DesiredPackages $desiredPackages -Config $workingConfig)
+            $packageChanges = Get-VrcSetupWorkspacePendingCount -Items $workspaceItems
             $directAction = $null
             $workspaceSelection = $null
             $workspaceCommand = Get-Command -Name 'Show-VrcSetupSpectrePackageWorkspace' -ErrorAction SilentlyContinue
             if ($workspaceCommand) {
-                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -VersionProvider {
+                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -InitialSelectedIndex $workspaceSelectedIndex -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -VersionProvider {
                     param($packageName)
+                    if (Test-IsVrcSetupSdkPackage -PackageName $packageName) {
+                        $sdkNames = @($workspaceItems | Where-Object { Test-IsVrcSetupSdkPackage -PackageName ([string]$_.Name) } | ForEach-Object Name)
+                        return @(Get-VrcSetupCommonPackageVersions -PackageNames $sdkNames -ScriptDir $scriptDir)
+                    }
                     $versions = @(Get-VrcGetAvailableVersions -PackageName $packageName -ScriptDir $scriptDir)
                     if ($versions.Count -eq 0) { $versions = @(Get-VpmAvailableVersions -PackageName $packageName) }
                     return @($versions)
@@ -1376,16 +1415,16 @@ function Setup-ProjectFlow {
             }
 
             if ($workspaceSelection) {
+                $workspaceSelectedIndex = [int]$workspaceSelection.SelectedIndex
                 if ($workspaceSelection.Action -eq 'back') { return }
                 foreach ($versionChange in @($workspaceSelection.VersionChanges.PSObject.Properties)) {
-                    $nextPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
-                    $nextPackages | Add-Member -MemberType NoteProperty -Name ([string]$versionChange.Name) -Value ([string]$versionChange.Value) -Force
-                    $workingConfig.VpmPackages = $nextPackages
+                    $workingConfig.VpmPackages = Set-VrcSetupPackageVersion -Packages $workingConfig.VpmPackages -PackageName ([string]$versionChange.Name) -Version ([string]$versionChange.Value)
                 }
                 if (@($workspaceSelection.VersionChanges.PSObject.Properties).Count -gt 0) {
                     $desiredPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
                     $plan = Compare-VpmPackageSets -CurrentPackages $currentPackages -DesiredPackages $desiredPackages
-                    $packageChanges = @($plan.Added).Count + @($plan.Updated).Count + @($plan.Removed).Count
+                    $workspaceItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $currentPackages -DesiredPackages $desiredPackages -Config $workingConfig)
+                    $packageChanges = Get-VrcSetupWorkspacePendingCount -Items $workspaceItems
                 }
                 if ($workspaceSelection.Action -in @('toggle', 'version')) {
                     $package = $workspaceItems | Where-Object Name -eq $workspaceSelection.PackageName | Select-Object -First 1
@@ -1435,11 +1474,14 @@ function Setup-ProjectFlow {
                     continue
                 }
                 if ($directAction -eq 'version') {
-                    $selectedVersion = Select-VpmVersion -PackageName ([string]$package.Name) -CurrentVersion ([string]$package.DesiredVersion)
+                    $selectParams = @{ PackageName = [string]$package.Name; CurrentVersion = [string]$package.DesiredVersion }
+                    if (Test-IsVrcSetupSdkPackage -PackageName ([string]$package.Name)) {
+                        $sdkNames = @($workspaceItems | Where-Object { Test-IsVrcSetupSdkPackage -PackageName ([string]$_.Name) } | ForEach-Object Name)
+                        $selectParams.AvailableVersions = @(Get-VrcSetupCommonPackageVersions -PackageNames $sdkNames -ScriptDir $scriptDir)
+                    }
+                    $selectedVersion = Select-VpmVersion @selectParams
                     if ($selectedVersion) {
-                        $nextPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
-                        $nextPackages | Add-Member -MemberType NoteProperty -Name ([string]$package.Name) -Value ([string]$selectedVersion) -Force
-                        $workingConfig.VpmPackages = $nextPackages
+                        $workingConfig.VpmPackages = Set-VrcSetupPackageVersion -Packages $workingConfig.VpmPackages -PackageName ([string]$package.Name) -Version ([string]$selectedVersion)
                     }
                     continue
                 }
@@ -1478,13 +1520,16 @@ function Setup-ProjectFlow {
                     $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames @([string]$package.Name)
                     if ($package.CurrentVersion) { $workingConfig.VpmPackages.($package.Name) = [string]$package.CurrentVersion }
                 } elseif ($detailAction -eq 'latest') {
-                    $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames @([string]$package.Name)
+                    $workingConfig.VpmPackages = Set-VrcSetupPackageVersion -Packages $workingConfig.VpmPackages -PackageName ([string]$package.Name) -Version 'latest'
                 } elseif ($detailAction -eq 'version') {
-                    $selectedVersion = Select-VpmVersion -PackageName ([string]$package.Name) -CurrentVersion ([string]$package.DesiredVersion)
+                    $selectParams = @{ PackageName = [string]$package.Name; CurrentVersion = [string]$package.DesiredVersion }
+                    if (Test-IsVrcSetupSdkPackage -PackageName ([string]$package.Name)) {
+                        $sdkNames = @($workspaceItems | Where-Object { Test-IsVrcSetupSdkPackage -PackageName ([string]$_.Name) } | ForEach-Object Name)
+                        $selectParams.AvailableVersions = @(Get-VrcSetupCommonPackageVersions -PackageNames $sdkNames -ScriptDir $scriptDir)
+                    }
+                    $selectedVersion = Select-VpmVersion @selectParams
                     if ($selectedVersion) {
-                        $nextPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
-                        $nextPackages | Add-Member -MemberType NoteProperty -Name ([string]$package.Name) -Value ([string]$selectedVersion) -Force
-                        $workingConfig.VpmPackages = $nextPackages
+                        $workingConfig.VpmPackages = Set-VrcSetupPackageVersion -Packages $workingConfig.VpmPackages -PackageName ([string]$package.Name) -Version ([string]$selectedVersion)
                     }
                 }
                 continue
@@ -1564,9 +1609,30 @@ function Setup-ProjectFlow {
                 'This is the only confirmation before saving these changes.'
             ) -join "`n"
             $projectName = Split-Path -Leaf $ProjectPath
-            $friendlyAdded = @($plan.Added | ForEach-Object { Get-VrcSetupFriendlyPackageName -PackageName $_ })
-            $friendlyUpdated = @($plan.Updated | ForEach-Object { Get-VrcSetupFriendlyPackageName -PackageName $_ })
-            $friendlyRemoved = @($plan.Removed | ForEach-Object { Get-VrcSetupFriendlyPackageName -PackageName $_ })
+            $sdkAdded = @($plan.Added | Where-Object { Test-IsVrcSetupSdkPackage -PackageName $_ })
+            $friendlyAdded = @($plan.Added | Where-Object { -not (Test-IsVrcSetupSdkPackage -PackageName $_) } | ForEach-Object { Get-VrcSetupFriendlyPackageName -PackageName $_ })
+            if ($sdkAdded.Count -gt 0) {
+                $sdkLabels = @($sdkAdded | ForEach-Object { (Get-VrcSetupFriendlyPackageName -PackageName $_) -replace '^VRChat SDK ', '' })
+                $sdkVersion = @($sdkAdded | ForEach-Object { [string]$desiredPackages.($_) } | Select-Object -Unique) -join '/'
+                $friendlyAdded = @("VRChat SDK ($($sdkLabels -join ' + ')): ${sdkVersion}") + $friendlyAdded
+            }
+            $sdkUpdated = @($plan.Updated | Where-Object { Test-IsVrcSetupSdkPackage -PackageName $_ })
+            $friendlyUpdated = @($plan.Updated | Where-Object { -not (Test-IsVrcSetupSdkPackage -PackageName $_) } | ForEach-Object {
+                $friendlyName = Get-VrcSetupFriendlyPackageName -PackageName $_
+                "${friendlyName}: $([string]$currentPackages.($_)) -> $([string]$desiredPackages.($_))"
+            })
+            if ($sdkUpdated.Count -gt 0) {
+                $sdkLabels = @($sdkUpdated | ForEach-Object { (Get-VrcSetupFriendlyPackageName -PackageName $_) -replace '^VRChat SDK ', '' })
+                $sdkFrom = @($sdkUpdated | ForEach-Object { [string]$currentPackages.($_) } | Select-Object -Unique) -join '/'
+                $sdkTo = @($sdkUpdated | ForEach-Object { [string]$desiredPackages.($_) } | Select-Object -Unique) -join '/'
+                $friendlyUpdated = @("VRChat SDK ($($sdkLabels -join ' + ')): ${sdkFrom} -> ${sdkTo}") + $friendlyUpdated
+            }
+            $sdkRemoved = @($plan.Removed | Where-Object { Test-IsVrcSetupSdkPackage -PackageName $_ })
+            $friendlyRemoved = @($plan.Removed | Where-Object { -not (Test-IsVrcSetupSdkPackage -PackageName $_) } | ForEach-Object { Get-VrcSetupFriendlyPackageName -PackageName $_ })
+            if ($sdkRemoved.Count -gt 0) {
+                $sdkLabels = @($sdkRemoved | ForEach-Object { (Get-VrcSetupFriendlyPackageName -PackageName $_) -replace '^VRChat SDK ', '' })
+                $friendlyRemoved = @("VRChat SDK ($($sdkLabels -join ' + '))") + $friendlyRemoved
+            }
             $reviewConfirmed = $null
             if (Get-Command -Name 'Show-VrcSetupSpectreSaveReview' -ErrorAction SilentlyContinue) {
                 $reviewConfirmed = Show-VrcSetupSpectreSaveReview -ProjectName $projectName -Added $friendlyAdded -Updated $friendlyUpdated -Removed $friendlyRemoved -ExtrasCount $(if ($includeExtras) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -ScriptDir $scriptDir
@@ -1577,13 +1643,30 @@ function Setup-ProjectFlow {
             }
             if (-not $reviewConfirmed) { continue }
 
-            $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $ProjectPath -Title 'Saving project' -Header $projectName -PackagesOverride $desiredPackages -SyncPackages -ImportExtras:$includeExtras
-            $status = [int]$execution.Status
-            if (-not $execution.UsedTui) {
-                Show-SetupOutcomeSummary -Status $status -ActionLabel 'Apply project changes' -TargetPath $ProjectPath -PackagePath $null -CanLeavePartialProject:$false
-                Read-Host 'Press ENTER to return' | Out-Null
+            while ($true) {
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $ProjectPath -Title 'Saving project' -Header $projectName -PackagesOverride $desiredPackages -SyncPackages -ImportExtras:$includeExtras
+                $status = [int]$execution.Status
+                if ($status -eq 0) { return }
+                if (-not $execution.UsedTui) {
+                    Show-SetupOutcomeSummary -Status $status -ActionLabel 'Apply project changes' -TargetPath $ProjectPath -PackagePath $null -CanLeavePartialProject:$false
+                }
+                $failureHeader = @(
+                    "Project: ${projectName}",
+                    'The project was left unchanged where possible.',
+                    $(if ($execution.LogFile) { "Full log: $($execution.LogFile)" } else { '' })
+                ) -join "`n"
+                $failureChoice = Show-Menu -Title 'Changes were not saved' -Header $failureHeader -Options @('Try again', 'Change packages', 'Back to project') -AllowCancel $false
+                if ($failureChoice -eq 0) { continue }
+                if ($failureChoice -eq 2) { return }
+                try {
+                    $currentPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath -IncludeLockedPackages @(Get-RequiredPackages -Config $Config)
+                } catch {
+                    Show-WizardError -Title 'Unable to refresh project state' -Message $_.Exception.Message
+                    return
+                }
+                break
             }
-            return
+            continue
         }
     }
 

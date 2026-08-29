@@ -5,6 +5,91 @@
 $script:VpmVersionsCache = @{}
 $script:VpmMutexName = 'Local\VrcSetup.Vpm.Commands'
 
+function Get-VrcSetupSdkPackageNames {
+    return @('com.vrchat.base', 'com.vrchat.avatars', 'com.vrchat.worlds')
+}
+
+function Test-IsVrcSetupSdkPackage {
+    param([AllowEmptyString()][string]$PackageName)
+    return (Get-VrcSetupSdkPackageNames) -contains $PackageName
+}
+
+function Set-VrcSetupPackageVersion {
+    param(
+        [Parameter(Mandatory)]$Packages,
+        [Parameter(Mandatory)][string]$PackageName,
+        [Parameter(Mandatory)][string]$Version
+    )
+
+    $result = Copy-VpmPackageSet -Packages $Packages
+    $targets = if (Test-IsVrcSetupSdkPackage -PackageName $PackageName) {
+        @(@($PackageName) + @(Get-VrcSetupSdkPackageNames | Where-Object { $result.PSObject.Properties.Name -contains $_ }) | Select-Object -Unique)
+    } else {
+        @($PackageName)
+    }
+    foreach ($target in $targets) {
+        $result | Add-Member -MemberType NoteProperty -Name $target -Value $Version -Force
+    }
+    return $result
+}
+
+function Get-VrcSetupCommonPackageVersions {
+    param(
+        [Parameter(Mandatory)][string[]]$PackageNames,
+        [string]$ScriptDir
+    )
+
+    $names = @($PackageNames | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    if ($names.Count -eq 0) { return @() }
+
+    $versionSets = @()
+    foreach ($packageName in $names) {
+        $versions = @()
+        if (Get-Command Get-VrcGetAvailableVersions -ErrorAction SilentlyContinue) {
+            $versions = @(Get-VrcGetAvailableVersions -PackageName $packageName -ScriptDir $ScriptDir)
+        }
+        if ($versions.Count -eq 0) { $versions = @(Get-VpmAvailableVersions -PackageName $packageName) }
+        if ($versions.Count -eq 0) { return @() }
+        $versionSets += ,@($versions)
+    }
+
+    $common = @($versionSets[0])
+    foreach ($versions in @($versionSets | Select-Object -Skip 1)) {
+        $common = @($common | Where-Object { $versions -contains $_ })
+    }
+    return @($common)
+}
+
+function Resolve-VrcSetupSdkPackageSet {
+    param(
+        [Parameter(Mandatory)]$Packages,
+        [string]$ScriptDir
+    )
+
+    $result = Copy-VpmPackageSet -Packages $Packages
+    $sdkNames = @(Get-VrcSetupSdkPackageNames | Where-Object { $result.PSObject.Properties.Name -contains $_ })
+    if ($sdkNames.Count -lt 2) { return $result }
+
+    $requestedVersions = @($sdkNames | ForEach-Object { [string]$result.($_) } | Select-Object -Unique)
+    if ($requestedVersions.Count -eq 1 -and $requestedVersions[0] -ne 'latest') { return $result }
+
+    $commonVersions = @(Get-VrcSetupCommonPackageVersions -PackageNames $sdkNames -ScriptDir $ScriptDir)
+    if ($commonVersions.Count -eq 0) {
+        throw "No shared version is available for: $($sdkNames -join ', ')"
+    }
+
+    $targetVersion = $null
+    if ($requestedVersions -contains 'latest') {
+        $targetVersion = @($commonVersions | Where-Object { $_ -notmatch '-' } | Select-Object -First 1)[0]
+    } else {
+        $requestedCandidates = @(Sort-SemVerDescending -Versions @($requestedVersions | Where-Object { $commonVersions -contains $_ }))
+        if ($requestedCandidates.Count -gt 0) { $targetVersion = [string]$requestedCandidates[0] }
+    }
+    if ([string]::IsNullOrWhiteSpace($targetVersion)) { $targetVersion = [string]$commonVersions[0] }
+
+    return (Set-VrcSetupPackageVersion -Packages $result -PackageName $sdkNames[0] -Version $targetVersion)
+}
+
 function Test-IsFileLockMessage {
     param([string]$Text)
 
@@ -210,7 +295,7 @@ function Get-VpmProjectPackageSet {
         }
         if ($manifest -and $manifest.locked -and $IncludeLockedPackages.Count -gt 0) {
             foreach ($dependency in @($manifest.locked.PSObject.Properties)) {
-                if ($IncludeLockedPackages -notcontains $dependency.Name -or $packages.Contains($dependency.Name)) { continue }
+                if ($IncludeLockedPackages -notcontains $dependency.Name) { continue }
                 $rawValue = $dependency.Value
                 $version = if ($rawValue -and $rawValue.PSObject.Properties.Name -contains 'version') {
                     [string]$rawValue.version
@@ -218,6 +303,9 @@ function Get-VpmProjectPackageSet {
                     [string]$rawValue
                 }
                 if (-not [string]::IsNullOrWhiteSpace($version)) {
+                    # `locked` is VPM's resolved package version. Prefer it over
+                    # a stale direct constraint when the caller explicitly asks
+                    # for this package (notably the linked VRChat SDK set).
                     $packages[$dependency.Name] = $version
                 }
             }
@@ -241,9 +329,11 @@ function Compare-VpmPackageSets {
     $updated = @()
     $removed = @()
     $unchanged = @()
+    $currentNames = @($current.PSObject.Properties | ForEach-Object { $_.Name })
+    $desiredNames = @($desired.PSObject.Properties | ForEach-Object { $_.Name })
 
     foreach ($package in @($desired.PSObject.Properties)) {
-        if ($current.PSObject.Properties.Name -notcontains $package.Name) {
+        if ($currentNames -notcontains $package.Name) {
             $added += $package.Name
         } elseif ([string]$current.($package.Name) -ne [string]$package.Value) {
             $updated += $package.Name
@@ -252,7 +342,7 @@ function Compare-VpmPackageSets {
         }
     }
     foreach ($package in @($current.PSObject.Properties)) {
-        if ($desired.PSObject.Properties.Name -notcontains $package.Name) {
+        if ($desiredNames -notcontains $package.Name) {
             $removed += $package.Name
         }
     }
@@ -395,6 +485,16 @@ function Test-VpmPackageVersion {
     if ([string]::IsNullOrWhiteSpace($Version)) {
         return @{ Valid = $false; Message = "Version is empty" }
     }
+
+    try {
+        $isPrerelease = ($Version -match '-')
+        if (Get-Command Get-VrcGetAvailableVersions -ErrorAction SilentlyContinue) {
+            $vrcGetVersions = @(Get-VrcGetAvailableVersions -PackageName $PackageName -ScriptDir $ScriptDir)
+            if ($isPrerelease -and $vrcGetVersions -contains $Version) {
+                return @{ Valid = $true; Message = "Validated with vrc-get (${Version})" }
+            }
+        }
+    } catch { }
 
     # Validate existence even for 'latest'
     if ($Version -eq "latest") {

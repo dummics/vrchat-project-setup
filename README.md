@@ -143,6 +143,10 @@ projects**. It then provides:
      happen after saving. Left/Right cycles cached versions without leaving the
      table; Space includes or removes a package, while V opens the full list only
      when needed.
+   - Treat VRChat SDK Base together with the selected project SDK (Avatars or
+     Worlds): the picker offers versions shared by every component and stages
+     one linked SDK update. Exact prerelease versions use the bundled `vrc-get`
+     path for install, upgrade or downgrade.
    - Refresh the list explicitly or choose a folder outside the configured root.
    - Manage an existing Unity project and save a complete VPM change set once.
    - Stage the default preset without removing unrelated project packages.
@@ -153,6 +157,8 @@ projects**. It then provides:
      the complete operation inside a fixed, scrollable progress panel. Page
      keys can inspect earlier messages without switching to a full-log screen;
      the timestamped session log remains available after completion.
+   - If saving fails, keep the staged choices and offer retry, package editing,
+     or return-to-project paths instead of dropping the user out of the flow.
    - Detect and clean up incomplete project setups.
 3. **Default package set**
    - Shows the required VRChat foundation first, in base/avatar/resolver order.

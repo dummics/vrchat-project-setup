@@ -80,6 +80,22 @@ function Test-VrcSetupCliPackageSpec {
     return $true
 }
 
+function Test-VrcSetupCliSdkVersionSelection {
+    param(
+        [Parameter(Mandatory)]$Packages,
+        [Parameter(Mandatory)][string]$PackageName,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$ScriptDir
+    )
+
+    if (-not (Test-IsVrcSetupSdkPackage -PackageName $PackageName) -or $Version -eq 'latest') { return $true }
+    $sdkNames = @(Get-VrcSetupSdkPackageNames | Where-Object { $Packages.PSObject.Properties.Name -contains $_ })
+    $sharedVersions = @(Get-VrcSetupCommonPackageVersions -PackageNames $sdkNames -ScriptDir $ScriptDir)
+    if ($sharedVersions -contains $Version) { return $true }
+    Write-Host "Error: SDK version ${Version} is not available for every SDK component in this project." -ForegroundColor Red
+    return $false
+}
+
 function Show-VrcSetupCliPackagePlan {
     param(
         [Parameter(Mandatory)]$Current,
@@ -119,17 +135,18 @@ function Invoke-VrcSetupCliPackageMutation {
         return 1
     }
 
-    try { $current = Get-VpmProjectPackageSet -ProjectPath $ProjectPath } catch {
+    try { $current = Get-VpmProjectPackageSet -ProjectPath $ProjectPath -IncludeLockedPackages @(Get-RequiredPackages -Config $Config) } catch {
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
         return 1
     }
-    $desired = Copy-VpmPackageSet -Packages $current
+    $desired = Add-RequiredPackagesToSet -Packages $current -Config $Config
 
     if ($Action -eq 'add') {
         foreach ($rawSpec in $PackageSpecs) {
             $spec = ConvertFrom-VrcSetupPackageSpec -Spec $rawSpec
             if (-not (Test-VrcSetupCliPackageSpec -PackageSpec $spec -ScriptDir $ScriptDir)) { return 1 }
-            $desired | Add-Member -MemberType NoteProperty -Name $spec.Name -Value $spec.Version -Force
+            $desired = Set-VrcSetupPackageVersion -Packages $desired -PackageName $spec.Name -Version $spec.Version
+            if (-not (Test-VrcSetupCliSdkVersionSelection -Packages $desired -PackageName $spec.Name -Version $spec.Version -ScriptDir $ScriptDir)) { return 1 }
         }
     } else {
         foreach ($packageName in $PackageSpecs) {
@@ -146,6 +163,10 @@ function Invoke-VrcSetupCliPackageMutation {
     }
 
     $desired = Add-RequiredPackagesToSet -Packages $desired -Config $Config
+    try { $desired = Resolve-VrcSetupSdkPackageSet -Packages $desired -ScriptDir $ScriptDir } catch {
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+        return 1
+    }
     $plan = Show-VrcSetupCliPackagePlan -Current $current -Desired $desired -DryRun:$DryRun
     if (@($plan.Added).Count -eq 0 -and @($plan.Updated).Count -eq 0 -and @($plan.Removed).Count -eq 0) {
         Write-Host 'No package changes are needed.' -ForegroundColor Green
@@ -252,13 +273,18 @@ function Invoke-VrcSetupCli {
             Write-Host "Error: UnityPackage not found: ${unityPackagePath}" -ForegroundColor Red
             return 1
         }
-        $packages = Copy-VpmPackageSet -Packages $config.VpmPackages
+        $packages = Add-RequiredPackagesToSet -Packages (Copy-VpmPackageSet -Packages $config.VpmPackages) -Config $config
         foreach ($rawSpec in @($Package)) {
             $spec = ConvertFrom-VrcSetupPackageSpec -Spec $rawSpec
             if (-not (Test-VrcSetupCliPackageSpec -PackageSpec $spec -ScriptDir $ScriptDir)) { return 1 }
-            $packages | Add-Member -MemberType NoteProperty -Name $spec.Name -Value $spec.Version -Force
+            $packages = Set-VrcSetupPackageVersion -Packages $packages -PackageName $spec.Name -Version $spec.Version
+            if (-not (Test-VrcSetupCliSdkVersionSelection -Packages $packages -PackageName $spec.Name -Version $spec.Version -ScriptDir $ScriptDir)) { return 1 }
         }
         $packages = Add-RequiredPackagesToSet -Packages $packages -Config $config
+        try { $packages = Resolve-VrcSetupSdkPackageSet -Packages $packages -ScriptDir $ScriptDir } catch {
+            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+            return 1
+        }
         $projectName = if ([string]::IsNullOrWhiteSpace($Name)) { [System.IO.Path]::GetFileNameWithoutExtension($unityPackagePath) } else { $Name }
         Write-Host "Create project: ${projectName}" -ForegroundColor Cyan
         Write-Host "UnityPackage: ${unityPackagePath}" -ForegroundColor DarkGray

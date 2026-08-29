@@ -56,6 +56,9 @@ disclosure rather than the default path. Package search, presets and optional
 saved imports remain shortcuts on the same surface, with one visually separated
 Save action. A future desktop table can replace keyboard focus with row clicks
 or compact cell controls without changing the staged-change model underneath.
+Linked SDK components are presented as one user intention even though the
+backend validates Base plus Avatars or Worlds separately. Review and progress
+surfaces should preserve that product-level grouping.
 The same principle applies while work is running: the terminal client keeps a
 bounded, scrollable activity viewport inside the current flow and exposes the
 full diagnostic log only after completion. A desktop client can map that model

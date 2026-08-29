@@ -99,8 +99,16 @@ try {
     $lockedPackages = Get-VpmProjectPackageSet -ProjectPath $lockedProject -IncludeLockedPackages @('com.vrchat.base')
     Assert-True ($lockedPackages.'com.vrchat.base' -eq '3.10.4') 'A required package present in the VPM locked set was reported as missing.'
     Assert-True ($lockedPackages.PSObject.Properties.Name -notcontains 'com.example.transitive') 'Unrequested transitive packages leaked into the editable package set.'
+    [System.IO.File]::WriteAllText(
+        (Join-Path $lockedProject 'Packages\vpm-manifest.json'),
+        '{"dependencies":{"com.vrchat.avatars":{"version":"3.10.5-beta.1"}},"locked":{"com.vrchat.base":{"version":"3.10.5-beta.2"},"com.vrchat.avatars":{"version":"3.10.5-beta.2"}}}'
+    )
+    $resolvedLockedPackages = Get-VpmProjectPackageSet -ProjectPath $lockedProject -IncludeLockedPackages @('com.vrchat.base', 'com.vrchat.avatars')
+    Assert-True ($resolvedLockedPackages.'com.vrchat.base' -eq '3.10.5-beta.2' -and $resolvedLockedPackages.'com.vrchat.avatars' -eq '3.10.5-beta.2') 'The editable package set preferred a stale direct dependency over the resolved locked SDK version.'
     $lockedValidation = Get-VpmManifestValidationResult -ProjectPath $lockedProject -Packages ([pscustomobject]@{ 'com.vrchat.base' = 'latest' })
     Assert-True ($lockedValidation.Valid) 'Manifest validation ignored an installed package recorded by VPM in the locked set.'
+    $lockedMismatch = Get-VpmManifestValidationResult -ProjectPath $lockedProject -Packages ([pscustomobject]@{ 'com.vrchat.base' = '3.10.5-beta.1' })
+    Assert-True (-not $lockedMismatch.Valid -and $lockedMismatch.VersionMismatches.Count -eq 1) 'Manifest validation accepted an SDK package that stayed on the wrong version.'
     Assert-True ($projectPackages.'com.example.keep' -eq '1.0.0') 'String-shaped VPM dependency version was not parsed.'
     $desiredPackages = Copy-VpmPackageSet -Packages $projectPackages
     $desiredPackages.PSObject.Properties.Remove('gogoloco')
@@ -113,6 +121,8 @@ try {
     $changePlan = Compare-VpmPackageSets -CurrentPackages $projectPackages -DesiredPackages $desiredPackages
     Assert-True ($changePlan.Removed -contains 'gogoloco') 'AIO plan did not schedule GoGoLoco for removal.'
     Assert-True ($changePlan.Removed -notcontains 'com.example.keep') 'AIO plan removed a package that stayed selected.'
+    $emptyProjectPlan = Compare-VpmPackageSets -CurrentPackages ([pscustomobject]@{}) -DesiredPackages ([pscustomobject]@{ 'com.vrchat.base' = '3.10.4' })
+    Assert-True ($emptyProjectPlan.Added.Count -eq 1 -and $emptyProjectPlan.Added[0] -eq 'com.vrchat.base') 'An empty project cannot stage its first package safely.'
 
     $toggleResult = Set-VrcSetupOptionalPackageSelection -Packages $projectPackages -SelectedPackageNames @('com.example.keep') -Config $null
     Assert-True ($toggleResult.PSObject.Properties.Name -notcontains 'gogoloco') 'Toggling an optional package off did not stage its removal.'
@@ -122,15 +132,39 @@ try {
     Assert-True ($bulkAdded.'com.example.one' -eq 'latest' -and $bulkAdded.'com.example.two' -eq 'latest') 'Bulk package add did not stage every package at latest.'
     $bulkUpdated = Set-VrcSetupPackagesToLatest -Packages $projectPackages -PackageNames @('gogoloco', 'com.example.keep')
     Assert-True ($bulkUpdated.gogoloco -eq 'latest' -and $bulkUpdated.'com.example.keep' -eq 'latest') 'Bulk package update did not stage every selected package.'
-
+    $sdkPackages = [pscustomobject]@{
+        'com.vrchat.base' = '3.10.5-beta.1'
+        'com.vrchat.avatars' = '3.10.5-beta.1'
+        'gogoloco' = '1.8.6'
+    }
+    $alignedSdkPackages = Set-VrcSetupPackageVersion -Packages $sdkPackages -PackageName 'com.vrchat.avatars' -Version '3.10.5-beta.2'
+    Assert-True ($alignedSdkPackages.'com.vrchat.base' -eq '3.10.5-beta.2' -and $alignedSdkPackages.'com.vrchat.avatars' -eq '3.10.5-beta.2') 'Changing an Avatar SDK version did not keep Base aligned.'
+    Assert-True ($alignedSdkPackages.gogoloco -eq '1.8.6' -and $alignedSdkPackages.PSObject.Properties.Name -notcontains 'com.vrchat.worlds') 'SDK alignment changed an unrelated package or added the other project type.'
+    $worldSdkPackages = Set-VrcSetupPackageVersion -Packages $alignedSdkPackages -PackageName 'com.vrchat.worlds' -Version '3.10.4'
+    Assert-True ($worldSdkPackages.'com.vrchat.base' -eq '3.10.4' -and $worldSdkPackages.'com.vrchat.avatars' -eq '3.10.4' -and $worldSdkPackages.'com.vrchat.worlds' -eq '3.10.4') 'Adding Worlds did not add it and align every SDK component already selected.'
+    Assert-True ((Get-VrcSetupVrcGetPackageAction -CurrentVersion '' -TargetVersion '3.10.5-beta.2') -eq 'install') 'A new prerelease package is not routed to vrc-get install.'
+    Assert-True ((Get-VrcSetupVrcGetPackageAction -CurrentVersion '3.10.5-beta.1' -TargetVersion '3.10.5-beta.2') -eq 'upgrade') 'A newer prerelease package is not routed to vrc-get upgrade.'
+    Assert-True ((Get-VrcSetupVrcGetPackageAction -CurrentVersion '3.10.5-beta.2' -TargetVersion '3.10.5-beta.1') -eq 'downgrade') 'An older prerelease package is not routed to vrc-get downgrade.'
+    Assert-True (Test-VrcSetupPackageCommandFailed -Result ([pscustomobject]@{ ExitCode = 0; Output = '[ERR] Could not get match for com.vrchat.base' })) 'A package command that printed a resolver error was accepted as successful.'
+    $script:VrcGetVersionsCache['com.example.sdk-a'] = @('3.10.5-beta.2', '3.10.5-beta.1', '3.10.4')
+    $script:VrcGetVersionsCache['com.example.sdk-b'] = @('3.10.5-beta.2', '3.10.4')
+    $commonVersions = @(Get-VrcSetupCommonPackageVersions -PackageNames @('com.example.sdk-a', 'com.example.sdk-b') -ScriptDir $scriptDir)
+    Assert-True (($commonVersions -join ',') -eq '3.10.5-beta.2,3.10.4') 'The SDK version picker did not keep only versions shared by linked packages.'
     $syncOutput = @(& { Start-Installer -projectPath $projectRoot -PackagesOverride $desiredPackages -SyncPackages -Test } *>&1)
     $syncStatus = [int]$syncOutput[-1]
     $syncText = ($syncOutput | ForEach-Object { [string]$_ }) -join "`n"
     Assert-True ($syncStatus -eq 0) "AIO test-mode synchronization returned ${syncStatus}."
     Assert-True ($syncText -match 'Would remove package: gogoloco') 'AIO synchronization did not issue the GoGoLoco removal.'
     Assert-True ($syncText -notmatch 'Would remove package: com\.example\.keep') 'AIO synchronization tried to remove a selected package.'
-    Assert-True ($syncText -notmatch 'Would add package: com\.vrchat\.base') 'AIO synchronization reprocessed an unchanged package.'
+    Assert-True ($syncText -match 'Would add package: com\.vrchat\.base') 'AIO synchronization did not align the installed Base package with the linked SDK target.'
     Assert-True ($syncText -notmatch 'Would add package: com\.example\.keep') 'AIO synchronization reprocessed another unchanged package.'
+    $script:VrcGetVersionsCache['com.vrchat.base'] = @('3.10.5-beta.2', '3.10.4', '3.10.3')
+    $script:VrcGetVersionsCache['com.vrchat.avatars'] = @('3.10.5-beta.2', '3.10.4', '3.10.2')
+    $resolvedLatestSdk = Resolve-VrcSetupSdkPackageSet -Packages ([pscustomobject]@{
+        'com.vrchat.base' = 'latest'
+        'com.vrchat.avatars' = 'latest'
+    }) -ScriptDir $scriptDir
+    Assert-True ($resolvedLatestSdk.'com.vrchat.base' -eq '3.10.4' -and $resolvedLatestSdk.'com.vrchat.avatars' -eq '3.10.4') 'Newest-compatible SDK selection did not resolve to one shared stable version.'
 
     $cliListOutput = @(Invoke-VrcSetupCli -Command 'packages' -Arguments @('list', $projectRoot) -ScriptDir $scriptDir -ConfigPath (Join-Path $scriptDir 'config\vrcsetup.json') -Json)
     $cliListStatus = [int]$cliListOutput[-1]
@@ -167,6 +201,8 @@ try {
     $workspaceDesired.'com.example.keep' = 'latest'
     $workspaceDesired = Add-VrcSetupPackagesAtLatest -Packages $workspaceDesired -PackageNames @('com.example.new')
     $workspaceItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $projectPackages -DesiredPackages $workspaceDesired -Config $null)
+    $workspaceNames = @($workspaceItems | ForEach-Object Name)
+    Assert-True ($workspaceNames[0] -eq 'com.vrchat.base') 'The project package table no longer begins with the VRChat SDK foundation.'
     Assert-True (($workspaceItems | Where-Object Name -eq 'gogoloco').Status -eq 'Remove') 'The package workspace did not keep a staged removal visible.'
     Assert-True (($workspaceItems | Where-Object Name -eq 'com.example.keep').Status -eq 'Update') 'The package workspace did not expose a staged version change.'
     Assert-True (($workspaceItems | Where-Object Name -eq 'com.example.new').Status -eq 'Add') 'The package workspace did not expose a staged addition.'
@@ -181,6 +217,10 @@ try {
     Assert-True ($olderFromLatest.Version -eq '3.10.4') 'Moving older from newest did not select the newest concrete version.'
     Assert-True ($newerFromLatest.Version -eq 'latest' -and $newerFromLatest.AtLimit) 'Moving newer from newest changed the version policy unexpectedly.'
     Assert-True ($newerFromNewestFixed.Version -eq 'latest') 'Moving newer from the newest fixed version did not restore the newest-compatible policy.'
+    $sdkWorkspaceItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $sdkPackages -DesiredPackages $sdkPackages -Config $null)
+    $linkedWorkspaceChanges = @(Set-VrcSetupWorkspaceItemVersion -Items $sdkWorkspaceItems -PackageName 'com.vrchat.base' -Version '3.10.5-beta.2')
+    Assert-True ($linkedWorkspaceChanges.Count -eq 2 -and @($sdkWorkspaceItems | Where-Object DesiredVersion -eq '3.10.5-beta.2').Count -eq 2) 'Inline SDK version changes did not update both visible rows together.'
+    Assert-True ((Get-VrcSetupWorkspacePendingCount -Items $sdkWorkspaceItems) -eq 1) 'One linked SDK update is still counted as multiple user changes.'
     $mergedDefaults = Merge-VrcSetupPackageSets -BasePackages $projectPackages -PackagesToAdd ([pscustomobject]@{ 'gogoloco' = 'latest'; 'com.example.default' = '2.0.0' })
     Assert-True ($mergedDefaults.'com.example.keep' -eq '1.0.0') 'Using the default package set removed an existing non-default package.'
     Assert-True ($mergedDefaults.gogoloco -eq 'latest' -and $mergedDefaults.'com.example.default' -eq '2.0.0') 'Using the default package set did not stage its package versions.'
@@ -191,6 +231,8 @@ try {
     $menuText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\menu.ps1') -Raw
     $spectreText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\spectre.ps1') -Raw
     $progressText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\progress.ps1') -Raw
+    $installerText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\installer.ps1') -Raw
+    $cliText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\cli.ps1') -Raw
     Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $spectreText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
     Assert-True ($menuText -notmatch "\[string\]\$PromptTitle = 'Choose an action'" -and $spectreText -notmatch "\[string\]\$PromptTitle = 'Choose an action'") 'Menus still default to technical action instructions.'
     Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Left/Right Change version' -and $spectreText -match 'Space Include/remove') 'The direct package-table controls are missing.'
@@ -198,6 +240,10 @@ try {
     Assert-True ($spectreText -match 'function Show-VrcSetupSpectreSaveReview' -and $spectreText -match 'function Invoke-VrcSetupSpectreOperation') 'The polished save review or embedded progress surface is missing.'
     Assert-True ($wizardText -match 'Invoke-VrcSetupInstallerWithProgress' -and $wizardText -match 'Show-VrcSetupSpectreSaveReview') 'The interactive wizard bypasses the embedded review/progress flow.'
     Assert-True ($wizardText -match 'VRCSETUP_EMBEDDED_PROGRESS' -and $progressText -match 'VRCSETUP_EMBEDDED_PROGRESS') 'Embedded progress does not isolate the viewport keyboard from process cancellation input.'
+    Assert-True ($spectreText -match '\$versionWidth = if \(\$isNarrow\).*36' -and $spectreText -match 'Viewing messages') 'The package/version table or progress message counter regressed to the cramped or ambiguous layout.'
+    Assert-True ($installerText -match "'--prerelease'" -and $installerText -match 'Invoke-VrcGetCapture') 'Prerelease packages are still routed only through the VPM CLI that cannot resolve them.'
+    Assert-True ($installerText -match 'IncludeLockedPackages \$configuredPackageNames' -and $installerText -match 'Restore-VrcSetupPackageBatch') 'Locked SDK packages or failed package operations still bypass the safe installer contract.'
+    Assert-True ($cliText -match 'Set-VrcSetupPackageVersion' -and $cliText -match 'Test-VrcSetupCliSdkVersionSelection') 'CLI package/create flows bypass SDK version alignment or compatibility validation.'
     if ($PSVersionTable.PSVersion.Major -ge 7 -and (Initialize-VrcSetupSpectre -ScriptDir $scriptDir)) {
         $workspaceRenderable = New-VrcSetupPackageWorkspaceRenderable -Items $workspaceItems -SelectedIndex 0 -PendingCount 3
         Assert-True ($workspaceRenderable -is [Spectre.Console.Rows]) 'The package workspace did not build a Spectre renderable.'
