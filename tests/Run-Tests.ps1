@@ -89,6 +89,18 @@ try {
     $projectPackages = Get-VpmProjectPackageSet -ProjectPath $projectRoot
     Assert-True ($projectPackages.PSObject.Properties.Name -contains 'gogoloco') 'Test project did not expose GoGoLoco from vpm-manifest.json.'
     Assert-True ($projectPackages.'com.vrchat.base' -eq '3.8.0') 'Object-shaped VPM dependency version was not parsed.'
+    $lockedProject = Join-Path $testRoot 'Locked dependency project'
+    [System.IO.Directory]::CreateDirectory((Join-Path $lockedProject 'Packages')) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $lockedProject 'Packages\manifest.json'), '{"dependencies":{}}')
+    [System.IO.File]::WriteAllText(
+        (Join-Path $lockedProject 'Packages\vpm-manifest.json'),
+        '{"dependencies":{"com.vrchat.avatars":{"version":"3.10.4"}},"locked":{"com.vrchat.base":{"version":"3.10.4"},"com.example.transitive":{"version":"1.0.0"}}}'
+    )
+    $lockedPackages = Get-VpmProjectPackageSet -ProjectPath $lockedProject -IncludeLockedPackages @('com.vrchat.base')
+    Assert-True ($lockedPackages.'com.vrchat.base' -eq '3.10.4') 'A required package present in the VPM locked set was reported as missing.'
+    Assert-True ($lockedPackages.PSObject.Properties.Name -notcontains 'com.example.transitive') 'Unrequested transitive packages leaked into the editable package set.'
+    $lockedValidation = Get-VpmManifestValidationResult -ProjectPath $lockedProject -Packages ([pscustomobject]@{ 'com.vrchat.base' = 'latest' })
+    Assert-True ($lockedValidation.Valid) 'Manifest validation ignored an installed package recorded by VPM in the locked set.'
     Assert-True ($projectPackages.'com.example.keep' -eq '1.0.0') 'String-shaped VPM dependency version was not parsed.'
     $desiredPackages = Copy-VpmPackageSet -Packages $projectPackages
     $desiredPackages.PSObject.Properties.Remove('gogoloco')
@@ -159,7 +171,16 @@ try {
     Assert-True (($workspaceItems | Where-Object Name -eq 'com.example.keep').Status -eq 'Update') 'The package workspace did not expose a staged version change.'
     Assert-True (($workspaceItems | Where-Object Name -eq 'com.example.new').Status -eq 'Add') 'The package workspace did not expose a staged addition.'
     $workspaceRow = Format-VrcSetupPackageWorkspaceRow -Item ($workspaceItems | Where-Object Name -eq 'com.example.keep')
-    Assert-True ($workspaceRow -match '^Keep\s+1\.0\.0\s+latest\s+Update$') 'The package workspace row is not aligned into readable installed, future, and status columns.'
+    Assert-True ($workspaceRow -match '^Keep\s+1\.0\.0 -> Newest\s+Will change$') 'The package workspace row is not aligned into one readable version and outcome.'
+    $olderVersion = Get-VrcSetupAdjacentPackageVersion -AvailableVersions @('3.10.4', '3.10.3', '3.10.2') -CurrentVersion '3.10.3' -Direction Older
+    $newerVersion = Get-VrcSetupAdjacentPackageVersion -AvailableVersions @('3.10.4', '3.10.3', '3.10.2') -CurrentVersion '3.10.3' -Direction Newer
+    $olderFromLatest = Get-VrcSetupAdjacentPackageVersion -AvailableVersions @('3.10.4', '3.10.3', '3.10.2') -CurrentVersion 'latest' -Direction Older
+    $newerFromLatest = Get-VrcSetupAdjacentPackageVersion -AvailableVersions @('3.10.4', '3.10.3', '3.10.2') -CurrentVersion 'latest' -Direction Newer
+    $newerFromNewestFixed = Get-VrcSetupAdjacentPackageVersion -AvailableVersions @('3.10.4', '3.10.3', '3.10.2') -CurrentVersion '3.10.4' -Direction Newer
+    Assert-True ($olderVersion.Version -eq '3.10.2' -and $newerVersion.Version -eq '3.10.4') 'Inline version arrows do not move predictably between cached versions.'
+    Assert-True ($olderFromLatest.Version -eq '3.10.4') 'Moving older from newest did not select the newest concrete version.'
+    Assert-True ($newerFromLatest.Version -eq 'latest' -and $newerFromLatest.AtLimit) 'Moving newer from newest changed the version policy unexpectedly.'
+    Assert-True ($newerFromNewestFixed.Version -eq 'latest') 'Moving newer from the newest fixed version did not restore the newest-compatible policy.'
     $mergedDefaults = Merge-VrcSetupPackageSets -BasePackages $projectPackages -PackagesToAdd ([pscustomobject]@{ 'gogoloco' = 'latest'; 'com.example.default' = '2.0.0' })
     Assert-True ($mergedDefaults.'com.example.keep' -eq '1.0.0') 'Using the default package set removed an existing non-default package.'
     Assert-True ($mergedDefaults.gogoloco -eq 'latest' -and $mergedDefaults.'com.example.default' -eq '2.0.0') 'Using the default package set did not stage its package versions.'
@@ -171,7 +192,8 @@ try {
     $spectreText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\spectre.ps1') -Raw
     Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $spectreText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
     Assert-True ($menuText -notmatch "\[string\]\$PromptTitle = 'Choose an action'" -and $spectreText -notmatch "\[string\]\$PromptTitle = 'Choose an action'") 'Menus still default to technical action instructions.'
-    Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Enter or V Version' -and $spectreText -match 'Space Add/Remove') 'The direct package-table controls are missing.'
+    Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Left/Right Change version' -and $spectreText -match 'Space Include/remove') 'The direct package-table controls are missing.'
+    Assert-True ($spectreText -match "Label = 'Version'" -and $spectreText -match "Label = 'After saving'" -and $spectreText -notmatch "Label = 'Installed'|Label = 'State'") 'The package workspace returned to technical duplicate columns.'
     if ($PSVersionTable.PSVersion.Major -ge 7 -and (Initialize-VrcSetupSpectre -ScriptDir $scriptDir)) {
         $workspaceRenderable = New-VrcSetupPackageWorkspaceRenderable -Items $workspaceItems -SelectedIndex 0 -PendingCount 3
         Assert-True ($workspaceRenderable -is [Spectre.Console.Rows]) 'The package workspace did not build a Spectre renderable.'

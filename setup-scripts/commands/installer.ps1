@@ -106,6 +106,12 @@ function Get-VpmManifestValidationResult {
             if ($vpmManifest -and $vpmManifest.dependencies) {
                 $dependencyNames += @($vpmManifest.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
             }
+            if ($vpmManifest -and $vpmManifest.locked) {
+                # VPM can keep packages that are supplied by another package only
+                # in `locked`. They are installed and valid even when adding them
+                # explicitly does not create a second direct dependency entry.
+                $dependencyNames += @($vpmManifest.locked.PSObject.Properties | ForEach-Object { $_.Name })
+            }
         }
 
         $dependencyNames = @($dependencyNames | Sort-Object -Unique)

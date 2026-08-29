@@ -37,7 +37,8 @@ Wizard UX notes:
 - Wizard clears the screen before text prompts (drag&drop paths) to avoid overlap with the menu.
 - Related choices are separated with whitespace instead of technical group labels; final actions remain visually distinct (Back = red).
 - `Create project` offers a short UnityPackage path; `Manage projects` contains the library, a direct folder picker and incomplete-project cleanup.
-- Existing-project package management is one workspace instead of a chain of procedure menus. Its bordered table shows readable package names, installed versions, the state after saving and any staged Add/Update/Remove change. Enter/V changes the focused package version, Space adds or removes it, and shortcuts for package search, the user's package set and saved UnityPackage imports stay on the same screen. One final Save action commits the staged set.
+- Existing-project package management is one workspace instead of a chain of procedure menus. Its bordered table has one Version column plus a plain-language outcome (`Included`, `Always included`, `Will be added/changed/removed`). Left/Right cycles the cached version list inline, Space includes or removes the focused package, and V retains the full version list as an advanced path. A large bordered Save control is separated from the key guide.
+- VPM packages found in the resolved `locked` set count as installed during validation; only configured required packages are promoted into the editable workspace, so unrelated transitive dependencies stay hidden.
 - AIO synchronization skips dependencies whose exact version is unchanged.
 - The VPM package editor supports change version/remove plus add package (type-to-filter). Only the VRChat base/avatar/resolver foundation is required; GoGoLoco and other starter packages are removable.
 - Bugfix: "Add package" no longer throws and instantly returns to the list.

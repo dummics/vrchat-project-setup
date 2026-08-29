@@ -139,12 +139,15 @@ projects**. It then provides:
    - Starts with projects updated most recently; change the library order to
      alphabetical whenever that is more useful.
    - Select a listed project and land directly in one package workspace. The
-     bordered table keeps installed and future versions visible together. From
-     the focused row, change version with Enter/V or add/remove with Space;
-     package search and the optional preset remain shortcuts on the same screen.
+     bordered table uses one readable Version column and explains only what will
+     happen after saving. Left/Right cycles cached versions without leaving the
+     table; Space includes or removes a package, while V opens the full list only
+     when needed.
    - Refresh the list explicitly or choose a folder outside the configured root.
    - Manage an existing Unity project and save a complete VPM change set once.
    - Stage the default preset without removing unrelated project packages.
+   - Recognize required packages recorded by VPM as resolved/locked dependencies,
+     avoiding false missing-package failures and repeated installs.
    - Include saved UnityPackages in the same final Save action when needed.
    - Detect and clean up incomplete project setups.
 3. **Default package set**

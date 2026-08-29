@@ -183,7 +183,8 @@ function Get-VpmReposPath {
 
 function Get-VpmProjectPackageSet {
     param(
-        [Parameter(Mandatory)][string]$ProjectPath
+        [Parameter(Mandatory)][string]$ProjectPath,
+        [string[]]$IncludeLockedPackages = @()
     )
 
     $packages = [ordered]@{}
@@ -196,6 +197,20 @@ function Get-VpmProjectPackageSet {
         $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         if ($manifest -and $manifest.dependencies) {
             foreach ($dependency in @($manifest.dependencies.PSObject.Properties)) {
+                $rawValue = $dependency.Value
+                $version = if ($rawValue -and $rawValue.PSObject.Properties.Name -contains 'version') {
+                    [string]$rawValue.version
+                } else {
+                    [string]$rawValue
+                }
+                if (-not [string]::IsNullOrWhiteSpace($version)) {
+                    $packages[$dependency.Name] = $version
+                }
+            }
+        }
+        if ($manifest -and $manifest.locked -and $IncludeLockedPackages.Count -gt 0) {
+            foreach ($dependency in @($manifest.locked.PSObject.Properties)) {
+                if ($IncludeLockedPackages -notcontains $dependency.Name -or $packages.Contains($dependency.Name)) { continue }
                 $rawValue = $dependency.Value
                 $version = if ($rawValue -and $rawValue.PSObject.Properties.Name -contains 'version') {
                     [string]$rawValue.version

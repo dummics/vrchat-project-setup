@@ -654,7 +654,8 @@ function Select-VpmVersion {
 
     while ($true) {
         $friendlyName = Get-VrcSetupFriendlyPackageName -PackageName $PackageName
-        $header = "Package: ${friendlyName}`nCurrent version: $(if ($CurrentVersion) { $CurrentVersion } else { 'Not installed' })`n"
+        $currentChoice = if ($CurrentVersion -eq 'latest') { 'Newest compatible version' } elseif ($CurrentVersion) { $CurrentVersion } else { 'Not included' }
+        $header = "Package: ${friendlyName}`nCurrent choice: ${currentChoice}`n"
         if ($available.Count -gt 0) {
             $header += "Versions available: $($available.Count)`nScroll the list or start typing to jump to a version."
         }
@@ -662,8 +663,8 @@ function Select-VpmVersion {
             $header += 'No versions were found. You can still enter one manually.'
         }
 
-        $latestOption = 'Latest compatible version'
-        $manualOption = 'Enter an exact version'
+        $latestOption = 'Use the newest compatible version'
+        $manualOption = 'Enter a version manually'
         $backOption = 'Back'
         $options = @($latestOption, $manualOption) + @($available) + @($backOption)
         $sel = Show-Menu -Title 'Choose version' -Header $header -PromptTitle 'Version' -Options $options -MaxVisible 18
@@ -673,7 +674,7 @@ function Select-VpmVersion {
         if ($picked -eq $backOption) { return $null }
         if ($picked -eq $latestOption) { return 'latest' }
         if ($picked -eq $manualOption) {
-            $manual = Read-Host "Exact version (or 'latest')"
+            $manual = Read-Host "Version (or 'latest')"
             if ([string]::IsNullOrWhiteSpace($manual)) { return $null }
             return $manual.Trim()
         }
@@ -1158,18 +1159,20 @@ function Get-VrcSetupPackageWorkspaceItems {
 function Format-VrcSetupPackageWorkspaceRow {
     param([Parameter(Mandatory)]$Item)
 
-    $installed = if ([string]::IsNullOrWhiteSpace([string]$Item.CurrentVersion)) { '-' } else { [string]$Item.CurrentVersion }
-    $after = switch ([string]$Item.Status) {
-        'Add' { [string]$Item.DesiredVersion; break }
-        'Update' { [string]$Item.DesiredVersion; break }
-        'Remove' { 'Remove'; break }
-        default { '-' }
+    $installed = if ([string]::IsNullOrWhiteSpace([string]$Item.CurrentVersion)) { '' } else { [string]$Item.CurrentVersion }
+    $selectedVersion = if ([string]::IsNullOrWhiteSpace([string]$Item.DesiredVersion)) { '' } elseif ([string]$Item.DesiredVersion -eq 'latest') { 'Newest' } else { [string]$Item.DesiredVersion }
+    $version = if ($Item.Status -eq 'Update') { "${installed} -> ${selectedVersion}" } elseif ($Item.Status -eq 'Add') { $selectedVersion } else { $installed }
+    $result = switch ([string]$Item.Status) {
+        'Add' { 'Will be added'; break }
+        'Update' { 'Will change'; break }
+        'Remove' { 'Will be removed'; break }
+        'Required' { 'Always included'; break }
+        default { 'Included' }
     }
-    return ('{0}  {1}  {2}  {3}' -f
+    return ('{0}  {1}  {2}' -f
         (Format-VrcSetupPackageCell -Text ([string]$Item.FriendlyName) -Width 30),
-        (Format-VrcSetupPackageCell -Text $installed -Width 14),
-        (Format-VrcSetupPackageCell -Text $after -Width 14),
-        (Format-VrcSetupPackageCell -Text ([string]$Item.Status) -Width 10)).TrimEnd()
+        (Format-VrcSetupPackageCell -Text $version -Width 24),
+        (Format-VrcSetupPackageCell -Text $result -Width 18)).TrimEnd()
 }
 
 function Setup-ProjectFlow {
@@ -1296,7 +1299,7 @@ function Setup-ProjectFlow {
         )
 
         try {
-            $currentPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath
+            $currentPackages = Get-VpmProjectPackageSet -ProjectPath $ProjectPath -IncludeLockedPackages @(Get-RequiredPackages -Config $Config)
         } catch {
             Show-WizardError -Title 'Unable to read project packages' -Message $_.Exception.Message
             return
@@ -1318,11 +1321,26 @@ function Setup-ProjectFlow {
             $workspaceSelection = $null
             $workspaceCommand = Get-Command -Name 'Show-VrcSetupSpectrePackageWorkspace' -ErrorAction SilentlyContinue
             if ($workspaceCommand) {
-                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -ScriptDir $scriptDir
+                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -VersionProvider {
+                    param($packageName)
+                    $versions = @(Get-VrcGetAvailableVersions -PackageName $packageName -ScriptDir $scriptDir)
+                    if ($versions.Count -eq 0) { $versions = @(Get-VpmAvailableVersions -PackageName $packageName) }
+                    return @($versions)
+                } -ScriptDir $scriptDir
             }
 
             if ($workspaceSelection) {
                 if ($workspaceSelection.Action -eq 'back') { return }
+                foreach ($versionChange in @($workspaceSelection.VersionChanges.PSObject.Properties)) {
+                    $nextPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
+                    $nextPackages | Add-Member -MemberType NoteProperty -Name ([string]$versionChange.Name) -Value ([string]$versionChange.Value) -Force
+                    $workingConfig.VpmPackages = $nextPackages
+                }
+                if (@($workspaceSelection.VersionChanges.PSObject.Properties).Count -gt 0) {
+                    $desiredPackages = Copy-VpmPackageSet -Packages $workingConfig.VpmPackages
+                    $plan = Compare-VpmPackageSets -CurrentPackages $currentPackages -DesiredPackages $desiredPackages
+                    $packageChanges = @($plan.Added).Count + @($plan.Updated).Count + @($plan.Removed).Count
+                }
                 if ($workspaceSelection.Action -in @('toggle', 'version')) {
                     $package = $workspaceItems | Where-Object Name -eq $workspaceSelection.PackageName | Select-Object -First 1
                     if (-not $package) { continue }
@@ -1352,7 +1370,7 @@ function Setup-ProjectFlow {
                 $options += 'Back'
                 $actions += [pscustomobject]@{ Kind = 'back'; Item = $null }
 
-                $choice = Show-Menu -Title 'Project packages' -Header $header -PromptTitle 'Package                         Installed       After save      State' -Options $options -MaxVisible 18
+                $choice = Show-Menu -Title 'Project packages' -Header $header -PromptTitle 'Package                         Version                   After saving' -Options $options -MaxVisible 18
                 if ($choice -lt 0 -or $actions[$choice].Kind -eq 'back') { return }
                 $action = $actions[$choice]
             }
