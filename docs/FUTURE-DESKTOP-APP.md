@@ -54,7 +54,10 @@ plain-language description of what saving will do. Left/Right changes the
 version inline from a session cache; the full version list is progressive
 disclosure rather than the default path. Package search, presets and optional
 saved imports remain shortcuts on the same surface, with one visually separated
-Save action. A future desktop table can replace keyboard focus with row clicks
+Save action. Search input, results and empty/error states are stable surfaces
+rather than raw console output. Favorite packages provide a persistent quick-add
+collection that can become a desktop pinned-packages view. A future desktop
+table can replace keyboard focus with row clicks
 or compact cell controls without changing the staged-change model underneath.
 Linked SDK components are presented as one user intention even though the
 backend validates Base plus Avatars or Worlds separately. Review and progress

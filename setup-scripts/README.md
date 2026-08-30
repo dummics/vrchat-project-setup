@@ -31,6 +31,7 @@ Wizard UX notes:
 - PowerShell 7 uses the bundled Spectre.Console assemblies across the complete interactive wizard: menus, path prompts, package search, version selection, project library and cleanup selection. Windows PowerShell 5.1 uses the built-in text fallback.
 - The home screen separates `Create project` from `Manage projects`; every Spectre screen shows its keyboard controls and supports `Esc` or an explicit Back action.
 - Spectre panels use a restrained blue/slate palette. Package pickers use aligned human name, canonical ID and version columns; required VPM packages appear first in the canonical base/avatar/resolver order and optional packages follow alphabetically.
+- Text entry uses a bordered live field instead of dropping into a raw `Read-Host` line. Package-search results use a bordered, scrollable table; empty searches, unavailable search and already-included matches return through the same notice surface without exposing normal tool output as an error.
 - VT/ANSI escape sequences are opt-in: set `VRCSETUP_TUI_VT=1` only if your terminal supports them.
 - Backend commands avoid printing progress lines to keep the TUI clean.
 - Wizard clears the screen before running the installer to avoid leftover menu artifacts.
@@ -38,6 +39,7 @@ Wizard UX notes:
 - Related choices are separated with whitespace instead of technical group labels; final actions remain visually distinct (Back = red).
 - `Create project` offers a short UnityPackage path; `Manage projects` contains the library, a direct folder picker and incomplete-project cleanup.
 - Existing-project package management is one workspace instead of a chain of procedure menus. Its bordered table has one Version column plus a plain-language outcome (`Included`, `Always included`, `Will be added/changed/removed`). Left/Right cycles the cached version list inline, Space includes or removes the focused package, and V retains the full version list as an advanced path. A large bordered Save control is separated from the key guide.
+- F opens persistent favorite packages: the user can add selected favorites to the current project or manage the reusable list. Opening favorites does not query every repository again, so the quick-add path stays immediate.
 - VRChat SDK Base and the present project SDK (Avatars or Worlds) share one compatible-version list and one user-level change count. Stable versions keep the VPM path; exact prereleases use bundled `vrc-get` with install/upgrade/downgrade chosen from the resolved locked version.
 - Saving uses a dedicated change-review screen. Installer output stays inside a fixed-height progress panel instead of replacing the wizard: Up/Down and Page keys scroll the compact messages, End resumes following, and the complete session log is linked only when the operation finishes.
 - Failed saves return to a small recovery choice (`Try again`, `Change packages`, `Back to project`) without discarding the staged package set.

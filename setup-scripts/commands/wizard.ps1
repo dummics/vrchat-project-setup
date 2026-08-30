@@ -102,8 +102,7 @@ function Invoke-FirstRunSetup {
                 $editorPath = $found[$pick].Path
             }
             elseif ($pick -eq $found.Count) {
-                Show-SetupScreen -EditorValue "" -ProjectsRootValue "" -ActiveStep "editor" -StatusMessage "Drag Unity.exe here or paste the full path:"
-                $manualPath = Normalize-UserPath (Read-Host "  Unity.exe path")
+                $manualPath = Read-WizardPathInput -Title 'Unity Editor' -Prompt 'Unity.exe path' -BodyLines @('Drag Unity.exe here or paste its full path.')
                 $manualCheck = Test-UnityEditorPath -Path $manualPath
                 if ($manualCheck.Valid) {
                     $editorPath = $manualPath
@@ -115,8 +114,7 @@ function Invoke-FirstRunSetup {
             # else: skip
         }
         else {
-            Show-SetupScreen -EditorValue "" -ProjectsRootValue "" -ActiveStep "editor" -StatusMessage "No Unity installations found. Drag Unity.exe here or paste the path (ENTER to skip):"
-            $manualPath = Normalize-UserPath (Read-Host "  Unity.exe path")
+            $manualPath = Read-WizardPathInput -Title 'Unity Editor' -Prompt 'Unity.exe path' -BodyLines @('No Unity installations were found automatically.', 'Drag Unity.exe here or paste its full path.')
             if (-not [string]::IsNullOrWhiteSpace($manualPath)) {
                 $manualCheck = Test-UnityEditorPath -Path $manualPath
                 if ($manualCheck.Valid) {
@@ -141,8 +139,7 @@ function Invoke-FirstRunSetup {
     # ===== STEP 2: Projects Root =====
     if ($needProjects) {
         $projectsRoot = ""
-        Show-SetupScreen -EditorValue $editorPath -ProjectsRootValue "" -ActiveStep "projects" -StatusMessage "Step 2/2: Where should new projects be created?`nDrag a folder here or paste the path (ENTER to skip):"
-        $inputRoot = Normalize-UserPath (Read-Host "  Projects folder")
+        $inputRoot = Read-WizardPathInput -Title 'Projects folder' -Prompt 'Folder path' -BodyLines @('Step 2/2: Where should new projects be created?', 'Drag a folder here or paste its path.')
 
         if (-not [string]::IsNullOrWhiteSpace($inputRoot)) {
             if (-not (Test-Path -LiteralPath $inputRoot -PathType Container)) {
@@ -207,6 +204,11 @@ function Show-WizardError {
         [string]$Message,
         [string]$Details
     )
+    $spectreNotice = Get-Command -Name 'Show-VrcSetupSpectreNotice' -ErrorAction SilentlyContinue
+    if ($spectreNotice) {
+        $noticeDetails = if ($Details) { [string]$Details } else { '' }
+        if (Show-VrcSetupSpectreNotice -Title $Title -Message $Message -Details $noticeDetails -Kind Error -ScriptDir $scriptDir) { return }
+    }
     Clear-Host
     Write-Host $Title -ForegroundColor Red
     Write-Host "" 
@@ -323,26 +325,27 @@ function Ensure-ConfigDefaults {
     param($Config)
     if (-not $Config) { return $null }
 
-    if (-not $Config.Naming) {
+    if ($Config.PSObject.Properties.Name -notcontains 'Naming' -or -not $Config.Naming) {
         $Config | Add-Member -MemberType NoteProperty -Name "Naming" -Value ([pscustomobject]@{}) -Force
     }
 
-    if ($null -eq $Config.Naming.DefaultPrefix) { $Config.Naming | Add-Member -MemberType NoteProperty -Name "DefaultPrefix" -Value "" -Force }
-    if ($null -eq $Config.Naming.DefaultSuffix) { $Config.Naming | Add-Member -MemberType NoteProperty -Name "DefaultSuffix" -Value "" -Force }
-    if ($null -eq $Config.Naming.RegexRemovePatterns) { $Config.Naming | Add-Member -MemberType NoteProperty -Name "RegexRemovePatterns" -Value @() -Force }
-    if ($null -eq $Config.Naming.RememberUnityPackageNames) { $Config.Naming | Add-Member -MemberType NoteProperty -Name "RememberUnityPackageNames" -Value $true -Force }
+    $namingProperties = @($Config.Naming.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($namingProperties -notcontains 'DefaultPrefix') { $Config.Naming | Add-Member -MemberType NoteProperty -Name "DefaultPrefix" -Value "" -Force }
+    if ($namingProperties -notcontains 'DefaultSuffix') { $Config.Naming | Add-Member -MemberType NoteProperty -Name "DefaultSuffix" -Value "" -Force }
+    if ($namingProperties -notcontains 'RegexRemovePatterns') { $Config.Naming | Add-Member -MemberType NoteProperty -Name "RegexRemovePatterns" -Value @() -Force }
+    if ($namingProperties -notcontains 'RememberUnityPackageNames') { $Config.Naming | Add-Member -MemberType NoteProperty -Name "RememberUnityPackageNames" -Value $true -Force }
 
-    if (-not $Config.SavedProjectNames) {
+    if ($Config.PSObject.Properties.Name -notcontains 'SavedProjectNames' -or -not $Config.SavedProjectNames) {
         $Config | Add-Member -MemberType NoteProperty -Name "SavedProjectNames" -Value ([pscustomobject]@{}) -Force
     }
 
-    if ($null -eq $Config.UnityPackagesFolder) {
+    if ($Config.PSObject.Properties.Name -notcontains 'UnityPackagesFolder') {
         # Optional: when set, installer imports all *.unitypackage found in that folder (in addition to the selected one).
         # When not set, extra-imports are disabled.
         $Config | Add-Member -MemberType NoteProperty -Name "UnityPackagesFolder" -Value $null -Force
     }
 
-    if ([string]$Config.ProjectLibrarySort -notin @('recent', 'name')) {
+    if ($Config.PSObject.Properties.Name -notcontains 'ProjectLibrarySort' -or [string]$Config.ProjectLibrarySort -notin @('recent', 'name')) {
         $Config | Add-Member -MemberType NoteProperty -Name "ProjectLibrarySort" -Value 'recent' -Force
     }
 
@@ -353,6 +356,12 @@ function Ensure-ConfigDefaults {
     $Config | Add-Member -MemberType NoteProperty -Name "RequiredPackages" -Value @(Get-RequiredPackages -Config $Config) -Force
     $requiredPackageSet = Add-RequiredPackagesToSet -Packages $Config.VpmPackages -Config $Config
     $Config | Add-Member -MemberType NoteProperty -Name "VpmPackages" -Value $requiredPackageSet -Force
+
+    if ($Config.PSObject.Properties.Name -notcontains 'FavoritePackages') {
+        $Config | Add-Member -MemberType NoteProperty -Name 'FavoritePackages' -Value @(Get-VrcSetupFavoritePackages -Config $null) -Force
+    } else {
+        $Config.FavoritePackages = @(Get-VrcSetupFavoritePackages -Config $Config)
+    }
 
     return $Config
 }
@@ -672,7 +681,7 @@ function Select-VpmVersion {
         if ($picked -eq $backOption) { return $null }
         if ($picked -eq $latestOption) { return 'latest' }
         if ($picked -eq $manualOption) {
-            $manual = Read-Host "Version (or 'latest')"
+            $manual = Read-WizardTextInput -Title 'Enter package version' -Prompt 'Version' -BodyLines @("Package: ${friendlyName}", "Current choice: ${currentChoice}") -Hint 'Enter Confirm  ·  Esc Back'
             if ([string]::IsNullOrWhiteSpace($manual)) { return $null }
             $manual = $manual.Trim()
             if ($PSBoundParameters.ContainsKey('AvailableVersions') -and $manual -ne 'latest' -and $available -notcontains $manual) {
@@ -696,15 +705,14 @@ function Resolve-VpmPackageFromSearch {
     $query = $InitialQuery
     while ($true) {
         if ([string]::IsNullOrWhiteSpace($query)) {
-            $query = Read-Host "Search query"
+            $query = Read-WizardTextInput -Title 'Find a package' -Prompt 'Search or package ID' -BodyLines @('Search by name or paste an exact package ID.') -Hint 'Enter Search  ·  Esc Back'
         }
         $query = $query.Trim()
         if ([string]::IsNullOrWhiteSpace($query)) { return $null }
 
-        $found = Search-VrcGetPackages -Query $query -ScriptDir $ScriptDir
+        $found = @(Search-VrcGetPackages -Query $query -ScriptDir $ScriptDir)
         if ($found.Count -eq 0) {
-            $tail = Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25
-            Show-WizardError -Title "No matches" -Message "No packages matched: ${query}" -Details $tail
+            Show-WizardError -Title "No matches" -Message "No packages matched '${query}'. Try another name or paste the exact package ID."
 
             $retryChoice = Show-Menu `
                 -Title "Package search" `
@@ -717,54 +725,24 @@ function Resolve-VpmPackageFromSearch {
                 continue
             }
             if ($retryChoice -eq 1) {
-                $manual = Read-Host "Package name"
+                $manual = Read-WizardTextInput -Title 'Enter package ID' -Prompt 'Package ID' -BodyLines @('Paste the exact package ID from its repository.') -Hint 'Enter Confirm  ·  Esc Back'
                 if ($null -eq $manual) { return $null }
                 return $manual.Trim()
             }
             return $null
         }
 
-        $displayOptions = @()
-        foreach ($x in $found) {
-            if ($x.DisplayName) {
-                $displayOptions += ("{0} ({1})" -f $x.DisplayName, $x.Id)
-            }
-            else {
-                $displayOptions += $x.Id
-            }
-        }
+        $picked = @(Select-VrcSetupPackageResults -Items $found -Title 'Search results' -Header "Results for '${query}'. Choose one package." -SingleSelection:$true)
+        if ($picked.Count -gt 0) { return [string]$picked[0].Id }
 
-        $searchParams = @{
-            Title                     = "Search results"
-            Header                    = "Results for '${query}'"
-            Options                   = $displayOptions
-            PinnedOptions             = @($SearchOption, $ManualOption)
-            Placeholder               = "type to narrow results"
-            ShowListMarkers           = $true
-            ReturnSelectionWithFilter = $true
-        }
-        $pickedResult = Show-MenuFilter @searchParams
-
-        if ($null -eq $pickedResult) { return $null }
-        $pickStr = [string]$pickedResult.Selection
-        $typedQuery = [string]$pickedResult.Filter
-        if ($pickStr -eq $SearchOption) {
-            $query = if ([string]::IsNullOrWhiteSpace($typedQuery)) { $null } else { $typedQuery.Trim() }
-            continue
-        }
-        if ($pickStr -eq $ManualOption) {
-            $manual = Read-Host "Package name"
+        $nextChoice = Show-Menu -Title 'Package search' -Header 'Search again, paste an exact package ID, or return.' -Options @($SearchOption, $ManualOption, 'Back')
+        if ($nextChoice -eq 0) { $query = $null; continue }
+        if ($nextChoice -eq 1) {
+            $manual = Read-WizardTextInput -Title 'Enter package ID' -Prompt 'Package ID' -BodyLines @('Paste the exact package ID from its repository.') -Hint 'Enter Confirm  ·  Esc Back'
             if ($null -eq $manual) { return $null }
             return $manual.Trim()
         }
-
-        $idx = [array]::IndexOf($displayOptions, $pickStr)
-        if ($idx -ge 0) { return $found[$idx].Id }
-
-        if (-not [string]::IsNullOrWhiteSpace($pickStr)) {
-            $query = $pickStr.Trim()
-            continue
-        }
+        return $null
     }
 }
 
@@ -828,6 +806,135 @@ function Format-VrcSetupPackageRow {
         (Format-VrcSetupPackageCell -Text $Version -Width 14)).TrimEnd()
 }
 
+function Select-VrcSetupPackageResults {
+    param(
+        [Parameter(Mandatory)]$Items,
+        [string]$Title = 'Choose packages',
+        [string]$Header = 'Select everything you want to add. New packages use their latest version.',
+        [bool]$DefaultSelected = $false,
+        [bool]$SingleSelection = $false
+    )
+
+    $itemsArray = @($Items)
+    if ($itemsArray.Count -eq 0) { return @() }
+    if (Get-Command -Name 'Show-VrcSetupSpectrePackageChecklist' -ErrorAction SilentlyContinue) {
+        return @(Show-VrcSetupSpectrePackageChecklist -Items $itemsArray -Title $Title -Header $Header -DefaultSelected:$DefaultSelected -SingleSelection:$SingleSelection -MaxVisible 14 -ScriptDir $scriptDir)
+    }
+    return @(Show-ChecklistPaged -Title $Title -PromptTitle 'Select packages' -Header $Header -Items $itemsArray -DefaultSelected:$DefaultSelected -MaxVisible 14 -ToLabel {
+        param($match, $index)
+        Format-VrcSetupPackageRow -DisplayName ([string]$match.DisplayName) -PackageName ([string]$match.Id) -Version ([string]$match.LatestVersion)
+    })
+}
+
+function Find-VrcSetupPackages {
+    param(
+        [string[]]$ExcludePackageNames = @(),
+        [string]$Title = 'Find a package',
+        [string]$Header = 'Search by name or paste one or more exact package IDs separated by commas.'
+    )
+
+    $query = Read-WizardTextInput -Title $Title -Prompt 'Search or package ID' -BodyLines @($Header) -Hint 'Enter Search  ·  Esc Back'
+    if ([string]::IsNullOrWhiteSpace($query)) { return @() }
+    $query = $query.Trim()
+    $enteredIds = @($query -split '[,;\r\n]+' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
+    $exactIds = @()
+    if ($enteredIds.Count -gt 1) {
+        $exactIds = $enteredIds
+    } elseif ($enteredIds.Count -eq 1 -and (Test-VpmPackageExists -PackageName $enteredIds[0] -ScriptDir $scriptDir)) {
+        $exactIds = $enteredIds
+    }
+
+    if ($exactIds.Count -gt 0) {
+        $newIds = @($exactIds | Where-Object { $ExcludePackageNames -notcontains $_ })
+        if ($newIds.Count -eq 0) {
+            Show-WizardError -Title 'Already included' -Message 'Every package you entered is already in this list.'
+            return @()
+        }
+        $invalid = @($newIds | Where-Object { -not (Test-VpmPackageExists -PackageName $_ -ScriptDir $scriptDir) })
+        if ($invalid.Count -gt 0) {
+            Show-WizardError -Title 'Package not found' -Message ("Could not find: {0}" -f ($invalid -join ', '))
+            return @()
+        }
+        return $newIds
+    }
+
+    if ([string]::IsNullOrWhiteSpace((Get-VrcGetExecutablePath -ScriptDir $scriptDir))) {
+        Show-WizardError -Title 'Package search unavailable' -Message 'Paste the exact package ID instead.'
+        return @()
+    }
+    $allMatches = @(Search-VrcGetPackages -Query $query -ScriptDir $scriptDir)
+    if ($allMatches.Count -eq 0) {
+        Show-WizardError -Title 'No packages found' -Message "No results for '${query}'. Try another name or paste the exact package ID."
+        return @()
+    }
+    $availableMatches = @($allMatches | Where-Object { $ExcludePackageNames -notcontains [string]$_.Id })
+    if ($availableMatches.Count -eq 0) {
+        $matchedNames = @($allMatches | ForEach-Object { if ($_.DisplayName) { [string]$_.DisplayName } else { Get-VrcSetupFriendlyPackageName -PackageName ([string]$_.Id) } } | Select-Object -Unique)
+        Show-WizardError -Title 'Already included' -Message "The matching package is already available here." -Details ($matchedNames -join ', ')
+        return @()
+    }
+    $selected = @(Select-VrcSetupPackageResults -Items $availableMatches -Title 'Search results' -Header "Results for '${query}'. Select everything you want to add.")
+    return @($selected | ForEach-Object { [string]$_.Id } | Select-Object -Unique)
+}
+
+function Get-VrcSetupFavoritePackageResults {
+    param($Config)
+
+    $results = @()
+    foreach ($packageId in @(Get-VrcSetupFavoritePackages -Config $Config)) {
+        $results += [pscustomobject]@{
+            Id = [string]$packageId
+            DisplayName = Get-VrcSetupFriendlyPackageName -PackageName ([string]$packageId)
+            LatestVersion = 'Newest'
+            Description = ''
+        }
+    }
+    return @($results)
+}
+
+function Manage-VrcSetupFavoritePackages {
+    param($Config, [string]$ConfigPath)
+
+    while ($true) {
+        $favorites = @(Get-VrcSetupFavoritePackages -Config $Config)
+        $choice = Show-Menu -Title 'Favorite packages' -Header "Keep frequently used packages one shortcut away.`nSaved favorites: $($favorites.Count)" -Options @('Add favorites', 'Remove favorites', 'Back')
+        if ($choice -lt 0 -or $choice -eq 2) { return }
+        if ($choice -eq 0) {
+            $newIds = @(Find-VrcSetupPackages -ExcludePackageNames $favorites -Title 'Add favorites' -Header 'Find packages you want available from every project.')
+            if ($newIds.Count -eq 0) { continue }
+            $Config.FavoritePackages = @($favorites + $newIds | Select-Object -Unique)
+            Save-Config -Config $Config -ConfigPath $ConfigPath
+            continue
+        }
+        if ($favorites.Count -eq 0) {
+            Show-WizardError -Title 'No favorites yet' -Message 'Add a favorite first.'
+            continue
+        }
+        $favoriteResults = @(Get-VrcSetupFavoritePackageResults -Config $Config)
+        $toRemove = @(Select-VrcSetupPackageResults -Items $favoriteResults -Title 'Remove favorites' -Header 'Select the favorites you no longer need.')
+        if ($toRemove.Count -eq 0) { continue }
+        $removeIds = @($toRemove | ForEach-Object { [string]$_.Id })
+        $Config.FavoritePackages = @($favorites | Where-Object { $removeIds -notcontains $_ })
+        Save-Config -Config $Config -ConfigPath $ConfigPath
+    }
+}
+
+function Select-VrcSetupFavoritePackagesForProject {
+    param($Config, [string]$ConfigPath, $CurrentPackages)
+
+    $choice = Show-Menu -Title 'Favorite packages' -Header 'Quickly add your usual packages, or change this list.' -Options @('Add favorites to this project', 'Manage favorites', 'Back')
+    if ($choice -eq 1) { Manage-VrcSetupFavoritePackages -Config $Config -ConfigPath $ConfigPath; return @() }
+    if ($choice -ne 0) { return @() }
+    $currentNames = @($CurrentPackages.PSObject.Properties | ForEach-Object { $_.Name })
+    $available = @(Get-VrcSetupFavoritePackageResults -Config $Config | Where-Object { $currentNames -notcontains [string]$_.Id })
+    if ($available.Count -eq 0) {
+        Show-WizardError -Title 'Favorites already included' -Message 'Every favorite package is already part of this project.'
+        return @()
+    }
+    $selected = @(Select-VrcSetupPackageResults -Items $available -Title 'Favorite packages' -Header 'Select the favorites to add to this project.')
+    return @($selected | ForEach-Object { [string]$_.Id } | Select-Object -Unique)
+}
+
 function Edit-VpmPackages {
     param(
         [string]$ConfigPath,
@@ -870,7 +977,7 @@ function Edit-VpmPackages {
             $kind = if ($isRequired) { 'Required' } else { 'Optional' }
             $pkgOptions += (Format-VrcSetupPackageRow -Role $kind -PackageName $pkg.Name -Version ([string]$pkg.Value))
         }
-        $pkgOptions += @('Add package', 'Back')
+        $pkgOptions += @('Add package', 'Favorite packages', 'Back')
 
         $header = if ($WorkingCopy) {
             "Required packages are first and cannot be removed. Optional packages are below them.`nMake changes, then go Back to review the project update.`n`nRole       Package name                  Package ID                              Version"
@@ -889,84 +996,20 @@ function Edit-VpmPackages {
             return
         }
 
-        if ($picked -eq "Add package") {
-            $manualOption = "Enter package name manually"
-            $searchOption = "SEARCH PACKAGES"
-            $hasVrcGet = -not [string]::IsNullOrWhiteSpace((Get-VrcGetExecutablePath -ScriptDir $ScriptDir))
-
-            $opts = @($searchOption, $manualOption)
-            $pinned = @($searchOption, $manualOption)
-
-            $hint = if ($hasVrcGet) {
-                "Type a package name, then choose SEARCH PACKAGES."
+        if ($picked -eq 'Favorite packages') {
+            if ($WorkingCopy) {
+                Show-WizardError -Title 'Favorites are personal' -Message 'Manage favorites from the main package settings or from a project with F.'
             } else {
-                "vrc-get not found. Enter an exact package id manually."
+                Manage-VrcSetupFavoritePackages -Config $config -ConfigPath $ConfigPath
             }
-            $filterParams = @{
-                Title                     = "Add package"
-                Header                    = $hint
-                Options                   = $opts
-                PinnedOptions             = $pinned
-                Placeholder               = "package name"
-                ReturnSelectionWithFilter = $true
-            }
-            $pickedResult = Show-MenuFilter @filterParams
-            if ($null -eq $pickedResult) { continue }
-            $pickedName = [string]$pickedResult.Selection
-            $typedQuery = [string]$pickedResult.Filter
+            continue
+        }
 
-            $newPackage = $null
-            if ($pickedName -eq $searchOption) {
-                if (-not $hasVrcGet) {
-                    Show-WizardError -Title "vrc-get not found" -Message "Remote package search needs vrc-get under setup-scripts/lib/vrc-get/."
-                    continue
-                }
-                $newPackage = Resolve-VpmPackageFromSearch -InitialQuery $typedQuery -SearchOption $searchOption -ManualOption $manualOption
-            }
-            elseif ($pickedName -eq $manualOption) {
-                $newPackage = if ([string]::IsNullOrWhiteSpace($typedQuery)) { Read-Host "Package name" } else { $typedQuery }
-                $newPackage = $newPackage.Trim()
-            }
-            else {
-                $newPackage = $pickedName
-            }
-
-            if ($null -eq $newPackage) { continue }
-
-            # If user pressed Enter with zero matches, Show-MenuFilter returns the typed filter string.
-            $newPackage = $newPackage.Trim()
-
-            if ([string]::IsNullOrWhiteSpace($newPackage)) { continue }
-
-            # Make intent clear for the next step
-            Write-Host "Selected package: ${newPackage}" -ForegroundColor Cyan
-
-            if ($config.VpmPackages.PSObject.Properties.Name -contains $newPackage) {
-                Write-Host "Package already present." -ForegroundColor Yellow
-                Start-Sleep -Seconds 1
-                continue
-            }
-
-            if (-not (Test-VpmPackageExists -PackageName $newPackage -ScriptDir $ScriptDir)) {
-                $tail = Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25
-                Show-WizardError -Title "Package not found" -Message "Package not found / not resolvable: ${newPackage}" -Details $tail
-                continue
-            }
-
-            $version = Select-VpmVersion -PackageName $newPackage -CurrentVersion "(new)"
-            if ($null -eq $version) { continue }
-
-            $validation = Test-VpmPackageVersion -PackageName $newPackage -Version $version -ScriptDir $ScriptDir
-            if (-not $validation.Valid) {
-                $details = $validation.Details
-                if ([string]::IsNullOrWhiteSpace($details)) {
-                    $details = Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25
-                }
-                Show-WizardError -Title "Validation failed" -Message $validation.Message -Details $details
-                continue
-            }
-
-            $config.VpmPackages | Add-Member -MemberType NoteProperty -Name $newPackage -Value $version -Force
+        if ($picked -eq "Add package") {
+            $existingNames = @($config.VpmPackages.PSObject.Properties | ForEach-Object { $_.Name })
+            $newPackages = @(Find-VrcSetupPackages -ExcludePackageNames $existingNames -Title 'Add to my package set' -Header 'Search by name or paste exact package IDs. Selected packages use their newest compatible version.')
+            if ($newPackages.Count -eq 0) { continue }
+            $config.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $config.VpmPackages -PackageNames $newPackages
             if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
             continue
         }
@@ -1402,7 +1445,7 @@ function Setup-ProjectFlow {
             $workspaceSelection = $null
             $workspaceCommand = Get-Command -Name 'Show-VrcSetupSpectrePackageWorkspace' -ErrorAction SilentlyContinue
             if ($workspaceCommand) {
-                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -InitialSelectedIndex $workspaceSelectedIndex -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -VersionProvider {
+                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -InitialSelectedIndex $workspaceSelectedIndex -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -HasFavorites:$(@(Get-VrcSetupFavoritePackages -Config $Config).Count -gt 0) -VersionProvider {
                     param($packageName)
                     if (Test-IsVrcSetupSdkPackage -PackageName $packageName) {
                         $sdkNames = @($workspaceItems | Where-Object { Test-IsVrcSetupSdkPackage -PackageName ([string]$_.Name) } | ForEach-Object Name)
@@ -1443,6 +1486,8 @@ function Setup-ProjectFlow {
                 $actions = @($workspaceItems | ForEach-Object { [pscustomobject]@{ Kind = 'package'; Item = $_ } })
                 $options += 'Add package'
                 $actions += [pscustomobject]@{ Kind = 'add'; Item = $null }
+                $options += 'Favorite packages'
+                $actions += [pscustomobject]@{ Kind = 'favorites'; Item = $null }
                 $options += 'Use my package set'
                 $actions += [pscustomobject]@{ Kind = 'defaults'; Item = $null }
                 if ($ExtrasInfo -and $ExtrasInfo.ExtrasCount -gt 0) {
@@ -1536,41 +1581,18 @@ function Setup-ProjectFlow {
             }
 
             if ($action.Kind -eq 'add') {
-                $query = Read-WizardTextInput -Title 'Find a package' -Prompt 'Name or package ID' -BodyLines @('Search by name. You can also paste one or more package IDs separated by commas.') -Hint 'Leave blank to return.'
-                if ([string]::IsNullOrWhiteSpace($query)) { continue }
-                $enteredIds = @($query -split '[,;\r\n]+' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
-                $newPackageIds = @()
-                $allExact = $enteredIds.Count -gt 1
-                if ($enteredIds.Count -eq 1) { $allExact = Test-VpmPackageExists -PackageName $enteredIds[0] -ScriptDir $scriptDir }
-                if ($allExact) {
-                    $newPackageIds = @($enteredIds | Where-Object { $workingConfig.VpmPackages.PSObject.Properties.Name -notcontains $_ })
-                } else {
-                    if ([string]::IsNullOrWhiteSpace((Get-VrcGetExecutablePath -ScriptDir $scriptDir))) {
-                        Show-WizardError -Title 'Package search unavailable' -Message 'Enter the exact package ID instead.'
-                        continue
-                    }
-                    $matches = @(Search-VrcGetPackages -Query $query.Trim() -ScriptDir $scriptDir | Where-Object { $workingConfig.VpmPackages.PSObject.Properties.Name -notcontains $_.Id })
-                    if ($matches.Count -eq 0) {
-                        Show-WizardError -Title 'No packages found' -Message 'Try another name or enter the exact package ID.' -Details (Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25)
-                        continue
-                    }
-                    $selectedMatches = Show-ChecklistPaged -Title 'Add to project' -PromptTitle 'Select packages' -Header 'Select everything you want to add. New packages use their latest version.' -Items $matches -DefaultSelected $false -MaxVisible 14 -ToLabel {
-                        param($match, $index)
-                        return Format-VrcSetupPackageRow -DisplayName ([string]$match.DisplayName) -PackageName ([string]$match.Id) -Version ([string]$match.LatestVersion)
-                    }
-                    if ($null -eq $selectedMatches -or $selectedMatches.Count -eq 0) { continue }
-                    $newPackageIds = @($selectedMatches | ForEach-Object Id | Select-Object -Unique)
-                }
-                if ($newPackageIds.Count -eq 0) {
-                    Show-WizardError -Title 'Already selected' -Message 'Those packages are already part of this project.'
-                    continue
-                }
-                $invalidPackageIds = @($newPackageIds | Where-Object { -not (Test-VpmPackageExists -PackageName $_ -ScriptDir $scriptDir) })
-                if ($invalidPackageIds.Count -gt 0) {
-                    Show-WizardError -Title 'Package not found' -Message ("Could not find: {0}" -f ($invalidPackageIds -join ', ')) -Details (Get-LastTextLines -Text (Get-VrcSetupLastToolOutput) -MaxLines 25)
-                    continue
-                }
+                $existingNames = @($workingConfig.VpmPackages.PSObject.Properties | ForEach-Object { $_.Name })
+                $newPackageIds = @(Find-VrcSetupPackages -ExcludePackageNames $existingNames)
+                if ($newPackageIds.Count -eq 0) { continue }
                 $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames $newPackageIds
+                continue
+            }
+
+            if ($action.Kind -eq 'favorites') {
+                $favoriteIds = @(Select-VrcSetupFavoritePackagesForProject -Config $Config -ConfigPath $ConfigPath -CurrentPackages $workingConfig.VpmPackages)
+                if ($favoriteIds.Count -gt 0) {
+                    $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames $favoriteIds
+                }
                 continue
             }
 
@@ -1887,7 +1909,7 @@ function Setup-ProjectFlow {
         Write-Host ("Press ENTER to use: {0}" -f $defaultPromptName) -ForegroundColor DarkGray
 
         while ($true) {
-            $projectName = Read-Host "Project name"
+            $projectName = Read-WizardTextInput -Title 'Project name' -Prompt 'Name' -BodyLines @('Choose the folder name for the new Unity project.') -Hint 'Leave blank to return.'
             $candidateName = if ([string]::IsNullOrWhiteSpace($projectName)) { $defaultPromptName } else { $projectName.Trim() }
             $nameCheck = Test-VrcSetupProjectName -Name $candidateName
             if ($nameCheck.Valid) {

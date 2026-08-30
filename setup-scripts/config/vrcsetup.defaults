@@ -24,6 +24,13 @@
     "com.vrchat.avatars",
     "com.vrchat.core.vpm-resolver"
   ],
+  "FavoritePackages": [
+    "com.vrcfury.vrcfury",
+    "gogoloco",
+    "adjerry91.vrcft.templates",
+    "com.poiyomi.toon",
+    "dev.foxscore.easy-login"
+  ],
   "UnityEditorPath": "",
   "UnityProjectsRoot": "",
   "Naming": {

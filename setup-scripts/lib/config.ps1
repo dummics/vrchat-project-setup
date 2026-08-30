@@ -46,6 +46,13 @@ function Initialize-ConfigIfMissing {
             'com.vrchat.avatars',
             'com.vrchat.core.vpm-resolver'
         )
+        FavoritePackages = @(
+            'com.vrcfury.vrcfury',
+            'gogoloco',
+            'adjerry91.vrcft.templates',
+            'com.poiyomi.toon',
+            'dev.foxscore.easy-login'
+        )
         UnityEditorPath = ''
         UnityProjectsRoot = ''
         Naming = [pscustomobject]@{
@@ -104,6 +111,21 @@ function Test-IsDefaultPackage {
     )
     $defaults = Get-DefaultPackages -Config $Config
     return ($defaults -contains $PackageName)
+}
+
+function Get-VrcSetupFavoritePackages {
+    param($Config)
+
+    if ($Config -and $Config.PSObject.Properties.Name -contains 'FavoritePackages') {
+        return @($Config.FavoritePackages | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique)
+    }
+    return @(
+        'com.vrcfury.vrcfury',
+        'gogoloco',
+        'adjerry91.vrcft.templates',
+        'com.poiyomi.toon',
+        'dev.foxscore.easy-login'
+    )
 }
 
 function Get-RequiredPackages {

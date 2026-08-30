@@ -85,6 +85,12 @@ try {
     Assert-True ($migratedConfig.VpmPackages.PSObject.Properties.Name -notcontains 'gogoloco') 'Legacy config migration restored removed GoGoLoco.'
     Assert-True ($migratedConfig.VpmPackages.PSObject.Properties.Name -notcontains 'com.vrcfury.vrcfury') 'Legacy config migration restored another removed optional package.'
     Assert-True ($migratedConfig.ProjectLibrarySort -eq 'recent') 'Legacy config migration did not default the project library to recently updated.'
+    Assert-True (@($migratedConfig.FavoritePackages).Count -ge 5 -and $migratedConfig.FavoritePackages -contains 'gogoloco') 'Legacy config migration did not seed the reusable favorite package list.'
+    $emptyFavoriteConfig = Ensure-ConfigDefaults -Config ([pscustomobject]@{
+        VpmPackages = [pscustomobject]@{ 'com.vrchat.base' = 'latest' }
+        FavoritePackages = @()
+    })
+    Assert-True (@($emptyFavoriteConfig.FavoritePackages).Count -eq 0) 'An intentionally empty favorite list was repopulated automatically.'
 
     $projectPackages = Get-VpmProjectPackageSet -ProjectPath $projectRoot
     Assert-True ($projectPackages.PSObject.Properties.Name -contains 'gogoloco') 'Test project did not expose GoGoLoco from vpm-manifest.json.'
@@ -233,6 +239,8 @@ try {
     $progressText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\progress.ps1') -Raw
     $installerText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\installer.ps1') -Raw
     $cliText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\cli.ps1') -Raw
+    $vrcGetText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\vrcget.ps1') -Raw
+    $defaultsText = Get-Content -LiteralPath (Join-Path $scriptDir 'config\vrcsetup.defaults') -Raw
     Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $spectreText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
     Assert-True ($menuText -notmatch "\[string\]\$PromptTitle = 'Choose an action'" -and $spectreText -notmatch "\[string\]\$PromptTitle = 'Choose an action'") 'Menus still default to technical action instructions.'
     Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Left/Right Change version' -and $spectreText -match 'Space Include/remove') 'The direct package-table controls are missing.'
@@ -244,6 +252,10 @@ try {
     Assert-True ($installerText -match "'--prerelease'" -and $installerText -match 'Invoke-VrcGetCapture') 'Prerelease packages are still routed only through the VPM CLI that cannot resolve them.'
     Assert-True ($installerText -match 'IncludeLockedPackages \$configuredPackageNames' -and $installerText -match 'Restore-VrcSetupPackageBatch') 'Locked SDK packages or failed package operations still bypass the safe installer contract.'
     Assert-True ($cliText -match 'Set-VrcSetupPackageVersion' -and $cliText -match 'Test-VrcSetupCliSdkVersionSelection') 'CLI package/create flows bypass SDK version alignment or compatibility validation.'
+    Assert-True ($spectreText -match 'function New-VrcSetupTextInputRenderable' -and $spectreText -match 'function Show-VrcSetupSpectrePackageChecklist' -and $spectreText -match 'function Show-VrcSetupSpectreNotice') 'Package search still lacks the boxed field, tabular picker, or integrated notice surface.'
+    Assert-True ($wizardText -match 'function Find-VrcSetupPackages' -and $wizardText -match "Title 'Already included'" -and $wizardText -notmatch "No packages found'.*Get-LastTextLines") 'Search results that are already installed can still fall through to a misleading raw error.'
+    Assert-True ($wizardText -match 'function Manage-VrcSetupFavoritePackages' -and $wizardText -match "Kind = 'favorites'" -and $defaultsText -match '"FavoritePackages"') 'Favorite packages are not persistent or reachable from the project package workspace.'
+    Assert-True ($vrcGetText -match '\$tokens = @\(') 'Single-word package searches still expose a StrictMode Count failure.'
     if ($PSVersionTable.PSVersion.Major -ge 7 -and (Initialize-VrcSetupSpectre -ScriptDir $scriptDir)) {
         $workspaceRenderable = New-VrcSetupPackageWorkspaceRenderable -Items $workspaceItems -SelectedIndex 0 -PendingCount 3
         Assert-True ($workspaceRenderable -is [Spectre.Console.Rows]) 'The package workspace did not build a Spectre renderable.'
@@ -251,6 +263,11 @@ try {
         Assert-True ($reviewRenderable -is [Spectre.Console.Rows]) 'The save review did not build a Spectre renderable.'
         $progressRenderable = New-VrcSetupProgressRenderable -Lines @('Preparing project', 'Adding Easy Login') -ScrollIndex 0 -Status Running -Follow:$true -Elapsed ([TimeSpan]::FromSeconds(2))
         Assert-True ($progressRenderable -is [Spectre.Console.Rows]) 'The embedded progress viewport did not build a Spectre renderable.'
+        $inputRenderable = New-VrcSetupTextInputRenderable -Value 'gogo' -Prompt 'Search or package ID' -Hint 'Type a name.'
+        Assert-True ($inputRenderable -is [Spectre.Console.Rows]) 'The boxed search field did not build a Spectre renderable.'
+        $pickerSelection = @{ 0 = $false }
+        $pickerRenderable = New-VrcSetupPackagePickerRenderable -Items @([pscustomobject]@{ Id = 'gogoloco'; DisplayName = 'GoGo Loco'; LatestVersion = '1.8.6' }) -SelectedIndex 0 -Selected $pickerSelection -Header 'Results'
+        Assert-True ($pickerRenderable -is [Spectre.Console.Rows]) 'The tabular package result picker did not build a Spectre renderable.'
     }
 
     Write-Host '[4/11] Scanning and incrementally refreshing the project library...'

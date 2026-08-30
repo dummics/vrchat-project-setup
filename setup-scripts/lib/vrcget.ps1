@@ -114,7 +114,7 @@ function Search-VrcGetPackages {
     )
 
     if ([string]::IsNullOrWhiteSpace($Query)) { return @() }
-    $tokens = ($Query -split "\s+") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $tokens = @(($Query -split "\s+") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($tokens.Count -eq 0) { return @() }
 
     $res = Invoke-VrcGetCapture -Arguments (@('search') + @($tokens)) -ScriptDir $ScriptDir

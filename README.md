@@ -143,6 +143,11 @@ projects**. It then provides:
      happen after saving. Left/Right cycles cached versions without leaving the
      table; Space includes or removes a package, while V opens the full list only
      when needed.
+   - Find packages through a boxed search field and a scrollable result table
+     with aligned name, package ID and version columns. Matches already present
+     in the project are reported as already included rather than failed searches.
+   - Press F for favorite packages: add common tools quickly or manage the
+     reusable favorites list without retyping names for every project.
    - Treat VRChat SDK Base together with the selected project SDK (Avatars or
      Worlds): the picker offers versions shared by every component and stages
      one linked SDK update. Exact prerelease versions use the bundled `vrc-get`
@@ -272,6 +277,11 @@ Packages are configured in `setup-scripts/config/vrcsetup.json`:
     "com.vrchat.avatars",
     "com.vrchat.core.vpm-resolver"
   ],
+  "FavoritePackages": [
+    "gogoloco",
+    "com.vrcfury.vrcfury",
+    "com.poiyomi.toon"
+  ],
   "UnityEditorPath": "C:\\Path\\To\\Unity.exe",
   "UnityProjectsRoot": "D:\\Unity Projects",
   "UnityPackagesFolder": null
@@ -283,7 +293,8 @@ wizard validates configured versions before applying them. Only the three
 VRChat foundation packages in `RequiredPackages` are locked. Other starter
 packages are normal choices and can be removed. Existing older package-list
 configurations are migrated automatically without restoring removed optional
-packages.
+packages. `FavoritePackages` is a personal quick-add list and does not install
+anything until those favorites are selected in a project.
 
 When `dev.foxscore.easy-login` is selected and an imported avatar contains an
 older source copy under `Assets/EASY LOGIN`, the tool moves it to a recoverable
