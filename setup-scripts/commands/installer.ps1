@@ -68,9 +68,28 @@ function Get-VrcSetupVrcGetPackageAction {
 }
 
 function Test-VrcSetupPackageCommandFailed {
-    param([Parameter(Mandatory)]$Result)
+    param(
+        [Parameter(Mandatory)]$Result,
+        [AllowEmptyString()][string]$PackageName
+    )
+
     if ([int]$Result.ExitCode -ne 0) { return $true }
-    return ([string]$Result.Output -match '(?im)^.*\b(ERR|error)\b.*(could not|get match|failed|not found)')
+
+    $output = [string]$Result.Output
+
+    # vpm/vrc-get confirm the requested package landed with an "Added package <name>"
+    # line. When that is present, any other [ERR] line in the same output is a
+    # non-fatal best-effort legacy cleanup message (e.g. "Failed to remove package
+    # <old>") and must not roll back a successful add.
+    if (-not [string]::IsNullOrWhiteSpace($PackageName) -and
+        $output -match ('(?im)Added\s+package\s+' + [regex]::Escape($PackageName) + '\b')) {
+        return $false
+    }
+
+    # Genuine failures: the resolver could not obtain the requested package.
+    # "Failed to remove package" is legacy cleanup and is explicitly not fatal here.
+    $scan = $output -replace '(?im)^.*failed to remove package.*$', ''
+    return ($scan -match '(?im)^.*\b(ERR|error)\b.*(could not|get match|not found|failed to (add|install|resolve|download))')
 }
 
 function Restore-VrcSetupPackageBatch {
@@ -432,7 +451,7 @@ function Install-PackagesInProject {
                 Write-Host "Applying prerelease package: ${packageName} @ ${packageVersion}" -ForegroundColor Cyan
                 $cmdResult = Invoke-VrcGetCapture -Arguments @($vrcGetAction, $packageName, [string]$packageVersion, '--prerelease', '-p', $ProjectPath, '-y') -ScriptDir $scriptDir
                 Write-VrcSetupCommandOutput -Entries @([string]$cmdResult.Output -split '\r?\n')
-                if (Test-VrcSetupPackageCommandFailed -Result $cmdResult) {
+                if (Test-VrcSetupPackageCommandFailed -Result $cmdResult -PackageName $packageName) {
                     Write-Host "vrc-get reported exit code $($cmdResult.ExitCode) for ${packageName}" -ForegroundColor Yellow
                     Write-VrcSetupLog -Message "ERROR: vrc-get ${vrcGetAction} failed for ${packageName} with exit code $($cmdResult.ExitCode)"
                     $hadFailures = $true
@@ -446,7 +465,7 @@ function Install-PackagesInProject {
                 $cmdResult = Invoke-VpmCapture -Arguments @('add', 'package', "${packageName}@${packageVersion}")
             }
             Write-VrcSetupCommandOutput -Entries $cmdResult.OutputLines
-            if (Test-VrcSetupPackageCommandFailed -Result $cmdResult) {
+            if (Test-VrcSetupPackageCommandFailed -Result $cmdResult -PackageName $packageName) {
                 Write-Host "vpm reported exit code $($cmdResult.ExitCode) for ${packageName}" -ForegroundColor Yellow
                 Write-VrcSetupLog -Message "ERROR: vpm add failed for ${packageName} with exit code $($cmdResult.ExitCode)"
                 $hadFailures = $true

@@ -392,6 +392,29 @@ function Apply-ProjectNamingRules {
     return $name
 }
 
+function Get-VrcSetupUnityPackageDefaultProjectName {
+    param($State)
+
+    if (-not $State) { return $null }
+    if (-not [string]::IsNullOrWhiteSpace([string]$State.SuggestedProjectName)) {
+        return [string]$State.SuggestedProjectName
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$State.SavedProjectName)) {
+        return [string]$State.SavedProjectName
+    }
+    return $null
+}
+
+function Test-VrcSetupUnityPackageIdentityPromptRequired {
+    param($State)
+
+    if (-not $State) { return $true }
+
+    # A valid package-derived name is ready to use. Custom naming remains
+    # available from the review menu instead of blocking the normal flow.
+    return -not (Test-VrcSetupProjectName -Name ([string]$State.ProjectName)).Valid
+}
+
 function Edit-ProjectNamingSettings {
     param(
         $Config,
@@ -1829,11 +1852,7 @@ function Setup-ProjectFlow {
             $State.ExtrasStatus = $extrasInfo.StatusLabel
         }
 
-        $defaultPromptName = if (-not [string]::IsNullOrWhiteSpace([string]$State.SavedProjectName)) {
-            [string]$State.SavedProjectName
-        } else {
-            [string]$State.SuggestedProjectName
-        }
+        $defaultPromptName = Get-VrcSetupUnityPackageDefaultProjectName -State $State
 
         if ([string]::IsNullOrWhiteSpace([string]$State.ProjectName)) {
             $State.ProjectName = $defaultPromptName
@@ -1891,11 +1910,7 @@ function Setup-ProjectFlow {
 
         Update-UnityPackageFlowState -State $State -Config $Config
 
-        $defaultPromptName = if (-not [string]::IsNullOrWhiteSpace([string]$State.SavedProjectName)) {
-            [string]$State.SavedProjectName
-        } else {
-            [string]$State.SuggestedProjectName
-        }
+        $defaultPromptName = Get-VrcSetupUnityPackageDefaultProjectName -State $State
 
         Clear-Host
         Write-Host "Rename project" -ForegroundColor Cyan
@@ -1909,7 +1924,7 @@ function Setup-ProjectFlow {
         Write-Host ("Press ENTER to use: {0}" -f $defaultPromptName) -ForegroundColor DarkGray
 
         while ($true) {
-            $projectName = Read-WizardTextInput -Title 'Project name' -Prompt 'Name' -BodyLines @('Choose the folder name for the new Unity project.') -Hint 'Leave blank to return.'
+            $projectName = Read-WizardTextInput -Title 'Project name' -Prompt 'Name' -BodyLines @('Choose the folder name for the new Unity project.') -Hint 'Leave blank to use the suggested name.'
             $candidateName = if ([string]::IsNullOrWhiteSpace($projectName)) { $defaultPromptName } else { $projectName.Trim() }
             $nameCheck = Test-VrcSetupProjectName -Name $candidateName
             if ($nameCheck.Valid) {
@@ -2099,8 +2114,7 @@ function Setup-ProjectFlow {
             }
 
             Update-UnityPackageFlowState -State $state -Config $Config
-            $automaticNameCheck = Test-VrcSetupProjectName -Name ([string]$state.ProjectName)
-            if (-not $automaticNameCheck.Valid) {
+            if (Test-VrcSetupUnityPackageIdentityPromptRequired -State $state) {
                 [void](Prompt-UnityPackageIdentityStep -State $state -Config $Config)
             }
             if (-not (Prompt-UnityPackageExistingActionStep -State $state)) {
@@ -2111,17 +2125,17 @@ function Setup-ProjectFlow {
             while ($true) {
                 Update-UnityPackageFlowState -State $state -Config $Config
 
-                $options = @("Change project name")
+                $options = @("Start importing", "Change project name")
                 if (-not [string]::IsNullOrWhiteSpace([string]$state.TargetProjectPath) -and (Test-Path -LiteralPath ([string]$state.TargetProjectPath))) {
                     $options += "Change existing target action"
                 }
-                $options += @("Choose another UnityPackage", "Start setup", "Cancel")
+                $options += @("Choose another UnityPackage", "Cancel")
 
                 $choice = Show-Menu -Title "UnityPackage setup" -Header (Get-UnityPackageReviewHeader -State $state) -Options $options
                 if ($choice -eq -1) { return }
 
                 $picked = $options[$choice]
-                if ($picked -eq "Start setup") {
+                if ($picked -eq "Start importing") {
                     $executionResult = Invoke-UnityPackageExecution -State $state -Config $Config -ConfigPath $ConfigPath
                     if (-not $executionResult.Executed) {
                         continue

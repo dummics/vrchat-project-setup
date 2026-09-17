@@ -124,6 +124,8 @@ function Show-VrcSetupSpectreMenu {
     $keyboardHint = if ($AllowCancel) { 'Up/Down to move  ·  Enter to select  ·  Esc or Back to return' } else { 'Up/Down to move  ·  Enter to select' }
     [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]${keyboardHint}[/]")
     $choiceIndex = @{}
+    $currentIndex = [Math]::Min([Math]::Max(0, $Current), $Options.Count - 1)
+    $defaultDisplayChoice = $null
     $footerStart = $Options.Count
     for ($index = $Options.Count - 1; $index -ge 0; $index--) {
         if (Test-IsFooterOption -Text $Options[$index]) {
@@ -150,12 +152,14 @@ function Show-VrcSetupSpectreMenu {
         }
         $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
         $choiceIndex[$displayChoice] = $index
+        if ($index -eq $currentIndex) { $defaultDisplayChoice = $displayChoice }
         if ($null -ne $activeGroup) {
             [void]$activeGroup.AddChild($displayChoice)
         } else {
             [void]$prompt.AddChoice($displayChoice)
         }
     }
+    if ($null -ne $defaultDisplayChoice) { $prompt.DefaultValue = $defaultDisplayChoice }
 
     try {
         if ($AllowCancel) {
@@ -649,8 +653,13 @@ function New-VrcSetupProgressRenderable {
         [ValidateSet('Running', 'Success', 'Failed', 'Cancelled')][string]$Status = 'Running',
         [bool]$Follow = $true,
         [TimeSpan]$Elapsed = [TimeSpan]::Zero,
-        [AllowEmptyString()][string]$LogFile = ''
+        [AllowEmptyString()][string]$LogFile = '',
+        [AllowEmptyString()][string]$Metrics = ''
     )
+
+    $windowWidth = try { [Console]::WindowWidth } catch { 120 }
+    $panelWidth = [Math]::Min(200, [Math]::Max(74, $windowWidth - 4))
+    $innerWidth = [Math]::Max(48, $panelWidth - 4)
 
     $items = @($Lines)
     $maxStart = [Math]::Max(0, $items.Count - $MaxVisible)
@@ -659,7 +668,7 @@ function New-VrcSetupProgressRenderable {
     while ($visible.Count -lt $MaxVisible) { $visible += '' }
     $safeLines = @($visible | ForEach-Object {
         $line = ([string]$_ -replace '[\x00-\x1F\x7F]', ' ').Trim()
-        if ($line.Length -gt 68) { $line = $line.Substring(0, 65) + '...' }
+        if ($line.Length -gt $innerWidth) { $line = $line.Substring(0, $innerWidth - 1) + '…' }
         ConvertTo-VrcSetupSpectreText $line
     })
 
@@ -677,13 +686,18 @@ function New-VrcSetupProgressRenderable {
     if (-not $Follow) { $summaryDetails += "Viewing messages ${rangeStart}-${rangeEnd} of $($items.Count)" }
     $summaryDetails += $followLabel
     $summary = "[$statusColor]${Status}[/]  [#78909F]$($summaryDetails -join '  ·  ')[/]"
+    if (-not [string]::IsNullOrWhiteSpace($Metrics)) {
+        # Pinned live status: CPU/RAM refresh in place on this fixed colored line and
+        # never add a row to the log box below.
+        $summary += "  [#67E8A5]$(ConvertTo-VrcSetupSpectreText $Metrics)[/]"
+    }
 
     $logBody = [Spectre.Console.Markup]::new("[#DDEAF2]$($safeLines -join "`n")[/]")
     $logPanel = [Spectre.Console.Panel]::new($logBody)
     $logPanel.Header = [Spectre.Console.PanelHeader]::new(' Progress ')
     $logPanel.Border = [Spectre.Console.BoxBorder]::Rounded
     $logPanel.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
-    $logPanel.Width = 74
+    $logPanel.Width = $panelWidth
     $logPanel.Padding = [Spectre.Console.Padding]::new(1, 0)
 
     $hints = if ($Status -eq 'Running') {
@@ -733,13 +747,14 @@ function Invoke-VrcSetupSpectreOperation {
         Status = 'Running'
         ResultStatus = 1
         LogFile = ''
+        Metrics = ''
         OutputIndex = 0
         InformationIndex = 0
         ErrorIndex = 0
         WarningIndex = 0
     }
     $started = Get-Date
-    $initial = New-VrcSetupProgressRenderable -Lines @() -ScrollIndex 0 -MaxVisible $effectiveMaxVisible -Status Running -Follow:$true -Elapsed ([TimeSpan]::Zero)
+    $initial = New-VrcSetupProgressRenderable -Lines @() -ScrollIndex 0 -MaxVisible $effectiveMaxVisible -Status Running -Follow:$true -Elapsed ([TimeSpan]::Zero) -Metrics $state.Metrics
     $live = [Spectre.Console.AnsiConsole]::Live($initial)
     $live.AutoClear = $true
     $cursorWasVisible = $true
@@ -775,7 +790,12 @@ function Invoke-VrcSetupSpectreOperation {
                     $text = if ($entry -is [System.Management.Automation.InformationRecord]) { [string]$entry.MessageData } else { [string]$entry }
                     foreach ($line in @($text -split '\r?\n')) {
                         $clean = ($line -replace '[\x00-\x1F\x7F]', ' ').Trim()
-                        if (-not [string]::IsNullOrWhiteSpace($clean)) { [void]$state.Lines.Add($clean) }
+                        if ([string]::IsNullOrWhiteSpace($clean)) { continue }
+                        if ($clean.StartsWith('::VRCSETUP_METRICS::')) {
+                            $state.Metrics = $clean.Substring('::VRCSETUP_METRICS::'.Length).Trim()
+                            continue
+                        }
+                        [void]$state.Lines.Add($clean)
                     }
                 }
                 if ($state.Lines.Count -gt 1000) { $state.Lines.RemoveRange(0, $state.Lines.Count - 1000) }
@@ -812,7 +832,7 @@ function Invoke-VrcSetupSpectreOperation {
                     }
                 } catch { }
 
-                $next = New-VrcSetupProgressRenderable -Lines @($state.Lines) -ScrollIndex $state.ScrollIndex -MaxVisible $effectiveMaxVisible -Status $state.Status -Follow:$state.Follow -Elapsed ((Get-Date) - $started) -LogFile $state.LogFile
+                $next = New-VrcSetupProgressRenderable -Lines @($state.Lines) -ScrollIndex $state.ScrollIndex -MaxVisible $effectiveMaxVisible -Status $state.Status -Follow:$state.Follow -Elapsed ((Get-Date) - $started) -LogFile $state.LogFile -Metrics $state.Metrics
                 $context.UpdateTarget($next)
                 $context.Refresh()
                 if (-not $state.Exit) { Start-Sleep -Milliseconds 120 }

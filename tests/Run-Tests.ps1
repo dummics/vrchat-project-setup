@@ -152,6 +152,9 @@ try {
     Assert-True ((Get-VrcSetupVrcGetPackageAction -CurrentVersion '3.10.5-beta.1' -TargetVersion '3.10.5-beta.2') -eq 'upgrade') 'A newer prerelease package is not routed to vrc-get upgrade.'
     Assert-True ((Get-VrcSetupVrcGetPackageAction -CurrentVersion '3.10.5-beta.2' -TargetVersion '3.10.5-beta.1') -eq 'downgrade') 'An older prerelease package is not routed to vrc-get downgrade.'
     Assert-True (Test-VrcSetupPackageCommandFailed -Result ([pscustomobject]@{ ExitCode = 0; Output = '[ERR] Could not get match for com.vrchat.base' })) 'A package command that printed a resolver error was accepted as successful.'
+    $poiyomiLegacyCleanup = "[18:17:00 INF] UnityProject removing VPM package com.poiyomi.pro`n[18:17:00 ERR] Failed to remove package com.poiyomi.pro`n[18:17:00 INF] Added package com.poiyomi.toon to F:\UNITY PROJECTS\Lucian PC V2"
+    Assert-True (-not (Test-VrcSetupPackageCommandFailed -Result ([pscustomobject]@{ ExitCode = 0; Output = $poiyomiLegacyCleanup }) -PackageName 'com.poiyomi.toon')) 'A non-fatal legacy-removal error during a successful add rolled the whole package batch back.'
+    Assert-True (Test-VrcSetupPackageCommandFailed -Result ([pscustomobject]@{ ExitCode = 0; Output = '[ERR] Could not get match for com.poiyomi.toon' }) -PackageName 'com.poiyomi.toon') 'A genuine resolver failure for the requested package was not detected.'
     $script:VrcGetVersionsCache['com.example.sdk-a'] = @('3.10.5-beta.2', '3.10.5-beta.1', '3.10.4')
     $script:VrcGetVersionsCache['com.example.sdk-b'] = @('3.10.5-beta.2', '3.10.4')
     $commonVersions = @(Get-VrcSetupCommonPackageVersions -PackageNames @('com.example.sdk-a', 'com.example.sdk-b') -ScriptDir $scriptDir)
@@ -234,6 +237,13 @@ try {
     Assert-True ($wizardText -notmatch "'Toggle installed packages'|'Update selected packages'|'Review and apply'") 'The old procedural package-manager selectors are still present.'
     Assert-True ($wizardText -match 'Show-VrcSetupSpectrePackageWorkspace') 'The project package manager is not using the direct interactive workspace.'
     Assert-True ($wizardText -match "'Save changes'" -and $wizardText -notmatch "'Apply changes'") 'The package workspace does not expose one UI-like Save changes action.'
+    $generatedIdentityState = [pscustomobject]@{ ProjectName = 'Avatar Package'; SuggestedProjectName = 'Avatar Package'; SavedProjectName = $null }
+    $rememberedIdentityState = [pscustomobject]@{ ProjectName = 'Lucian PC V2'; SuggestedProjectName = 'Lucian PC V2'; SavedProjectName = 'PACKAGE_MAKER' }
+    $invalidIdentityState = [pscustomobject]@{ ProjectName = 'Invalid\Project'; SavedProjectName = $null }
+    Assert-True (-not (Test-VrcSetupUnityPackageIdentityPromptRequired -State $generatedIdentityState)) 'A valid package-derived name unnecessarily reopened the identity prompt.'
+    Assert-True (-not (Test-VrcSetupUnityPackageIdentityPromptRequired -State $rememberedIdentityState)) 'A remembered custom name unexpectedly blocked the package-derived default flow.'
+    Assert-True ((Get-VrcSetupUnityPackageDefaultProjectName -State $rememberedIdentityState) -eq 'Lucian PC V2') 'The package-derived name was not preferred over a remembered custom name.'
+    Assert-True (Test-VrcSetupUnityPackageIdentityPromptRequired -State $invalidIdentityState) 'An invalid generated project name did not reopen the identity prompt.'
     $menuText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\menu.ps1') -Raw
     $spectreText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\spectre.ps1') -Raw
     $progressText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\progress.ps1') -Raw
@@ -248,6 +258,9 @@ try {
     Assert-True ($spectreText -match 'function Show-VrcSetupSpectreSaveReview' -and $spectreText -match 'function Invoke-VrcSetupSpectreOperation') 'The polished save review or embedded progress surface is missing.'
     Assert-True ($wizardText -match 'Invoke-VrcSetupInstallerWithProgress' -and $wizardText -match 'Show-VrcSetupSpectreSaveReview') 'The interactive wizard bypasses the embedded review/progress flow.'
     Assert-True ($wizardText -match 'VRCSETUP_EMBEDDED_PROGRESS' -and $progressText -match 'VRCSETUP_EMBEDDED_PROGRESS') 'Embedded progress does not isolate the viewport keyboard from process cancellation input.'
+    Assert-True ($spectreText -match '\$prompt\.DefaultValue' -and $wizardText -match '\$options = @\("Start importing", "Change project name"\)' -and $wizardText -match '\$picked -eq "Start importing"') 'The UnityPackage review menu does not focus the start action by default.'
+    Assert-True ($progressText -match '::VRCSETUP_METRICS::' -and $progressText -match '\$lastLogChanged' -and $spectreText -match '::VRCSETUP_METRICS::') 'Embedded progress must pin CPU/RAM on one status line and add a log row only when the Unity tail changes.'
+    Assert-True ($spectreText -match '\$panelWidth = \[Math\]::Min\(200' -and $spectreText -match '\$logPanel\.Width = \$panelWidth') 'The progress panel regressed to a fixed narrow width that truncates Unity log lines.'
     Assert-True ($spectreText -match '\$versionWidth = if \(\$isNarrow\).*36' -and $spectreText -match 'Viewing messages') 'The package/version table or progress message counter regressed to the cramped or ambiguous layout.'
     Assert-True ($installerText -match "'--prerelease'" -and $installerText -match 'Invoke-VrcGetCapture') 'Prerelease packages are still routed only through the VPM CLI that cannot resolve them.'
     Assert-True ($installerText -match 'IncludeLockedPackages \$configuredPackageNames' -and $installerText -match 'Restore-VrcSetupPackageBatch') 'Locked SDK packages or failed package operations still bypass the safe installer contract.'
@@ -263,6 +276,9 @@ try {
         Assert-True ($reviewRenderable -is [Spectre.Console.Rows]) 'The save review did not build a Spectre renderable.'
         $progressRenderable = New-VrcSetupProgressRenderable -Lines @('Preparing project', 'Adding Easy Login') -ScrollIndex 0 -Status Running -Follow:$true -Elapsed ([TimeSpan]::FromSeconds(2))
         Assert-True ($progressRenderable -is [Spectre.Console.Rows]) 'The embedded progress viewport did not build a Spectre renderable.'
+        $longUnityLine = ('[Unity] ' + ('x' * 160))
+        $progressWithMetrics = New-VrcSetupProgressRenderable -Lines @($longUnityLine, 'Importing package dependencies') -ScrollIndex 0 -Status Running -Follow:$true -Elapsed ([TimeSpan]::FromSeconds(4)) -Metrics 'CPU 0.9%  RAM 2956MB'
+        Assert-True ($progressWithMetrics -is [Spectre.Console.Rows]) 'The progress panel did not build with the pinned CPU/RAM status line and a wide Unity log row.'
         $inputRenderable = New-VrcSetupTextInputRenderable -Value 'gogo' -Prompt 'Search or package ID' -Hint 'Type a name.'
         Assert-True ($inputRenderable -is [Spectre.Console.Rows]) 'The boxed search field did not build a Spectre renderable.'
         $pickerSelection = @{ 0 = $false }

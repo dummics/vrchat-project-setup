@@ -66,7 +66,7 @@ source folder as an installation to delete.
   remove and UnityPackage project creation, with `-DryRun` previews.
 - Configurable package presets with `latest` or pinned versions.
 - Package discovery through `vrc-get`, VPM and the local VCC repository cache.
-- Remembered project names and configurable naming rules.
+- Package-derived project names by default, optional custom names, and configurable naming rules.
 - Detection and cleanup of interrupted or incomplete setup operations.
 - Cancellation with `Q` or `Esc` during long Unity operations.
 - Backups before package-manifest changes and timestamped execution logs.
@@ -131,6 +131,7 @@ projects**. It then provides:
 
 1. **Create project**
    - Create from a UnityPackage using the suggested folder name immediately.
+   - Change the project name only when needed from the review menu.
    - Review the project name, target folder and import action before starting.
 2. **Manage projects**
    - Open the project library: it scans the configured root and nearby nested

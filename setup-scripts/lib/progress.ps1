@@ -35,7 +35,11 @@ function Show-ProcessProgress {
 
     $useWriteProgress = $true
     if ($env:VRCSETUP_PROGRESS_PLAIN -eq '1') { $useWriteProgress = ${false} }
-    if ($env:VRCSETUP_EMBEDDED_PROGRESS -eq '1') { $AllowCancel = ${false} }
+    # The Spectre panel captures this stream; CPU/RAM/times go on one pinned status
+    # line and only real Unity log changes become rows. Sentinel literal is shared
+    # with New-VrcSetupProgressRenderable / Invoke-VrcSetupSpectreOperation.
+    $embedded = ($env:VRCSETUP_EMBEDDED_PROGRESS -eq '1')
+    if ($embedded) { $AllowCancel = ${false} }
     try {
         if (${null} -eq ${Host} -or ${null} -eq ${Host}.UI -or ${null} -eq ${Host}.UI.RawUI) { $useWriteProgress = ${false} }
     } catch { $useWriteProgress = ${false} }
@@ -106,9 +110,10 @@ function Show-ProcessProgress {
             $lastStatsUpdate = Get-Date
         }
 
+        $lastLogChanged = $false
         if (Test-Path -LiteralPath $LogFile) {
             $newLog = Get-Content -LiteralPath $LogFile -Tail 1 -ErrorAction SilentlyContinue
-            if ($newLog -and $newLog -ne $lastLog) { $lastLog = $newLog }
+            if ($newLog -and $newLog -ne $lastLog) { $lastLog = $newLog; $lastLogChanged = $true }
         }
 
         $maxLogLen = 60
@@ -132,7 +137,16 @@ function Show-ProcessProgress {
 
         $displayLog = if ($cleanLog.Length -gt $maxLogLen) { $cleanLog.Substring(0, $maxLogLen) + "..." } else { $cleanLog }
 
-        if ($useWriteProgress) {
+        if ($embedded) {
+            # Pinned status line: the panel renders this on one fixed colored row and
+            # never as a log row, so CPU/RAM/timer updates do not advance the view.
+            Write-Host "::VRCSETUP_METRICS::CPU ${cpuPercent}%  RAM ${memoryMB}MB"
+            # A new log row appears only when Unity actually produced a new tail line.
+            if ($lastLogChanged -and -not [string]::IsNullOrWhiteSpace($cleanLog)) {
+                Write-Host $cleanLog
+            }
+        }
+        elseif ($useWriteProgress) {
             $tail = $displayLog
             if (-not [string]::IsNullOrWhiteSpace($tail)) {
                 $status = "Time ${elapsedStr} | CPU: ${cpuPercent}% | RAM: ${memoryMB}MB | ${tail}"
@@ -153,7 +167,7 @@ function Show-ProcessProgress {
             }
         }
 
-        if (-not $useWriteProgress) {
+        if (-not $embedded -and -not $useWriteProgress) {
             $statusLine = "${Prefix} ${elapsedStr} | CPU: ${cpuPercent}% | RAM: ${memoryMB}MB | ${displayLog}"
             Write-Host $statusLine
         }
