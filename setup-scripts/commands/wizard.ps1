@@ -15,6 +15,7 @@ $scriptDir = [System.IO.Directory]::GetParent($PSScriptRoot).FullName
 . "${scriptDir}\lib\projects.ps1"
 . "${scriptDir}\lib\spectre.ps1"
 . "${scriptDir}\lib\package-ui.ps1"
+. "${scriptDir}\lib\bulk-packages.ps1"
 . "${scriptDir}\commands\installer.ps1"
 $configPath = Join-Path $scriptDir "config\\vrcsetup.json"
 $defaultsPath = Join-Path $scriptDir "config\\vrcsetup.defaults"
@@ -850,25 +851,35 @@ function Select-VrcSetupPackageResults {
         [string]$Title = 'Choose packages',
         [string]$Header = 'Select everything you want to add. New packages use their latest version.',
         [bool]$DefaultSelected = $false,
-        [bool]$SingleSelection = $false
+        [bool]$SingleSelection = $false,
+        [switch]$AllowVersionSelection
     )
 
     $itemsArray = @($Items)
     if ($itemsArray.Count -eq 0) { return @() }
-    if (Get-Command -Name 'Show-VrcSetupSpectrePackageChecklist' -ErrorAction SilentlyContinue) {
-        return @(Show-VrcSetupSpectrePackageChecklist -Items $itemsArray -Title $Title -Header $Header -DefaultSelected:$DefaultSelected -SingleSelection:$SingleSelection -MaxVisible 14 -ScriptDir $scriptDir)
+    if ((Get-Command -Name 'Show-VrcSetupSpectrePackageChecklist' -ErrorAction SilentlyContinue) -and (Initialize-VrcSetupSpectre -ScriptDir $scriptDir)) {
+        $versionSelector = if ($AllowVersionSelection) { { param($item) Select-VpmVersion -PackageName $item.Id -CurrentVersion $(if ($item.SelectedVersion) { $item.SelectedVersion } else { 'latest' }) } } else { $null }
+        return @(Show-VrcSetupSpectrePackageChecklist -Items $itemsArray -Title $Title -Header $Header -DefaultSelected:$DefaultSelected -SingleSelection:$SingleSelection -MaxVisible 14 -ScriptDir $scriptDir -VersionSelector $versionSelector)
     }
-    return @(Show-ChecklistPaged -Title $Title -PromptTitle 'Select packages' -Header $Header -Items $itemsArray -DefaultSelected:$DefaultSelected -MaxVisible 14 -ToLabel {
+    $selectedItems = @(Show-ChecklistPaged -Title $Title -PromptTitle 'Select packages' -Header $Header -Items $itemsArray -DefaultSelected:$DefaultSelected -MaxVisible 14 -ToLabel {
         param($match, $index)
         Format-VrcSetupPackageRow -DisplayName ([string]$match.DisplayName) -PackageName ([string]$match.Id) -Version ([string]$match.LatestVersion)
     })
+    if ($AllowVersionSelection) {
+        foreach ($item in $selectedItems) {
+            $version=Select-VpmVersion -PackageName $item.Id -CurrentVersion 'latest'
+            if ($version) { $item | Add-Member -NotePropertyName SelectedVersion -NotePropertyValue $version -Force }
+        }
+    }
+    return $selectedItems
 }
 
 function Find-VrcSetupPackages {
     param(
         [string[]]$ExcludePackageNames = @(),
         [string]$Title = 'Find a package',
-        [string]$Header = 'Search by name or paste one or more exact package IDs separated by commas.'
+        [string]$Header = 'Search by name or paste one or more exact package IDs separated by commas.',
+        [switch]$WithVersions
     )
 
     while ($true) {
@@ -897,7 +908,9 @@ function Find-VrcSetupPackages {
             if ((Show-Menu -Title 'Package not found' -Header ("Could not find: {0}" -f ($invalid -join ', ')) -Options @('Search again', 'Back')) -eq 0) { continue }
             return @()
         }
-        return $newIds
+        if (-not $WithVersions) { return $newIds }
+        $matches = @($newIds | ForEach-Object { [pscustomobject]@{ Id=$_; DisplayName=(Get-VrcSetupFriendlyPackageName -PackageName $_); LatestVersion='latest' } })
+        return @(Select-VrcSetupPackageResults -Items $matches -Title 'Add packages' -AllowVersionSelection)
     }
 
     if ([string]::IsNullOrWhiteSpace((Get-VrcGetExecutablePath -ScriptDir $scriptDir))) {
@@ -916,7 +929,8 @@ function Find-VrcSetupPackages {
         if ((Show-Menu -Title 'Already included' -Header ("Already in this set: {0}" -f ($matchedNames -join ', ')) -Options @('Search again', 'Back')) -eq 0) { continue }
         return @()
     }
-    $selected = @(Select-VrcSetupPackageResults -Items $availableMatches -Title 'Add packages' -Header "$($availableMatches.Count) results for '${query}'  ·  New packages use latest compatible.")
+    $selected = @(Select-VrcSetupPackageResults -Items $availableMatches -Title 'Add packages' -Header "$($availableMatches.Count) results for '${query}'" -AllowVersionSelection:$WithVersions)
+    if ($WithVersions) { return $selected }
     return @($selected | ForEach-Object { [string]$_.Id } | Select-Object -Unique)
     }
 }
@@ -1070,10 +1084,10 @@ function Edit-VpmPackages {
 
         if ($picked -eq "Add package") {
             $existingNames = @($config.VpmPackages.PSObject.Properties | ForEach-Object { $_.Name })
-            $newPackages = @(Find-VrcSetupPackages -ExcludePackageNames $existingNames -Title 'Add to my package set' -Header 'Search by name or paste exact package IDs. Selected packages use their newest compatible version.')
+            $newPackages = @(Find-VrcSetupPackages -ExcludePackageNames $existingNames -Title 'Add to my package set' -WithVersions)
             if ($newPackages.Count -eq 0) { continue }
-            $config.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $config.VpmPackages -PackageNames $newPackages
-            $configNotice = "$(if ($WorkingCopy) { 'Selected' } else { 'Saved to default set' }): $($newPackages -join ', ')"
+            $config.VpmPackages = Add-VrcSetupPackageSelections -Packages $config.VpmPackages -Selections $newPackages
+            $configNotice = "$(if ($WorkingCopy) { 'Selected' } else { 'Saved to default set' }): $(@($newPackages | ForEach-Object { $_.DisplayName }) -join ', ')"
             if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
             continue
         }
@@ -1658,12 +1672,12 @@ function Setup-ProjectFlow {
 
             if ($action.Kind -eq 'add') {
                 $existingNames = @($workingConfig.VpmPackages.PSObject.Properties | ForEach-Object { $_.Name })
-                $newPackageIds = @(Find-VrcSetupPackages -ExcludePackageNames $existingNames)
+                $newPackageIds = @(Find-VrcSetupPackages -ExcludePackageNames $existingNames -WithVersions)
                 if ($newPackageIds.Count -eq 0) { continue }
-                $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames $newPackageIds
-                $workspaceNotice = "Queued: $($newPackageIds -join ', '). Save changes to install."
+                $workingConfig.VpmPackages = Add-VrcSetupPackageSelections -Packages $workingConfig.VpmPackages -Selections $newPackageIds
+                $workspaceNotice = "Packages queued. Save changes to install."
                 $addedItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $currentPackages -DesiredPackages $workingConfig.VpmPackages -Config $workingConfig)
-                $workspaceSelectedIndex = [array]::IndexOf(@($addedItems.Name), $newPackageIds[0])
+                $workspaceSelectedIndex = [array]::IndexOf(@($addedItems.Name), [string]$newPackageIds[0].Id)
                 continue
             }
 
@@ -1843,6 +1857,17 @@ function Setup-ProjectFlow {
                 if (-not $selected -or $selected.Action -eq 'back') { continue }
             }
             if (-not $selected -or $selected.Action -eq 'back') { return }
+            if ($selected.Action -eq 'clearselection') {
+                if ($libraryState.PSObject.Properties['Selected']) { $libraryState.Selected.Clear() }
+                continue
+            }
+            if ($selected.Action -eq 'choosebulk') {
+                $chosen=@(Show-ChecklistPaged -Title 'Select projects' -PromptTitle 'Projects to edit' -Items @($catalog.Projects) -DefaultSelected:$false -ToLabel { param($p,$i) [string]$p.RelativePath })
+                if (-not $chosen.Count) { continue }
+                Invoke-VrcSetupBulkPackageEditor -ProjectPaths @($chosen.Path) -Config $Config -ConfigPath $ConfigPath -ScriptDir $scriptDir
+                $forceRefresh=$true
+                continue
+            }
             if ($selected.Action -eq 'refresh') {
                 $forceRefresh = $true
                 continue
@@ -1866,6 +1891,11 @@ function Setup-ProjectFlow {
             }
             if ($selected.Action -eq 'project') {
                 Invoke-ExistingProjectFlow -Config $Config -ProjectPath ([string]$selected.ProjectPath)
+                continue
+            }
+            if ($selected.Action -eq 'bulk') {
+                Invoke-VrcSetupBulkPackageEditor -ProjectPaths $selected.ProjectPaths -Config $Config -ConfigPath $ConfigPath -ScriptDir $scriptDir
+                $forceRefresh = $true
                 continue
             }
         }

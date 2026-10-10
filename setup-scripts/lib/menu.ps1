@@ -650,7 +650,7 @@ function Show-ChecklistPaged {
     if ($itemsArr.Count -eq 0) { return @() }
 
     $spectreChecklist = Get-Command -Name 'Show-VrcSetupSpectreChecklist' -ErrorAction SilentlyContinue
-    if ($spectreChecklist) {
+    if ($spectreChecklist -and (Initialize-VrcSetupSpectre -ScriptDir (Get-VrcSetupSpectreScriptDir))) {
         $spectreResult = Show-VrcSetupSpectreChecklist -Items $itemsArr -ToLabel $ToLabel -Title $Title -PromptTitle $PromptTitle -Header $Header -DefaultSelected:$DefaultSelected -MaxVisible $MaxVisible -AllowCancel:$AllowCancel
         if ($null -ne $spectreResult -or $AllowCancel) { return $spectreResult }
     }

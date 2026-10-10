@@ -3,7 +3,7 @@ function Get-VrcSetupViewport {
     param([int]$Width = 0, [int]$Height = 0)
     if ($Width -le 0) { $Width = try { [Console]::WindowWidth } catch { 0 } }
     if ($Height -le 0) { $Height = try { [Console]::WindowHeight } catch { 0 } }
-    if ($Width -le 0) { $Width = [Spectre.Console.AnsiConsole]::Profile.Width }
+    if ($Width -le 0) { $Width = try { [Spectre.Console.AnsiConsole]::Profile.Width } catch { 80 } }
     if ($Height -le 0) { $Height = 30 }
     return [pscustomobject]@{ Width = [Math]::Max(30, $Width); Height = [Math]::Max(16, $Height) }
 }
@@ -11,7 +11,7 @@ function Get-VrcSetupViewport {
 function Get-VrcSetupMenuActionWeight {
     param([string]$Label)
     if ($Label -match '^(Back|Cancel|Exit)$') { return 'Footer' }
-    if ($Label -match '^(Start importing|Import avatar or asset|Save preset|Save \d|Save changes|Apply changes|Confirm)') { return 'Primary' }
+    if ($Label -match '^(Start importing|Import avatar or asset|Save preset|Save \d|Save changes|Apply changes|Apply to selected projects|Review changes|Confirm)') { return 'Primary' }
     if ($Label -match '^(Change |Choose another |Reset |Delete |Clean up )') { return 'Utility' }
     return 'Secondary'
 }
@@ -105,6 +105,7 @@ function Update-VrcSetupMenuKey {
 
 function Update-VrcSetupLibraryKey {
     param($State, $Key, $Catalog, [int]$PageSize = 10)
+    if (-not $State.PSObject.Properties['Selected']) { $State | Add-Member -NotePropertyName Selected -NotePropertyValue @{} }
     $projects = @(Get-VrcSetupFilteredProjects -Projects $Catalog.Projects -Filter $State.Filter)
     $last = [Math]::Max(0,$projects.Count - 1)
     $State.Index = [Math]::Min($last,$State.Index)
@@ -117,7 +118,12 @@ function Update-VrcSetupLibraryKey {
         'End' { $State.Index=$last }
         'F2' { $State.Result=[pscustomobject]@{Action='library';ProjectPath=$null}; $State.Done=$true }
         'Escape' { $State.Done=$true }
-        'Enter' { if ($projects.Count -gt 0) { $State.Result=[pscustomobject]@{Action='project';ProjectPath=[string]$projects[$State.Index].Path}; $State.Done=$true } }
+        'Spacebar' { if ($projects.Count -gt 0) { $path=[string]$projects[$State.Index].Path; if ($State.Selected.ContainsKey($path)) { $State.Selected.Remove($path) } else { $State.Selected[$path]=$true } } }
+        'Enter' {
+            $paths = @($Catalog.Projects | Where-Object { $State.Selected.ContainsKey([string]$_.Path) } | ForEach-Object { [string]$_.Path })
+            if ($paths.Count -gt 0) { $State.Result=[pscustomobject]@{Action='bulk';ProjectPaths=$paths}; $State.Done=$true }
+            elseif ($projects.Count -gt 0) { $State.Result=[pscustomobject]@{Action='project';ProjectPath=[string]$projects[$State.Index].Path}; $State.Done=$true }
+        }
         'Backspace' { if ($State.Filter.Length -gt 0) { $State.Filter=$State.Filter.Substring(0,$State.Filter.Length-1); $State.Index=0 } }
         default { if ($Key.KeyChar -and -not [char]::IsControl($Key.KeyChar)) { $State.Filter += $Key.KeyChar; $State.Index=0 } }
     }
@@ -182,7 +188,8 @@ function New-VrcSetupProjectLibraryRenderable {
         $project = $projects[$i]
         $date = try { ([datetime]$project.LastModifiedUtc).ToLocalTime().ToString('dd MMM yy HH:mm',[Globalization.CultureInfo]::InvariantCulture) } catch { 'Unknown' }
         $kind = if ($project.Kind -eq 'Unity') { 'Project' } else { [string]$project.Kind }
-        $cells = @("$(if ($i -eq $selected) { '> ' } else { '  ' })$($project.RelativePath)")
+        $checked = $State.PSObject.Properties['Selected'] -and $State.Selected.ContainsKey([string]$project.Path)
+        $cells = @("$(if ($checked) { '[x] ' } elseif ($i -eq $selected) { '>   ' } else { '    ' })$($project.RelativePath)")
         if ($wide) { $cells += @($kind,[string]$project.UnityVersion,[string]$project.PackageCount,$date) } elseif ($medium) { $cells += $date }
         $rendered = @()
         for ($j=0;$j -lt $cells.Count;$j++) {
@@ -195,13 +202,10 @@ function New-VrcSetupProjectLibraryRenderable {
     if ($projects.Count -eq 0) { $rows += [Spectre.Console.Text]::new('No matching projects. Backspace clears the search.') }
     else {
         $rows += $table
-        $project = $projects[$selected]
-        $rows += [Spectre.Console.Markup]::new("[#78909F]$(ConvertTo-VrcSetupSpectreText ([string]$project.Path))[/]")
-        $rows += [Spectre.Console.Markup]::new("[#DDEAF2]Unity $(ConvertTo-VrcSetupSpectreText ([string]$project.UnityVersion))  ·  $($project.PackageCount) packages  ·  $($selected + 1) / $($projects.Count)[/]")
-        if ($project.UnityVersionSource -eq 'GeneratedProject' -or $project.PackageMetadataSource -eq 'EmbeddedPackages') { $rows += [Spectre.Console.Text]::new('Some project details were recovered from local files.') }
-        $rows += New-VrcSetupActionButton -Label 'Manage selected project' -Color '#75D7F7'
+        $count = if ($State.PSObject.Properties['Selected']) { $State.Selected.Count } else { 0 }
+        $rows += New-VrcSetupActionButton -Label $(if ($count) { "Edit packages in $count projects" } else { 'Open project' }) -Color '#75D7F7'
     }
-    $rows += [Spectre.Console.Markup]::new('[#78909F]Up/Down Move  ·  PgUp/PgDn Page  ·  F2 Options  ·  Esc Back[/]')
+    $rows += [Spectre.Console.Markup]::new('[#78909F]Space Select projects  ·  Up/Down Move  ·  F2 Options  ·  Esc Back[/]')
     return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$rows)
 }
 

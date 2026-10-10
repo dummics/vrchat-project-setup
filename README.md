@@ -62,6 +62,15 @@ source folder as an installation to delete.
   and one compact review screen.
 - Existing-project setup and AIO VPM management: add, update and remove several
   packages, then apply the complete plan in one run.
+- Bulk package editing from My projects: mark projects with Space, then Enter.
+  Stage individual packages and versions, apply a creator preset while keeping
+  other packages, or match a preset/reference project exactly. In add/update
+  mode, each package can target a different subset of the selection. Review each
+  project's additions, updates and removals before applying. Open Unity projects
+  and projects changed after review are skipped; failures do not stop the others.
+- In Add packages, press V to choose a searchable version before adding; the
+  chosen version appears in the row. Enter confirms checked packages (or the
+  focused package when nothing is checked).
 - A scriptable CLI for project discovery, JSON output, package search/list/add/
   remove and UnityPackage project creation, with `-DryRun` previews.
 - Configurable package presets with `latest` or pinned versions.

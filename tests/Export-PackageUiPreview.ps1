@@ -10,6 +10,8 @@ Add-Type -LiteralPath (Join-Path $runtime 'lib\spectre\Spectre.Console.dll')
     [Spectre.Console.AnsiConsole]::Write([Spectre.Console.Rule]::new('Search packages'))
     [Spectre.Console.AnsiConsole]::Write((New-VrcSetupTextInputRenderable -Value 'gogo' -Prompt 'Search or package ID' -Hint 'Enter Search  ·  Esc Back'))
     $items = @([pscustomobject]@{Id='gogoloco';DisplayName='GoGoLoco';LatestVersion='1.8.6'}, [pscustomobject]@{Id='com.vrcfury.vrcfury';DisplayName='VRCFury';LatestVersion='1.0.0'})
+    $items[0] | Add-Member -NotePropertyName VersionEditable -NotePropertyValue $true
+    $items[0] | Add-Member -NotePropertyName SelectedVersion -NotePropertyValue '1.8.5'
     [Spectre.Console.AnsiConsole]::Write([Spectre.Console.Rule]::new('Add highlighted package'))
     [Spectre.Console.AnsiConsole]::Write((New-VrcSetupPackagePickerRenderable -Items $items -SelectedIndex 0 -Selected @{0=$false;1=$false}))
     [Spectre.Console.AnsiConsole]::Write([Spectre.Console.Rule]::new('Add selected packages'))
