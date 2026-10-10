@@ -985,6 +985,7 @@ function Edit-VpmPackages {
         [string]$ScriptDir,
         $ConfigObject,
         $PresetConfig,
+        [string]$EditingPreset,
         [switch]$WorkingCopy
     )
 
@@ -1023,15 +1024,20 @@ function Edit-VpmPackages {
             $kind = if ($isRequired) { 'Required' } else { 'Optional' }
             $pkgOptions += (Format-VrcSetupPackageRow -Role $kind -PackageName $pkg.Name -Version ([string]$pkg.Value))
         }
-        $pkgOptions += @('Add package', 'Favorite packages', 'Package presets', 'Back')
+        $pkgOptions += @('Add package', 'Favorite packages')
+        if (-not $EditingPreset) { $pkgOptions += 'Package presets' }
+        $pkgOptions += $(if ($EditingPreset) { 'Save preset' } else { 'Back' })
 
-        $header = if ($WorkingCopy) {
+        $header = if ($EditingPreset) {
+            "Preset: ${EditingPreset}  ·  Save preset commits these changes only`n${configNotice}`nRole       Package name                  Package ID                              Version"
+        } elseif ($WorkingCopy) {
             "Project selection  ·  Back returns to project review`n${configNotice}`nRole       Package name                  Package ID                              Version"
         } else {
             "Default set for new projects  ·  Changes saved immediately`n${configNotice}`nRole       Package name                  Package ID                              Version"
         }
         $selected = Show-Menu -Title "VPM Packages" -Header $header -Options $pkgOptions
         if ($selected -eq -1) {
+            if ($EditingPreset) { return $null }
             if ($WorkingCopy) { return $config.VpmPackages }
             return
         }
@@ -1039,7 +1045,7 @@ function Edit-VpmPackages {
         $picked = $pkgOptions[$selected]
         if ($picked -eq 'Package presets') {
             $presetOwner = if ($WorkingCopy) { if ($PresetConfig) { $PresetConfig } else { Load-Config -ConfigPath $ConfigPath } } else { $config }
-            $preset = Invoke-VrcSetupPresetMenu -Config $presetOwner -ConfigPath $ConfigPath -Packages $config.VpmPackages
+            $preset = Invoke-VrcSetupPresetMenu -Config $presetOwner -ConfigPath $ConfigPath -Packages $config.VpmPackages -ManageOnly:(-not $WorkingCopy) -NewProject:$WorkingCopy -ScriptDir $ScriptDir
             if ($preset) {
                 $config.VpmPackages = $preset.Packages
                 $configNotice = "Preset selected: $($preset.Name)"
@@ -1047,6 +1053,7 @@ function Edit-VpmPackages {
             }
             continue
         }
+        if ($picked -eq 'Save preset') { return $config.VpmPackages }
         if ($picked -eq "Back") {
             if ($WorkingCopy) { return $config.VpmPackages }
             return
@@ -1666,7 +1673,7 @@ function Setup-ProjectFlow {
             }
 
             if ($action.Kind -eq 'presets') {
-                $preset = Invoke-VrcSetupPresetMenu -Config $Config -ConfigPath $ConfigPath -Packages $workingConfig.VpmPackages
+                $preset = Invoke-VrcSetupPresetMenu -Config $Config -ConfigPath $ConfigPath -Packages $workingConfig.VpmPackages -ScriptDir $ScriptDir
                 if ($preset) {
                     $workingConfig.VpmPackages = $preset.Packages
                     $workspaceNotice = "Preset '$($preset.Name)' queued. Save changes to apply."
@@ -2204,10 +2211,10 @@ function Setup-ProjectFlow {
                 }
                 if ($picked -eq 'Package presets') {
                     $currentSet = if ($state.Packages) { $state.Packages } else { $Config.VpmPackages }
-                    $preset = Invoke-VrcSetupPresetMenu -Config $Config -ConfigPath $ConfigPath -Packages $currentSet
+                    $preset = Invoke-VrcSetupPresetMenu -Config $Config -ConfigPath $ConfigPath -Packages $currentSet -NewProject -ScriptDir $scriptDir
                     if ($preset) {
                         # New projects start with exactly the chosen preset and required packages.
-                        $state.Packages = Resolve-VrcSetupPackagePreset -Config $Config -Name $preset.Name
+                        $state.Packages = $preset.Packages
                         $state.PresetName = $preset.Name
                     }
                     continue

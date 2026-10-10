@@ -183,7 +183,7 @@ projects**. It then provides:
    - Shows the required VRChat foundation first, in base/avatar/resolver order.
    - Keeps required packages installed while making optional packages easy to edit or remove.
    - Search packages and select available versions.
-   - Use `latest` or pin a specific version.
+   - Type a version or prefix in the version picker; use `latest` or a specific version.
    - Remove optional starter packages such as GoGoLoco, VRCFury, Poiyomi,
      templates or Easy Login.
 4. **Settings**
@@ -206,6 +206,15 @@ how to add it manually.
 
 Named presets live in `PackagePresets` in your local `vrcsetup.json`, which the
 installer preserves. Each preset maps package IDs to exact versions or `latest`.
+Your default set remains independent. From package settings, select a preset to
+edit its packages and versions, then choose **Save preset**. Escape discards the
+edit. Before importing, choose a creator preset or **Use my defaults**. New
+projects use exactly that set plus the required foundation: optional packages
+absent from a preset are not inherited from your defaults. Applying a preset to
+an existing project keeps unrelated installed packages.
+Version search filters version numbers; searching by release date is not yet
+available. A specific version belongs to the selected preset or project, rather
+than a global package lock; `latest` follows compatible updates.
 Saving from an existing project captures direct packages and the required locked
 SDK foundation, rather than every transitive dependency.
 

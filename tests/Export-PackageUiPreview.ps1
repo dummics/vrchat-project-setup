@@ -26,7 +26,7 @@ Add-Type -LiteralPath (Join-Path $runtime 'lib\spectre\Spectre.Console.dll')
 } > $null
 $html = [Spectre.Console.AnsiConsole]::ExportHtml()
 $text = [Spectre.Console.AnsiConsole]::ExportText()
-if ($text -notmatch '\[x\]' -or $text -notmatch '\[ \]' -or $text -notmatch 'Add GoGoLoco' -or $text -notmatch 'Pin 1.8.6' -or $text -notmatch 'Continue to recovery' -or $text -notmatch 'Done - Back to project') {
+if ($text -notmatch '\[x\]' -or $text -notmatch '\[ \]' -or $text -notmatch 'Add GoGoLoco' -or $text -notmatch 'Use version 1.8.6' -or $text -notmatch 'Continue to recovery' -or $text -notmatch 'Done - Back to project') {
     throw 'UI preview is missing a primary action.'
 }
 [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($OutputPath)))

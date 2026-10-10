@@ -38,16 +38,43 @@ function Resolve-VrcSetupPackagePreset {
 }
 
 function Invoke-VrcSetupPresetMenu {
-    param($Config, [string]$ConfigPath, $Packages)
-    $notice = 'Pins stay fixed. latest follows updates. Other project packages are kept.'
+    param($Config, [string]$ConfigPath, $Packages, [switch]$ManageOnly, [switch]$NewProject, [string]$ScriptDir)
+    $notice = 'Each preset has its own packages and versions. Your defaults stay unchanged.'
     while ($true) {
         $presets = @(Get-VrcSetupPackagePresets -Config $Config)
         $options = @($presets | ForEach-Object { "$($_.Name)  ($(@($_.Value.PSObject.Properties).Count) packages)" })
-        $options += @('Save current set as preset', 'Delete a preset', 'Back')
+        $options += @('Save current set as preset', 'Edit a preset', 'Delete a preset')
+        if ($NewProject) { $options += 'Use my defaults' }
+        $options += 'Back'
         $choice = Show-Menu -Title 'Package presets' -Header $notice -Options $options
-        if ($choice -lt 0 -or $choice -eq ($presets.Count + 2)) { return $null }
+        if ($choice -lt 0 -or $options[$choice] -eq 'Back') { return $null }
+        if ($options[$choice] -eq 'Use my defaults') {
+            return [pscustomobject]@{ Name = 'My package set'; Packages = Copy-VpmPackageSet -Packages $Config.VpmPackages }
+        }
         if ($choice -lt $presets.Count) {
-            return [pscustomobject]@{ Name = $presets[$choice].Name; Packages = (Resolve-VrcSetupPackagePreset -Config $Config -Name $presets[$choice].Name -BasePackages $Packages) }
+            if (-not $ManageOnly) {
+                $base = if ($NewProject) { $null } else { $Packages }
+                return [pscustomobject]@{ Name = $presets[$choice].Name; Packages = (Resolve-VrcSetupPackagePreset -Config $Config -Name $presets[$choice].Name -BasePackages $base) }
+            }
+            $editChoice = $choice
+        } elseif ($options[$choice] -eq 'Edit a preset') {
+            if ($presets.Count -eq 0) { continue }
+            $editChoice = Show-Menu -Title 'Edit preset' -Options @(@($presets.Name) + 'Back')
+            if ($editChoice -lt 0 -or $editChoice -ge $presets.Count) { continue }
+        } else { $editChoice = -1 }
+        if ($editChoice -ge 0) {
+            $name = $presets[$editChoice].Name
+            $localConfig = [pscustomobject]@{
+                VpmPackages = Resolve-VrcSetupPackagePreset -Config $Config -Name $name
+                RequiredPackages = @(Get-RequiredPackages -Config $Config)
+            }
+            $edited = Edit-VpmPackages -ConfigPath $ConfigPath -ScriptDir $ScriptDir -ConfigObject $localConfig -PresetConfig $Config -WorkingCopy -EditingPreset $name
+            if ($edited) {
+                Save-VrcSetupPackagePreset -Config $Config -Name $name -Packages $edited
+                Save-Config -Config $Config -ConfigPath $ConfigPath
+                $notice = "Preset saved: ${name}. Your defaults are unchanged."
+            }
+            continue
         }
         if ($choice -eq $presets.Count) {
             $name = Read-WizardTextInput -Title 'Save package preset' -Prompt 'Preset name' -BodyLines @('For example: Creator PC, Creator Quest, or a custom setup.') -Hint 'Enter Save  ·  Esc Back'

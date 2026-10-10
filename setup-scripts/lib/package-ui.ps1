@@ -32,7 +32,7 @@ function New-VrcSetupVersionPickerRenderable {
     for ($i = $offset; $i -le $end; $i++) {
         $version = $choices[$i]
         $channel = if ($version -eq 'latest') { 'Newest compatible at apply time' } elseif ($version -match '-') { 'Prerelease' } else { 'Stable' }
-        $selection = if ($version -eq $CurrentVersion) { 'Current choice' } elseif ($version -ne 'latest') { 'Pin this version' } else { 'Follow updates' }
+        $selection = if ($version -eq $CurrentVersion) { 'Current choice' } elseif ($version -ne 'latest') { 'Specific version' } else { 'Follow updates' }
         $style = if ($i -eq $State.Index) { 'black on #75D7F7' } else { '#DDEAF2' }
         $cells = @($version, $channel, $selection) | ForEach-Object { [Spectre.Console.Markup]::new("[${style}]$(ConvertTo-VrcSetupSpectreText $_)[/]") }
         [void]$table.Rows.Add([Spectre.Console.Rendering.IRenderable[]]$cells)
@@ -40,7 +40,7 @@ function New-VrcSetupVersionPickerRenderable {
     $rows += $table
     if ($matches.Count -eq 0) { $rows += [Spectre.Console.Markup]::new('[#F6C451]No matching versions. Backspace clears the filter; M enters a version.[/]') }
     $rows += [Spectre.Console.Text]::new(' ')
-    $rows += New-VrcSetupActionButton -Label $(if ($choices[$State.Index] -eq 'latest') { 'Use latest compatible' } else { "Pin $($choices[$State.Index])" }) -Color '#75D7F7'
+    $rows += New-VrcSetupActionButton -Label $(if ($choices[$State.Index] -eq 'latest') { 'Use latest compatible' } else { "Use version $($choices[$State.Index])" }) -Color '#75D7F7'
     $rows += [Spectre.Console.Markup]::new("[#78909F]$($matches.Count) versions  ·  Esc Back[/]")
     $rows += [Spectre.Console.Rule]::new()
     $rows += [Spectre.Console.Markup]::new('[#78909F]Navigate   Up/Down  ·  PgUp/PgDn     Search   Type  ·  Backspace[/]')
