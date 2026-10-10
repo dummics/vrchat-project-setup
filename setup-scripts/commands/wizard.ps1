@@ -261,13 +261,13 @@ function Read-WizardPathInput {
         [string]$Prompt = "Path",
         [ConsoleColor]$TitleColor = [ConsoleColor]::Cyan,
         [switch]$PreserveRelative,
-        [string]$Hint = "Paste or drag the path here. Press ENTER to go back."
+        [string]$Hint = 'Enter Select  ·  Esc Back'
     )
 
     $spectreTextInput = Get-Command -Name 'Read-VrcSetupSpectreTextInput' -ErrorAction SilentlyContinue
     if ($spectreTextInput) {
         $body = @($BodyLines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
-        $value = Read-VrcSetupSpectreTextInput -Title $Title -Header $body -Prompt $Prompt -Hint $Hint
+        $value = Read-VrcSetupSpectreTextInput -Title $Title -Header $body -Prompt $Prompt -Hint $Hint -Placeholder 'Drag and drop here'
         return Normalize-UserPath $value -PreserveRelative:$PreserveRelative
     }
 
@@ -541,11 +541,11 @@ function Advanced-NamingSettings {
             Get-SettingsPathSummary -Path $resolvedCommon
         }
 
-        $sel = Show-Menu -Title 'Settings' -Header 'Unity and project folders are used everywhere. The other choices affect new projects.' -SectionBreaks @(2) -Options @(
+        $sel = Show-Menu -Title 'Settings' -SectionBreaks @(2, 4, 5) -Options @(
             "Unity Editor  ·  ${editorSummary}",
-            "Project folder  ·  ${projectsRootSummary}",
+            "Save projects in  ·  ${projectsRootSummary}",
             'Project names',
-            "Extra UnityPackages  ·  ${commonPackagesSummary}",
+            "Additional imports  ·  ${commonPackagesSummary}",
             'Reset all settings',
             'Back'
         )
@@ -1815,6 +1815,7 @@ function Setup-ProjectFlow {
         $cachePath = Join-Path $scriptDir 'cache\projects.json'
         $forceRefresh = $false
         $sortOrder = if ([string]$Config.ProjectLibrarySort -eq 'name') { 'name' } else { 'recent' }
+        $libraryState = [pscustomobject]@{ Filter=''; Index=0; Done=$false; Result=$null }
         while ($true) {
             try {
                 $catalog = Get-VrcSetupProjectCatalog -RootPath $root -CachePath $cachePath -ForceRefresh:$forceRefresh -SortOrder $sortOrder
@@ -1824,12 +1825,13 @@ function Setup-ProjectFlow {
             }
             $forceRefresh = $false
 
-            $selected = Show-VrcSetupProjectCatalogSpectre -Catalog $catalog -ScriptDir $scriptDir
+            $selected = Show-VrcSetupProjectCatalogSpectre -Catalog $catalog -ScriptDir $scriptDir -State $libraryState
             if ($null -eq $selected) {
                 # Windows PowerShell and redirected consoles keep the compact text fallback.
                 $selected = Select-VrcSetupProjectCatalogAction -Catalog $catalog -ScriptDir $scriptDir
             } elseif ($selected.Action -eq 'library') {
                 $selected = Select-VrcSetupProjectCatalogLibraryAction -Catalog $catalog -ScriptDir $scriptDir
+                if (-not $selected -or $selected.Action -eq 'back') { continue }
             }
             if (-not $selected -or $selected.Action -eq 'back') { return }
             if ($selected.Action -eq 'refresh') {
@@ -1937,8 +1939,8 @@ function Setup-ProjectFlow {
         param($State)
 
         while ($true) {
-            $packagePath = Read-WizardPathInput -Title "Create from UnityPackage" -Prompt "UnityPackage file" -BodyLines @(
-                "Choose the .unitypackage file you want to import."
+            $packagePath = Read-WizardPathInput -Title 'Import avatar or asset' -Prompt 'Drop .unitypackage here' -BodyLines @(
+                'Drag the .unitypackage file from File Explorer into this terminal.'
             )
 
             if ([string]::IsNullOrWhiteSpace($packagePath)) { return $false }
@@ -2249,17 +2251,17 @@ function Setup-ProjectFlow {
     $setupChoice = if ($StartAt -eq 'create') {
         0
     } elseif ($StartAt -eq 'manage') {
-        Show-Menu -Title 'Manage projects' -Header 'Choose a project from your library, or open another project folder manually.' -SectionBreaks @(1) -Options @(
+        Show-Menu -Title 'Projects' -SectionBreaks @(1, 2, 3) -Options @(
             'Project library',
-            'Manage a project by folder',
+            'Open another project folder',
             'Clean up incomplete projects',
             'Back'
         )
     } else {
-        Show-Menu -Title 'Projects' -Header 'Create a project, choose one from your library, or open another folder manually.' -SectionBreaks @(1, 2) -Options @(
+        Show-Menu -Title 'Projects' -SectionBreaks @(2, 3, 4) -Options @(
             'Create from UnityPackage',
             'Project library',
-            'Manage a project by folder',
+            'Open another project folder',
             'Clean up incomplete projects',
             'Back'
         )
@@ -2354,19 +2356,19 @@ function Start-Wizard {
         $menuConfig = $null
         if (Test-Path -LiteralPath $configPath) { $menuConfig = Load-Config -ConfigPath $configPath }
         $essentials = Test-ConfigEssentialsExist -Config $menuConfig
-        $createLabel = 'Create project'
-        $manageLabel = 'Manage projects'
-        $header = 'Create a VRChat Unity project or manage packages in one you already have.'
+        $createLabel = 'Import avatar or asset'
+        $manageLabel = 'My projects'
+        $header = ''
         if (-not $essentials.Ready) {
-            $createLabel = 'Create project  ·  needs setup'
+            $createLabel = 'Import avatar or asset  ·  needs setup'
             $warnings = ($essentials.Missing | ForEach-Object { "  - $_" }) -join "`n"
             $header = "Some paths need attention:`n${warnings}`n`nOpen Settings to fix them."
         }
 
-        $choice = Show-Menu -Title "VRChat Project Setup Wizard" -Header $header -Options @(
+        $choice = Show-Menu -Title 'VRChat Project Setup' -Header $header -SectionBreaks @(2, 4) -Options @(
             $createLabel,
             $manageLabel,
-            'Default package set',
+            'Packages and creator presets',
             'Settings',
             'Exit'
         )

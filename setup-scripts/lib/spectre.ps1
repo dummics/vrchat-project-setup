@@ -103,87 +103,6 @@ function Write-VrcSetupSpectreFrame {
     return $true
 }
 
-function Show-VrcSetupSpectreMenu {
-    param(
-        [string]$Title = 'VRChat Project Setup',
-        [string]$Header = '',
-        [string]$PromptTitle = '',
-        [Parameter(Mandatory)][string[]]$Options,
-        [int]$Current = 0,
-        [bool]$AllowCancel = $true,
-        [bool]$EnableHorizontalNav = $false,
-        [int[]]$SectionBreaks = @(),
-        [ValidateRange(4, 30)][int]$MaxVisible = 14,
-        [switch]$SkipFrame,
-        [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
-    )
-
-    if (-not $Options) { return -1 }
-    if ($SkipFrame) {
-        if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $null }
-    } elseif (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) {
-        return $null
-    }
-
-    $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
-    $prompt.Title = if ([string]::IsNullOrWhiteSpace($PromptTitle)) { '' } else { "[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $PromptTitle)[/]" }
-    $prompt.PageSize = [Math]::Min($MaxVisible, [Math]::Max(4, $Options.Count))
-    $prompt.WrapAround = $true
-    $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
-    $prompt.MoreChoicesText = '[#78909F]More items below — use Up/Down to scroll. Type to jump.[/]'
-    $keyboardHint = if ($AllowCancel) { 'Up/Down to move  ·  Enter to select  ·  Esc or Back to return' } else { 'Up/Down to move  ·  Enter to select' }
-    [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]${keyboardHint}[/]")
-    $choiceIndex = @{}
-    $currentIndex = [Math]::Min([Math]::Max(0, $Current), $Options.Count - 1)
-    $defaultDisplayChoice = $null
-    $footerStart = $Options.Count
-    for ($index = $Options.Count - 1; $index -ge 0; $index--) {
-        if (Test-IsFooterOption -Text $Options[$index]) {
-            $footerStart = $index
-        } else {
-            break
-        }
-    }
-    $breakIndices = @(
-        @($SectionBreaks) + $(if ($footerStart -gt 0 -and $footerStart -lt $Options.Count) { $footerStart }) |
-            Where-Object { $_ -gt 0 -and $_ -lt $Options.Count } |
-            Sort-Object -Unique
-    )
-    if ($breakIndices.Count -gt 0) {
-        $prompt.PageSize = [Math]::Min($MaxVisible, [Math]::Max(4, $Options.Count + $breakIndices.Count))
-    }
-    $activeGroup = $null
-    $breakOrdinal = 0
-    for ($index = 0; $index -lt $Options.Count; $index++) {
-        if ($breakIndices -contains $index) {
-            $breakOrdinal++
-            $groupWhitespace = ' ' * $breakOrdinal
-            $activeGroup = $prompt.AddChoice("[#78909F]${groupWhitespace}[/]")
-        }
-        $displayChoice = ConvertTo-VrcSetupSpectreChoice ([string]$Options[$index])
-        $choiceIndex[$displayChoice] = $index
-        if ($index -eq $currentIndex) { $defaultDisplayChoice = $displayChoice }
-        if ($null -ne $activeGroup) {
-            [void]$activeGroup.AddChild($displayChoice)
-        } else {
-            [void]$prompt.AddChoice($displayChoice)
-        }
-    }
-    if ($null -ne $defaultDisplayChoice) { $prompt.DefaultValue = $defaultDisplayChoice }
-
-    try {
-        if ($AllowCancel) {
-            $prompt.CancelResult = [System.Func[string]] { return '__VRCSETUP_CANCELLED__' }
-        }
-        $selected = Invoke-VrcSetupSpectreStringPrompt -Prompt $prompt
-        if ($selected -eq '__VRCSETUP_CANCELLED__') { return -1 }
-        if ($choiceIndex.ContainsKey($selected)) { return [int]$choiceIndex[$selected] }
-        return -1
-    } catch {
-        if ($AllowCancel) { return -1 }
-        throw
-    }
-}
 
 function Get-VrcSetupAdjacentPackageVersion {
     param(
@@ -873,7 +792,8 @@ function New-VrcSetupTextInputRenderable {
         [AllowEmptyString()][string]$Value,
         [Parameter(Mandatory)][string]$Prompt,
         [AllowEmptyString()][string]$Hint,
-        [AllowEmptyString()][string]$Placeholder = 'Start typing...'
+        [AllowEmptyString()][string]$Placeholder = 'Start typing...',
+        [switch]$HideAction
     )
 
     $shownValue = if ([string]::IsNullOrEmpty($Value)) {
@@ -885,13 +805,15 @@ function New-VrcSetupTextInputRenderable {
     $field.Header = [Spectre.Console.PanelHeader]::new(" $(ConvertTo-VrcSetupSpectreText $Prompt) ")
     $field.Border = [Spectre.Console.BoxBorder]::Rounded
     $field.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#75D7F7'
-    $field.Width = [Math]::Min(88, [Math]::Max(48, $(try { [Console]::WindowWidth - 4 } catch { 72 })))
+    $inputWidth = try { [Console]::WindowWidth } catch { 0 }
+    if ($inputWidth -le 0) { $inputWidth = [Spectre.Console.AnsiConsole]::Profile.Width }
+    $field.Width = [Math]::Min(88, [Math]::Max(20, $inputWidth - 4))
     $field.Padding = [Spectre.Console.Padding]::new(1, 0)
 
     $rows = @($field)
     $action = if ($Hint -match 'Enter\s+(Search|Save|Confirm|Select)') { $Matches[1] } else { 'Continue' }
     $rows += [Spectre.Console.Text]::new(' ')
-    $rows += New-VrcSetupActionButton -Label $action -Color '#75D7F7'
+    if (-not $HideAction) { $rows += New-VrcSetupActionButton -Label $action -Color '#75D7F7' }
     if (-not [string]::IsNullOrWhiteSpace($Hint)) {
         $rows += [Spectre.Console.Text]::new(' ')
         $secondaryHint = ($Hint -replace 'Enter\s+(Search|Save|Confirm|Select)\s*[·]?\s*', '').Trim()
@@ -906,12 +828,13 @@ function Read-VrcSetupSpectreTextInput {
         [AllowEmptyString()][string]$Header,
         [Parameter(Mandatory)][string]$Prompt,
         [string]$Hint = 'Leave blank to go back.',
+        [string]$Placeholder = 'Start typing...',
         [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
     )
 
     if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
     $state = [pscustomobject]@{ Value = ''; Done = $false; Cancelled = $false }
-    $initial = New-VrcSetupTextInputRenderable -Value '' -Prompt $Prompt -Hint $Hint
+    $initial = New-VrcSetupTextInputRenderable -Value '' -Prompt $Prompt -Hint $Hint -Placeholder $Placeholder
     $live = [Spectre.Console.AnsiConsole]::Live($initial)
     $live.AutoClear = $true
     $cursorWasVisible = $true
@@ -933,7 +856,7 @@ function Read-VrcSetupSpectreTextInput {
                     }
                 }
                 if (-not $state.Done) {
-                    $next = New-VrcSetupTextInputRenderable -Value $state.Value -Prompt $Prompt -Hint $Hint
+                    $next = New-VrcSetupTextInputRenderable -Value $state.Value -Prompt $Prompt -Hint $Hint -Placeholder $Placeholder
                     $context.UpdateTarget($next)
                     $context.Refresh()
                 }
@@ -1099,58 +1022,6 @@ function Format-VrcSetupProjectCatalogRow {
         $updated)
 }
 
-function Show-VrcSetupProjectCatalogSpectre {
-    param(
-        [Parameter(Mandatory)]$Catalog,
-        [Parameter(Mandatory)][string]$ScriptDir
-    )
-
-    if (-not (Initialize-VrcSetupSpectre -ScriptDir $ScriptDir)) { return $null }
-
-    $sortLabel = if ([string]$Catalog.SortOrder -eq 'name') { 'Name (A-Z)' } else { 'Recently updated' }
-    $recoveredCount = @($Catalog.Projects | Where-Object {
-        [string]$_.PackageMetadataSource -eq 'EmbeddedPackages' -or [string]$_.UnityVersionSource -eq 'GeneratedProject'
-    }).Count
-    $header = "Projects under: {0}`nFound: {1}  |  Order: {2}" -f $Catalog.RootPath, $Catalog.ProjectCount, $sortLabel
-    if ($recoveredCount -gt 0) {
-        $header += "`n* Recovered from embedded/generated files because canonical metadata is missing."
-    }
-    [void](Write-VrcSetupSpectreFrame -Title 'Project library' -Header $header -ScriptDir $ScriptDir)
-    $scanSummary = "Scan: $($Catalog.DurationMs) ms | cache reused: $($Catalog.CacheHits) | refreshed: $($Catalog.Refreshed)"
-    [Spectre.Console.AnsiConsole]::MarkupLine("[#78909F]$(ConvertTo-VrcSetupSpectreText $scanSummary)[/]")
-    [Spectre.Console.AnsiConsole]::WriteLine()
-
-    $prompt = [Spectre.Console.SelectionPrompt[string]]::new()
-    $prompt.Title = '[#DDEAF2] #   Project                       Type         Unity          Packages         Updated[/]'
-    $prompt.PageSize = [Math]::Min(16, [Math]::Max(4, $Catalog.ProjectCount + 1))
-    $prompt.WrapAround = $true
-    $prompt.HighlightStyle = New-VrcSetupSpectreStyle -Foreground '#0B1520' -Background '#75D7F7'
-    $prompt.MoreChoicesText = '[#78909F]More projects below — use Up/Down to scroll. Type to jump.[/]'
-    [Spectre.Console.AnsiConsole]::MarkupLine('[#78909F]Up/Down to select a project  ·  Enter to manage it  ·  Esc to return[/]')
-
-    $choiceActions = @{}
-    $index = 1
-    foreach ($project in @($Catalog.Projects)) {
-        $displayChoice = ConvertTo-VrcSetupSpectreText (Format-VrcSetupProjectCatalogRow -Project $project -Index $index)
-        $choiceActions[$displayChoice] = [pscustomobject]@{ Action = 'project'; ProjectPath = [string]$project.Path }
-        [void]$prompt.AddChoice($displayChoice)
-        $index++
-    }
-
-    $libraryActionsChoice = '[#75D7F7]More options…[/]'
-    $choiceActions[$libraryActionsChoice] = [pscustomobject]@{ Action = 'library'; ProjectPath = $null }
-    [void]$prompt.AddChoice($libraryActionsChoice)
-
-    try {
-        $prompt.CancelResult = [System.Func[string]] { return '__VRCSETUP_CANCELLED__' }
-        $selected = Invoke-VrcSetupSpectreStringPrompt -Prompt $prompt
-        if ($selected -eq '__VRCSETUP_CANCELLED__') { return [pscustomobject]@{ Action = 'back'; ProjectPath = $null } }
-        if ($choiceActions.ContainsKey($selected)) { return $choiceActions[$selected] }
-        return [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
-    } catch {
-        return [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
-    }
-}
 
 function New-VrcSetupPackagePickerRenderable {
     param(
@@ -1398,10 +1269,12 @@ function Select-VrcSetupProjectCatalogLibraryAction {
         'Back to project table' = [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
     }
     $labels = @($choices.Keys)
-    $index = Show-VrcSetupSpectreMenu -Title 'Project library options' -Header 'Refresh the list, change its order, or open another project folder.' -Options $labels -AllowCancel:$true -ScriptDir $ScriptDir
+    $index = Show-VrcSetupSpectreMenu -Title 'Library options' -Options $labels -SectionBreaks @(2, 3) -AllowCancel:$true -ScriptDir $ScriptDir
     if ($null -eq $index) {
         $index = Show-Menu -Title 'Project library options' -Header 'Refresh the list, change its order, or open another project folder.' -Options $labels
     }
     if ($index -lt 0) { return [pscustomobject]@{ Action = 'back'; ProjectPath = $null } }
     return $choices[$labels[$index]]
 }
+
+. (Join-Path $PSScriptRoot 'navigation-ui.ps1')

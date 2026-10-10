@@ -3,7 +3,8 @@ Helpers for vrcsetup scripts
  - `utils.ps1`: exports `Install-NUnitPackage` helper function.
  - `config.ps1`: exports `Load-Config` and `Save-Config` helper functions.
  - `projects.ps1`: scans configured folders for Unity projects and maintains the incremental project index.
- - `spectre.ps1`: optional Spectre.Console project-library presentation with a built-in menu fallback.
+ - `spectre.ps1`: Spectre.Console rendering helpers with a built-in menu fallback.
+ - `navigation-ui.ps1`: flat menu navigation and responsive, searchable project library.
 
 Usage:
  Dot-source the helpers in your script to use functions:

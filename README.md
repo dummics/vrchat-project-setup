@@ -230,6 +230,15 @@ vrcsetup presets remove "Creator PC"
 
 ### Project library and cache
 
+The interactive library has a visible search field: type a project name, PC/Quest,
+or Unity version to filter the table immediately. Enter manages the selected
+project; F2 opens sorting, refresh and folder options. Columns and the number of
+visible rows adapt to the terminal size. Narrow terminals keep the project name
+in the table and show Unity/package details below the selection. Scan/cache
+diagnostics remain available through CLI output instead of occupying the main UI.
+Import starts with a drag-and-drop field for the `.unitypackage` file. Dropped
+paths are normalized, including quotes, spaces and special characters.
+
 The first project-library scan treats `ProjectSettings/ProjectVersion.txt` and
 `Packages/vpm-manifest.json` as the canonical metadata sources. If either file
 is missing, the library can recover package names/type from embedded package

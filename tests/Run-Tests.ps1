@@ -246,19 +246,20 @@ try {
     Assert-True (Test-VrcSetupUnityPackageIdentityPromptRequired -State $invalidIdentityState) 'An invalid generated project name did not reopen the identity prompt.'
     $menuText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\menu.ps1') -Raw
     $spectreText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\spectre.ps1') -Raw
+    $navigationText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\navigation-ui.ps1') -Raw
     $progressText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\progress.ps1') -Raw
     $installerText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\installer.ps1') -Raw
     $cliText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\cli.ps1') -Raw
     $vrcGetText = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\vrcget.ps1') -Raw
     $defaultsText = Get-Content -LiteralPath (Join-Path $scriptDir 'config\vrcsetup.defaults') -Raw
-    Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $spectreText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
+    Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $navigationText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
     Assert-True ($menuText -notmatch "\[string\]\$PromptTitle = 'Choose an action'" -and $spectreText -notmatch "\[string\]\$PromptTitle = 'Choose an action'") 'Menus still default to technical action instructions.'
     Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Left/Right Older/newer' -and $spectreText -match 'Space Include/remove') 'The direct package-table controls are missing.'
     Assert-True ($spectreText -match "Label = 'Version'" -and $spectreText -match "Label = 'After saving'" -and $spectreText -notmatch "Label = 'Installed'|Label = 'State'") 'The package workspace returned to technical duplicate columns.'
     Assert-True ($spectreText -match 'function Show-VrcSetupSpectreSaveReview' -and $spectreText -match 'function Invoke-VrcSetupSpectreOperation') 'The polished save review or embedded progress surface is missing.'
     Assert-True ($wizardText -match 'Invoke-VrcSetupInstallerWithProgress' -and $wizardText -match 'Show-VrcSetupSpectreSaveReview') 'The interactive wizard bypasses the embedded review/progress flow.'
     Assert-True ($wizardText -match 'VRCSETUP_EMBEDDED_PROGRESS' -and $progressText -match 'VRCSETUP_EMBEDDED_PROGRESS') 'Embedded progress does not isolate the viewport keyboard from process cancellation input.'
-    Assert-True ($spectreText -match '\$prompt\.DefaultValue' -and $wizardText -match '\$options = @\("Start importing", "Package presets", "Customize packages", "Change project name"\)' -and $wizardText -match '\$picked -eq "Start importing"') 'The UnityPackage review menu does not focus the start action by default.'
+    Assert-True ($navigationText -match '\[int\]\$Current = 0' -and $wizardText -match '\$options = @\("Start importing", "Package presets", "Customize packages", "Change project name"\)' -and $wizardText -match '\$picked -eq "Start importing"') 'The UnityPackage review menu does not focus the start action by default.'
     Assert-True ($progressText -match '::VRCSETUP_METRICS::' -and $progressText -match '\$lastLogChanged' -and $spectreText -match '::VRCSETUP_METRICS::') 'Embedded progress must pin CPU/RAM on one status line and add a log row only when the Unity tail changes.'
     Assert-True ($spectreText -match '\$panelWidth = \[Math\]::Min\(200' -and $spectreText -match '\$logPanel\.Width = \$panelWidth') 'The progress panel regressed to a fixed narrow width that truncates Unity log lines.'
     Assert-True ($spectreText -match '\$versionWidth = if \(\$isNarrow\).*36' -and $spectreText -match 'Viewing messages') 'The package/version table or progress message counter regressed to the cramped or ambiguous layout.'
