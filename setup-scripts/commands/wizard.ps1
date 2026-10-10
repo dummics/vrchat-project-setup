@@ -2211,7 +2211,7 @@ function Setup-ProjectFlow {
                 }
                 $options += @("Choose another UnityPackage", "Cancel")
 
-                $choice = Show-Menu -Title "UnityPackage setup" -Header (Get-UnityPackageReviewHeader -State $state) -Options $options
+                $choice = Show-Menu -Title "UnityPackage setup" -Header (Get-UnityPackageReviewHeader -State $state) -SectionBreaks @(1, 3, ($options.Count - 1)) -Options $options
                 if ($choice -eq -1) { return }
 
                 $picked = $options[$choice]

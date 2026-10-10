@@ -8,12 +8,27 @@ function Get-VrcSetupViewport {
     return [pscustomobject]@{ Width = [Math]::Max(30, $Width); Height = [Math]::Max(16, $Height) }
 }
 
+function Get-VrcSetupMenuActionWeight {
+    param([string]$Label)
+    if ($Label -match '^(Back|Cancel|Exit)$') { return 'Footer' }
+    if ($Label -match '^(Start importing|Import avatar or asset|Save preset|Save \d|Save changes|Apply changes|Confirm)') { return 'Primary' }
+    if ($Label -match '^(Change |Choose another |Settings$|Reset |Delete |Clean up )') { return 'Utility' }
+    return 'Secondary'
+}
+
 function New-VrcSetupNavigationMenuRenderable {
     param([string[]]$Options, [int]$Current = 0, [int[]]$SectionBreaks = @(), [int]$MaxVisible = 14, [bool]$AllowCancel = $true)
     $rows = @()
     $viewport = Get-VrcSetupViewport
     $isPackageList = $Options[0] -match '^(Required|Optional)\s'
     $pageSize = [Math]::Max(3, [Math]::Min($MaxVisible, $(if ($isPackageList) { $viewport.Height - 12 } else { [Math]::Floor(($viewport.Height - 8) / 3) })))
+    if (-not $isPackageList -and $Options.Count -le $MaxVisible) {
+        $estimatedHeight = 4 + @($SectionBreaks | Sort-Object -Unique).Count
+        foreach ($option in $Options) {
+            $estimatedHeight += switch (Get-VrcSetupMenuActionWeight $option) { 'Primary' { 5 } 'Secondary' { 3 } default { 2 } }
+        }
+        if ($estimatedHeight -le $viewport.Height) { $pageSize = $Options.Count }
+    }
     $start = [int]([Math]::Floor($Current / $pageSize) * $pageSize)
     $end = [Math]::Min($Options.Count, $start + $pageSize)
     $footerStart = $Options.Count
@@ -27,16 +42,23 @@ function New-VrcSetupNavigationMenuRenderable {
             $rule = [Spectre.Console.Rule]::new(); $rule.Style = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'; $rows += $rule
         }
         $label = ConvertTo-VrcSetupSpectreText $Options[$i]
+        $weight = Get-VrcSetupMenuActionWeight -Label $Options[$i]
         $color = if ($isPackage) { $(if ($Options[$i] -match '^Required') { '#F6C451' } else { '#DDEAF2' }) } elseif ($Options[$i] -match '^(Reset|Clean|Remove|Delete)') { '#FB7185' } elseif ($Options[$i] -match '(?i)preset') { '#C4A5FF' } elseif ($Options[$i] -match '^(Import|Create|Add|Save)') { '#67E8A5' } elseif ($Options[$i] -match '(?i)settings|Unity Editor|Project names') { '#F6C451' } else { '#75D7F7' }
-        $style = if ($i -eq $Current) { "bold black on ${color}" } else { $color }
+        if ($weight -in @('Utility','Footer')) { $color = if ($Options[$i] -match '^(Reset|Clean|Delete)') { '#FB7185' } else { '#A8B6C1' } }
+        $focusColor = if ($weight -in @('Utility','Footer')) { '#75D7F7' } else { $color }
+        $style = if ($i -eq $Current) { "bold black on ${focusColor}" } elseif ($weight -eq 'Primary') { 'bold black on #67E8A5' } else { $color }
+        if ($weight -eq 'Primary') { $label = $label.ToUpperInvariant() }
+        $panelWidth = [Math]::Min($(if ($weight -eq 'Primary') { 88 } else { 72 }),$viewport.Width - 4)
+        if ($weight -eq 'Primary') { $label = $label.PadRight([Math]::Max($label.Length,$panelWidth - 8)) }
         $content = [Spectre.Console.Markup]::new("[$style]$(if ($i -eq $Current) { '> ' } else { '  ' })${label}[/]")
         if ($isPackage) { $rows += $content }
+        elseif ($weight -in @('Utility','Footer')) { $rows += $content; $rows += [Spectre.Console.Text]::new(' ') }
         else {
             $panel = [Spectre.Console.Panel]::new($content)
-            $panel.Border = [Spectre.Console.BoxBorder]::Rounded
-            $panel.BorderStyle = New-VrcSetupSpectreStyle -Foreground $(if ($i -eq $Current) { $color } else { '#4C6A7A' })
-            $panel.Width = [Math]::Min(88,$viewport.Width - 4)
-            $panel.Padding = [Spectre.Console.Padding]::new(1,0)
+            $panel.Border = if ($weight -eq 'Primary') { [Spectre.Console.BoxBorder]::Double } else { [Spectre.Console.BoxBorder]::Rounded }
+            $panel.BorderStyle = New-VrcSetupSpectreStyle -Foreground $(if ($weight -eq 'Primary') { '#67E8A5' } elseif ($i -eq $Current) { $color } else { '#4C6A7A' })
+            $panel.Width = $panelWidth
+            $panel.Padding = [Spectre.Console.Padding]::new(1,$(if ($weight -eq 'Primary') { 1 } else { 0 }))
             $rows += $panel
         }
     }

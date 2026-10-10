@@ -14,6 +14,7 @@ $catalog = [pscustomobject]@{ RootPath='F:\Unity Projects'; ProjectCount=3; Sort
 ) }
 Assert-Navigation (@(Get-VrcSetupFilteredProjects $catalog.Projects 'creator quest').Count -eq 1) 'Multi-word library search failed.'
 Assert-Navigation (@(Get-VrcSetupFilteredProjects $catalog.Projects '[daily]').Count -eq 1) 'Search interpreted brackets as wildcard syntax.'
+Assert-Navigation ((Get-VrcSetupMenuActionWeight 'Start importing') -eq 'Primary' -and (Get-VrcSetupMenuActionWeight 'Customize packages') -eq 'Secondary' -and (Get-VrcSetupMenuActionWeight 'Change project name') -eq 'Utility' -and (Get-VrcSetupMenuActionWeight 'Cancel') -eq 'Footer') 'Import actions lost their visual hierarchy.'
 $navigationSource = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\navigation-ui.ps1') -Raw
 Assert-Navigation ([regex]::Matches($navigationSource,'param\(\$context\)\s+\$context.Refresh\(\)\s+while').Count -eq 2) 'Menu/library must draw their first frame before waiting for keyboard input.'
 $originalWidth = [Spectre.Console.AnsiConsole]::Profile.Width
@@ -30,6 +31,7 @@ try {
     [Spectre.Console.AnsiConsole]::Write([Spectre.Console.Rule]::new('Settings'))
     [Spectre.Console.AnsiConsole]::Write((New-VrcSetupNavigationMenuRenderable -Options @('Unity Editor  ·  Ready','Save projects in  ·  Ready','Project names','Additional imports  ·  Disabled','Reset all settings','Back') -SectionBreaks @(2,4,5)))
     [Spectre.Console.AnsiConsole]::Write([Spectre.Console.Rule]::new('Import avatar or asset'))
+    [Spectre.Console.AnsiConsole]::Write((New-VrcSetupNavigationMenuRenderable -Options @('Start importing','Package presets','Customize packages','Change project name','Choose another UnityPackage','Cancel') -SectionBreaks @(1,3,5) -Current 3))
     [Spectre.Console.AnsiConsole]::Write((New-VrcSetupTextInputRenderable -Value '' -Prompt 'Drop .unitypackage here' -Placeholder 'Drag and drop here' -Hint 'Enter Select  ·  Esc Back'))
     [Spectre.Console.AnsiConsole]::Write((New-VrcSetupProjectLibraryRenderable -Catalog $catalog -State ([pscustomobject]@{Filter='missing';Index=0}) -Width 100 -Height 24))
     $text = [Spectre.Console.AnsiConsole]::ExportText()
