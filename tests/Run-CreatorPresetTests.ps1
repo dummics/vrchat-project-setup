@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 function Assert-CreatorPreset { param($Condition, $Message); if (-not $Condition) { throw $Message } }
 # Exercise the actual menu routing without an interactive console or personal config.
 function Show-Menu {
-    param($Title, $Header, $Options)
+    param($Title, $Header, $Options, $SectionBreaks)
     $label = $script:Choices.Dequeue()
     $index = [array]::IndexOf($Options, $label)
     if ($index -lt 0) { throw "Missing menu action: $label" }
@@ -12,7 +12,7 @@ function Show-Menu {
 function Save-Config { param($Config, $ConfigPath); $script:Saved++ }
 function Edit-VpmPackages {
     param($ConfigPath, $ScriptDir, $ConfigObject, $PresetConfig, [switch]$WorkingCopy, $EditingPreset)
-    Assert-CreatorPreset ($WorkingCopy -and $EditingPreset -eq 'Creator') 'Preset editor used the default editor.'
+    Assert-CreatorPreset ($WorkingCopy -and $EditingPreset -in @('Creator','NewCreator')) 'Preset editor used the default editor.'
     $ConfigObject.VpmPackages.PSObject.Properties.Remove('gogoloco')
     $ConfigObject.VpmPackages | Add-Member NoteProperty 'com.vrchat.base' '3.10.2' -Force
     $ConfigObject.VpmPackages | Add-Member NoteProperty 'com.vrchat.avatars' '3.10.2' -Force
@@ -41,3 +41,11 @@ Set-MenuChoices @('Edit a preset', 'Creator', 'Back')
 Invoke-VrcSetupPresetMenu -Config $config -ManageOnly | Out-Null
 Assert-CreatorPreset (($config.PackagePresets | ConvertTo-Json -Depth 10 -Compress) -eq $before -and $script:Saved -eq 1) 'Cancelled preset edit was saved.'
 Write-Host 'PASS: creator presets remain independent from defaults; selection and cancellation verified.'
+function Read-WizardTextInput { param($Title,$Prompt,$BodyLines,$Hint); return 'NewCreator' }
+$script:CancelEdit = $false
+$defaultBefore = $config.VpmPackages | ConvertTo-Json -Compress
+Set-MenuChoices @('Create a preset from my defaults','Back')
+Invoke-VrcSetupPresetMenu -Config $config -ManageOnly | Out-Null
+Assert-CreatorPreset ($config.PackagePresets.NewCreator.'com.vrchat.avatars' -eq '3.10.2' -and $config.PackagePresets.NewCreator.PSObject.Properties.Name -notcontains 'gogoloco') 'Creating a preset did not save its edited package set.'
+Assert-CreatorPreset (($config.VpmPackages | ConvertTo-Json -Compress) -eq $defaultBefore) 'Creating a preset changed default packages.'
+Write-Host 'PASS: create-name-edit-save preset flow.'

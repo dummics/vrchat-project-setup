@@ -215,6 +215,15 @@ an existing project keeps unrelated installed packages.
 Version search filters version numbers; searching by release date is not yet
 available. A specific version belongs to the selected preset or project, rather
 than a global package lock; `latest` follows compatible updates.
+
+The main **Packages and creator presets** entry opens separate choices for
+**My default packages**, **Creator presets** and favorites. In **Creator presets**,
+choose **Create a preset from my defaults**, name it, edit its package list and
+versions, and choose **Save preset**. Cancel leaves both the preset and your
+defaults unchanged. General settings stay in the separate **Settings** entry.
+**My projects** opens the library directly; F2 contains folder, sorting, refresh
+and incomplete-project cleanup options. Project package management shows only
+its common commands, with additional actions under F2.
 Saving from an existing project captures direct packages and the required locked
 SDK foundation, rather than every transitive dependency.
 

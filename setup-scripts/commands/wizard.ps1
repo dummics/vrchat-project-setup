@@ -1022,20 +1022,20 @@ function Edit-VpmPackages {
         foreach ($pkg in $packagesList) {
             $isRequired = Test-IsRequiredPackage -PackageName $pkg.Name -Config $config
             $kind = if ($isRequired) { 'Required' } else { 'Optional' }
-            $pkgOptions += (Format-VrcSetupPackageRow -Role $kind -PackageName $pkg.Name -Version ([string]$pkg.Value))
+            $pkgOptions += ('{0,-9} {1,-30} {2}' -f $kind, (Get-VrcSetupFriendlyPackageName -PackageName $pkg.Name), ([string]$pkg.Value))
         }
         $pkgOptions += @('Add package', 'Favorite packages')
         if (-not $EditingPreset) { $pkgOptions += 'Package presets' }
         $pkgOptions += $(if ($EditingPreset) { 'Save preset' } else { 'Back' })
 
         $header = if ($EditingPreset) {
-            "Preset: ${EditingPreset}  ·  Save preset commits these changes only`n${configNotice}`nRole       Package name                  Package ID                              Version"
+            "Preset: ${EditingPreset}  ·  Save preset keeps these changes only`n${configNotice}"
         } elseif ($WorkingCopy) {
-            "Project selection  ·  Back returns to project review`n${configNotice}`nRole       Package name                  Package ID                              Version"
+            "Project selection  ·  Back returns to project review`n${configNotice}"
         } else {
-            "Default set for new projects  ·  Changes saved immediately`n${configNotice}`nRole       Package name                  Package ID                              Version"
+            "Your default packages  ·  Changes saved immediately`n${configNotice}"
         }
-        $selected = Show-Menu -Title "VPM Packages" -Header $header -Options $pkgOptions
+        $selected = Show-Menu -Title $(if ($EditingPreset) { 'Edit creator preset' } elseif ($WorkingCopy) { 'Project packages' } else { 'My default packages' }) -Header $header -SectionBreaks @($packagesList.Count) -Options $pkgOptions
         if ($selected -eq -1) {
             if ($EditingPreset) { return $null }
             if ($WorkingCopy) { return $config.VpmPackages }
@@ -1572,6 +1572,15 @@ function Setup-ProjectFlow {
                 $action = $actions[$choice]
             }
 
+            if ($action.Kind -eq 'options') {
+                $moreLabels = @('Favorite packages','Apply my default packages','Apply a creator preset')
+                $moreKinds = @('favorites','defaults','presets')
+                if ($ExtrasInfo -and $ExtrasInfo.ExtrasCount -gt 0) { $moreLabels += 'Additional imports'; $moreKinds += 'extras' }
+                $moreLabels += 'Back'
+                $moreChoice = Show-Menu -Title 'Package options' -SectionBreaks @($moreLabels.Count - 1) -Options $moreLabels
+                if ($moreChoice -lt 0 -or $moreChoice -ge $moreKinds.Count) { continue }
+                $action = [pscustomobject]@{ Kind = $moreKinds[$moreChoice]; Item = $null }
+            }
             if ($action.Kind -eq 'package') {
                 $package = $action.Item
                 if ($directAction -eq 'toggle') {
@@ -1849,6 +1858,10 @@ function Setup-ProjectFlow {
             }
             if ($selected.Action -eq 'manual') {
                 Invoke-ExistingProjectFlow -Config $Config
+                continue
+            }
+            if ($selected.Action -eq 'cleanup') {
+                Cleanup-IncompleteProjectsFlow -Config $Config
                 continue
             }
             if ($selected.Action -eq 'project') {
@@ -2251,12 +2264,7 @@ function Setup-ProjectFlow {
     $setupChoice = if ($StartAt -eq 'create') {
         0
     } elseif ($StartAt -eq 'manage') {
-        Show-Menu -Title 'Projects' -SectionBreaks @(1, 2, 3) -Options @(
-            'Project library',
-            'Open another project folder',
-            'Clean up incomplete projects',
-            'Back'
-        )
+        2
     } else {
         Show-Menu -Title 'Projects' -SectionBreaks @(2, 3, 4) -Options @(
             'Create from UnityPackage',
@@ -2267,10 +2275,7 @@ function Setup-ProjectFlow {
         )
     }
 
-    if ($StartAt -eq 'manage') {
-        if ($setupChoice -lt 0 -or $setupChoice -eq 3) { return }
-        $setupChoice = @(2, 1, 3)[$setupChoice]
-    } elseif ($StartAt -ne 'create' -and $setupChoice -ge 0 -and $setupChoice -lt 4) {
+    if ($StartAt -notin @('create','manage') -and $setupChoice -ge 0 -and $setupChoice -lt 4) {
         $setupChoice = @(0, 2, 1, 3)[$setupChoice]
     }
 
@@ -2383,7 +2388,7 @@ function Start-Wizard {
                 Setup-ProjectFlow -ConfigPath $configPath -StartAt 'manage'
             }
             2 {
-                Edit-VpmPackages -ConfigPath $configPath -ScriptDir $scriptDir
+                Invoke-VrcSetupPackageHome -ConfigPath $configPath -ScriptDir $scriptDir
             }
             3 {
                 Advanced-NamingSettings -ConfigPath $configPath

@@ -254,7 +254,7 @@ try {
     $defaultsText = Get-Content -LiteralPath (Join-Path $scriptDir 'config\vrcsetup.defaults') -Raw
     Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $navigationText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
     Assert-True ($menuText -notmatch "\[string\]\$PromptTitle = 'Choose an action'" -and $spectreText -notmatch "\[string\]\$PromptTitle = 'Choose an action'") 'Menus still default to technical action instructions.'
-    Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Left/Right Older/newer' -and $spectreText -match 'Space Include/remove') 'The direct package-table controls are missing.'
+    Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Enter Choose version' -and $spectreText -match 'Space Add/remove' -and $spectreText -match 'F2  More options') 'The direct package-table controls are missing.'
     Assert-True ($spectreText -match "Label = 'Version'" -and $spectreText -match "Label = 'After saving'" -and $spectreText -notmatch "Label = 'Installed'|Label = 'State'") 'The package workspace returned to technical duplicate columns.'
     Assert-True ($spectreText -match 'function Show-VrcSetupSpectreSaveReview' -and $spectreText -match 'function Invoke-VrcSetupSpectreOperation') 'The polished save review or embedded progress surface is missing.'
     Assert-True ($wizardText -match 'Invoke-VrcSetupInstallerWithProgress' -and $wizardText -match 'Show-VrcSetupSpectreSaveReview') 'The interactive wizard bypasses the embedded review/progress flow.'

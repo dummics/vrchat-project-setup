@@ -14,6 +14,8 @@ $catalog = [pscustomobject]@{ RootPath='F:\Unity Projects'; ProjectCount=3; Sort
 ) }
 Assert-Navigation (@(Get-VrcSetupFilteredProjects $catalog.Projects 'creator quest').Count -eq 1) 'Multi-word library search failed.'
 Assert-Navigation (@(Get-VrcSetupFilteredProjects $catalog.Projects '[daily]').Count -eq 1) 'Search interpreted brackets as wildcard syntax.'
+$navigationSource = Get-Content -LiteralPath (Join-Path $scriptDir 'lib\navigation-ui.ps1') -Raw
+Assert-Navigation ([regex]::Matches($navigationSource,'param\(\$context\)\s+\$context.Refresh\(\)\s+while').Count -eq 2) 'Menu/library must draw their first frame before waiting for keyboard input.'
 $originalWidth = [Spectre.Console.AnsiConsole]::Profile.Width
 try {
     [Spectre.Console.AnsiConsole]::Record()

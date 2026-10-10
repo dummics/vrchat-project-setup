@@ -12,7 +12,8 @@ function New-VrcSetupNavigationMenuRenderable {
     param([string[]]$Options, [int]$Current = 0, [int[]]$SectionBreaks = @(), [int]$MaxVisible = 14, [bool]$AllowCancel = $true)
     $rows = @()
     $viewport = Get-VrcSetupViewport
-    $pageSize = [Math]::Max(3, [Math]::Min($MaxVisible, [Math]::Floor(($viewport.Height - 10) / 2)))
+    $isPackageList = $Options[0] -match '^(Required|Optional)\s'
+    $pageSize = [Math]::Max(3, [Math]::Min($MaxVisible, $(if ($isPackageList) { $viewport.Height - 12 } else { [Math]::Floor(($viewport.Height - 8) / 3) })))
     $start = [int]([Math]::Floor($Current / $pageSize) * $pageSize)
     $end = [Math]::Min($Options.Count, $start + $pageSize)
     $footerStart = $Options.Count
@@ -20,13 +21,24 @@ function New-VrcSetupNavigationMenuRenderable {
         if (Test-IsFooterOption -Text $Options[$i]) { $footerStart = $i } else { break }
     }
     for ($i = $start; $i -lt $end; $i++) {
-        if ($i -gt $start -and ($SectionBreaks -contains $i -or $i -eq $footerStart)) {
+        $isPackage = $Options[$i] -match '^(Required|Optional)\s'
+        $startsActions = $i -gt 0 -and -not $isPackage -and $Options[$i - 1] -match '^(Required|Optional)\s'
+        if ($i -gt $start -and ($SectionBreaks -contains $i -or $i -eq $footerStart -or $startsActions)) {
             $rule = [Spectre.Console.Rule]::new(); $rule.Style = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'; $rows += $rule
         }
         $label = ConvertTo-VrcSetupSpectreText $Options[$i]
-        $style = if ($i -eq $Current) { 'bold black on #75D7F7' } elseif ($Options[$i] -match '^(Reset|Clean|Remove|Delete)') { '#FB7185' } else { '#DDEAF2' }
-        $rows += [Spectre.Console.Markup]::new("[$style]$(if ($i -eq $Current) { '> ' } else { '  ' })${label}[/]")
-        $rows += [Spectre.Console.Text]::new(' ')
+        $color = if ($isPackage) { $(if ($Options[$i] -match '^Required') { '#F6C451' } else { '#DDEAF2' }) } elseif ($Options[$i] -match '^(Reset|Clean|Remove|Delete)') { '#FB7185' } elseif ($Options[$i] -match '(?i)preset') { '#C4A5FF' } elseif ($Options[$i] -match '^(Import|Create|Add|Save)') { '#67E8A5' } elseif ($Options[$i] -match '(?i)settings|Unity Editor|Project names') { '#F6C451' } else { '#75D7F7' }
+        $style = if ($i -eq $Current) { "bold black on ${color}" } else { $color }
+        $content = [Spectre.Console.Markup]::new("[$style]$(if ($i -eq $Current) { '> ' } else { '  ' })${label}[/]")
+        if ($isPackage) { $rows += $content }
+        else {
+            $panel = [Spectre.Console.Panel]::new($content)
+            $panel.Border = [Spectre.Console.BoxBorder]::Rounded
+            $panel.BorderStyle = New-VrcSetupSpectreStyle -Foreground $(if ($i -eq $Current) { $color } else { '#4C6A7A' })
+            $panel.Width = [Math]::Min(88,$viewport.Width - 4)
+            $panel.Padding = [Spectre.Console.Padding]::new(1,0)
+            $rows += $panel
+        }
     }
     if ($Options.Count -gt $pageSize) { $rows += [Spectre.Console.Text]::new("$($start + 1)-${end} / $($Options.Count)") }
     $rows += [Spectre.Console.Markup]::new("[#78909F]Up/Down Move  ·  Enter Select$(if ($AllowCancel) { '  ·  Esc Back' })[/]")
@@ -105,6 +117,7 @@ function Show-VrcSetupSpectreMenu {
         try { $visible = [Console]::CursorVisible; [Console]::CursorVisible = $false } catch { }
         $live.Start([System.Action[Spectre.Console.LiveDisplayContext]]{
             param($context)
+            $context.Refresh()
             while (-not $state.Done) {
                 $key = Read-VrcSetupNavigationKey -Context $context -Render { New-VrcSetupNavigationMenuRenderable -Options $Options -Current $state.Index -SectionBreaks $SectionBreaks -MaxVisible $MaxVisible -AllowCancel $AllowCancel }
                 Update-VrcSetupMenuKey -State $state -Key $key -Options $Options -AllowCancel $AllowCancel -EnableHorizontalNav $EnableHorizontalNav
@@ -181,6 +194,7 @@ function Show-VrcSetupProjectCatalogSpectre {
         try { $visible = [Console]::CursorVisible; [Console]::CursorVisible=$false } catch { }
         $live.Start([System.Action[Spectre.Console.LiveDisplayContext]]{
             param($context)
+            $context.Refresh()
             while (-not $state.Done) {
                 $key = Read-VrcSetupNavigationKey -Context $context -Render { New-VrcSetupProjectLibraryRenderable -Catalog $Catalog -State $state }
                 Update-VrcSetupLibraryKey -State $state -Key $key -Catalog $Catalog -PageSize ([Math]::Max(1,(Get-VrcSetupViewport).Height - 20))

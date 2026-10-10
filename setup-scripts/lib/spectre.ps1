@@ -299,13 +299,12 @@ function New-VrcSetupPackageWorkspaceRenderable {
     $renderables += [Spectre.Console.Text]::new(' ')
     $renderables += [Spectre.Console.Text]::new(' ')
     $renderables += [Spectre.Console.Rule]::new()
-    $renderables += [Spectre.Console.Markup]::new('[#78909F]Package   Up/Down Choose  ·  Enter Versions  ·  Space Include/remove[/]')
-    $favoriteHint = if ($HasFavorites) { 'F Favorites' } else { 'F Set favorites' }
-    $secondaryHints = @('A Find package', $favoriteHint, 'D Saved set', 'P Presets')
-    if ($HasExtras) { $secondaryHints += 'I Imports' }
-    $renderables += [Spectre.Console.Markup]::new("[#78909F]Add       $($secondaryHints -join '  ·  ')[/]")
-    $renderables += [Spectre.Console.Markup]::new('[#78909F]Versions  V Search versions  ·  Left/Right Older/newer[/]')
-    $renderables += [Spectre.Console.Markup]::new('[#78909F]Apply     S Save changes  ·  Esc Back[/]')
+    $renderables += [Spectre.Console.Markup]::new('[#DDEAF2]Up/Down Choose  ·  Enter Choose version  ·  Space Add/remove[/]')
+    $actionsPanel = [Spectre.Console.Panel]::new([Spectre.Console.Markup]::new('[#67E8A5]A  Add package[/]    [#C4A5FF]P  Apply preset[/]    [#75D7F7]F2  More options[/]'))
+    $actionsPanel.Border = [Spectre.Console.BoxBorder]::Rounded
+    $actionsPanel.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
+    $renderables += $actionsPanel
+    $renderables += [Spectre.Console.Markup]::new('[#78909F]S Save changes  ·  Esc Back[/]')
     if (-not [string]::IsNullOrWhiteSpace($Notice)) {
         $renderables += [Spectre.Console.Text]::new(' ')
         $renderables += [Spectre.Console.Markup]::new("[#75D7F7]$(ConvertTo-VrcSetupSpectreText $Notice)[/]")
@@ -356,6 +355,7 @@ function Show-VrcSetupSpectrePackageWorkspace {
                 $key = [Console]::ReadKey($true)
                 $refresh = $false
                 switch ($key.Key) {
+                    'F2' { $state.Action = 'options'; $state.Done = $true }
                     'UpArrow' {
                         if ($state.SelectedIndex -gt 0) { $state.SelectedIndex--; $refresh = $true }
                     }
@@ -1266,10 +1266,11 @@ function Select-VrcSetupProjectCatalogLibraryAction {
         "Change project order ($sortLabel)" = [pscustomobject]@{ Action = 'sort'; ProjectPath = $null }
         'Refresh project list' = [pscustomobject]@{ Action = 'refresh'; ProjectPath = $null }
         'Choose a different project folder' = [pscustomobject]@{ Action = 'manual'; ProjectPath = $null }
+        'Clean up incomplete projects' = [pscustomobject]@{ Action = 'cleanup'; ProjectPath = $null }
         'Back to project table' = [pscustomobject]@{ Action = 'back'; ProjectPath = $null }
     }
     $labels = @($choices.Keys)
-    $index = Show-VrcSetupSpectreMenu -Title 'Library options' -Options $labels -SectionBreaks @(2, 3) -AllowCancel:$true -ScriptDir $ScriptDir
+    $index = Show-VrcSetupSpectreMenu -Title 'Library options' -Options $labels -SectionBreaks @(2, 3, 4) -AllowCancel:$true -ScriptDir $ScriptDir
     if ($null -eq $index) {
         $index = Show-Menu -Title 'Project library options' -Header 'Refresh the list, change its order, or open another project folder.' -Options $labels
     }
