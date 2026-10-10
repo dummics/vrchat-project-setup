@@ -147,6 +147,17 @@ projects**. It then provides:
    - Find packages through a boxed search field and a scrollable result table
      with aligned name, package ID and version columns. Matches already present
      in the project are reported as already included rather than failed searches.
+     Enter adds the highlighted package immediately to the pending set. Use Space
+     for multi-selection, A for all results, or N to clear the selection. The Add
+     button shows what will be queued; installation happens only at Save changes.
+   - Press V or Enter on a package for a searchable version table. Type a version
+     prefix, use P to show/hide prereleases, or M to enter an exact version. Fixed
+     versions are pins; `latest` follows compatible updates when applied. Left/Right
+     stays within stable versions unless the current choice is a prerelease.
+   - Press P in the project workspace for named package presets. Save the current
+     set, select a creator/custom set, or delete a preset. Applying a preset adds
+     and updates its packages while keeping unrelated project packages. Edit the
+     selected set and save under the same name to update a preset.
    - Press F for favorite packages: add common tools quickly or manage the
      reusable favorites list without retyping names for every project.
    - Treat VRChat SDK Base together with the selected project SDK (Avatars or
@@ -163,6 +174,8 @@ projects**. It then provides:
      the complete operation inside a fixed, scrollable progress panel. Page
      keys can inspect earlier messages without switching to a full-log screen;
      the timestamped session log remains available after completion.
+     Finished operations show a highlighted Done/Back button; failures show
+     Continue to recovery. Logs remain scrollable until the button is confirmed.
    - If saving fails, keep the staged choices and offer retry, package editing,
      or return-to-project paths instead of dropping the user out of the flow.
    - Detect and clean up incomplete project setups.
@@ -183,6 +196,28 @@ required manifest adjustments, installs configured VPM packages, imports the
 package and waits for a bounded finalization step. Unity may still perform some
 first-open asset processing, especially for projects with many textures or
 scripts.
+
+The creation review includes **Package presets** and **Customize packages** for
+this project only. A selected named preset replaces the default new-project set
+and keeps the required foundation. On successful creation, `vpm add project`
+registers the project in Creator Companion without closing or restarting VCC.
+If registration fails, the completed project is preserved and a warning explains
+how to add it manually.
+
+Named presets live in `PackagePresets` in your local `vrcsetup.json`, which the
+installer preserves. Each preset maps package IDs to exact versions or `latest`.
+Saving from an existing project captures direct packages and the required locked
+SDK foundation, rather than every transitive dependency.
+
+```powershell
+vrcsetup presets save "Creator PC" "F:\Unity Projects\Creator Avatar"
+vrcsetup presets list -Json
+vrcsetup presets apply "Creator PC" "F:\Unity Projects\Another Avatar" -DryRun
+vrcsetup presets apply "Creator PC" "F:\Unity Projects\Another Avatar"
+vrcsetup create ".\Avatar.unitypackage" -Name "New Avatar" -Preset "Creator PC"
+vrcsetup setup "F:\Unity Projects\Another Avatar" -Preset "Creator PC" -DryRun
+vrcsetup presets remove "Creator PC"
+```
 
 ### Project library and cache
 

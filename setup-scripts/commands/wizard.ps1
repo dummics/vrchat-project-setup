@@ -8,11 +8,13 @@ $scriptDir = [System.IO.Directory]::GetParent($PSScriptRoot).FullName
 . "${scriptDir}\lib\menu.ps1"
 . "${scriptDir}\lib\utils.ps1"
 . "${scriptDir}\lib\config.ps1"
+. "${scriptDir}\lib\presets.ps1"
 . "${scriptDir}\lib\vpm.ps1"
 . "${scriptDir}\lib\vrcget.ps1"
 . "${scriptDir}\lib\project-state.ps1"
 . "${scriptDir}\lib\projects.ps1"
 . "${scriptDir}\lib\spectre.ps1"
+. "${scriptDir}\lib\package-ui.ps1"
 . "${scriptDir}\commands\installer.ps1"
 $configPath = Join-Path $scriptDir "config\\vrcsetup.json"
 $defaultsPath = Join-Path $scriptDir "config\\vrcsetup.defaults"
@@ -678,12 +680,20 @@ function Select-VpmVersion {
     $available = if ($PSBoundParameters.ContainsKey('AvailableVersions')) {
         @($AvailableVersions)
     } else {
+        if (Write-VrcSetupSpectreFrame -Title 'Choose package version' -Header (Get-VrcSetupFriendlyPackageName -PackageName $PackageName) -ScriptDir $scriptDir) {
+            [Spectre.Console.AnsiConsole]::MarkupLine('[#75D7F7]Loading available versions...[/]')
+        }
         $vrcGetVersions = @(Get-VrcGetAvailableVersions -PackageName $PackageName -ScriptDir $scriptDir)
         if ($vrcGetVersions.Count -gt 0) { @($vrcGetVersions) } else { @(Get-VpmAvailableVersions -PackageName $PackageName) }
     }
 
     while ($true) {
         $friendlyName = Get-VrcSetupFriendlyPackageName -PackageName $PackageName
+        $versionPicker = Show-VrcSetupVersionPicker -PackageName $PackageName -CurrentVersion $CurrentVersion -Versions $available -ScriptDir $scriptDir
+        if ($versionPicker) {
+            if (-not $versionPicker.Version) { return $null }
+            if ($versionPicker.Version -ne '__manual__') { return [string]$versionPicker.Version }
+        }
         $currentChoice = if ($CurrentVersion -eq 'latest') { 'Newest compatible version' } elseif ($CurrentVersion) { $CurrentVersion } else { 'Not included' }
         $header = "Package: ${friendlyName}`nCurrent choice: ${currentChoice}`n"
         if ($available.Count -gt 0) {
@@ -697,7 +707,7 @@ function Select-VpmVersion {
         $manualOption = 'Enter a version manually'
         $backOption = 'Back'
         $options = @($latestOption, $manualOption) + @($available) + @($backOption)
-        $sel = Show-Menu -Title 'Choose version' -Header $header -PromptTitle 'Version' -Options $options -MaxVisible 18
+        $sel = if ($versionPicker) { 1 } else { Show-Menu -Title 'Choose version' -Header $header -PromptTitle 'Version' -Options $options -MaxVisible 18 }
         if ($sel -eq -1) { return $null }
 
         $picked = $options[$sel]
@@ -707,6 +717,11 @@ function Select-VpmVersion {
             $manual = Read-WizardTextInput -Title 'Enter package version' -Prompt 'Version' -BodyLines @("Package: ${friendlyName}", "Current choice: ${currentChoice}") -Hint 'Enter Confirm  ·  Esc Back'
             if ([string]::IsNullOrWhiteSpace($manual)) { return $null }
             $manual = $manual.Trim()
+            $validation = Test-VpmPackageVersion -PackageName $PackageName -Version $manual -ScriptDir $scriptDir
+            if (-not $validation.Valid) {
+                Show-WizardError -Title 'Version unavailable' -Message $validation.Message
+                continue
+            }
             if ($PSBoundParameters.ContainsKey('AvailableVersions') -and $manual -ne 'latest' -and $available -notcontains $manual) {
                 Show-WizardError -Title 'Version not available for this SDK' -Message 'Choose a version shared by every VRChat SDK component in this project.' -Details "Requested: ${manual}"
                 continue
@@ -856,9 +871,13 @@ function Find-VrcSetupPackages {
         [string]$Header = 'Search by name or paste one or more exact package IDs separated by commas.'
     )
 
+    while ($true) {
     $query = Read-WizardTextInput -Title $Title -Prompt 'Search or package ID' -BodyLines @($Header) -Hint 'Enter Search  ·  Esc Back'
     if ([string]::IsNullOrWhiteSpace($query)) { return @() }
     $query = $query.Trim()
+    if (Write-VrcSetupSpectreFrame -Title 'Find packages' -Header $query -ScriptDir $scriptDir) {
+        [Spectre.Console.AnsiConsole]::MarkupLine('[#75D7F7]Searching package repositories...[/]')
+    }
     $enteredIds = @($query -split '[,;\r\n]+' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
     $exactIds = @()
     if ($enteredIds.Count -gt 1) {
@@ -870,12 +889,12 @@ function Find-VrcSetupPackages {
     if ($exactIds.Count -gt 0) {
         $newIds = @($exactIds | Where-Object { $ExcludePackageNames -notcontains $_ })
         if ($newIds.Count -eq 0) {
-            Show-WizardError -Title 'Already included' -Message 'Every package you entered is already in this list.'
+            if ((Show-Menu -Title 'Already included' -Header 'These packages are already in the current set.' -Options @('Search again', 'Back')) -eq 0) { continue }
             return @()
         }
         $invalid = @($newIds | Where-Object { -not (Test-VpmPackageExists -PackageName $_ -ScriptDir $scriptDir) })
         if ($invalid.Count -gt 0) {
-            Show-WizardError -Title 'Package not found' -Message ("Could not find: {0}" -f ($invalid -join ', '))
+            if ((Show-Menu -Title 'Package not found' -Header ("Could not find: {0}" -f ($invalid -join ', ')) -Options @('Search again', 'Back')) -eq 0) { continue }
             return @()
         }
         return $newIds
@@ -887,17 +906,19 @@ function Find-VrcSetupPackages {
     }
     $allMatches = @(Search-VrcGetPackages -Query $query -ScriptDir $scriptDir)
     if ($allMatches.Count -eq 0) {
-        Show-WizardError -Title 'No packages found' -Message "No results for '${query}'. Try another name or paste the exact package ID."
+        $message = if ($script:VrcSetupPackageSearchFailed) { 'Package search could not reach the repository catalog. Check your connection and registered repositories.' } else { "No results for '${query}'. Try another name or exact package ID." }
+        if ((Show-Menu -Title 'No packages found' -Header $message -Options @('Search again', 'Back')) -eq 0) { continue }
         return @()
     }
     $availableMatches = @($allMatches | Where-Object { $ExcludePackageNames -notcontains [string]$_.Id })
     if ($availableMatches.Count -eq 0) {
         $matchedNames = @($allMatches | ForEach-Object { if ($_.DisplayName) { [string]$_.DisplayName } else { Get-VrcSetupFriendlyPackageName -PackageName ([string]$_.Id) } } | Select-Object -Unique)
-        Show-WizardError -Title 'Already included' -Message "The matching package is already available here." -Details ($matchedNames -join ', ')
+        if ((Show-Menu -Title 'Already included' -Header ("Already in this set: {0}" -f ($matchedNames -join ', ')) -Options @('Search again', 'Back')) -eq 0) { continue }
         return @()
     }
-    $selected = @(Select-VrcSetupPackageResults -Items $availableMatches -Title 'Search results' -Header "Results for '${query}'. Select everything you want to add.")
+    $selected = @(Select-VrcSetupPackageResults -Items $availableMatches -Title 'Add packages' -Header "$($availableMatches.Count) results for '${query}'  ·  New packages use latest compatible.")
     return @($selected | ForEach-Object { [string]$_.Id } | Select-Object -Unique)
+    }
 }
 
 function Get-VrcSetupFavoritePackageResults {
@@ -963,6 +984,7 @@ function Edit-VpmPackages {
         [string]$ConfigPath,
         [string]$ScriptDir,
         $ConfigObject,
+        $PresetConfig,
         [switch]$WorkingCopy
     )
 
@@ -988,6 +1010,7 @@ function Edit-VpmPackages {
     if (-not $config.VpmPackages) {
         $config | Add-Member -MemberType NoteProperty -Name "VpmPackages" -Value ([pscustomobject]@{ "com.vrchat.base" = "latest" }) -Force
     }
+    $configNotice = ''
 
     while ($true) {
         # Keep the locked VRChat foundation together and first.  Optional tools
@@ -1000,12 +1023,12 @@ function Edit-VpmPackages {
             $kind = if ($isRequired) { 'Required' } else { 'Optional' }
             $pkgOptions += (Format-VrcSetupPackageRow -Role $kind -PackageName $pkg.Name -Version ([string]$pkg.Value))
         }
-        $pkgOptions += @('Add package', 'Favorite packages', 'Back')
+        $pkgOptions += @('Add package', 'Favorite packages', 'Package presets', 'Back')
 
         $header = if ($WorkingCopy) {
-            "Required packages are first and cannot be removed. Optional packages are below them.`nMake changes, then go Back to review the project update.`n`nRole       Package name                  Package ID                              Version"
+            "Project selection  ·  Back returns to project review`n${configNotice}`nRole       Package name                  Package ID                              Version"
         } else {
-            "Required packages are first and cannot be removed. Optional packages can be changed or removed.`nThis set is used for new projects.`n`nRole       Package name                  Package ID                              Version"
+            "Default set for new projects  ·  Changes saved immediately`n${configNotice}`nRole       Package name                  Package ID                              Version"
         }
         $selected = Show-Menu -Title "VPM Packages" -Header $header -Options $pkgOptions
         if ($selected -eq -1) {
@@ -1014,6 +1037,16 @@ function Edit-VpmPackages {
         }
 
         $picked = $pkgOptions[$selected]
+        if ($picked -eq 'Package presets') {
+            $presetOwner = if ($WorkingCopy) { if ($PresetConfig) { $PresetConfig } else { Load-Config -ConfigPath $ConfigPath } } else { $config }
+            $preset = Invoke-VrcSetupPresetMenu -Config $presetOwner -ConfigPath $ConfigPath -Packages $config.VpmPackages
+            if ($preset) {
+                $config.VpmPackages = $preset.Packages
+                $configNotice = "Preset selected: $($preset.Name)"
+                if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
+            }
+            continue
+        }
         if ($picked -eq "Back") {
             if ($WorkingCopy) { return $config.VpmPackages }
             return
@@ -1033,6 +1066,7 @@ function Edit-VpmPackages {
             $newPackages = @(Find-VrcSetupPackages -ExcludePackageNames $existingNames -Title 'Add to my package set' -Header 'Search by name or paste exact package IDs. Selected packages use their newest compatible version.')
             if ($newPackages.Count -eq 0) { continue }
             $config.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $config.VpmPackages -PackageNames $newPackages
+            $configNotice = "$(if ($WorkingCopy) { 'Selected' } else { 'Saved to default set' }): $($newPackages -join ', ')"
             if (-not $WorkingCopy) { Save-Config -Config $config -ConfigPath $ConfigPath }
             continue
         }
@@ -1452,6 +1486,7 @@ function Setup-ProjectFlow {
         }
         $includeExtras = $false
         $workspaceSelectedIndex = 0
+        $workspaceNotice = ''
 
         while ($true) {
             try {
@@ -1468,7 +1503,7 @@ function Setup-ProjectFlow {
             $workspaceSelection = $null
             $workspaceCommand = Get-Command -Name 'Show-VrcSetupSpectrePackageWorkspace' -ErrorAction SilentlyContinue
             if ($workspaceCommand) {
-                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -InitialSelectedIndex $workspaceSelectedIndex -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -HasFavorites:$(@(Get-VrcSetupFavoritePackages -Config $Config).Count -gt 0) -VersionProvider {
+                $workspaceSelection = Show-VrcSetupSpectrePackageWorkspace -Items $workspaceItems -ProjectName (Split-Path -Leaf $ProjectPath) -PendingCount $packageChanges -Notice $workspaceNotice -InitialSelectedIndex $workspaceSelectedIndex -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { [int]$ExtrasInfo.ExtrasCount } else { 0 }) -HasFavorites:$(@(Get-VrcSetupFavoritePackages -Config $Config).Count -gt 0) -VersionProvider {
                     param($packageName)
                     if (Test-IsVrcSetupSdkPackage -PackageName $packageName) {
                         $sdkNames = @($workspaceItems | Where-Object { Test-IsVrcSetupSdkPackage -PackageName ([string]$_.Name) } | ForEach-Object Name)
@@ -1504,7 +1539,7 @@ function Setup-ProjectFlow {
             } else {
                 $changeLabel = if ($packageChanges -eq 0) { 'No package changes' } elseif ($packageChanges -eq 1) { '1 package change ready' } else { "${packageChanges} package changes ready" }
                 $importsLabel = if ($includeExtras) { "  ·  $($ExtrasInfo.ExtrasCount) saved import(s) included" } else { '' }
-                $header = "Project: $(Split-Path -Leaf $ProjectPath)`n${changeLabel}${importsLabel}"
+                $header = "Project: $(Split-Path -Leaf $ProjectPath)`n${changeLabel}${importsLabel}`n${workspaceNotice}"
                 $options = @($workspaceItems | ForEach-Object { Format-VrcSetupPackageWorkspaceRow -Item $_ })
                 $actions = @($workspaceItems | ForEach-Object { [pscustomobject]@{ Kind = 'package'; Item = $_ } })
                 $options += 'Add package'
@@ -1513,6 +1548,8 @@ function Setup-ProjectFlow {
                 $actions += [pscustomobject]@{ Kind = 'favorites'; Item = $null }
                 $options += 'Use my package set'
                 $actions += [pscustomobject]@{ Kind = 'defaults'; Item = $null }
+                $options += 'Package presets'
+                $actions += [pscustomobject]@{ Kind = 'presets'; Item = $null }
                 if ($ExtrasInfo -and $ExtrasInfo.ExtrasCount -gt 0) {
                     $options += $(if ($includeExtras) { "Skip $($ExtrasInfo.ExtrasCount) saved UnityPackages" } else { "Include $($ExtrasInfo.ExtrasCount) saved UnityPackages" })
                     $actions += [pscustomobject]@{ Kind = 'extras'; Item = $null }
@@ -1608,6 +1645,9 @@ function Setup-ProjectFlow {
                 $newPackageIds = @(Find-VrcSetupPackages -ExcludePackageNames $existingNames)
                 if ($newPackageIds.Count -eq 0) { continue }
                 $workingConfig.VpmPackages = Add-VrcSetupPackagesAtLatest -Packages $workingConfig.VpmPackages -PackageNames $newPackageIds
+                $workspaceNotice = "Queued: $($newPackageIds -join ', '). Save changes to install."
+                $addedItems = @(Get-VrcSetupPackageWorkspaceItems -CurrentPackages $currentPackages -DesiredPackages $workingConfig.VpmPackages -Config $workingConfig)
+                $workspaceSelectedIndex = [array]::IndexOf(@($addedItems.Name), $newPackageIds[0])
                 continue
             }
 
@@ -1622,6 +1662,15 @@ function Setup-ProjectFlow {
             if ($action.Kind -eq 'defaults') {
                 $presetPackages = Add-RequiredPackagesToSet -Packages $Config.VpmPackages -Config $Config
                 $workingConfig.VpmPackages = Merge-VrcSetupPackageSets -BasePackages $currentPackages -PackagesToAdd $presetPackages
+                continue
+            }
+
+            if ($action.Kind -eq 'presets') {
+                $preset = Invoke-VrcSetupPresetMenu -Config $Config -ConfigPath $ConfigPath -Packages $workingConfig.VpmPackages
+                if ($preset) {
+                    $workingConfig.VpmPackages = $preset.Packages
+                    $workspaceNotice = "Preset '$($preset.Name)' queued. Save changes to apply."
+                }
                 continue
             }
 
@@ -1811,6 +1860,8 @@ function Setup-ProjectFlow {
             ActionLabel = 'Create new project'
             ExtrasCount = 0
             ExtrasStatus = 'Disabled'
+            Packages = $null
+            PresetName = 'My package set'
         }
     }
 
@@ -1999,7 +2050,8 @@ function Setup-ProjectFlow {
             "Folder: $($State.TargetProjectPath)",
             "Status: ${targetState}",
             "Action: $($State.ActionLabel)",
-            "Extras: $($State.ExtrasStatus)"
+            "Extras: $($State.ExtrasStatus)",
+            "Packages: $($State.PresetName)"
         ) -join "`n"
     }
 
@@ -2075,20 +2127,26 @@ function Setup-ProjectFlow {
         $status = 1
         $execution = $null
         $canLeavePartialProject = ($State.ExistingAction -eq 'create-new' -or $State.ExistingAction -eq 'overwrite')
+        $packageOverride = if ($State.Packages) {
+            if ($State.ExistingAction -like 'use-existing*') {
+                $existing = Get-VpmProjectPackageSet -ProjectPath $State.TargetProjectPath
+                Merge-VrcSetupPackageSets -BasePackages $existing -PackagesToAdd $State.Packages
+            } else { $State.Packages }
+        } else { $null }
         switch ($State.ExistingAction) {
             'overwrite' {
                 $confirmDel = Show-Menu -Title "Confirm delete" -Header (Add-ConfirmHint -Header ("This will DELETE the existing folder:`n{0}`n`nContinue?" -f $State.TargetProjectPath)) -Options @("Delete and recreate", "Cancel") -AllowCancel $false
                 if ($confirmDel -ne 0) { return [pscustomobject]@{ Executed = $false; Status = $null } }
-                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.PackagePath -Title 'Creating project' -Header $State.ProjectName -NewProjectName $State.ProjectName -OverwriteExistingProject
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.PackagePath -Title 'Creating project' -Header $State.ProjectName -NewProjectName $State.ProjectName -OverwriteExistingProject -PackagesOverride $packageOverride
             }
             'use-existing-vpm' {
-                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.TargetProjectPath -Title 'Updating project' -Header $State.ProjectName
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.TargetProjectPath -Title 'Updating project' -Header $State.ProjectName -PackagesOverride $packageOverride
             }
             'use-existing-extras' {
-                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.TargetProjectPath -Title 'Importing packages' -Header $State.ProjectName -ImportExtras -ExcludeUnityPackagePath $State.PackagePath
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.TargetProjectPath -Title 'Importing packages' -Header $State.ProjectName -ImportExtras -ExcludeUnityPackagePath $State.PackagePath -PackagesOverride $packageOverride
             }
             default {
-                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.PackagePath -Title 'Creating project' -Header $State.ProjectName -NewProjectName $State.ProjectName
+                $execution = Invoke-VrcSetupInstallerWithProgress -ProjectPath $State.PackagePath -Title 'Creating project' -Header $State.ProjectName -NewProjectName $State.ProjectName -PackagesOverride $packageOverride
             }
         }
 
@@ -2125,7 +2183,7 @@ function Setup-ProjectFlow {
             while ($true) {
                 Update-UnityPackageFlowState -State $state -Config $Config
 
-                $options = @("Start importing", "Change project name")
+                $options = @("Start importing", "Package presets", "Customize packages", "Change project name")
                 if (-not [string]::IsNullOrWhiteSpace([string]$state.TargetProjectPath) -and (Test-Path -LiteralPath ([string]$state.TargetProjectPath))) {
                     $options += "Change existing target action"
                 }
@@ -2135,6 +2193,25 @@ function Setup-ProjectFlow {
                 if ($choice -eq -1) { return }
 
                 $picked = $options[$choice]
+                if ($picked -eq 'Customize packages') {
+                    $localConfig = [pscustomobject]@{
+                        VpmPackages = Copy-VpmPackageSet -Packages $(if ($state.Packages) { $state.Packages } else { $Config.VpmPackages })
+                        RequiredPackages = @(Get-RequiredPackages -Config $Config)
+                    }
+                    $edited = Edit-VpmPackages -ConfigPath $ConfigPath -ScriptDir $scriptDir -ConfigObject $localConfig -PresetConfig $Config -WorkingCopy
+                    if ($edited) { $state.Packages = $edited; $state.PresetName = 'Custom selection' }
+                    continue
+                }
+                if ($picked -eq 'Package presets') {
+                    $currentSet = if ($state.Packages) { $state.Packages } else { $Config.VpmPackages }
+                    $preset = Invoke-VrcSetupPresetMenu -Config $Config -ConfigPath $ConfigPath -Packages $currentSet
+                    if ($preset) {
+                        # New projects start with exactly the chosen preset and required packages.
+                        $state.Packages = Resolve-VrcSetupPackagePreset -Config $Config -Name $preset.Name
+                        $state.PresetName = $preset.Name
+                    }
+                    continue
+                }
                 if ($picked -eq "Start importing") {
                     $executionResult = Invoke-UnityPackageExecution -State $state -Config $Config -ConfigPath $ConfigPath
                     if (-not $executionResult.Executed) {

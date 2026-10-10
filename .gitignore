@@ -9,3 +9,6 @@ setup-scripts/.vpm-validation-cache/
 
 # Incremental project library index (generated at runtime)
 setup-scripts/cache/
+
+# Local verification artifacts and reversible runtime backups
+.work/

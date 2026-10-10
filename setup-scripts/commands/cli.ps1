@@ -8,8 +8,13 @@ Usage:
   vrcsetup packages search <words> [-Json]
   vrcsetup packages add <project> <package[@version]> [...] [-DryRun]
   vrcsetup packages remove <project> <package> [...] [-DryRun]
+  vrcsetup presets list [-Json]
+  vrcsetup presets save <name> <project>
+  vrcsetup presets remove <name>
+  vrcsetup presets apply <name> <project> [-DryRun]
   vrcsetup create <file.unitypackage> [-Name <project>] [-Package <package[@version]> ...] [-DryRun]
-  vrcsetup setup <project-or-unitypackage> [-DryRun]
+  vrcsetup setup <project-or-unitypackage> [-Preset <name>] [-DryRun]
+  vrcsetup create <file.unitypackage> -Preset <name> [-Name <project>] [-DryRun]
   vrcsetup repair
   vrcsetup uninstall
 
@@ -186,7 +191,8 @@ function Invoke-VrcSetupCli {
         [switch]$Refresh,
         [ValidateSet('recent', 'name')][string]$SortOrder,
         [string]$Name,
-        [string[]]$Package
+        [string[]]$Package,
+        [string]$Preset
     )
 
     $commandName = $Command.Trim().ToLowerInvariant()
@@ -201,6 +207,48 @@ function Invoke-VrcSetupCli {
         return 1
     }
     $config = Ensure-ConfigDefaults -Config $config
+
+    if ($commandName -eq 'presets') {
+        try {
+            if (-not $Arguments) { throw 'Use presets list, save, remove or apply.' }
+            $action = $Arguments[0].ToLowerInvariant()
+            if ($action -eq 'list') {
+                $rows = @(Get-VrcSetupPackagePresets -Config $config | ForEach-Object {
+                    [pscustomobject]@{ Name = $_.Name; Packages = $_.Value }
+                })
+                Write-VrcSetupCliData -Data $rows -Json:$Json
+                return 0
+            }
+            if ($Arguments.Count -lt 2) { throw 'A preset name is required.' }
+            $presetName = $Arguments[1]
+            if ($action -eq 'remove') {
+                [void](Resolve-VrcSetupPackagePreset -Config $config -Name $presetName)
+                if (-not $DryRun) {
+                    $config.PackagePresets.PSObject.Properties.Remove($presetName)
+                    Save-Config -Config $config -ConfigPath $ConfigPath
+                }
+                Write-Host "Preset removed$(if ($DryRun) { ' [DRY RUN]' }): ${presetName}" -ForegroundColor Green
+                return 0
+            }
+            if ($action -notin @('save', 'apply')) { throw "Unknown presets action: ${action}" }
+            if ($Arguments.Count -lt 3) { throw 'A project path is required.' }
+            $project = Resolve-VrcSetupCliPath -Path $Arguments[2]
+            if (-not (Test-VrcSetupUnityProject -Path $project)) { throw "Unity project not found: ${project}" }
+            if ($action -eq 'save') {
+                $packages = Get-VpmProjectPackageSet -ProjectPath $project -IncludeLockedPackages @(Get-RequiredPackages -Config $config)
+                Save-VrcSetupPackagePreset -Config $config -Name $presetName -Packages $packages
+                if (-not $DryRun) { Save-Config -Config $config -ConfigPath $ConfigPath }
+                Write-Host "Preset saved$(if ($DryRun) { ' [DRY RUN]' }): ${presetName}" -ForegroundColor Green
+                return 0
+            }
+            $packages = Resolve-VrcSetupPackagePreset -Config $config -Name $presetName
+            $specs = @($packages.PSObject.Properties | ForEach-Object { "$($_.Name)@$($_.Value)" })
+            return (Invoke-VrcSetupCliPackageMutation -Action add -ProjectPath $project -PackageSpecs $specs -Config $config -ScriptDir $ScriptDir -DryRun:$DryRun)
+        } catch {
+            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+            return 1
+        }
+    }
 
     if ($commandName -eq 'projects') {
         if ([string]::IsNullOrWhiteSpace([string]$config.UnityProjectsRoot)) {
@@ -274,7 +322,16 @@ function Invoke-VrcSetupCli {
             return 1
         }
         $packages = Add-RequiredPackagesToSet -Packages (Copy-VpmPackageSet -Packages $config.VpmPackages) -Config $config
-        foreach ($rawSpec in @($Package)) {
+        if ($Preset) {
+            try { $packages = Resolve-VrcSetupPackagePreset -Config $config -Name $Preset } catch {
+                Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+                return 1
+            }
+            foreach ($entry in $packages.PSObject.Properties) {
+                if (-not (Test-VrcSetupCliPackageSpec -PackageSpec ([pscustomobject]@{ Name = $entry.Name; Version = $entry.Value }) -ScriptDir $ScriptDir)) { return 1 }
+            }
+        }
+        foreach ($rawSpec in @($Package | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
             $spec = ConvertFrom-VrcSetupPackageSpec -Spec $rawSpec
             if (-not (Test-VrcSetupCliPackageSpec -PackageSpec $spec -ScriptDir $ScriptDir)) { return 1 }
             $packages = Set-VrcSetupPackageVersion -Packages $packages -PackageName $spec.Name -Version $spec.Version
@@ -297,7 +354,22 @@ function Invoke-VrcSetupCli {
             Write-Host 'Error: setup needs a project or UnityPackage path.' -ForegroundColor Red
             return 1
         }
-        return (Start-Installer -projectPath (Resolve-VrcSetupCliPath -Path $Arguments[0]) -Test:$DryRun)
+        $target = Resolve-VrcSetupCliPath -Path $Arguments[0]
+        if ($Preset) {
+            try {
+                $base = if (Test-VrcSetupUnityProject -Path $target) { Get-VpmProjectPackageSet -ProjectPath $target } else { $null }
+                $packages = Resolve-VrcSetupPackagePreset -Config $config -Name $Preset -BasePackages $base
+                foreach ($entry in $packages.PSObject.Properties) {
+                    if (-not (Test-VrcSetupCliPackageSpec -PackageSpec ([pscustomobject]@{ Name = $entry.Name; Version = $entry.Value }) -ScriptDir $ScriptDir)) { return 1 }
+                }
+                $packages = Resolve-VrcSetupSdkPackageSet -Packages $packages -ScriptDir $ScriptDir
+                return (Start-Installer -projectPath $target -PackagesOverride $packages -Test:$DryRun)
+            } catch {
+                Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+                return 1
+            }
+        }
+        return (Start-Installer -projectPath $target -Test:$DryRun)
     }
 
     Write-Host "Error: unknown command '${Command}'." -ForegroundColor Red

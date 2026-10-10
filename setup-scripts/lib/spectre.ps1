@@ -1,5 +1,15 @@
 $script:VrcSetupSpectreAvailable = $null
 
+function New-VrcSetupActionButton {
+    param([string]$Label, [string]$Color = '#67E8A5')
+    $text = "ENTER   $(ConvertTo-VrcSetupSpectreText $Label)"
+    $button = [Spectre.Console.Panel]::new([Spectre.Console.Markup]::new("[bold black on ${Color}] ${text} [/]"))
+    $button.Border = [Spectre.Console.BoxBorder]::Rounded
+    $button.BorderStyle = New-VrcSetupSpectreStyle -Foreground $Color
+    $button.Padding = [Spectre.Console.Padding]::new(1, 0)
+    return $button
+}
+
 function Initialize-VrcSetupSpectre {
     param([string]$ScriptDir)
 
@@ -257,7 +267,7 @@ function New-VrcSetupPackageWorkspaceRenderable {
     )
 
     $itemsArray = @($Items)
-    $windowWidth = 120
+    $windowWidth = [Spectre.Console.AnsiConsole]::Profile.Width
     try { $windowWidth = [Console]::WindowWidth } catch { }
     $isNarrow = ($windowWidth -lt 100)
     $packageWidth = if ($isNarrow) { 24 } else { 32 }
@@ -303,11 +313,11 @@ function New-VrcSetupPackageWorkspaceRenderable {
             $installed
         }
         $stateLabel = switch ([string]$item.Status) {
-            'Add' { $(if ($isNarrow) { 'Add' } else { 'Will be added' }); break }
-            'Update' { $(if ($isNarrow) { 'Change' } else { 'Will change' }); break }
-            'Remove' { $(if ($isNarrow) { 'Remove' } else { 'Will be removed' }); break }
+            'Add' { $(if ($isNarrow) { 'To add' } else { 'Pending add' }); break }
+            'Update' { $(if ($isNarrow) { 'To update' } else { 'Pending update' }); break }
+            'Remove' { $(if ($isNarrow) { 'To remove' } else { 'Pending removal' }); break }
             'Required' { $(if ($isNarrow) { 'Always' } else { 'Always included' }); break }
-            default { 'Included' }
+            default { 'Installed' }
         }
         $packageText = ('{0}{1}' -f $(if ($isSelected) { '> ' } else { '  ' }), [string]$item.FriendlyName)
         $rawCells = @(
@@ -342,7 +352,6 @@ function New-VrcSetupPackageWorkspaceRenderable {
         $renderables += [Spectre.Console.Markup]::new("[#78909F]  Showing $($offset + 1)-${rangeEnd} of $($itemsArray.Count) packages[/]")
     }
     $renderables += [Spectre.Console.Text]::new(' ')
-    $renderables += [Spectre.Console.Text]::new(' ')
 
     $saveSelected = ($SelectedIndex -eq $itemsArray.Count)
     $canSave = ($PendingCount -gt 0 -or $IncludeExtras)
@@ -370,12 +379,14 @@ function New-VrcSetupPackageWorkspaceRenderable {
     $renderables += $savePanel
     $renderables += [Spectre.Console.Text]::new(' ')
     $renderables += [Spectre.Console.Text]::new(' ')
-    $renderables += [Spectre.Console.Markup]::new('[#78909F]Up/Down Choose package     Left/Right Change version     Space Include/remove[/]')
+    $renderables += [Spectre.Console.Rule]::new()
+    $renderables += [Spectre.Console.Markup]::new('[#78909F]Package   Up/Down Choose  ·  Enter Versions  ·  Space Include/remove[/]')
     $favoriteHint = if ($HasFavorites) { 'F Favorites' } else { 'F Set favorites' }
-    $secondaryHints = @('A Find package', $favoriteHint, 'D Saved set')
+    $secondaryHints = @('A Find package', $favoriteHint, 'D Saved set', 'P Presets')
     if ($HasExtras) { $secondaryHints += 'I Imports' }
-    $secondaryHints += @('V Version list', 'Esc Back')
-    $renderables += [Spectre.Console.Markup]::new("[#78909F]$($secondaryHints -join '     ')[/]")
+    $renderables += [Spectre.Console.Markup]::new("[#78909F]Add       $($secondaryHints -join '  ·  ')[/]")
+    $renderables += [Spectre.Console.Markup]::new('[#78909F]Versions  V Search versions  ·  Left/Right Older/newer[/]')
+    $renderables += [Spectre.Console.Markup]::new('[#78909F]Apply     S Save changes  ·  Esc Back[/]')
     if (-not [string]::IsNullOrWhiteSpace($Notice)) {
         $renderables += [Spectre.Console.Text]::new(' ')
         $renderables += [Spectre.Console.Markup]::new("[#75D7F7]$(ConvertTo-VrcSetupSpectreText $Notice)[/]")
@@ -389,6 +400,7 @@ function Show-VrcSetupSpectrePackageWorkspace {
         [Parameter(Mandatory)][string]$ProjectName,
         [Parameter(Mandatory)][int]$PendingCount,
         [int]$InitialSelectedIndex = 0,
+        [string]$Notice = '',
         [bool]$IncludeExtras = $false,
         [int]$ExtrasCount = 0,
         [bool]$HasFavorites = $false,
@@ -409,7 +421,7 @@ function Show-VrcSetupSpectrePackageWorkspace {
         Action = $null
         PackageName = $null
         VersionChanges = [ordered]@{}
-        Notice = ''
+        Notice = $Notice
     }
     $hasExtras = ($ExtrasCount -gt 0)
     $initial = New-VrcSetupPackageWorkspaceRenderable -Items $itemsArray -SelectedIndex $initialIndex -PendingCount $PendingCount -IncludeExtras:$IncludeExtras -HasExtras:$hasExtras -HasFavorites:$HasFavorites -Notice $state.Notice
@@ -440,6 +452,7 @@ function Show-VrcSetupSpectrePackageWorkspace {
                             $context.Refresh()
                             $versions = @()
                             try { $versions = @(& $VersionProvider ([string]$item.Name)) } catch { $versions = @() }
+                            if ([string]$item.DesiredVersion -notmatch '-') { $versions = @($versions | Where-Object { $_ -notmatch '-' }) }
                             $direction = if ($key.Key -eq 'LeftArrow') { 'Older' } else { 'Newer' }
                             $adjacent = Get-VrcSetupAdjacentPackageVersion -AvailableVersions $versions -CurrentVersion ([string]$item.DesiredVersion) -Direction $direction
                             if ($adjacent) {
@@ -471,7 +484,7 @@ function Show-VrcSetupSpectrePackageWorkspace {
                             $state.Action = 'version'
                             $state.PackageName = [string]$itemsArray[$state.SelectedIndex].Name
                         }
-                        $state.Done = $true
+                        $state.Done = (-not [string]::IsNullOrWhiteSpace([string]$state.Action))
                     }
                     'Spacebar' {
                         if ($state.SelectedIndex -lt $itemsArray.Count -and -not $itemsArray[$state.SelectedIndex].Required) {
@@ -488,6 +501,7 @@ function Show-VrcSetupSpectrePackageWorkspace {
                             'A' { $state.Action = 'add'; $state.Done = $true }
                             'F' { $state.Action = 'favorites'; $state.Done = $true }
                             'D' { $state.Action = 'defaults'; $state.Done = $true }
+                            'P' { $state.Action = 'presets'; $state.Done = $true }
                             'I' { if ($hasExtras) { $state.Action = 'extras'; $state.Done = $true } }
                             'S' {
                                 if ($PendingCount -gt 0 -or $IncludeExtras) {
@@ -543,7 +557,7 @@ function New-VrcSetupSaveReviewRenderable {
     $table.ShowHeaders = $true
     $table.ShowRowSeparators = $false
     $table.Expand = $false
-    $windowWidth = try { [Console]::WindowWidth } catch { 120 }
+    $windowWidth = try { [Console]::WindowWidth } catch { [Spectre.Console.AnsiConsole]::Profile.Width }
     $isNarrow = ($windowWidth -lt 100)
     $changeColumn = [Spectre.Console.TableColumn]::new('[#78909F]Change[/]')
     $changeColumn.Width = 15
@@ -651,6 +665,7 @@ function New-VrcSetupProgressRenderable {
         [int]$ScrollIndex = 0,
         [ValidateRange(5, 20)][int]$MaxVisible = 12,
         [ValidateSet('Running', 'Success', 'Failed', 'Cancelled')][string]$Status = 'Running',
+        [string]$CompletionLabel = 'Done',
         [bool]$Follow = $true,
         [TimeSpan]$Elapsed = [TimeSpan]::Zero,
         [AllowEmptyString()][string]$LogFile = '',
@@ -685,7 +700,8 @@ function New-VrcSetupProgressRenderable {
     $summaryDetails = @($elapsedText)
     if (-not $Follow) { $summaryDetails += "Viewing messages ${rangeStart}-${rangeEnd} of $($items.Count)" }
     $summaryDetails += $followLabel
-    $summary = "[$statusColor]${Status}[/]  [#78909F]$($summaryDetails -join '  ·  ')[/]"
+    $statusLabel = switch ($Status) { 'Success' { 'Completed' } 'Failed' { 'Operation failed' } 'Cancelled' { 'Cancelled' } default { 'In progress' } }
+    $summary = "[bold $statusColor]${statusLabel}[/]  [#78909F]$($summaryDetails -join '  ·  ')[/]"
     if (-not [string]::IsNullOrWhiteSpace($Metrics)) {
         # Pinned live status: CPU/RAM refresh in place on this fixed colored line and
         # never add a row to the log box below.
@@ -703,7 +719,7 @@ function New-VrcSetupProgressRenderable {
     $hints = if ($Status -eq 'Running') {
         'Up/Down Scroll  ·  PgUp/PgDn Page  ·  Home First  ·  End Follow'
     } else {
-        'Up/Down Scroll  ·  PgUp/PgDn Page  ·  Home First  ·  End Last  ·  Enter Continue'
+        'Review log   Up/Down  ·  PgUp/PgDn  ·  Home First  ·  End Last'
     }
     $renderables = @(
         [Spectre.Console.Markup]::new($summary),
@@ -712,6 +728,11 @@ function New-VrcSetupProgressRenderable {
         [Spectre.Console.Text]::new(' '),
         [Spectre.Console.Markup]::new("[#78909F]${hints}[/]")
     )
+    if ($Status -ne 'Running') {
+        $label = switch ($Status) { 'Failed' { 'Continue to recovery' } 'Cancelled' { 'Back' } default { $CompletionLabel } }
+        $renderables += [Spectre.Console.Text]::new(' ')
+        $renderables += New-VrcSetupActionButton -Label $label -Color $statusColor
+    }
     if ($Status -ne 'Running' -and -not [string]::IsNullOrWhiteSpace($LogFile)) {
         $renderables += [Spectre.Console.Markup]::new("[#607D8B]Full log: $(ConvertTo-VrcSetupSpectreText $LogFile)[/]")
     }
@@ -733,7 +754,7 @@ function Invoke-VrcSetupSpectreOperation {
 
     $effectiveMaxVisible = $MaxVisible
     try {
-        $availableRows = [Math]::Max(5, [Console]::WindowHeight - 13)
+        $availableRows = [Math]::Max(5, [Console]::WindowHeight - 18)
         $effectiveMaxVisible = [Math]::Min($MaxVisible, $availableRows)
     } catch { }
 
@@ -832,7 +853,8 @@ function Invoke-VrcSetupSpectreOperation {
                     }
                 } catch { }
 
-                $next = New-VrcSetupProgressRenderable -Lines @($state.Lines) -ScrollIndex $state.ScrollIndex -MaxVisible $effectiveMaxVisible -Status $state.Status -Follow:$state.Follow -Elapsed ((Get-Date) - $started) -LogFile $state.LogFile -Metrics $state.Metrics
+                $completionLabel = if ($Title -eq 'Creating project') { 'Done - Back to projects' } else { 'Done - Back to project' }
+                $next = New-VrcSetupProgressRenderable -Lines @($state.Lines) -ScrollIndex $state.ScrollIndex -MaxVisible $effectiveMaxVisible -Status $state.Status -CompletionLabel $completionLabel -Follow:$state.Follow -Elapsed ((Get-Date) - $started) -LogFile $state.LogFile -Metrics $state.Metrics
                 $context.UpdateTarget($next)
                 $context.Refresh()
                 if (-not $state.Exit) { Start-Sleep -Milliseconds 120 }
@@ -867,9 +889,13 @@ function New-VrcSetupTextInputRenderable {
     $field.Padding = [Spectre.Console.Padding]::new(1, 0)
 
     $rows = @($field)
+    $action = if ($Hint -match 'Enter\s+(Search|Save|Confirm|Select)') { $Matches[1] } else { 'Continue' }
+    $rows += [Spectre.Console.Text]::new(' ')
+    $rows += New-VrcSetupActionButton -Label $action -Color '#75D7F7'
     if (-not [string]::IsNullOrWhiteSpace($Hint)) {
         $rows += [Spectre.Console.Text]::new(' ')
-        $rows += [Spectre.Console.Markup]::new("[#78909F]$(ConvertTo-VrcSetupSpectreText $Hint)  ·  Enter Confirm  ·  Esc Back[/]")
+        $secondaryHint = ($Hint -replace 'Enter\s+(Search|Save|Confirm|Select)\s*[·]?\s*', '').Trim()
+        $rows += [Spectre.Console.Markup]::new("[#78909F]$(ConvertTo-VrcSetupSpectreText $secondaryHint)[/]")
     }
     return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$rows)
 }
@@ -943,7 +969,8 @@ function Show-VrcSetupSpectreNotice {
     $panel.Padding = [Spectre.Console.Padding]::new(1, 0)
     [Spectre.Console.AnsiConsole]::Write($panel)
     [Spectre.Console.AnsiConsole]::WriteLine()
-    [Spectre.Console.AnsiConsole]::MarkupLine('[#78909F]Enter Continue  ·  Esc Back[/]')
+    [Spectre.Console.AnsiConsole]::Write((New-VrcSetupActionButton -Label 'Continue' -Color $color))
+    [Spectre.Console.AnsiConsole]::MarkupLine('[#78909F]Esc Back[/]')
     while ($true) {
         $key = [Console]::ReadKey($true)
         if ($key.Key -in @('Enter', 'Escape')) { break }
@@ -1136,8 +1163,8 @@ function New-VrcSetupPackagePickerRenderable {
     )
 
     $itemsArray = @($Items)
-    $windowWidth = try { [Console]::WindowWidth } catch { 120 }
-    $isNarrow = ($windowWidth -lt 100)
+    $windowWidth = try { [Console]::WindowWidth } catch { [Spectre.Console.AnsiConsole]::Profile.Width }
+    $isNarrow = ($windowWidth -lt 105)
     $table = [Spectre.Console.Table]::new()
     $table.Border = [Spectre.Console.TableBorder]::Rounded
     $table.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
@@ -1145,10 +1172,10 @@ function New-VrcSetupPackagePickerRenderable {
     $table.ShowRowSeparators = $false
     $table.Expand = $false
     foreach ($columnInfo in @(
-        @{ Label = ''; Width = 5 },
+        @{ Label = 'Pick'; Width = 5 },
         @{ Label = 'Package'; Width = $(if ($isNarrow) { 22 } else { 28 }) },
-        @{ Label = 'Package ID'; Width = $(if ($isNarrow) { 30 } else { 38 }) },
-        @{ Label = 'Version'; Width = $(if ($isNarrow) { 12 } else { 18 }) }
+        @{ Label = 'Package ID'; Width = $(if ($isNarrow) { 28 } else { 38 }) },
+        @{ Label = 'Version'; Width = $(if ($isNarrow) { 10 } else { 18 }) }
     )) {
         $column = [Spectre.Console.TableColumn]::new("[#78909F]$($columnInfo.Label)[/]")
         $column.Width = [int]$columnInfo.Width
@@ -1169,9 +1196,9 @@ function New-VrcSetupPackagePickerRenderable {
         )
         $rendered = @()
         for ($cellIndex = 0; $cellIndex -lt $cells.Count; $cellIndex++) {
-            $width = @(5, $(if ($isNarrow) { 22 } else { 28 }), $(if ($isNarrow) { 30 } else { 38 }), $(if ($isNarrow) { 12 } else { 18 }))[$cellIndex]
+            $width = @(5, $(if ($isNarrow) { 22 } else { 28 }), $(if ($isNarrow) { 28 } else { 38 }), $(if ($isNarrow) { 10 } else { 18 }))[$cellIndex]
             $safe = ConvertTo-VrcSetupSpectreText (Format-VrcSetupPackageCell -Text ([string]$cells[$cellIndex]) -Width $width)
-            $markup = if ($index -eq $SelectedIndex) { "[black on #75D7F7]${safe}[/]" } else { "[#DDEAF2]${safe}[/]" }
+            $markup = if ($index -eq $SelectedIndex) { "[black on #75D7F7]${safe}[/]" } elseif ($cellIndex -eq 0 -and [bool]$Selected[$index]) { "[bold #67E8A5]${safe}[/]" } else { "[#DDEAF2]${safe}[/]" }
             $rendered += [Spectre.Console.Markup]::new($markup)
         }
         [void]$table.Rows.Add([Spectre.Console.Rendering.IRenderable[]]$rendered)
@@ -1185,7 +1212,19 @@ function New-VrcSetupPackagePickerRenderable {
         $rows += [Spectre.Console.Markup]::new("[#78909F]Showing $($offset + 1)-${rangeEnd} of $($itemsArray.Count) packages[/]")
     }
     $rows += [Spectre.Console.Text]::new(' ')
-    $pickerHint = if ($SingleSelection) { 'Up/Down Choose  ·  PgUp/PgDn Page  ·  Enter Select  ·  Esc Back' } else { 'Up/Down Choose  ·  Space Include/remove  ·  PgUp/PgDn Page  ·  Enter Confirm  ·  Esc Back' }
+    $selectedCount = @($Selected.Values | Where-Object { $_ }).Count
+    if (-not $SingleSelection) {
+        $actionLabel = if ($selectedCount -gt 0) { "Add ${selectedCount} selected package(s)" } else {
+            $focused = $itemsArray[$SelectedIndex]
+            "Add $(if ($focused.DisplayName) { $focused.DisplayName } else { Get-VrcSetupFriendlyPackageName -PackageName $focused.Id })"
+        }
+        $rows += New-VrcSetupActionButton -Label $actionLabel
+    } else {
+        $rows += New-VrcSetupActionButton -Label 'Select package' -Color '#75D7F7'
+    }
+    $rows += [Spectre.Console.Rule]::new()
+    if (-not $SingleSelection) { $rows += [Spectre.Console.Markup]::new('[#78909F]Select     Space Toggle  ·  A Select all  ·  N Clear selection[/]') }
+    $pickerHint = 'Navigate   Up/Down  ·  PgUp/PgDn  ·  Esc Back'
     $rows += [Spectre.Console.Markup]::new("[#78909F]${pickerHint}[/]")
     return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$rows)
 }
@@ -1204,6 +1243,7 @@ function Show-VrcSetupSpectrePackageChecklist {
     $itemsArray = @($Items)
     if ($itemsArray.Count -eq 0) { return @() }
     if (-not (Write-VrcSetupSpectreFrame -Title $Title -ScriptDir $ScriptDir)) { return $null }
+    try { $MaxVisible = [Math]::Max(4, [Math]::Min($MaxVisible, [Console]::WindowHeight - 17)) } catch { }
     $selected = @{}
     for ($index = 0; $index -lt $itemsArray.Count; $index++) { $selected[$index] = $DefaultSelected }
     $state = [pscustomobject]@{ Index = 0; Done = $false; Cancelled = $false }
@@ -1226,8 +1266,19 @@ function Show-VrcSetupSpectrePackageChecklist {
                     'Home' { $state.Index = 0 }
                     'End' { $state.Index = $itemsArray.Count - 1 }
                     'Spacebar' { if (-not $SingleSelection) { $selected[$state.Index] = -not [bool]$selected[$state.Index] } }
-                    'Enter' { $state.Done = $true }
+                    'Enter' {
+                        if (-not $SingleSelection -and @($selected.Values | Where-Object { $_ }).Count -eq 0) {
+                            $selected[$state.Index] = $true
+                        }
+                        $state.Done = $true
+                    }
                     'Escape' { $state.Cancelled = $true; $state.Done = $true }
+                    default {
+                        if (-not $SingleSelection -and [char]::ToUpperInvariant($key.KeyChar) -in @('A','N')) {
+                            $include = ([char]::ToUpperInvariant($key.KeyChar) -eq 'A')
+                            for ($i = 0; $i -lt $itemsArray.Count; $i++) { $selected[$i] = $include }
+                        }
+                    }
                 }
                 if (-not $state.Done) {
                     $next = New-VrcSetupPackagePickerRenderable -Items $itemsArray -SelectedIndex $state.Index -Selected $selected -Header $Header -SingleSelection:$SingleSelection -MaxVisible $MaxVisible
@@ -1240,8 +1291,7 @@ function Show-VrcSetupSpectrePackageChecklist {
         try { [Console]::CursorVisible = $cursorWasVisible } catch { }
     }
     if ($state.Cancelled) { return $null }
-    if ($SingleSelection) { return @($itemsArray[$state.Index]) }
-    return @($itemsArray | ForEach-Object -Begin { $index = 0 } -Process { $item = $_; $isSelected = [bool]$selected[$index]; $index++; if ($isSelected) { $item } })
+    return @(Get-VrcSetupConfirmedPackageSelection -Items $itemsArray -Selected $selected -FocusedIndex $state.Index -SingleSelection:$SingleSelection)
 }
 
 function Show-VrcSetupSpectreChecklist {

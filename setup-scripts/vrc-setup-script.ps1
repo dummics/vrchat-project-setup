@@ -10,7 +10,8 @@ param(
     [switch]$Refresh,
     [ValidateSet('recent', 'name')][string]$Sort,
     [string]$Name,
-    [string[]]$Package
+    [string[]]$Package,
+    [string]$Preset
 )
 
 # Top-level entry point for vrc setup
@@ -40,6 +41,7 @@ if ($Command) {
         Refresh = $Refresh
         Name = $Name
         Package = $Package
+        Preset = $Preset
     }
     if (-not [string]::IsNullOrWhiteSpace($Sort)) {
         $cliParameters.SortOrder = $Sort

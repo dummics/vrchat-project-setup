@@ -56,6 +56,20 @@ function Write-VrcSetupCommandOutput {
     }
 }
 
+function Register-VrcSetupCreatorCompanionProject {
+    param([string]$ProjectPath)
+    # VPM owns the project list; never stop or restart Creator Companion.
+    $result = Invoke-VpmCapture -Arguments @('add', 'project', $ProjectPath)
+    if ($result.ExitCode -ne 0 -or $result.Output -match '(?im)^\s*\[[^\]]+\s(ERR|ERROR)\]') {
+        Write-Host 'Project created, but Creator Companion registration failed. Use VCC > Add existing project.' -ForegroundColor Yellow
+        Write-VrcSetupLog -Message "WARNING: VCC registration failed: $($result.Output)"
+        return $false
+    }
+    Write-Host 'Project added to Creator Companion.' -ForegroundColor Green
+    Write-VrcSetupLog -Message "Creator Companion project registered: ${ProjectPath}"
+    return $true
+}
+
 function Get-VrcSetupVrcGetPackageAction {
     param(
         [AllowEmptyString()][string]$CurrentVersion,
@@ -1096,6 +1110,7 @@ public static class VrcSetupPostImport
             }
 
             $projectPath = $newProjectPath
+            [void](Register-VrcSetupCreatorCompanionProject -ProjectPath $newProjectPath)
 
             # UnityPackage flow already:
             # - ensured test framework
