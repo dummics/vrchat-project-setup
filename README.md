@@ -79,6 +79,13 @@ source folder as an installation to delete.
 - Detection and cleanup of interrupted or incomplete setup operations.
 - Cancellation with `Q` or `Esc` during long Unity operations.
 - Backups before package-manifest changes and timestamped execution logs.
+- Import progress reads Unity logs only when their size or write time changes.
+  Exact package versions already present on disk are reused, including packages
+  installed as dependencies; `latest` still requests an update.
+- Post-import finalization keeps Unity's update loop running, performs one
+  synchronous refresh, and waits for import/compilation to settle. Import errors
+  and finalization timeouts leave the project incomplete instead of reporting
+  success. Heavy texture/shader processing remains Unity's responsibility.
 - Portable, installed and command-line entry points backed by the same engine.
 
 ## 🧩 Requirements

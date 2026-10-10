@@ -446,6 +446,21 @@ function Install-PackagesInProject {
             continue
         }
 
+        # A preceding add can already have installed this exact dependency.
+        # Re-read manifests here; the pre-batch snapshot does not see those adds.
+        # Keep latest as a real update request, even when a version is installed.
+        if ((-not $Test) -and $packageVersion -ne 'latest') {
+            $expected = [pscustomobject]@{ $packageName = [string]$packageVersion }
+            $installed = Get-VpmManifestValidationResult -ProjectPath $ProjectPath -Packages $expected
+            $packageFolder = Join-Path (Join-Path $ProjectPath 'Packages') $packageName
+            $packageMetadata = $null
+            try { $packageMetadata = Get-Content -LiteralPath (Join-Path $packageFolder 'package.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+            if ($installed.Valid -and $packageMetadata.name -eq $packageName -and $packageMetadata.version -eq $packageVersion) {
+                Write-Host "Keeping installed package: ${packageName} @ ${packageVersion}" -ForegroundColor DarkGray
+                continue
+            }
+        }
+
         Write-Host "Processing package: ${packageName} : ${packageVersion}" -ForegroundColor Cyan
 
         if ($Test) {
@@ -557,7 +572,7 @@ function Get-UnityProcessesUsingProjectPath {
         $normalizedPath = $ProjectPath
     }
 
-    $matches = @()
+    $matchedProcesses = @()
     try {
         $candidates = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
             $_.Name -eq 'Unity.exe' -and
@@ -566,7 +581,7 @@ function Get-UnityProcessesUsingProjectPath {
 
         foreach ($proc in $candidates) {
             if ($proc.CommandLine -match [regex]::Escape($normalizedPath)) {
-                $matches += [pscustomobject]@{
+                $matchedProcesses += [pscustomobject]@{
                     ProcessId   = [int]$proc.ProcessId
                     Name        = [string]$proc.Name
                     CommandLine = [string]$proc.CommandLine
@@ -575,7 +590,7 @@ function Get-UnityProcessesUsingProjectPath {
         }
     } catch { }
 
-    return @($matches | Sort-Object ProcessId -Unique)
+    return @($matchedProcesses | Sort-Object ProcessId -Unique)
 }
 
 function Remove-ProjectFolderWithRecovery {
@@ -812,6 +827,7 @@ function Start-Installer {
             if ($OverallProgressEnabled) { try { Write-Progress -Id 1 -Activity $OverallProgressActivity -Status ("Importing UnityPackage extra ({0}/{1})..." -f $idx, $UnityPackagePaths.Count) } catch { } }
             $res = Show-ProcessProgress -Process $p -LogFile $log -Prefix ("[Import:extra {0}/{1}]" -f $idx, $UnityPackagePaths.Count) -AllowCancel -CancelPrompt "Cancel this import step only? (y/N)" -ProgressId 2 -ParentProgressId 1
             if ($res -and $res.Cancelled) { return $script:VrcSetupStatusCancelled }
+            if (-not $res -or $res.ExitCode -ne 0) { Write-Host "Import failed. Unity log: ${log}" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
         }
         return $script:VrcSetupStatusSuccess
     }
@@ -968,6 +984,7 @@ function Start-Installer {
             if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Importing UnityPackage (main)..." } catch { } }
             $importRes = Show-ProcessProgress -Process $importProcess -LogFile $importLogFile -Prefix "[Import:main]" -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
             if ($importRes -and $importRes.Cancelled) { return $script:VrcSetupStatusCancelled }
+            if (-not $importRes -or $importRes.ExitCode -ne 0) { Write-Host "Import failed. Unity log: ${importLogFile}" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
             try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'importMain' -Done $true } catch { }
 
             # Extra packages (if any) AFTER main
@@ -987,6 +1004,7 @@ function Start-Installer {
                 if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status ("Importing UnityPackage (extra {0}/{1})..." -f $idx, $extraPackages.Count) } catch { } }
                 $extraRes = Show-ProcessProgress -Process $p -LogFile $extraLog -Prefix ("[Import:extra {0}/{1}]" -f $idx, $extraPackages.Count) -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
                 if ($extraRes -and $extraRes.Cancelled) { return $script:VrcSetupStatusCancelled }
+                if (-not $extraRes -or $extraRes.ExitCode -ne 0) { Write-Host "Import failed. Unity log: ${extraLog}" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
             }
 
             try {
@@ -1001,80 +1019,8 @@ function Start-Installer {
                 if (-not (Test-Path -LiteralPath $editorDir)) { New-Item -Path $editorDir -ItemType Directory -Force | Out-Null }
 
                 $postImportScriptPath = Join-Path $editorDir "VrcSetupPostImport.cs"
-                @'
-using System;
-using System.Threading;
-using UnityEditor;
-using UnityEditor.Compilation;
-using UnityEngine;
-
-public static class VrcSetupPostImport
-{
-    private static bool IsCompilationPipelineCompiling()
-    {
-        try
-        {
-            var t = typeof(CompilationPipeline);
-            var p = t.GetProperty("isCompiling") ?? t.GetProperty("IsCompiling");
-            if (p != null && p.PropertyType == typeof(bool))
-            {
-                return (bool)p.GetValue(null, null);
-            }
-            var f = t.GetField("isCompiling") ?? t.GetField("IsCompiling");
-            if (f != null && f.FieldType == typeof(bool))
-            {
-                return (bool)f.GetValue(null);
-            }
-        }
-        catch { }
-        return false;
-    }
-
-    // Called via -executeMethod VrcSetupPostImport.Run
-    public static void Run()
-    {
-        var start = DateTime.UtcNow;
-        var timeout = TimeSpan.FromMinutes(10);
-
-        Debug.Log("[vrc-setup] Post-import settle started...");
-
-        // Force a synchronous import pass so the first UI open is less likely to trigger a second big import.
-        try
-        {
-            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-        }
-        catch
-        {
-            AssetDatabase.Refresh();
-        }
-
-        // Block until Unity is stable (batchmode + -executeMethod can exit early if we rely on update callbacks).
-        while (EditorApplication.isCompiling || EditorApplication.isUpdating || IsCompilationPipelineCompiling())
-        {
-            Thread.Sleep(200);
-            if (DateTime.UtcNow - start > timeout)
-            {
-                Debug.LogWarning("[vrc-setup] Post-import settle TIMEOUT, continuing anyway.");
-                break;
-            }
-        }
-
-        // Second synchronous refresh to consolidate any queued imports.
-        try
-        {
-            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-        }
-        catch
-        {
-            AssetDatabase.Refresh();
-        }
-
-        AssetDatabase.SaveAssets();
-        Debug.Log("[vrc-setup] Post-import settle complete, quitting.");
-        EditorApplication.Exit(0);
-    }
-}
-'@ | Set-Content -LiteralPath $postImportScriptPath -Encoding UTF8
+                $helperSource = Join-Path $scriptDir 'lib\unity\VrcSetupPostImport.cs'
+                Copy-Item -LiteralPath $helperSource -Destination $postImportScriptPath -Force
 
                 $settleLogFile = Join-Path $env:TEMP "unity-postimport-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
                 $settleArgs = @(
@@ -1090,9 +1036,15 @@ public static class VrcSetupPostImport
                 if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Finalizing (settle/flush)..." } catch { } }
                 $settleRes = Show-ProcessProgress -Process $settleProcess -LogFile $settleLogFile -Prefix "[Finalize]" -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
                 if ($settleRes -and $settleRes.Cancelled) { return $script:VrcSetupStatusCancelled }
+                if (-not $settleRes -or $settleRes.ExitCode -ne 0) {
+                    Write-Host "Finalization failed. Review Unity log: ${settleLogFile}" -ForegroundColor Red
+                    Write-VrcSetupLog -Message "ERROR: Finalization failed. Unity log: ${settleLogFile}"
+                    return $script:VrcSetupStatusFailure
+                }
                 try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'finalize' -Done $true } catch { }
             } catch {
-                Write-Host "Warning: post-import finalize step failed: ${_}" -ForegroundColor Yellow
+                Write-Host "Post-import finalize step failed: ${_}" -ForegroundColor Red
+                return $script:VrcSetupStatusFailure
             }
 
             $postImportVpmStatus = Ensure-VpmPackagesPresentAfterImport -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test -PhaseLabel "after UnityPackage import"

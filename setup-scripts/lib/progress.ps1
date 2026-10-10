@@ -1,4 +1,18 @@
 # Show a progress line for a background process, with CPU, RAM and log tail
+function Get-VrcSetupChangedLogTail {
+    param([string]$LogFile, [hashtable]$State)
+    if ([string]::IsNullOrWhiteSpace($LogFile)) { return $null }
+    try {
+        $info = [IO.FileInfo]::new($LogFile)
+        if (-not $info.Exists) { $State.Remove('Stamp'); return $null }
+        $stamp = "$($info.FullName):$($info.Length):$($info.LastWriteTimeUtc.Ticks)"
+        if ($State['Stamp'] -eq $stamp) { return $null }
+        $tail = Get-Content -LiteralPath $LogFile -Tail 1 -ErrorAction Stop
+        $State['Stamp'] = $stamp
+        return $tail
+    } catch { return $null }
+}
+
 function Show-ProcessProgress {
     param(
         [System.Diagnostics.Process]$Process,
@@ -25,6 +39,7 @@ function Show-ProcessProgress {
 
     $startTime = Get-Date
     $lastLog = ""
+    $logReadState = @{}
     $lastStatsUpdate = Get-Date
     $cpuPercent = 0
     $memoryMB = 0
@@ -111,8 +126,8 @@ function Show-ProcessProgress {
         }
 
         $lastLogChanged = $false
-        if (Test-Path -LiteralPath $LogFile) {
-            $newLog = Get-Content -LiteralPath $LogFile -Tail 1 -ErrorAction SilentlyContinue
+        if ($LogFile) {
+            $newLog = Get-VrcSetupChangedLogTail -LogFile $LogFile -State $logReadState
             if ($newLog -and $newLog -ne $lastLog) { $lastLog = $newLog; $lastLogChanged = $true }
         }
 
