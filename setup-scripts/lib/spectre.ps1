@@ -582,7 +582,7 @@ function New-VrcSetupProgressRenderable {
     param(
         [string[]]$Lines = @(),
         [int]$ScrollIndex = 0,
-        [ValidateRange(5, 20)][int]$MaxVisible = 12,
+        [ValidateRange(3, 20)][int]$MaxVisible = 12,
         [ValidateSet('Running', 'Success', 'Failed', 'Cancelled')][string]$Status = 'Running',
         [string]$CompletionLabel = 'Done',
         [bool]$Follow = $true,
@@ -591,9 +591,10 @@ function New-VrcSetupProgressRenderable {
         [AllowEmptyString()][string]$Metrics = ''
     )
 
-    $windowWidth = try { [Console]::WindowWidth } catch { 120 }
-    $panelWidth = [Math]::Min(200, [Math]::Max(74, $windowWidth - 4))
-    $innerWidth = [Math]::Max(48, $panelWidth - 4)
+    $windowWidth = try { [Console]::WindowWidth } catch { 0 }
+    if ($windowWidth -le 0) { $windowWidth = [Spectre.Console.AnsiConsole]::Profile.Width }
+    $panelWidth = [Math]::Min(200, [Math]::Max(24, $windowWidth - 4))
+    $innerWidth = [Math]::Max(20, $panelWidth - 4)
 
     $items = @($Lines)
     $maxStart = [Math]::Max(0, $items.Count - $MaxVisible)
@@ -633,6 +634,7 @@ function New-VrcSetupProgressRenderable {
     $logPanel.Border = [Spectre.Console.BoxBorder]::Rounded
     $logPanel.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
     $logPanel.Width = $panelWidth
+    $logPanel.Height = $MaxVisible + 2
     $logPanel.Padding = [Spectre.Console.Padding]::new(1, 0)
 
     $hints = if ($Status -eq 'Running') {
@@ -647,14 +649,18 @@ function New-VrcSetupProgressRenderable {
         [Spectre.Console.Text]::new(' '),
         [Spectre.Console.Markup]::new("[#78909F]${hints}[/]")
     )
-    if ($Status -ne 'Running') {
-        $label = switch ($Status) { 'Failed' { 'Continue to recovery' } 'Cancelled' { 'Back' } default { $CompletionLabel } }
-        $renderables += [Spectre.Console.Text]::new(' ')
-        $renderables += New-VrcSetupActionButton -Label $label -Color $statusColor
-    }
-    if ($Status -ne 'Running' -and -not [string]::IsNullOrWhiteSpace($LogFile)) {
-        $renderables += [Spectre.Console.Markup]::new("[#607D8B]Full log: $(ConvertTo-VrcSetupSpectreText $LogFile)[/]")
-    }
+    $label = switch ($Status) { 'Running' { 'Please wait' } 'Failed' { 'Continue to recovery' } 'Cancelled' { 'Back' } default { $CompletionLabel } }
+    $renderables += [Spectre.Console.Text]::new(' ')
+    if ($Status -eq 'Running') {
+        $waiting = [Spectre.Console.Panel]::new([Spectre.Console.Markup]::new('[#78909F] Please wait… [/]'))
+        $waiting.Border = [Spectre.Console.BoxBorder]::Rounded
+        $waiting.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
+        $waiting.Padding = [Spectre.Console.Padding]::new(1,0)
+        $renderables += $waiting
+    } else { $renderables += New-VrcSetupActionButton -Label $label -Color $statusColor }
+    $logPathLine = if ($LogFile) { "Full log: ${LogFile}" } else { ' ' }
+    if ($logPathLine.Length -gt ($windowWidth - 2)) { $logPathLine = $logPathLine.Substring(0,[Math]::Max(1,$windowWidth - 3)) + '…' }
+    $renderables += [Spectre.Console.Markup]::new("[#607D8B]$(ConvertTo-VrcSetupSpectreText $logPathLine)[/]")
     return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$renderables)
 }
 
@@ -673,7 +679,7 @@ function Invoke-VrcSetupSpectreOperation {
 
     $effectiveMaxVisible = $MaxVisible
     try {
-        $availableRows = [Math]::Max(5, [Console]::WindowHeight - 18)
+        $availableRows = [Math]::Max(3, [Console]::WindowHeight - 21)
         $effectiveMaxVisible = [Math]::Min($MaxVisible, $availableRows)
     } catch { }
 
@@ -704,6 +710,8 @@ function Invoke-VrcSetupSpectreOperation {
             param($context)
             $context.Refresh()
             while (-not $state.Exit) {
+                # Re-budget the log viewport when the terminal is resized.
+                try { $effectiveMaxVisible = [Math]::Min($MaxVisible, [Math]::Max(3, [Console]::WindowHeight - 21)) } catch { }
                 $entries = @()
                 while ($state.OutputIndex -lt $job.Output.Count) {
                     $entries += $job.Output[$state.OutputIndex]

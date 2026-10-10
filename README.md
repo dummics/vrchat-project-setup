@@ -227,6 +227,10 @@ its common commands, with additional actions under F2.
 Import review emphasizes the main action with a larger filled button. Preset and
 package customization use smaller outlined buttons; name/file changes and cancel
 use quieter text actions. Keyboard focus remains visible on every action.
+The main import action keeps its green accent but receives a filled highlight
+only while focused. Settings has its own spaced outline and rose accent.
+Operation logs reserve their final action area from the start and keep the log
+panel height fixed, so completion does not expand the live display unexpectedly.
 Saving from an existing project captures direct packages and the required locked
 SDK foundation, rather than every transitive dependency.
 

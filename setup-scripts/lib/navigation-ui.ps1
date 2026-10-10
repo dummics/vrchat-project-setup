@@ -12,7 +12,7 @@ function Get-VrcSetupMenuActionWeight {
     param([string]$Label)
     if ($Label -match '^(Back|Cancel|Exit)$') { return 'Footer' }
     if ($Label -match '^(Start importing|Import avatar or asset|Save preset|Save \d|Save changes|Apply changes|Confirm)') { return 'Primary' }
-    if ($Label -match '^(Change |Choose another |Settings$|Reset |Delete |Clean up )') { return 'Utility' }
+    if ($Label -match '^(Change |Choose another |Reset |Delete |Clean up )') { return 'Utility' }
     return 'Secondary'
 }
 
@@ -46,10 +46,11 @@ function New-VrcSetupNavigationMenuRenderable {
         $color = if ($isPackage) { $(if ($Options[$i] -match '^Required') { '#F6C451' } else { '#DDEAF2' }) } elseif ($Options[$i] -match '^(Reset|Clean|Remove|Delete)') { '#FB7185' } elseif ($Options[$i] -match '(?i)preset') { '#C4A5FF' } elseif ($Options[$i] -match '^(Import|Create|Add|Save)') { '#67E8A5' } elseif ($Options[$i] -match '(?i)settings|Unity Editor|Project names') { '#F6C451' } else { '#75D7F7' }
         if ($weight -in @('Utility','Footer')) { $color = if ($Options[$i] -match '^(Reset|Clean|Delete)') { '#FB7185' } else { '#A8B6C1' } }
         $focusColor = if ($weight -in @('Utility','Footer')) { '#75D7F7' } else { $color }
-        $style = if ($i -eq $Current) { "bold black on ${focusColor}" } elseif ($weight -eq 'Primary') { 'bold black on #67E8A5' } else { $color }
+        if ($Options[$i] -eq 'Settings') { $color = '#F2A0A8'; $focusColor = $color }
+        $style = if ($i -eq $Current) { "bold black on ${focusColor}" } elseif ($weight -eq 'Primary') { 'bold #67E8A5' } else { $color }
         if ($weight -eq 'Primary') { $label = $label.ToUpperInvariant() }
         $panelWidth = [Math]::Min($(if ($weight -eq 'Primary') { 88 } else { 72 }),$viewport.Width - 4)
-        if ($weight -eq 'Primary') { $label = $label.PadRight([Math]::Max($label.Length,$panelWidth - 8)) }
+        if ($Options[$i] -eq 'Settings') { $rows += [Spectre.Console.Text]::new(' ') }
         $content = [Spectre.Console.Markup]::new("[$style]$(if ($i -eq $Current) { '> ' } else { '  ' })${label}[/]")
         if ($isPackage) { $rows += $content }
         elseif ($weight -in @('Utility','Footer')) { $rows += $content; $rows += [Spectre.Console.Text]::new(' ') }
