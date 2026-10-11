@@ -235,8 +235,9 @@ try {
     Assert-True ($mergedDefaults.gogoloco -eq 'latest' -and $mergedDefaults.'com.example.default' -eq '2.0.0') 'Using the default package set did not stage its package versions.'
     $wizardText = Get-Content -LiteralPath (Join-Path $scriptDir 'commands\wizard.ps1') -Raw
     Assert-True ($wizardText -notmatch "'Toggle installed packages'|'Update selected packages'|'Review and apply'") 'The old procedural package-manager selectors are still present.'
-    Assert-True ($wizardText -match 'Show-VrcSetupSpectrePackageWorkspace') 'The project package manager is not using the direct interactive workspace.'
-    Assert-True ($wizardText -match "'Save changes'" -and $wizardText -notmatch "'Apply changes'") 'The package workspace does not expose one UI-like Save changes action.'
+    $bulkText = Get-Content -LiteralPath (Join-Path $repoRoot 'setup-scripts\lib\bulk-packages.ps1') -Raw
+    Assert-True ($wizardText -match 'Invoke-VrcSetupBulkPackageEditor -ProjectPaths @\(\$projectPath\)' -and $bulkText -match 'Show-VrcSetupSpectrePackageWorkspace') 'Single and bulk edits do not share the package table.'
+    Assert-True ($bulkText -match "'Apply changes'") 'The package workspace does not expose the requested Apply changes action.'
     $generatedIdentityState = [pscustomobject]@{ ProjectName = 'Avatar Package'; SuggestedProjectName = 'Avatar Package'; SavedProjectName = $null }
     $rememberedIdentityState = [pscustomobject]@{ ProjectName = 'Lucian PC V2'; SuggestedProjectName = 'Lucian PC V2'; SavedProjectName = 'PACKAGE_MAKER' }
     $invalidIdentityState = [pscustomobject]@{ ProjectName = 'Invalid\Project'; SavedProjectName = $null }
@@ -254,21 +255,21 @@ try {
     $defaultsText = Get-Content -LiteralPath (Join-Path $scriptDir 'config\vrcsetup.defaults') -Raw
     Assert-True ($menuText -match '\[int\[\]\]\$SectionBreaks' -and $navigationText -match '\[int\[\]\]\$SectionBreaks') 'Menu section spacing is not available in both renderers.'
     Assert-True ($menuText -notmatch "\[string\]\$PromptTitle = 'Choose an action'" -and $spectreText -notmatch "\[string\]\$PromptTitle = 'Choose an action'") 'Menus still default to technical action instructions.'
-    Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Enter Choose version' -and $spectreText -match 'Space Add/remove' -and $spectreText -match 'F2  More options') 'The direct package-table controls are missing.'
+    Assert-True ($spectreText -match 'function New-VrcSetupPackageWorkspaceRenderable' -and $spectreText -match 'Enter Version/select' -and $spectreText -match 'Space Toggle' -and $spectreText -match 'Tab Actions') 'The direct package-table controls are missing.'
     Assert-True ($spectreText -match "Label = 'Version'" -and $spectreText -match "Label = 'After saving'" -and $spectreText -notmatch "Label = 'Installed'|Label = 'State'") 'The package workspace returned to technical duplicate columns.'
     Assert-True ($spectreText -match 'function Show-VrcSetupSpectreSaveReview' -and $spectreText -match 'function Invoke-VrcSetupSpectreOperation') 'The polished save review or embedded progress surface is missing.'
-    Assert-True ($wizardText -match 'Invoke-VrcSetupInstallerWithProgress' -and $wizardText -match 'Show-VrcSetupSpectreSaveReview') 'The interactive wizard bypasses the embedded review/progress flow.'
+    Assert-True ($wizardText -match 'Invoke-VrcSetupInstallerWithProgress' -and $bulkText -match 'Review project changes' -and $bulkText -match 'Invoke-VrcSetupSpectreOperation') 'The interactive wizard bypasses the shared review/progress flow.'
     Assert-True ($wizardText -match 'VRCSETUP_EMBEDDED_PROGRESS' -and $progressText -match 'VRCSETUP_EMBEDDED_PROGRESS') 'Embedded progress does not isolate the viewport keyboard from process cancellation input.'
-    Assert-True ($navigationText -match '\[int\]\$Current = 0' -and $wizardText -match '\$options = @\("Start importing", "Package presets", "Customize packages", "Change project name"\)' -and $wizardText -match '\$picked -eq "Start importing"') 'The UnityPackage review menu does not focus the start action by default.'
+    Assert-True ($navigationText -match '\[int\]\$Current = 0' -and $wizardText -match '\$options = @\("Start importing", "Package presets", "Customize packages", "Edit project name"' -and $wizardText -match '\$picked -eq "Start importing"') 'The UnityPackage review menu does not focus the start action by default.'
     Assert-True ($progressText -match '::VRCSETUP_METRICS::' -and $progressText -match '\$lastLogChanged' -and $spectreText -match '::VRCSETUP_METRICS::') 'Embedded progress must pin CPU/RAM on one status line and add a log row only when the Unity tail changes.'
     Assert-True ($spectreText -match '\$panelWidth = \[Math\]::Min\(200' -and $spectreText -match '\$logPanel\.Width = \$panelWidth') 'The progress panel regressed to a fixed narrow width that truncates Unity log lines.'
-    Assert-True ($spectreText -match '\$versionWidth = if \(\$isNarrow\).*36' -and $spectreText -match 'Viewing messages') 'The package/version table or progress message counter regressed to the cramped or ambiguous layout.'
+    Assert-True ($spectreText -match '\$versionWidth = if \(\$windowWidth -lt 68\)' -and $spectreText -match 'Viewing messages') 'The responsive package table or progress message counter regressed.'
     Assert-True ($installerText -match "'--prerelease'" -and $installerText -match 'Invoke-VrcGetCapture') 'Prerelease packages are still routed only through the VPM CLI that cannot resolve them.'
     Assert-True ($installerText -match 'IncludeLockedPackages \$configuredPackageNames' -and $installerText -match 'Restore-VrcSetupPackageBatch') 'Locked SDK packages or failed package operations still bypass the safe installer contract.'
     Assert-True ($cliText -match 'Set-VrcSetupPackageVersion' -and $cliText -match 'Test-VrcSetupCliSdkVersionSelection') 'CLI package/create flows bypass SDK version alignment or compatibility validation.'
     Assert-True ($spectreText -match 'function New-VrcSetupTextInputRenderable' -and $spectreText -match 'function Show-VrcSetupSpectrePackageChecklist' -and $spectreText -match 'function Show-VrcSetupSpectreNotice') 'Package search still lacks the boxed field, tabular picker, or integrated notice surface.'
     Assert-True ($wizardText -match 'function Find-VrcSetupPackages' -and $wizardText -match "Title 'Already included'" -and $wizardText -notmatch "No packages found'.*Get-LastTextLines") 'Search results that are already installed can still fall through to a misleading raw error.'
-    Assert-True ($wizardText -match 'function Manage-VrcSetupFavoritePackages' -and $wizardText -match "Kind = 'favorites'" -and $defaultsText -match '"FavoritePackages"') 'Favorite packages are not persistent or reachable from the project package workspace.'
+    Assert-True ($wizardText -match 'function Manage-VrcSetupFavoritePackages' -and $wizardText -match 'Get-VrcSetupKnownPackages' -and $defaultsText -match '"FavoritePackages"') 'Favorite packages are not persistent or reachable through saved definitions.'
     Assert-True ($vrcGetText -match '\$tokens = @\(') 'Single-word package searches still expose a StrictMode Count failure.'
     if ($PSVersionTable.PSVersion.Major -ge 7 -and (Initialize-VrcSetupSpectre -ScriptDir $scriptDir)) {
         $workspaceRenderable = New-VrcSetupPackageWorkspaceRenderable -Items $workspaceItems -SelectedIndex 0 -PendingCount 3

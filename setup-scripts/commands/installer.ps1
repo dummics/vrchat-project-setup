@@ -13,6 +13,9 @@ $scriptDir = [System.IO.Directory]::GetParent($PSScriptRoot).FullName
 . "$scriptDir\lib\vrcget.ps1"
 . "$scriptDir\lib\config.ps1"
 . "$scriptDir\lib\project-state.ps1"
+. "$scriptDir\lib\import-platform.ps1"
+. "$scriptDir\lib\package-catalog.ps1"
+. "$scriptDir\lib\presets.ps1"
 
 function Write-VrcSetupLog {
     param(
@@ -306,7 +309,8 @@ function Ensure-VpmPackagesPresentAfterImport {
         [string]$ProjectPath,
         $Packages,
         [switch]$Test,
-        [string]$PhaseLabel = "after import"
+        [string]$PhaseLabel = "after import",
+        [ref]$Changed
     )
 
     if ($Test) { return $script:VrcSetupStatusSuccess }
@@ -328,6 +332,7 @@ function Ensure-VpmPackagesPresentAfterImport {
     }
 
     Write-Host ("Configured VPM packages need repair {0}." -f $PhaseLabel) -ForegroundColor Yellow
+    if ($Changed) { $Changed.Value = $true }
     Write-Host $validation.Message -ForegroundColor Yellow
     Write-VrcSetupLog -Message ("WARN: VPM manifest validation failed {0}: {1}" -f $PhaseLabel, $validation.Message)
 
@@ -686,7 +691,10 @@ function Start-Installer {
         [switch]$ImportExtras,
         [string]$ExcludeUnityPackagePath,
         $PackagesOverride,
-        [switch]$SyncPackages
+        [switch]$SyncPackages,
+        [ValidateSet('StandaloneWindows64','Android','iOS')][string]$BuildTarget,
+        [ValidateSet('StandaloneWindows64','Android','iOS')][string[]]$PublishingPlatforms,
+        [string]$PresetName = 'My default packages'
     )
 
     # prepare environment
@@ -743,6 +751,18 @@ function Start-Installer {
         return $script:VrcSetupStatusFailure
     }
     $VPM_PACKAGES = Add-RequiredPackagesToSet -Packages $VPM_PACKAGES -Config $config
+
+    if ($projectPath -like '*.unitypackage') {
+        if (-not $BuildTarget) { $BuildTarget = Get-VrcSetupSuggestedBuildTarget -PackagePath $projectPath }
+        if (-not $PublishingPlatforms) { $PublishingPlatforms = @($BuildTarget) }
+        foreach ($target in @($BuildTarget) + $PublishingPlatforms | Select-Object -Unique) {
+            if (-not (Test-VrcSetupBuildTargetSupport -EditorPath $UNITY_EDITOR_PATH -BuildTarget $target)) {
+                Write-Host "Unity build support is missing for ${target}. Install it in Unity Hub before importing." -ForegroundColor Red
+                return $script:VrcSetupStatusFailure
+            }
+        }
+    }
+    $unityBuildArgs = if ($BuildTarget) { @('-buildTarget',$BuildTarget) } else { @() }
 
     # Sticky overall progress (shows immediately; logs scroll below)
     $overallProgressEnabled = $true
@@ -817,7 +837,7 @@ function Start-Installer {
             $log = Join-Path $env:TEMP ("unity-import-extra{0:00}-{1}.log" -f $idx, (Get-Date -Format 'yyyyMMdd-HHmmss'))
             $args = @(
                 "-projectPath", "`"${ProjectPath}`"",
-                "-buildTarget", "StandaloneWindows64",
+                $unityBuildArgs
                 "-importPackage", "`"${pkg}`"",
                 "-quit",
                 "-batchmode",
@@ -895,7 +915,7 @@ function Start-Installer {
             }
 
             $createLogFile = Join-Path $env:TEMP "unity-create-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
-            $createArgs = "-createProject `"${newProjectPath}`" -buildTarget StandaloneWindows64 -quit -batchmode -logFile `"${createLogFile}`""
+            $createArgs = "-createProject `"${newProjectPath}`" -buildTarget ${BuildTarget} -quit -batchmode -logFile `"${createLogFile}`""
             $createProcess = Start-Process -FilePath $UNITY_EDITOR_PATH -ArgumentList $createArgs -NoNewWindow -PassThru
             if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Creating Unity project..." } catch { } }
             $createRes = Show-ProcessProgress -Process $createProcess -LogFile $createLogFile -Prefix "[Unity]" -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
@@ -970,13 +990,22 @@ function Start-Installer {
 
             Write-Host ("Importing UnityPackage(s)... (main=1, extra={0})" -f $extraPackages.Count) -ForegroundColor Cyan
 
-            # Main package first
+            # Install the helper before startup so it compiles alongside the VPM packages.
+            $editorDir = Join-Path $newProjectPath 'Assets\Editor'
+            [void][IO.Directory]::CreateDirectory($editorDir)
+            Copy-Item -LiteralPath (Join-Path $scriptDir 'lib\unity\VrcSetupPostImport.cs') -Destination (Join-Path $editorDir 'VrcSetupPostImport.cs') -Force
+            $stateDir = Get-VrcSetupStateDir -ProjectPath $newProjectPath
+            [void][IO.Directory]::CreateDirectory($stateDir)
+            $importPlanPath = Join-Path $stateDir 'import-plan.json'
+            [IO.File]::WriteAllText($importPlanPath, (@{ packages = @($packagesToImport) } | ConvertTo-Json -Depth 4))
+            [IO.File]::WriteAllText((Join-Path $stateDir 'platforms.json'), (@{ targets = @($PublishingPlatforms); pending = $true } | ConvertTo-Json -Depth 4))
+            # One editor session imports each package in order and waits through script reloads.
             $importLogFile = Join-Path $env:TEMP "unity-import-main-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
             $importArgs = @(
                 "-projectPath", "`"${newProjectPath}`"",
-                "-buildTarget", "StandaloneWindows64",
-                "-importPackage", "`"$($packagesToImport[0])`"",
-                "-quit",
+                "-buildTarget", $BuildTarget,
+                "-executeMethod", 'VrcSetupPostImport.RunImport',
+                '-vrcsetupImportPlan', "`"${importPlanPath}`"",
                 "-batchmode",
                 "-logFile", "`"${importLogFile}`""
             )
@@ -987,72 +1016,34 @@ function Start-Installer {
             if (-not $importRes -or $importRes.ExitCode -ne 0) { Write-Host "Import failed. Unity log: ${importLogFile}" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
             try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'importMain' -Done $true } catch { }
 
-            # Extra packages (if any) AFTER main
-            $idx = 0
-            foreach ($pkg in $extraPackages) {
-                $idx++
-                $extraLog = Join-Path $env:TEMP ("unity-import-extra{0:00}-{1}.log" -f $idx, (Get-Date -Format 'yyyyMMdd-HHmmss'))
-                $extraArgs = @(
-                    "-projectPath", "`"${newProjectPath}`"",
-                    "-buildTarget", "StandaloneWindows64",
-                    "-importPackage", "`"${pkg}`"",
-                    "-quit",
-                    "-batchmode",
-                    "-logFile", "`"${extraLog}`""
-                )
-                $p = Start-Process -FilePath $UNITY_EDITOR_PATH -ArgumentList $extraArgs -NoNewWindow -PassThru
-                if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status ("Importing UnityPackage (extra {0}/{1})..." -f $idx, $extraPackages.Count) } catch { } }
-                $extraRes = Show-ProcessProgress -Process $p -LogFile $extraLog -Prefix ("[Import:extra {0}/{1}]" -f $idx, $extraPackages.Count) -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
-                if ($extraRes -and $extraRes.Cancelled) { return $script:VrcSetupStatusCancelled }
-                if (-not $extraRes -or $extraRes.ExitCode -ne 0) { Write-Host "Import failed. Unity log: ${extraLog}" -ForegroundColor Red; return $script:VrcSetupStatusFailure }
-            }
-
             try {
                 # If there are no extras, consider this step done.
                 Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'importExtras' -Done $true
             } catch { }
 
-            # 4) Post-import settle pass (bounded) to let Unity finish asset pipeline work.
-            # This helps avoid a full re-import/crunch pass when opening the GUI right after.
-            try {
-                $editorDir = Join-Path $newProjectPath "Assets\\Editor"
-                if (-not (Test-Path -LiteralPath $editorDir)) { New-Item -Path $editorDir -ItemType Directory -Force | Out-Null }
-
-                $postImportScriptPath = Join-Path $editorDir "VrcSetupPostImport.cs"
-                $helperSource = Join-Path $scriptDir 'lib\unity\VrcSetupPostImport.cs'
-                Copy-Item -LiteralPath $helperSource -Destination $postImportScriptPath -Force
-
-                $settleLogFile = Join-Path $env:TEMP "unity-postimport-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
-                $settleArgs = @(
-                    "-projectPath", "`"${newProjectPath}`"",
-                    "-buildTarget", "StandaloneWindows64",
-                    "-executeMethod", "VrcSetupPostImport.Run",
-                    "-batchmode",
-                    "-logFile", "`"${settleLogFile}`""
-                )
-
-                Write-Host "Finalizing import (post-import settle)..." -ForegroundColor Cyan
-                $settleProcess = Start-Process -FilePath $UNITY_EDITOR_PATH -ArgumentList $settleArgs -NoNewWindow -PassThru
-                if ($overallProgressEnabled) { try { Write-Progress -Id 1 -Activity $overallProgressActivity -Status "Finalizing (settle/flush)..." } catch { } }
-                $settleRes = Show-ProcessProgress -Process $settleProcess -LogFile $settleLogFile -Prefix "[Finalize]" -AllowCancel -OnCancel $onCancelDeleteProject -CancelPrompt "Cancel and delete the created project folder? (y/N)" -ProgressId 2 -ParentProgressId 1
-                if ($settleRes -and $settleRes.Cancelled) { return $script:VrcSetupStatusCancelled }
-                if (-not $settleRes -or $settleRes.ExitCode -ne 0) {
-                    Write-Host "Finalization failed. Review Unity log: ${settleLogFile}" -ForegroundColor Red
-                    Write-VrcSetupLog -Message "ERROR: Finalization failed. Unity log: ${settleLogFile}"
-                    return $script:VrcSetupStatusFailure
-                }
-                try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'finalize' -Done $true } catch { }
-            } catch {
-                Write-Host "Post-import finalize step failed: ${_}" -ForegroundColor Red
-                return $script:VrcSetupStatusFailure
-            }
-
-            $postImportVpmStatus = Ensure-VpmPackagesPresentAfterImport -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test -PhaseLabel "after UnityPackage import"
+            $packagesRepaired = $false
+            $postImportVpmStatus = Ensure-VpmPackagesPresentAfterImport -ProjectPath $newProjectPath -Packages $VPM_PACKAGES -Test:$Test -PhaseLabel "after UnityPackage import" -Changed ([ref]$packagesRepaired)
             if ($postImportVpmStatus -ne $script:VrcSetupStatusSuccess) {
                 try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $false } catch { }
                 return $postImportVpmStatus
             }
             try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'vpm' -Done $true } catch { }
+            if ($packagesRepaired) {
+                # Repair changes on-disk packages: populate Unity's cache before declaring completion.
+                $repairLog = Join-Path $env:TEMP "unity-repair-settle-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+                $repairArgs = @('-projectPath', "`"${newProjectPath}`"", '-buildTarget', $BuildTarget, '-executeMethod', 'VrcSetupPostImport.Run', '-batchmode', '-logFile', "`"${repairLog}`"")
+                $repairProcess = Start-Process -FilePath $UNITY_EDITOR_PATH -ArgumentList $repairArgs -NoNewWindow -PassThru
+                $repairResult = Show-ProcessProgress -Process $repairProcess -LogFile $repairLog -Prefix '[Finalize repaired packages]' -AllowCancel -OnCancel $onCancelDeleteProject -ProgressId 2 -ParentProgressId 1
+                if ($repairResult -and $repairResult.Cancelled) { return $script:VrcSetupStatusCancelled }
+                if (-not $repairResult -or $repairResult.ExitCode -ne 0) { return $script:VrcSetupStatusFailure }
+            }
+            try { Set-VrcSetupProjectStep -ProjectPath $newProjectPath -Step 'finalize' -Done $true } catch { }
+            try {
+                $installed = Get-VpmProjectPackageSet -ProjectPath $newProjectPath -IncludeLockedPackages @(Get-RequiredPackages -Config $config)
+                $definition=if ($PresetName -in @('My default packages','My package set')) { $config.VpmPackages } else { @(Get-VrcSetupPackagePresets $config | Where-Object Name -eq $PresetName | Select-Object -First 1).Value }
+                Save-VrcSetupProjectPackageProfile -ProjectPath $newProjectPath -PresetName $PresetName -Policy $VPM_PACKAGES -Installed $installed -PresetDefinition $definition
+                Save-VrcSetupKnownPackages -Selections @(Get-VrcSetupKnownPackages -Config $config -PackageSets @($installed) -ScriptDir $scriptDir) -ScriptDir $scriptDir
+            } catch { Write-Warning "Could not save project package profile: $_" }
 
             # Mark completed only if steps are all done (avoids false positives).
             try { Complete-VrcSetupProjectState -ProjectPath $newProjectPath } catch { }

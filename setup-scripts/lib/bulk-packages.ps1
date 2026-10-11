@@ -6,6 +6,7 @@ function Add-VrcSetupPackageSelections {
         $version = if ($selection.SelectedVersion) { [string]$selection.SelectedVersion } else { 'latest' }
         $result = Set-VrcSetupPackageVersion -Packages $result -PackageName ([string]$selection.Id) -Version $version
     }
+    if (Get-Command Save-VrcSetupKnownPackages -ErrorAction SilentlyContinue) { try { Save-VrcSetupKnownPackages -Selections $Selections -ScriptDir $scriptDir } catch { Write-Warning "Could not save local package definitions: $_" } }
     return $result
 }
 
@@ -35,7 +36,8 @@ function Get-VrcSetupBulkPlan {
                 if ($PackageTargets.ContainsKey($property.Name) -and $path -notin @($PackageTargets[$property.Name])) { $scoped.PSObject.Properties.Remove($property.Name) }
             }
         }
-        $desired = Get-VrcSetupBulkDesiredPackages -Current $current -Packages $scoped -Remove $Remove -Replace:$Replace -Config $Config
+        $scopedRemove = @($Remove | Where-Object { -not $PackageTargets.ContainsKey($_) -or $path -in @($PackageTargets[$_]) })
+        $desired = Get-VrcSetupBulkDesiredPackages -Current $current -Packages $scoped -Remove $scopedRemove -Replace:$Replace -Config $Config
         $desired = Resolve-VrcSetupSdkPackageSet -Packages $desired -ScriptDir $ScriptDir
         $diff = Compare-VpmPackageSets -CurrentPackages $current -DesiredPackages $desired
         [pscustomobject]@{ Path=$path; Current=$current; Desired=$desired; Diff=$diff; ReadNames=@(Get-RequiredPackages -Config $Config) }
@@ -66,13 +68,19 @@ function Invoke-VrcSetupBulkPlan {
             $changed = Compare-VpmPackageSets -CurrentPackages $entry.Current -DesiredPackages $fresh
             if (@($changed.Added).Count + @($changed.Updated).Count + @($changed.Removed).Count -gt 0) { throw 'Packages changed after review; skipped. Review again.' }
             $diff = $entry.Diff
-            if (@($diff.Added).Count + @($diff.Updated).Count + @($diff.Removed).Count -eq 0) { $status='Unchanged' }
+            if (@($diff.Added).Count + @($diff.Updated).Count + @($diff.Removed).Count -eq 0 -and -not $entry.ImportExtras) { $status='Unchanged' }
             else {
-                $code = Start-Installer -projectPath $entry.Path -PackagesOverride $entry.Desired -SyncPackages
+                $parameters = @{projectPath=$entry.Path;PackagesOverride=$entry.Desired;SyncPackages=$true}
+                if ($entry.ImportExtras) { $parameters.ImportExtras=$true }
+                $code = Start-Installer @parameters
                 $projectLog = [string]$global:VRCSETUP_LOGFILE
                 if ([int]$code -in @(2,130)) { $results += [pscustomobject]@{Project=$name;Path=$entry.Path;Status='Cancelled';Message='Operation interrupted';LogFile=[string]$global:VRCSETUP_LOGFILE}; break }
                 if ([int]$code -ne 0) { throw "Package update failed (status $code)." }
                 $status='Saved'
+            }
+            if ($entry.PresetName) {
+                try { $installed=Get-VpmProjectPackageSet -ProjectPath $entry.Path -IncludeLockedPackages $entry.ReadNames; Save-VrcSetupProjectPackageProfile -ProjectPath $entry.Path -PresetName $entry.PresetName -Policy $entry.Desired -Installed $installed -PresetDefinition $entry.PresetDefinition }
+                catch { Write-Warning "Packages saved, but profile metadata could not be written: $_" }
             }
             $results += [pscustomobject]@{Project=$name;Path=$entry.Path;Status=$status;Message='';LogFile=$projectLog}
         } catch {
@@ -94,68 +102,120 @@ function Write-VrcSetupBulkReport {
 }
 
 function Invoke-VrcSetupBulkPackageEditor {
-    param([string[]]$ProjectPaths, $Config, [string]$ConfigPath, [string]$ScriptDir)
+    param([string[]]$ProjectPaths, $Config, [string]$ConfigPath, [string]$ScriptDir, $ExtrasInfo)
     $packages=[pscustomobject]@{}; $remove=@(); $replace=$false; $targets=@{}
+    $snapshots = @()
+    try {
+        [void](Write-VrcSetupSpectreFrame -Title 'Project packages' -Header 'Reading selected project packages...' -ScriptDir $ScriptDir)
+        $snapshots = @($ProjectPaths | ForEach-Object { [pscustomobject]@{Path=$_;Packages=(Get-VpmProjectPackageSet -ProjectPath $_ -IncludeLockedPackages @(Get-RequiredPackages -Config $Config))} })
+    } catch { Show-WizardError -Title 'Cannot read projects' -Message $_.Exception.Message; return }
+    $profiles = @($snapshots | ForEach-Object { Get-VrcSetupProjectPackageProfile -ProjectPath $_.Path -Current $_.Packages -Config $Config })
+    Save-VrcSetupKnownPackages -Selections @(Get-VrcSetupKnownPackages -Config $Config -PackageSets @($snapshots.Packages) -ScriptDir $ScriptDir) -ScriptDir $ScriptDir
+    $profileNames = @($profiles.Preset | Select-Object -Unique)
+    $presetName = if ($profileNames.Count -eq 1) { $profileNames[0] } else { 'Different presets' }
+    if (@($profiles | Where-Object Modified).Count) { $presetName += ' (changed outside VrcSetup)' }
+    if (@($profiles | Where-Object PresetChanged).Count) { $presetName += ' (preset updated)' }
+    $originalPresetName = $presetName
+    $index = 0; $includeExtras = $false
     while ($true) {
-        $properties=@($packages.PSObject.Properties)
-        $options=@($properties | ForEach-Object { "$(Get-VrcSetupFriendlyPackageName -PackageName $_.Name)  ·  $($_.Value)$(if ($targets.ContainsKey($_.Name)) { "  ·  $(@($targets[$_.Name]).Count)/$($ProjectPaths.Count) projects" })" })
-        $options += @('Add or change packages','Apply a creator preset','Copy packages from a selected project','Remove packages from projects','Review changes','Cancel')
-        $header="$($ProjectPaths.Count) projects  ·  $(if ($replace) { 'Match selected package set; other packages will be removed' } else { 'Keep other packages' })"
-        if ($remove.Count) { $header += "`nRemove: $($remove -join ', ')" }
-        $choice=Show-Menu -Title 'Edit project packages' -Header $header -Options $options -SectionBreaks @($properties.Count)
-        if ($choice -lt 0 -or $options[$choice] -eq 'Cancel') { return }
-        if ($choice -lt $properties.Count) {
-            $property=$properties[$choice]
-            $action=Show-Menu -Title (Get-VrcSetupFriendlyPackageName -PackageName $property.Name) -Options @('Choose version','Choose projects for this package','Undo this change','Back')
-            if ($action -eq 0) {
-                $version=Select-VpmVersion -PackageName $property.Name -CurrentVersion $property.Value
-                if ($version) { $packages=Set-VrcSetupPackageVersion -Packages $packages -PackageName $property.Name -Version $version }
-            } elseif ($action -eq 1) {
-                if ($replace) { Show-WizardError -Title 'Matching the full set' -Message 'Individual project selection is available when keeping other packages.'; continue }
-                $projectItems=@($ProjectPaths | ForEach-Object { [pscustomobject]@{Path=$_;Name=(Split-Path -Leaf $_)} })
-                $chosen=@(Show-ChecklistPaged -Title 'Apply this package to' -Items $projectItems -DefaultSelected:$true -ToLabel { param($p,$i) $p.Name })
-                if ($chosen.Count) {
-                    $linked = if (Test-IsVrcSetupSdkPackage -PackageName $property.Name) { @(Get-VrcSetupSdkPackageNames) } else { @($property.Name) }
-                    foreach ($id in $linked) { $targets[$id]=@($chosen.Path) }
+        $known = @(Get-VrcSetupKnownPackages -Config $Config -PackageSets @($snapshots.Packages) -ScriptDir $ScriptDir)
+        $items = @(Get-VrcSetupBulkWorkspaceItems -Snapshots $snapshots -Packages $packages -Remove $remove -Replace:$replace -Known $known -Config $Config -PackageTargets $targets | Sort-Object @{Expression={ if ($_.Required) { 0 } else { 1 } }}, FriendlyName)
+        $pending = @($items | Where-Object { $_.Status -in @('Add','Update','Remove') }).Count
+        $header = "$(if ($ProjectPaths.Count -eq 1) { Split-Path -Leaf $ProjectPaths[0] } else { "$($ProjectPaths.Count) selected projects" })`nPreset: $presetName$(if ($replace) { ' | Match package set' } else { ' | Keep other packages' })"
+        $selected = Show-VrcSetupSpectrePackageWorkspace -Items $items -ProjectName $header -PendingCount $pending -InitialSelectedIndex $index -IncludeExtras:$includeExtras -ExtrasCount $(if ($ExtrasInfo) { $ExtrasInfo.ExtrasCount } else { 0 }) -ScriptDir $ScriptDir
+        if ($null -eq $selected) {
+            $labels = @($items | ForEach-Object { "$(if ($_.DesiredVersion) { '[x]' } else { '[ ]' }) $($_.FriendlyName) | $($_.DesiredVersion) | $($_.Presence)" }) + @('Apply changes','Add package','Change preset','Copy project','Options','Back')
+            $choice = Show-Menu -Title 'Project packages' -Header $header -Options $labels
+            if ($choice -lt 0 -or $choice -eq $labels.Count-1) { return }
+            if ($choice -lt $items.Count) {
+                $rowAction=Show-Menu -Title $items[$choice].FriendlyName -Options @('Choose version','Include or remove','Back')
+                if ($rowAction -lt 0 -or $rowAction -eq 2) { continue }
+                $selected=[pscustomobject]@{Action=$(if ($rowAction -eq 0) { 'version' } else { 'toggle' });PackageName=$items[$choice].Name;SelectedIndex=$choice}
+            } else { $selected=[pscustomobject]@{Action=@('save','add','presets','copy','options')[$choice-$items.Count];SelectedIndex=$choice} }
+        }
+        $index = $selected.SelectedIndex
+        if ($selected.Action -eq 'back') { return }
+        foreach ($change in @($selected.VersionChanges.PSObject.Properties)) { $packages=Set-VrcSetupPackageVersion -Packages $packages -PackageName $change.Name -Version $change.Value; $remove=@($remove | Where-Object { $_ -ne $change.Name }) }
+        if ($selected.Action -in @('toggle','version')) {
+            $item = $items | Where-Object Name -eq $selected.PackageName | Select-Object -First 1
+            if (-not $item) { continue }
+            if ($selected.Action -eq 'toggle') {
+                if ($item.Required) { continue }
+                if ($item.DesiredVersion -and $item.Status -ne 'Mixed') {
+                    $packages.PSObject.Properties.Remove($item.Name)
+                    if ($item.CurrentVersion) { $remove=@(@($remove)+@($item.Name) | Select-Object -Unique) }
+                } else {
+                    $version = if ($item.CurrentVersion -and $item.CurrentVersion -ne 'Mixed') { $item.CurrentVersion } else { $item.SuggestedVersion }
+                    $packages=Set-VrcSetupPackageVersion -Packages $packages -PackageName $item.Name -Version $version
+                    $remove=@($remove | Where-Object { $_ -ne $item.Name })
                 }
-            } elseif ($action -eq 2) { $packages.PSObject.Properties.Remove($property.Name); $targets.Remove($property.Name) }
+            } else {
+                $version=Select-VpmVersion -PackageName $item.Name -CurrentVersion $(if ($item.DesiredVersion -and $item.DesiredVersion -ne 'Mixed') { $item.DesiredVersion } else { $item.SuggestedVersion })
+                if ($version) { $packages=Set-VrcSetupPackageVersion -Packages $packages -PackageName $item.Name -Version $version; $remove=@($remove | Where-Object { $_ -ne $item.Name }) }
+            }
             continue
         }
-        switch ($options[$choice]) {
-            'Add or change packages' {
-                $selections=@(Find-VrcSetupPackages -WithVersions)
+        $command = switch ($selected.Action) { 'save' { 'Apply changes' } 'add' { 'Add package' } 'presets' { 'Change preset' } 'copy' { 'Copy project' } 'options' { 'Options' } }
+        switch ($command) {
+            'Add package' {
+                $selections=@(Find-VrcSetupPackages -KnownPackages $known -WithVersions)
                 $packages=Add-VrcSetupPackageSelections -Packages $packages -Selections $selections
                 $remove=@($remove | Where-Object { $_ -notin @($selections.Id) })
             }
-            'Apply a creator preset' {
-                $presets=@(Get-VrcSetupPackagePresets -Config $Config)
-                if (-not $presets.Count) { Show-WizardError -Title 'No presets yet' -Message 'Create one under Packages and creator presets.'; continue }
+            'Change preset' {
+                $presets=@([pscustomobject]@{Name='My default packages';Value=$Config.VpmPackages})+@(Get-VrcSetupPackagePresets -Config $Config)
                 $pick=Show-Menu -Title 'Choose preset' -Options (@($presets.Name)+@('Back'))
                 if ($pick -lt 0 -or $pick -ge $presets.Count) { continue }
-                $mode=Show-Menu -Title 'Apply preset' -Options @('Add or update preset packages; keep others','Match preset exactly; remove other packages','Back')
+                $mode=Show-Menu -Title 'Use preset' -Options @('Use preset; keep custom packages','Match preset exactly','Back')
                 if ($mode -lt 0 -or $mode -eq 2) { continue }
-                $preset=Resolve-VrcSetupPackagePreset -Config $Config -Name $presets[$pick].Name
-                if ($mode -eq 1) { $packages=$preset; $replace=$true; $remove=@(); $targets.Clear() }
-                else { $replace=$false; foreach ($p in $preset.PSObject.Properties) { $packages=Set-VrcSetupPackageVersion -Packages $packages -PackageName $p.Name -Version $p.Value; $targets.Remove($p.Name) }; $remove=@($remove | Where-Object { $_ -notin @($preset.PSObject.Properties.Name) }) }
+                $preset=Add-RequiredPackagesToSet -Packages (Copy-VpmPackageSet $presets[$pick].Value) -Config $Config
+                $packages=$preset; $replace=($mode -eq 1); $remove=@(); $targets.Clear(); $presetName=$presets[$pick].Name; $index=0
             }
-            'Copy packages from a selected project' {
-                $pick=Show-Menu -Title 'Use packages from' -Options (@($ProjectPaths | ForEach-Object { Split-Path -Leaf $_ })+@('Back'))
-                if ($pick -lt 0 -or $pick -ge $ProjectPaths.Count) { continue }
-                try { $packages=Get-VpmProjectPackageSet -ProjectPath $ProjectPaths[$pick] -IncludeLockedPackages @(Get-RequiredPackages -Config $Config); $replace=$true; $remove=@(); $targets.Clear() }
-                catch { Show-WizardError -Title 'Cannot read packages' -Message $_.Exception.Message }
-            }
-            'Remove packages from projects' {
+            'Copy project' {
                 try {
-                    $ids=@($ProjectPaths | ForEach-Object { (Get-VpmProjectPackageSet -ProjectPath $_).PSObject.Properties.Name } | Select-Object -Unique | Where-Object { -not (Test-IsRequiredPackage -PackageName $_ -Config $Config) })
-                    $items=@($ids | ForEach-Object { [pscustomobject]@{Id=$_;DisplayName=(Get-VrcSetupFriendlyPackageName -PackageName $_);LatestVersion='remove';SelectionVerb='Remove'} })
-                    $selected=@(Select-VrcSetupPackageResults -Items $items -Title 'Remove from selected projects')
-                    foreach ($item in $selected) { $remove += $item.Id; $packages.PSObject.Properties.Remove($item.Id) }
-                    $remove=@($remove | Select-Object -Unique)
-                } catch { Show-WizardError -Title 'Cannot read packages' -Message $_.Exception.Message }
+                    [void](Write-VrcSetupSpectreFrame -Title 'Copy packages' -Header 'Loading project library...' -ScriptDir $ScriptDir)
+                    $catalog=Get-VrcSetupProjectCatalog -RootPath $Config.UnityProjectsRoot -CachePath (Join-Path $ScriptDir 'cache\projects.json')
+                    $source=Show-VrcSetupProjectCatalogSpectre -Catalog $catalog -ScriptDir $ScriptDir -State ([pscustomobject]@{Filter='';Index=0;Done=$false;Result=$null;SingleSelection=$true})
+                    if ($null -eq $source) {
+                        $options=@($catalog.Projects | ForEach-Object Name)+@('Back')
+                        $pick=Show-Menu -Title 'Copy packages from' -Options $options
+                        if ($pick -lt 0 -or $pick -ge $catalog.Projects.Count) { continue }
+                        $path=$catalog.Projects[$pick].Path
+                    } elseif ($source.Action -eq 'project') { $path=$source.ProjectPath } else { continue }
+                    [void](Write-VrcSetupSpectreFrame -Title 'Copy packages' -Header 'Reading source project packages...' -ScriptDir $ScriptDir)
+                    $copied=Get-VpmProjectPackageSet -ProjectPath $path -IncludeLockedPackages @(Get-RequiredPackages -Config $Config)
+                    Save-VrcSetupKnownPackages -Selections @(Get-VrcSetupKnownPackages -Config $Config -PackageSets @($copied) -ScriptDir $ScriptDir) -ScriptDir $ScriptDir
+                    $sourceProfile=Get-VrcSetupProjectPackageProfile -ProjectPath $path -Current $copied -Config $Config
+                    if ($sourceProfile.Preset -ne 'Custom packages') {
+                        $sourceMode=Show-Menu -Title 'Source package selection' -Header ("Preset: " + $sourceProfile.Preset + $(if ($sourceProfile.Modified) { ' (project changed)' })) -Options @('Copy installed packages','Use saved preset selection','Back')
+                        if ($sourceMode -lt 0 -or $sourceMode -eq 2) { continue }
+                        if ($sourceMode -eq 1) { $copied=Copy-VpmPackageSet $sourceProfile.Policy }
+                    }
+                    $mode=Show-Menu -Title 'Use source packages' -Header (Split-Path -Leaf $path) -Options @('Copy packages; keep others','Match source exactly','Back')
+                    if ($mode -lt 0 -or $mode -eq 2) { continue }
+                    $packages=$copied; $replace=($mode -eq 1); $remove=@(); $targets.Clear(); $presetName='From '+(Split-Path -Leaf $path)
+                } catch { Show-WizardError -Title 'Cannot read source project' -Message $_.Exception.Message }
             }
-            'Review changes' {
+            'Options' {
+                $option=Show-Menu -Title 'Package options' -Options @('Choose projects for highlighted package','Additional imports','Undo all changes','Back')
+                if ($option -eq 0 -and $index -lt $items.Count) {
+                    if ($replace) { Show-WizardError -Title 'Matching full set' -Message 'Use keep custom packages to choose individual project groups.'; continue }
+                    $item=$items[$index]
+                    $projectItems=@($ProjectPaths | ForEach-Object { [pscustomobject]@{Path=$_;Name=(Split-Path -Leaf $_)} })
+                    $chosen=@(Show-ChecklistPaged -Title 'Apply this package to' -Items $projectItems -DefaultSelected:$true -ToLabel { param($p,$i) $p.Name })
+                    if ($chosen.Count) {
+                        $version=if ($item.DesiredVersion -and $item.DesiredVersion -ne 'Mixed') { $item.DesiredVersion } else { $item.SuggestedVersion }
+                        if ($remove -notcontains $item.Name) { $packages=Set-VrcSetupPackageVersion -Packages $packages -PackageName $item.Name -Version $version }
+                        foreach ($id in $(if (Test-IsVrcSetupSdkPackage $item.Name) { @(Get-VrcSetupSdkPackageNames) } else { @($item.Name) })) { $targets[$id]=@($chosen.Path) }
+                    }
+                } elseif ($option -eq 1 -and $ExtrasInfo -and $ExtrasInfo.ExtrasCount -gt 0) { $includeExtras=-not $includeExtras }
+                elseif ($option -eq 2) { $packages=[pscustomobject]@{}; $remove=@(); $replace=$false; $targets.Clear(); $includeExtras=$false; $presetName=$originalPresetName }
+            }
+            'Apply changes' {
                 try { $plan=@(Get-VrcSetupBulkPlan -ProjectPaths $ProjectPaths -Packages $packages -Remove $remove -Replace:$replace -Config $Config -ScriptDir $ScriptDir -PackageTargets $targets) }
                 catch { Show-WizardError -Title 'Cannot prepare changes' -Message $_.Exception.Message; continue }
+                $definition=if ($presetName -in @('My default packages','My package set')) { $Config.VpmPackages } else { @(Get-VrcSetupPackagePresets $Config | Where-Object Name -eq $presetName | Select-Object -First 1).Value }
+                foreach ($entry in $plan) { $entry | Add-Member -NotePropertyName PresetName -NotePropertyValue $presetName -Force; $entry | Add-Member -NotePropertyName PresetDefinition -NotePropertyValue $definition -Force; $entry | Add-Member -NotePropertyName ImportExtras -NotePropertyValue $includeExtras -Force }
                 $lines=@($plan | ForEach-Object { "$(Split-Path -Leaf $_.Path): +$(@($_.Diff.Added).Count) add, $(@($_.Diff.Updated).Count) update, -$(@($_.Diff.Removed).Count) remove" })
                 $visibleCount=[Math]::Max(2,[Math]::Min(6,(Get-VrcSetupViewport).Height - 20))
                 $summary=@($lines | Select-Object -First $visibleCount)
@@ -198,6 +258,14 @@ function Invoke-VrcSetupBulkPackageEditor {
                     $results=@(Invoke-VrcSetupBulkPlan -Plan $plan)
                     $reportPath=Write-VrcSetupBulkReport -Results $results -ProjectPaths $ProjectPaths -ScriptDir $ScriptDir
                     [void](Show-Menu -Title 'Project updates finished' -Header (($results | ForEach-Object { "$($_.Project): $($_.Status) $($_.Message)" }) -join "`n") -Options @('Done — Back to projects'))
+                    $operationStatus=if (@($results | Where-Object { $_.Status -notin @('Saved','Unchanged') }).Count) { 1 } else { 0 }
+                } else { $operationStatus=[int]$outcome.Status }
+                if ($operationStatus -eq 1) {
+                    $recovery=Show-Menu -Title 'Some changes were not applied' -Options @('Continue editing or retry','Back to projects')
+                    if ($recovery -eq 0) {
+                        try { $snapshots=@($ProjectPaths | ForEach-Object { [pscustomobject]@{Path=$_;Packages=(Get-VpmProjectPackageSet -ProjectPath $_ -IncludeLockedPackages @(Get-RequiredPackages -Config $Config))} }); continue }
+                        catch { Show-WizardError -Title 'Cannot reread projects' -Message $_.Exception.Message }
+                    }
                 }
                 return
             }

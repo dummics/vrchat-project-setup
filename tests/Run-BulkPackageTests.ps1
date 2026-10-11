@@ -68,17 +68,21 @@ try {
     function Test-VpmPackageExists { return $true }
     function Write-VrcSetupSpectreFrame { return $false }
     function Select-VrcSetupPackageResults { param($Items,$Title,[switch]$AllowVersionSelection); Assert-Bulk $AllowVersionSelection 'Version choice unavailable for exact ID.'; $Items[0] | Add-Member -NotePropertyName SelectedVersion -NotePropertyValue '2.3.4' -Force; return $Items[0] }
-    $found=@(Find-VrcSetupPackages -WithVersions)
+    $found=@(Find-VrcSetupPackages -WithVersions -SkipLocal)
     Assert-Bulk ($found[0].SelectedVersion -eq '2.3.4') 'Exact ID path stripped the selected version.'
     Assert-Bulk ((@(Find-VrcSetupPackages))[0] -eq 'com.example.tool') 'Favorites ID contract regressed.'
     Save-VrcSetupPackagePreset -Config $config -Name 'Creator' -Packages ([pscustomobject]@{'com.example.tool'='2.3.4'})
     $script:editorEntered=$false; $script:applied=$null
+    function Show-VrcSetupSpectrePackageWorkspace {
+        param($Items,$ProjectName,$PendingCount,$InitialSelectedIndex,$IncludeExtras,$ExtrasCount,$ScriptDir)
+        $action = if (-not $script:editorEntered) { $script:editorEntered=$true; 'presets' } else { 'save' }
+        return [pscustomobject]@{Action=$action;SelectedIndex=0;VersionChanges=[pscustomobject]@{}}
+    }
     function Show-Menu {
         param($Title,$Options,$Header,$SectionBreaks)
         switch ($Title) {
-            'Edit project packages' { if (-not $script:editorEntered) { $script:editorEntered=$true; return [array]::IndexOf($Options,'Apply a creator preset') }; return [array]::IndexOf($Options,'Review changes') }
-            'Choose preset' { return 0 }
-            'Apply preset' { return 1 }
+            'Choose preset' { return 1 }
+            'Use preset' { return 1 }
             'Review project changes' { return 0 }
             'Project updates finished' { return 0 }
             default { throw "Unexpected screen: $Title" }

@@ -40,13 +40,14 @@ function Resolve-VrcSetupPackagePreset {
 function Invoke-VrcSetupPackageHome {
     param([string]$ConfigPath, [string]$ScriptDir)
     while ($true) {
-        $choice = Show-Menu -Title 'Packages and presets' -SectionBreaks @(1,3) -Options @('My default packages','Creator presets','Favorite packages','Back')
-        if ($choice -lt 0 -or $choice -eq 3) { return }
+        $choice = Show-Menu -Title 'Packages and presets' -SectionBreaks @(1,4) -Options @('My default packages','Creator presets','Favorite packages','Saved package registry','Back')
+        if ($choice -lt 0 -or $choice -eq 4) { return }
         $config = Load-Config -ConfigPath $ConfigPath
         switch ($choice) {
             0 { Edit-VpmPackages -ConfigPath $ConfigPath -ScriptDir $ScriptDir }
             1 { Invoke-VrcSetupPresetMenu -Config $config -ConfigPath $ConfigPath -Packages $config.VpmPackages -ManageOnly -ScriptDir $ScriptDir | Out-Null }
             2 { Manage-VrcSetupFavoritePackages -Config $config -ConfigPath $ConfigPath }
+            3 { Invoke-VrcSetupPackageCatalog -ConfigPath $ConfigPath -ScriptDir $ScriptDir }
         }
     }
 }

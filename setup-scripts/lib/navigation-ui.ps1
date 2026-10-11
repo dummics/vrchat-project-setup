@@ -11,6 +11,7 @@ function Get-VrcSetupViewport {
 function Get-VrcSetupMenuActionWeight {
     param([string]$Label)
     if ($Label -match '^(Back|Cancel|Exit)$') { return 'Footer' }
+    if ($Label -match '^(Edit project name|Replace UnityPackage file|Build and publish platforms)') { return 'Detail' }
     if ($Label -match '^(Start importing|Import avatar or asset|Save preset|Save \d|Save changes|Apply changes|Apply to selected projects|Review changes|Confirm)') { return 'Primary' }
     if ($Label -match '^(Change |Choose another |Reset |Delete |Clean up )') { return 'Utility' }
     return 'Secondary'
@@ -25,7 +26,7 @@ function New-VrcSetupNavigationMenuRenderable {
     if (-not $isPackageList -and $Options.Count -le $MaxVisible) {
         $estimatedHeight = 4 + @($SectionBreaks | Sort-Object -Unique).Count
         foreach ($option in $Options) {
-            $estimatedHeight += switch (Get-VrcSetupMenuActionWeight $option) { 'Primary' { 5 } 'Secondary' { 3 } default { 2 } }
+            $estimatedHeight += switch (Get-VrcSetupMenuActionWeight $option) { 'Primary' { 5 } 'Secondary' { 3 } 'Detail' { 3 } default { 2 } }
         }
         if ($estimatedHeight -le $viewport.Height) { $pageSize = $Options.Count }
     }
@@ -49,7 +50,8 @@ function New-VrcSetupNavigationMenuRenderable {
         if ($Options[$i] -eq 'Settings') { $color = '#F2A0A8'; $focusColor = $color }
         $style = if ($i -eq $Current) { "bold black on ${focusColor}" } elseif ($weight -eq 'Primary') { 'bold #67E8A5' } else { $color }
         if ($weight -eq 'Primary') { $label = $label.ToUpperInvariant() }
-        $panelWidth = [Math]::Min($(if ($weight -eq 'Primary') { 88 } else { 72 }),$viewport.Width - 4)
+        if ($weight -eq 'Detail') { $color = '#F6C451'; $style = if ($i -eq $Current) { 'bold black on #F6C451' } else { $color } }
+        $panelWidth = [Math]::Min($(if ($weight -eq 'Primary') { 88 } elseif ($weight -eq 'Detail') { 58 } else { 72 }),$viewport.Width - 4)
         if ($Options[$i] -eq 'Settings') { $rows += [Spectre.Console.Text]::new(' ') }
         $content = [Spectre.Console.Markup]::new("[$style]$(if ($i -eq $Current) { '> ' } else { '  ' })${label}[/]")
         if ($isPackage) { $rows += $content }
@@ -65,16 +67,20 @@ function New-VrcSetupNavigationMenuRenderable {
     }
     if ($Options.Count -gt $pageSize) { $rows += [Spectre.Console.Text]::new("$($start + 1)-${end} / $($Options.Count)") }
     $rows += [Spectre.Console.Markup]::new("[#78909F]Up/Down Move  ·  Enter Select$(if ($AllowCancel) { '  ·  Esc Back' })[/]")
+    if ($script:VrcSetupCatalogRefresh) { $rows += [Spectre.Console.Markup]::new("[#78909F]Registry refresh: $($script:VrcSetupCatalogRefresh.Progress.Done)/$($script:VrcSetupCatalogRefresh.Progress.Total)[/]") }
     return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$rows)
 }
 
 function Read-VrcSetupNavigationKey {
     param($Context, [scriptblock]$Render)
     $viewport = Get-VrcSetupViewport
+    $refreshCount = if ($script:VrcSetupCatalogRefresh) { $script:VrcSetupCatalogRefresh.Progress.Done } else { -1 }
     while (-not [Console]::KeyAvailable) {
+        if (Get-Command Complete-VrcSetupPackageCatalogRefresh -ErrorAction SilentlyContinue) { Complete-VrcSetupPackageCatalogRefresh }
+        $nextCount = if ($script:VrcSetupCatalogRefresh) { $script:VrcSetupCatalogRefresh.Progress.Done } else { -1 }
         $next = Get-VrcSetupViewport
-        if ($next.Width -ne $viewport.Width -or $next.Height -ne $viewport.Height) {
-            $Context.UpdateTarget((& $Render)); $Context.Refresh(); $viewport = $next
+        if ($next.Width -ne $viewport.Width -or $next.Height -ne $viewport.Height -or $nextCount -ne $refreshCount) {
+            $Context.UpdateTarget((& $Render)); $Context.Refresh(); $viewport = $next; $refreshCount = $nextCount
         }
         Start-Sleep -Milliseconds 80
     }
@@ -118,7 +124,7 @@ function Update-VrcSetupLibraryKey {
         'End' { $State.Index=$last }
         'F2' { $State.Result=[pscustomobject]@{Action='library';ProjectPath=$null}; $State.Done=$true }
         'Escape' { $State.Done=$true }
-        'Spacebar' { if ($projects.Count -gt 0) { $path=[string]$projects[$State.Index].Path; if ($State.Selected.ContainsKey($path)) { $State.Selected.Remove($path) } else { $State.Selected[$path]=$true } } }
+        'Spacebar' { if (-not $State.SingleSelection -and $projects.Count -gt 0) { $path=[string]$projects[$State.Index].Path; if ($State.Selected.ContainsKey($path)) { $State.Selected.Remove($path) } else { $State.Selected[$path]=$true } } }
         'Enter' {
             $paths = @($Catalog.Projects | Where-Object { $State.Selected.ContainsKey([string]$_.Path) } | ForEach-Object { [string]$_.Path })
             if ($paths.Count -gt 0) { $State.Result=[pscustomobject]@{Action='bulk';ProjectPaths=$paths}; $State.Done=$true }
@@ -203,9 +209,9 @@ function New-VrcSetupProjectLibraryRenderable {
     else {
         $rows += $table
         $count = if ($State.PSObject.Properties['Selected']) { $State.Selected.Count } else { 0 }
-        $rows += New-VrcSetupActionButton -Label $(if ($count) { "Edit packages in $count projects" } else { 'Open project' }) -Color '#75D7F7'
+        $rows += New-VrcSetupActionButton -Label $(if ($State.SingleSelection) { 'Use this project as source' } elseif ($count) { "Edit packages in $count projects" } else { 'Open project' }) -Color '#75D7F7'
     }
-    $rows += [Spectre.Console.Markup]::new('[#78909F]Space Select projects  ·  Up/Down Move  ·  F2 Options  ·  Esc Back[/]')
+    $rows += [Spectre.Console.Markup]::new($(if ($State.SingleSelection) { '[#78909F]Up/Down Move  |  Enter Use source  |  Esc Back[/]' } else { '[#78909F]Space Select projects  ·  Up/Down Move  ·  F2 Options  ·  Esc Back[/]' }))
     return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$rows)
 }
 

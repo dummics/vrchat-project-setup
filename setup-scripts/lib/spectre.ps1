@@ -188,10 +188,13 @@ function New-VrcSetupPackageWorkspaceRenderable {
     $itemsArray = @($Items)
     $windowWidth = [Spectre.Console.AnsiConsole]::Profile.Width
     try { $windowWidth = [Console]::WindowWidth } catch { }
+    if ($windowWidth -le 0) { $windowWidth = [Spectre.Console.AnsiConsole]::Profile.Width }
     $isNarrow = ($windowWidth -lt 100)
-    $packageWidth = if ($isNarrow) { 24 } else { 32 }
-    $versionWidth = if ($isNarrow) { 32 } else { 36 }
-    $outcomeWidth = if ($isNarrow) { 12 } else { 18 }
+    $showPresence = $windowWidth -ge 68 -and $itemsArray.Count -gt 0 -and $null -ne $itemsArray[0].PSObject.Properties['Presence']
+    $versionWidth = if ($windowWidth -lt 68) { 12 } elseif ($isNarrow) { 20 } else { 30 }
+    $outcomeWidth = if ($windowWidth -lt 68) { 10 } elseif ($isNarrow) { 12 } else { 18 }
+    $packageWidth = [Math]::Max(12,[Math]::Min(40,$windowWidth - $versionWidth - $outcomeWidth - $(if ($showPresence) { 21 } else { 10 })))
+    $MaxVisible = [Math]::Max(4,[Math]::Min($MaxVisible,(Get-VrcSetupViewport).Height - 16))
     $table = [Spectre.Console.Table]::new()
     $table.Border = [Spectre.Console.TableBorder]::Rounded
     $table.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
@@ -209,6 +212,7 @@ function New-VrcSetupPackageWorkspaceRenderable {
         $column.NoWrap = $true
         [void]$table.AddColumn($column)
     }
+    if ($showPresence) { $column = [Spectre.Console.TableColumn]::new('[#78909F]Projects[/]'); $column.Width = 8; $column.NoWrap = $true; [void]$table.AddColumn($column) }
 
     $offset = 0
     if ($itemsArray.Count -gt $MaxVisible) {
@@ -228,6 +232,8 @@ function New-VrcSetupPackageWorkspaceRenderable {
             "${installed} -> ${selectedVersion}"
         } elseif ($item.Status -eq 'Add') {
             $selectedVersion
+        } elseif ($item.Status -eq 'Available') {
+            [string]$item.SuggestedVersion
         } else {
             $installed
         }
@@ -236,14 +242,19 @@ function New-VrcSetupPackageWorkspaceRenderable {
             'Update' { $(if ($isNarrow) { 'To update' } else { 'Pending update' }); break }
             'Remove' { $(if ($isNarrow) { 'To remove' } else { 'Pending removal' }); break }
             'Required' { $(if ($isNarrow) { 'Always' } else { 'Always included' }); break }
+            'Available' { 'Saved'; break }
+            'Mixed' { 'Keep varied'; break }
             default { 'Installed' }
         }
-        $packageText = ('{0}{1}' -f $(if ($isSelected) { '> ' } else { '  ' }), [string]$item.FriendlyName)
+        if ($item.Scope -and $item.Status -in @('Add','Update','Remove')) { $stateLabel += ' (' + ($item.Scope -replace ' projects$','') + ')' }
+        $toggle = if ($item.Required) { '[*]' } elseif (-not $item.DesiredVersion) { '[ ]' } elseif ($item.Status -eq 'Mixed') { '[-]' } else { '[x]' }
+        $packageText = ('{0}{1} {2}' -f $(if ($isSelected) { '> ' } else { '  ' }), $toggle, [string]$item.FriendlyName)
         $rawCells = @(
             (Format-VrcSetupPackageCell -Text $packageText -Width $packageWidth),
             (Format-VrcSetupPackageCell -Text $versionLabel -Width $versionWidth),
             (Format-VrcSetupPackageCell -Text $stateLabel -Width $outcomeWidth)
         )
+        if ($showPresence) { $rawCells += Format-VrcSetupPackageCell -Text ([string]$item.Presence) -Width 8 }
         $cells = @()
         for ($cellIndex = 0; $cellIndex -lt $rawCells.Count; $cellIndex++) {
             $safeText = ConvertTo-VrcSetupSpectreText ([string]$rawCells[$cellIndex])
@@ -275,12 +286,12 @@ function New-VrcSetupPackageWorkspaceRenderable {
     $saveSelected = ($SelectedIndex -eq $itemsArray.Count)
     $canSave = ($PendingCount -gt 0 -or $IncludeExtras)
     $saveText = if ($canSave) {
-        if ($PendingCount -eq 1) { 'Save 1 change' } elseif ($PendingCount -gt 1) { "Save ${PendingCount} changes" } else { 'Save changes' }
+        if ($PendingCount -eq 1) { 'Apply 1 change' } elseif ($PendingCount -gt 1) { "Apply ${PendingCount} changes" } else { 'Apply changes' }
     } else {
         'No changes to save'
     }
-    $buttonLabel = "S   ${saveText}"
-    $savePanelWidth = [Math]::Min(90, [Math]::Max(64, $windowWidth - 4))
+    $buttonLabel = "$(if ($saveSelected) { '> ' })${saveText}"
+    $savePanelWidth = [Math]::Min(90, [Math]::Max(30, $windowWidth - 4))
     $buttonWidth = $savePanelWidth - 6
     $buttonLabel = $buttonLabel.PadLeft([Math]::Floor(($buttonWidth + $buttonLabel.Length) / 2)).PadRight($buttonWidth)
     if ($saveSelected -and $canSave) {
@@ -296,15 +307,19 @@ function New-VrcSetupPackageWorkspaceRenderable {
     $savePanel.Width = $savePanelWidth
     $savePanel.Padding = [Spectre.Console.Padding]::new(1, 0)
     $renderables += $savePanel
-    $renderables += [Spectre.Console.Text]::new(' ')
-    $renderables += [Spectre.Console.Text]::new(' ')
-    $renderables += [Spectre.Console.Rule]::new()
-    $renderables += [Spectre.Console.Markup]::new('[#DDEAF2]Up/Down Choose  ·  Enter Choose version  ·  Space Add/remove[/]')
-    $actionsPanel = [Spectre.Console.Panel]::new([Spectre.Console.Markup]::new('[#67E8A5]A  Add package[/]    [#C4A5FF]P  Apply preset[/]    [#75D7F7]F2  More options[/]'))
-    $actionsPanel.Border = [Spectre.Console.BoxBorder]::Rounded
-    $actionsPanel.BorderStyle = New-VrcSetupSpectreStyle -Foreground '#4C6A7A'
-    $renderables += $actionsPanel
-    $renderables += [Spectre.Console.Markup]::new('[#78909F]S Save changes  ·  Esc Back[/]')
+    $buttons = [Spectre.Console.Table]::new(); $buttons.Border = [Spectre.Console.TableBorder]::None; $buttons.ShowHeaders = $false
+    foreach ($label in @('Add package','Change preset','Copy project','Options')) { [void]$buttons.AddColumn($label) }
+    $cells = @(); $buttonIndex = 0
+    foreach ($label in @('Add package','Change preset','Copy project','Options')) {
+        $focused = $SelectedIndex -eq ($itemsArray.Count + 1 + $buttonIndex)
+        $color = if ($buttonIndex -eq 1) { '#C4A5FF' } else { '#75D7F7' }
+        $style = if ($focused) { "bold black on $color" } else { $color }
+        $panel = [Spectre.Console.Panel]::new([Spectre.Console.Markup]::new("[$style]$(if ($focused) { '> ' })$label[/]"))
+        $panel.Border = [Spectre.Console.BoxBorder]::Rounded; $panel.BorderStyle = New-VrcSetupSpectreStyle -Foreground $color
+        $cells += $panel; $buttonIndex++
+    }
+    [void]$buttons.Rows.Add([Spectre.Console.Rendering.IRenderable[]]$cells); $renderables += $buttons
+    $renderables += [Spectre.Console.Markup]::new('[#78909F]Space Toggle  |  Enter Version/select  |  Tab Actions  |  Esc Back[/]')
     if (-not [string]::IsNullOrWhiteSpace($Notice)) {
         $renderables += [Spectre.Console.Text]::new(' ')
         $renderables += [Spectre.Console.Markup]::new("[#75D7F7]$(ConvertTo-VrcSetupSpectreText $Notice)[/]")
@@ -360,8 +375,9 @@ function Show-VrcSetupSpectrePackageWorkspace {
                         if ($state.SelectedIndex -gt 0) { $state.SelectedIndex--; $refresh = $true }
                     }
                     'DownArrow' {
-                        if ($state.SelectedIndex -lt $itemsArray.Count) { $state.SelectedIndex++; $refresh = $true }
+                        if ($state.SelectedIndex -lt $itemsArray.Count + 4) { $state.SelectedIndex++; $refresh = $true }
                     }
+                    'Tab' { $state.SelectedIndex = if ($state.SelectedIndex -lt $itemsArray.Count -or $state.SelectedIndex -ge $itemsArray.Count + 4) { $itemsArray.Count } else { $state.SelectedIndex + 1 }; $refresh = $true }
                     { $_ -in @('LeftArrow', 'RightArrow') } {
                         if ($state.SelectedIndex -lt $itemsArray.Count -and $VersionProvider) {
                             $item = $itemsArray[$state.SelectedIndex]
@@ -399,6 +415,8 @@ function Show-VrcSetupSpectrePackageWorkspace {
                                 $state.Notice = 'Nothing to save yet.'
                                 $refresh = $true
                             }
+                        } elseif ($state.SelectedIndex -gt $itemsArray.Count) {
+                            $state.Action = @('add','presets','copy','options')[$state.SelectedIndex - $itemsArray.Count - 1]
                         } else {
                             $state.Action = 'version'
                             $state.PackageName = [string]$itemsArray[$state.SelectedIndex].Name
@@ -801,13 +819,15 @@ function New-VrcSetupTextInputRenderable {
         [Parameter(Mandatory)][string]$Prompt,
         [AllowEmptyString()][string]$Hint,
         [AllowEmptyString()][string]$Placeholder = 'Start typing...',
-        [switch]$HideAction
+        [switch]$HideAction,
+        [int]$Cursor = -1
     )
 
     $shownValue = if ([string]::IsNullOrEmpty($Value)) {
         "[#607D8B]$(ConvertTo-VrcSetupSpectreText $Placeholder)[/]"
     } else {
-        "[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $Value)[/][#75D7F7]▌[/]"
+        $position = if ($Cursor -lt 0) { $Value.Length } else { [Math]::Min($Cursor, $Value.Length) }
+        "[#DDEAF2]$(ConvertTo-VrcSetupSpectreText $Value.Substring(0,$position))[/][#75D7F7]▌[/][#DDEAF2]$(ConvertTo-VrcSetupSpectreText $Value.Substring($position))[/]"
     }
     $field = [Spectre.Console.Panel]::new([Spectre.Console.Markup]::new($shownValue))
     $field.Header = [Spectre.Console.PanelHeader]::new(" $(ConvertTo-VrcSetupSpectreText $Prompt) ")
@@ -830,6 +850,21 @@ function New-VrcSetupTextInputRenderable {
     return [Spectre.Console.Rows]::new([Spectre.Console.Rendering.IRenderable[]]$rows)
 }
 
+function Update-VrcSetupTextInputKey {
+    param($State, $Key)
+    switch ($Key.Key) {
+        'Enter' { $State.Done = $true }
+        'Escape' { $State.Cancelled = $true; $State.Done = $true }
+        'LeftArrow' { $State.Cursor = [Math]::Max(0,$State.Cursor-1) }
+        'RightArrow' { $State.Cursor = [Math]::Min($State.Value.Length,$State.Cursor+1) }
+        'Home' { $State.Cursor = 0 }
+        'End' { $State.Cursor = $State.Value.Length }
+        'Delete' { if ($State.Cursor -lt $State.Value.Length) { $State.Value = $State.Value.Remove($State.Cursor,1) } }
+        'Backspace' { if ($State.Cursor -gt 0) { $State.Value = $State.Value.Remove($State.Cursor-1,1); $State.Cursor-- } }
+        default { if ($Key.KeyChar -and -not [char]::IsControl($Key.KeyChar)) { $State.Value = $State.Value.Insert($State.Cursor,[string]$Key.KeyChar); $State.Cursor++ } }
+    }
+}
+
 function Read-VrcSetupSpectreTextInput {
     param(
         [Parameter(Mandatory)][string]$Title,
@@ -837,12 +872,28 @@ function Read-VrcSetupSpectreTextInput {
         [Parameter(Mandatory)][string]$Prompt,
         [string]$Hint = 'Leave blank to go back.',
         [string]$Placeholder = 'Start typing...',
+        [AllowEmptyString()][string]$InitialValue = '',
         [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
     )
 
-    if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
-    $state = [pscustomobject]@{ Value = ''; Done = $false; Cancelled = $false }
-    $initial = New-VrcSetupTextInputRenderable -Value '' -Prompt $Prompt -Hint $Hint -Placeholder $Placeholder
+    $state = [pscustomobject]@{ Value = $InitialValue; Cursor = $InitialValue.Length; Done = $false; Cancelled = $false }
+    if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) {
+        Write-Host $Title -ForegroundColor Cyan
+        if ([Console]::IsInputRedirected) { $value=Read-Host $Prompt; return $(if ($value) { $value } else { $InitialValue }) }
+        Write-Host $Hint
+        while (-not $state.Done) {
+            $width=[Math]::Max(12,[Console]::WindowWidth - $Prompt.Length - 4)
+            $offset=[Math]::Max(0,$state.Cursor - $width + 1)
+            $shown=$state.Value.Substring($offset,[Math]::Min($width,$state.Value.Length-$offset))
+            $shown=$shown.Insert([Math]::Min($shown.Length,$state.Cursor-$offset),'|')
+            Write-Host ("`r${Prompt}: " + $shown.PadRight($width+1)) -NoNewline
+            Update-VrcSetupTextInputKey -State $state -Key ([Console]::ReadKey($true))
+        }
+        Write-Host ''
+        if ($state.Cancelled) { return $null }
+        return $state.Value
+    }
+    $initial = New-VrcSetupTextInputRenderable -Value $state.Value -Cursor $state.Cursor -Prompt $Prompt -Hint $Hint -Placeholder $Placeholder
     $live = [Spectre.Console.AnsiConsole]::Live($initial)
     $live.AutoClear = $true
     $cursorWasVisible = $true
@@ -853,18 +904,9 @@ function Read-VrcSetupSpectreTextInput {
             $context.Refresh()
             while (-not $state.Done) {
                 $key = [Console]::ReadKey($true)
-                switch ($key.Key) {
-                    'Enter' { $state.Done = $true }
-                    'Escape' { $state.Cancelled = $true; $state.Done = $true }
-                    'Backspace' {
-                        if ($state.Value.Length -gt 0) { $state.Value = $state.Value.Substring(0, $state.Value.Length - 1) }
-                    }
-                    default {
-                        if ($key.KeyChar -and -not [char]::IsControl($key.KeyChar)) { $state.Value += $key.KeyChar }
-                    }
-                }
+                Update-VrcSetupTextInputKey -State $state -Key $key
                 if (-not $state.Done) {
-                    $next = New-VrcSetupTextInputRenderable -Value $state.Value -Prompt $Prompt -Hint $Hint -Placeholder $Placeholder
+                    $next = New-VrcSetupTextInputRenderable -Value $state.Value -Cursor $state.Cursor -Prompt $Prompt -Hint $Hint -Placeholder $Placeholder
                     $context.UpdateTarget($next)
                     $context.Refresh()
                 }

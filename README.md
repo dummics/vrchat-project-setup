@@ -82,8 +82,8 @@ source folder as an installation to delete.
 - Import progress reads Unity logs only when their size or write time changes.
   Exact package versions already present on disk are reused, including packages
   installed as dependencies; `latest` still requests an update.
-- Post-import finalization keeps Unity's update loop running, performs one
-  synchronous refresh, and waits for import/compilation to settle. Import errors
+- Import and finalization share one Unity session, keep its update loop running
+  and wait for import/compilation to settle through domain reloads. Import errors
   and finalization timeouts leave the project incomplete instead of reporting
   success. Heavy texture/shader processing remains Unity's responsibility.
 - Portable, installed and command-line entry points backed by the same engine.
@@ -208,10 +208,23 @@ projects**. It then provides:
    - Reset configuration when needed.
 
 When creating from a UnityPackage, the tool creates the Unity project, applies
-required manifest adjustments, installs configured VPM packages, imports the
-package and waits for a bounded finalization step. Unity may still perform some
+required manifest adjustments, installs configured VPM packages, and imports
+main/extra UnityPackages sequentially in one Unity session. Finalization waits
+through compilation and domain reloads in that same session. A second settle
+session runs only if the post-import package check actually repairs packages.
+Unity may still perform some
 first-open asset processing, especially for projects with many textures or
 scripts.
+
+Import review offers **Build and publish platforms**: Windows, Android/Quest,
+iOS, or combinations. A separate choice selects which platform Unity opens on.
+Names containing the word Quest or Android suggest Android; you can override it
+before starting. Missing Unity build modules block the import before project
+creation. Existing project package edits preserve their current platform.
+The SDK publishing selection is initialized on the first interactive opening,
+using its public avatar session-state property when available. Older SDKs keep
+the active Unity target and require choosing publishing platforms in the SDK.
+This prepares platform selection; it does not convert PC materials for mobile.
 
 The creation review includes **Package presets** and **Customize packages** for
 this project only. A selected named preset replaces the default new-project set
@@ -227,28 +240,46 @@ edit its packages and versions, then choose **Save preset**. Escape discards the
 edit. Before importing, choose a creator preset or **Use my defaults**. New
 projects use exactly that set plus the required foundation: optional packages
 absent from a preset are not inherited from your defaults. Applying a preset to
-an existing project keeps unrelated installed packages.
+an existing project offers keeping custom packages or matching the preset exactly.
 Version search filters version numbers; searching by release date is not yet
 available. A specific version belongs to the selected preset or project, rather
 than a global package lock; `latest` follows compatible updates.
 
 The main **Packages and creator presets** entry opens separate choices for
-**My default packages**, **Creator presets** and favorites. In **Creator presets**,
+**My default packages**, **Creator presets**, favorites and **Saved package registry**. In **Creator presets**,
 choose **Create a preset from my defaults**, name it, edit its package list and
 versions, and choose **Save preset**. Cancel leaves both the preset and your
 defaults unchanged. General settings stay in the separate **Settings** entry.
 **My projects** opens the library directly; F2 contains folder, sorting, refresh
-and incomplete-project cleanup options. Project package management shows only
-its common commands, with additional actions under F2.
+and incomplete-project cleanup options. Single-project and bulk package edits
+share one table: Space includes/removes a package, Enter chooses its version,
+and Tab moves to the visible actions. **Apply changes** opens the confirmation
+before touching projects. **Options** controls project groups for individual
+packages, additional imports and undo. Required foundation packages stay included.
+Mixed installed versions remain unchanged until you choose a common version.
+**Copy project** chooses any library project as source, then offers installed
+packages or its saved preset selection, when available.
 Import review emphasizes the main action with a larger filled button. Preset and
-package customization use smaller outlined buttons; name/file changes and cancel
-use quieter text actions. Keyboard focus remains visible on every action.
+package customization use smaller outlined buttons; name/file/platform changes
+have a separate compact outlined section. Renaming opens the current name as
+editable text, with cursor movement, Backspace and Delete. Keyboard focus remains
+visible on every action.
 The main import action keeps its green accent but receives a filled highlight
 only while focused. Settings has its own spaced outline and rose accent.
 Operation logs reserve their final action area from the start and keep the log
 panel height fixed, so completion does not expand the live display unexpectedly.
 Saving from an existing project captures direct packages and the required locked
 SDK foundation, rather than every transitive dependency.
+
+The local registry combines defaults, named presets, favorites, package searches
+and projects opened for editing. Cached definitions appear before repository
+search and retain selected versions. **Saved package registry** can add them to
+an existing/new preset. **Refresh in background** fetches available versions in
+an in-process worker; menus remain usable and show progress. Refresh preserves
+version choices made while it runs, keeps unavailable entries, and can be stopped.
+Definitions live in `setup-scripts/cache/known-packages.json`. Project profiles
+live in `<Project>/.vrcsetup/package-profile.json`; manifest changes and newer
+preset definitions are detected without silently applying them.
 
 ```powershell
 vrcsetup presets save "Creator PC" "F:\Unity Projects\Creator Avatar"
@@ -266,7 +297,7 @@ The interactive library has a visible search field: type a project name, PC/Ques
 or Unity version to filter the table immediately. Enter manages the selected
 project; F2 opens sorting, refresh and folder options. Columns and the number of
 visible rows adapt to the terminal size. Narrow terminals keep the project name
-in the table and show Unity/package details below the selection. Scan/cache
+and omit lower-priority columns. Scan/cache
 diagnostics remain available through CLI output instead of occupying the main UI.
 Import starts with a drag-and-drop field for the `.unitypackage` file. Dropped
 paths are normalized, including quotes, spaces and special characters.
