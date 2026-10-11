@@ -187,7 +187,8 @@ projects**. It then provides:
      avoiding false missing-package failures and repeated installs.
    - Include saved UnityPackages in the same final Save action when needed.
    - Review the staged changes in a dedicated confirmation surface, then keep
-     the complete operation inside a fixed, scrollable progress panel. Page
+     the complete operation inside a scrollable progress panel that expands
+     with the terminal height and adapts when resized. Page
      keys can inspect earlier messages without switching to a full-log screen;
      the timestamped session log remains available after completion.
      Finished operations show a highlighted Done/Back button; failures show

@@ -10,6 +10,17 @@ function Measure-ProgressFrame {
 }
 $originalWidth = [Spectre.Console.AnsiConsole]::Profile.Width
 try {
+    foreach ($height in @(24, 40, 60, 100)) {
+        $rows = Get-VrcSetupProgressVisibleRows -Header 'Avatar project' -Height $height -Width 80
+        if ($rows -ne [Math]::Max(3, $height - 21)) { throw "Unexpected log budget at height ${height}: $rows" }
+        if ((Get-VrcSetupProgressVisibleRows -Header 'Avatar project' -Height $height -Width 80 -MaxVisible 8) -gt 8) { throw 'Explicit log limit was ignored.' }
+        foreach ($status in @('Running','Success','Failed','Cancelled')) {
+            $frame = New-VrcSetupProgressRenderable -MaxVisible $rows -Status $status
+            if ((Measure-ProgressFrame $frame 80) + 6 -gt $height -and $height -ge 24) { throw "Progress controls overflow at height $height." }
+        }
+    }
+    if ((Get-VrcSetupProgressVisibleRows -Header ('Long project name ' * 8) -Height 60 -Width 50) -ge (Get-VrcSetupProgressVisibleRows -Header 'Avatar' -Height 60 -Width 50)) { throw 'Wrapped headers did not reserve extra rows.' }
+    Write-Host 'PASS: progress expands vertically, reserves wrapped headers and fits completion controls.'
     foreach ($width in @(50,80,120)) {
         [Spectre.Console.AnsiConsole]::Profile.Width=$width
         $heights = @()

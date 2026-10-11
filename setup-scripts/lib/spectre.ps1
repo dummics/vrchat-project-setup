@@ -596,11 +596,27 @@ function Show-VrcSetupSpectreSaveReview {
     return [bool]$state.Confirmed
 }
 
+function Get-VrcSetupProgressVisibleRows {
+    param([string]$Header = '', [int]$MaxVisible = 0, [int]$Height = 0, [int]$Width = 0)
+    $viewport = Get-VrcSetupViewport -Height $Height -Width $Width
+    $headerRows = 0
+    if (-not [string]::IsNullOrWhiteSpace($Header)) {
+        foreach ($line in @($Header -split '\r?\n')) {
+            $headerRows += [Math]::Max(1, [Math]::Ceiling($line.Length / [Math]::Max(20, $viewport.Width - 8)))
+        }
+        $headerRows += 4
+    }
+    # Keep the summary, controls and completion button visible at every resize.
+    $available = [Math]::Max(3, [Math]::Min(500, $viewport.Height - 16 - $headerRows))
+    if ($MaxVisible -gt 0) { return [int][Math]::Min($MaxVisible, $available) }
+    return [int]$available
+}
+
 function New-VrcSetupProgressRenderable {
     param(
         [string[]]$Lines = @(),
         [int]$ScrollIndex = 0,
-        [ValidateRange(3, 20)][int]$MaxVisible = 12,
+        [ValidateRange(3, 500)][int]$MaxVisible = 12,
         [ValidateSet('Running', 'Success', 'Failed', 'Cancelled')][string]$Status = 'Running',
         [string]$CompletionLabel = 'Done',
         [bool]$Follow = $true,
@@ -688,18 +704,14 @@ function Invoke-VrcSetupSpectreOperation {
         [Parameter(Mandatory)][string]$Header,
         [Parameter(Mandatory)][scriptblock]$Operation,
         [object[]]$ArgumentList = @(),
-        [ValidateRange(5, 20)][int]$MaxVisible = 12,
+        [ValidateRange(0, 500)][int]$MaxVisible = 0,
         [string]$ScriptDir = (Get-VrcSetupSpectreScriptDir)
     )
 
     if (-not (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)) { return $null }
     if (-not (Write-VrcSetupSpectreFrame -Title $Title -Header $Header -ScriptDir $ScriptDir)) { return $null }
 
-    $effectiveMaxVisible = $MaxVisible
-    try {
-        $availableRows = [Math]::Max(3, [Console]::WindowHeight - 21)
-        $effectiveMaxVisible = [Math]::Min($MaxVisible, $availableRows)
-    } catch { }
+    $effectiveMaxVisible = Get-VrcSetupProgressVisibleRows -Header $Header -MaxVisible $MaxVisible
 
     $job = Start-ThreadJob -ScriptBlock $Operation -ArgumentList $ArgumentList
     $state = [pscustomobject]@{
@@ -729,7 +741,7 @@ function Invoke-VrcSetupSpectreOperation {
             $context.Refresh()
             while (-not $state.Exit) {
                 # Re-budget the log viewport when the terminal is resized.
-                try { $effectiveMaxVisible = [Math]::Min($MaxVisible, [Math]::Max(3, [Console]::WindowHeight - 21)) } catch { }
+                $effectiveMaxVisible = Get-VrcSetupProgressVisibleRows -Header $Header -MaxVisible $MaxVisible
                 $entries = @()
                 while ($state.OutputIndex -lt $job.Output.Count) {
                     $entries += $job.Output[$state.OutputIndex]

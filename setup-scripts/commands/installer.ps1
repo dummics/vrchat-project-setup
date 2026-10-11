@@ -48,13 +48,41 @@ function Write-VrcSetupLog {
 
 function Write-VrcSetupCommandOutput {
     param(
-        $Entries
+        $Entries,
+        $Result,
+        [string]$PackageName,
+        [string]$ProjectPath
     )
 
+    $absentLegacy = @()
+    if ($Result -and $Result.ExitCode -eq 0 -and $PackageName -match '^[a-zA-Z0-9._-]+$' -and
+        $Result.Output -match ('(?im)Added\s+package\s+' + [regex]::Escape($PackageName) + '\b')) {
+        try {
+            $metadata = Get-Content -LiteralPath (Join-Path $ProjectPath "Packages\$PackageName\package.json") -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $vpmManifest = Get-Content -LiteralPath (Join-Path $ProjectPath 'Packages\vpm-manifest.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $unityManifest = Get-Content -LiteralPath (Join-Path $ProjectPath 'Packages\manifest.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($metadata.name -eq $PackageName) {
+                foreach ($legacy in @($metadata.legacyPackages)) {
+                    if ($legacy -notmatch '^[a-zA-Z0-9._-]+$') { continue }
+                    if ($vpmManifest.dependencies.PSObject.Properties.Name -notcontains $legacy -and
+                        $vpmManifest.locked.PSObject.Properties.Name -notcontains $legacy -and
+                        $unityManifest.dependencies.PSObject.Properties.Name -notcontains $legacy -and
+                        -not (Test-Path -LiteralPath (Join-Path $ProjectPath "Packages\$legacy"))) {
+                        $absentLegacy += $legacy
+                    }
+                }
+            }
+        } catch { $absentLegacy = @() }
+    }
     foreach ($entry in @($Entries)) {
         $line = [string]$entry
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        Write-Host $line
+        $displayLine = $line
+        if ($line -match '^\s*\[[^\]]+\sERR\]\s+Failed to remove package ([a-zA-Z0-9._-]+)\s*$' -and $absentLegacy -contains $Matches[1]) {
+            $displayLine = "[INF] Legacy cleanup: $($Matches[1]) is already absent; nothing to remove."
+        }
+        Write-Host $displayLine
+        # Preserve the unmodified CLI output in the full diagnostic log.
         Write-VrcSetupLog -Message $line
     }
 }
@@ -484,7 +512,7 @@ function Install-PackagesInProject {
                 $vrcGetAction = Get-VrcSetupVrcGetPackageAction -CurrentVersion $currentVersion -TargetVersion ([string]$packageVersion)
                 Write-Host "Applying prerelease package: ${packageName} @ ${packageVersion}" -ForegroundColor Cyan
                 $cmdResult = Invoke-VrcGetCapture -Arguments @($vrcGetAction, $packageName, [string]$packageVersion, '--prerelease', '-p', $ProjectPath, '-y') -ScriptDir $scriptDir
-                Write-VrcSetupCommandOutput -Entries @([string]$cmdResult.Output -split '\r?\n')
+                Write-VrcSetupCommandOutput -Entries @([string]$cmdResult.Output -split '\r?\n') -Result $cmdResult -PackageName $packageName -ProjectPath $ProjectPath
                 if (Test-VrcSetupPackageCommandFailed -Result $cmdResult -PackageName $packageName) {
                     Write-Host "vrc-get reported exit code $($cmdResult.ExitCode) for ${packageName}" -ForegroundColor Yellow
                     Write-VrcSetupLog -Message "ERROR: vrc-get ${vrcGetAction} failed for ${packageName} with exit code $($cmdResult.ExitCode)"
@@ -498,7 +526,7 @@ function Install-PackagesInProject {
                 Write-Host "Adding package: ${packageName} @ ${packageVersion}" -ForegroundColor Cyan
                 $cmdResult = Invoke-VpmCapture -Arguments @('add', 'package', "${packageName}@${packageVersion}")
             }
-            Write-VrcSetupCommandOutput -Entries $cmdResult.OutputLines
+            Write-VrcSetupCommandOutput -Entries $cmdResult.OutputLines -Result $cmdResult -PackageName $packageName -ProjectPath $ProjectPath
             if (Test-VrcSetupPackageCommandFailed -Result $cmdResult -PackageName $packageName) {
                 Write-Host "vpm reported exit code $($cmdResult.ExitCode) for ${packageName}" -ForegroundColor Yellow
                 Write-VrcSetupLog -Message "ERROR: vpm add failed for ${packageName} with exit code $($cmdResult.ExitCode)"
