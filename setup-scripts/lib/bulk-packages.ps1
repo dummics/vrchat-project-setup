@@ -249,7 +249,11 @@ function Invoke-VrcSetupBulkPackageEditor {
                     $results=@(Invoke-VrcSetupBulkPlan -Plan $entries)
                     foreach ($result in $results) { Write-Host "$($result.Project): $($result.Status) $($result.Message)" }
                     $failed=@($results | Where-Object { $_.Status -notin @('Saved','Unchanged') }).Count
-                    Write-Host "Finished: $($results.Count - $failed) succeeded, $failed skipped or failed, $($entries.Count - $results.Count) not processed."
+                    if ($failed -eq 0 -and $results.Count -eq $entries.Count) {
+                        Write-Host "Completed: $($results.Count) projects saved or already up to date."
+                    } else {
+                        Write-Host "Finished: $($results.Count - $failed) succeeded, $failed skipped or failed, $($entries.Count - $results.Count) not processed."
+                    }
                     $reportPath=Write-VrcSetupBulkReport -Results $results -ProjectPaths @($entries.Path) -ScriptDir $runtime
                     [pscustomobject]@{VrcSetupOperationResult=$true;Status=$(if (@($results | Where-Object Status -eq 'Cancelled').Count) { 2 } elseif ($failed) { 1 } else { 0 });LogFile=$reportPath}
                 }
