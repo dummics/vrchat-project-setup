@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VrcSetup.Cli/VrcSetup.Cli.csproj" />
+    <Project Path="src/VrcSetup.Core/VrcSetup.Core.csproj" />
+    <Project Path="src/VrcSetup.Desktop/VrcSetup.Desktop.csproj" />
+    <Project Path="src/VrcSetup.Infrastructure/VrcSetup.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VrcSetup.Core.Tests/VrcSetup.Core.Tests.csproj" />
+  </Folder>
+</Solution>

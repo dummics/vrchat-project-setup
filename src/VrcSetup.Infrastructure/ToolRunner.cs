@@ -1,0 +1,151 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using VrcSetup.Core;
+
+namespace VrcSetup.Infrastructure;
+
+public sealed class ToolRunner
+{
+    public async Task<ToolResult> RunAsync(string executable, IEnumerable<string> arguments, string? workingDirectory = null,
+        IProgress<OperationEvent>? progress = null, string phase = "Tool", CancellationToken cancellationToken = default, TimeSpan? timeout = null,
+        string? logFile = null)
+    {
+        var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var timeoutSource = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(10));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
+        using var process = new Process { StartInfo = start };
+        try { if (!process.Start()) throw new IOException($"Could not start {executable}."); }
+        catch (System.ComponentModel.Win32Exception error) { throw new IOException($"Cannot start {Path.GetFileName(executable)}. Check its installation and runtime prerequisites.", error); }
+        using var guard = new WindowsJob(process);
+        var stdout = new StringBuilder(); var stderr = new StringBuilder();
+        var outputTask = Capture(process.StandardOutput, stdout);
+        var errorTask = Capture(process.StandardError, stderr);
+        var logPosition = 0L;
+        var lastLogWrite = DateTime.MinValue;
+        var startTime = DateTime.UtcNow;
+        try
+        {
+            while (!process.HasExited)
+            {
+                linked.Token.ThrowIfCancellationRequested();
+                if (logFile is not null && File.Exists(logFile))
+                {
+                    var info = new FileInfo(logFile);
+                    if (info.LastWriteTimeUtc != lastLogWrite || info.Length != logPosition)
+                    {
+                        lastLogWrite = info.LastWriteTimeUtc;
+                        if (info.Length < logPosition) logPosition = 0;
+                        using var stream = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        stream.Seek(logPosition, SeekOrigin.Begin);
+                        using var reader = new StreamReader(stream, Encoding.UTF8);
+                        var text = await reader.ReadToEndAsync(linked.Token);
+                        logPosition = stream.Position;
+                        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries)) Emit(line.TrimEnd('\r'));
+                    }
+                }
+                await Task.Delay(250, linked.Token);
+            }
+            await process.WaitForExitAsync(linked.Token);
+            await Task.WhenAll(outputTask, errorTask);
+            // Include the end of a Unity log written immediately before the process exited.
+            if (logFile is not null && File.Exists(logFile))
+            {
+                using var stream = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                if (stream.Length < logPosition) logPosition = 0;
+                stream.Seek(logPosition, SeekOrigin.Begin);
+                using var reader = new StreamReader(stream);
+                var text = await reader.ReadToEndAsync(linked.Token);
+                foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries)) Emit(line.TrimEnd('\r'));
+            }
+            return new(process.ExitCode, stdout.ToString(), stderr.ToString());
+        }
+        catch (OperationCanceledException)
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            try { await process.WaitForExitAsync(CancellationToken.None); await Task.WhenAll(outputTask, errorTask); } catch (IOException) { }
+            if (!cancellationToken.IsCancellationRequested) throw new TimeoutException($"{phase} exceeded its timeout after {DateTime.UtcNow - startTime:g}.");
+            throw;
+        }
+        async Task Capture(StreamReader reader, StringBuilder target)
+        {
+            while (await reader.ReadLineAsync() is { } line) { target.AppendLine(line); Emit(line); }
+        }
+        void Emit(string line)
+        {
+            var severity = Regex.IsMatch(line, @"(?i)\b(ERR|ERROR|FAILED|FAILURE)\b") ? EventSeverity.Error : Regex.IsMatch(line, @"(?i)\b(WRN|WARN|WARNING)\b") ? EventSeverity.Warning : EventSeverity.Info;
+            progress?.Report(new(DateTime.UtcNow, phase, line, severity, workingDirectory));
+        }
+    }
+
+    public Task<ToolResult> VpmAsync(IEnumerable<string> arguments, string? project = null, IProgress<OperationEvent>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var argv = arguments.ToArray();
+        return Task.Run(() =>
+        {
+            var executable = FindExecutable("vpm") ?? throw new IOException("VPM CLI not found. Install the official vrchat.vpm.cli tool and its required .NET runtime.");
+            using var mutex = new Mutex(false, OperatingSystem.IsWindows() ? @"Local\VrcSetup.Vpm.Commands" : "VrcSetup.Vpm.Commands");
+            var acquired = false;
+            try
+            {
+                var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(15);
+                while (!acquired)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try { acquired = mutex.WaitOne(100); } catch (AbandonedMutexException) { acquired = true; }
+                    if (DateTime.UtcNow > deadline) throw new TimeoutException("Timed out waiting for the shared VPM lock.");
+                }
+                ToolResult result = new(1, "", "");
+                for (var attempt = 0; attempt < 4; attempt++)
+                {
+                    result = RunAsync(executable, argv, project, progress, "VPM", cancellationToken).GetAwaiter().GetResult();
+                    if (result.ExitCode == 0 || !Regex.IsMatch(result.Output, @"(?i)(being used by another process|sharing violation|file.*lock|locked)") || attempt == 3) break;
+                    Task.Delay(500 * (1 << attempt), cancellationToken).GetAwaiter().GetResult();
+                }
+                return result;
+            }
+            finally { if (acquired) mutex.ReleaseMutex(); }
+        }, cancellationToken);
+    }
+
+    public static string? FindExecutable(string name)
+    {
+        var file = OperatingSystem.IsWindows() && !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name + ".exe" : name;
+        foreach (var folder in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator).Append(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "tools")))
+            if (!string.IsNullOrWhiteSpace(folder) && File.Exists(Path.Combine(folder.Trim('"'), file))) return Path.Combine(folder.Trim('"'), file);
+        return null;
+    }
+}
+
+internal sealed class WindowsJob : IDisposable
+{
+    private IntPtr handle;
+    public WindowsJob(Process process)
+    {
+        if (!OperatingSystem.IsWindows() || process.HasExited) return;
+        handle = CreateJobObject(IntPtr.Zero, null);
+        if (handle == IntPtr.Zero) throw new IOException("Cannot create the child process guard.");
+        var limits = new ExtendedLimits { BasicLimitInformation = new BasicLimits { LimitFlags = 0x2000 } };
+        var size = Marshal.SizeOf<ExtendedLimits>(); var memory = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(limits, memory, false);
+            if (!SetInformationJobObject(handle, 9, memory, (uint)size) || !AssignProcessToJobObject(handle, process.Handle))
+            {
+                if (!process.HasExited) { process.Kill(true); Dispose(); throw new IOException("Cannot attach the owned child process guard."); }
+            }
+        }
+        finally { Marshal.FreeHGlobal(memory); }
+    }
+    public void Dispose() { if (handle != IntPtr.Zero) { CloseHandle(handle); handle = IntPtr.Zero; } }
+    [StructLayout(LayoutKind.Sequential)] private struct BasicLimits { public long PerProcessUserTimeLimit, PerJobUserTimeLimit; public uint LimitFlags; public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize; public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass, SchedulingClass; }
+    [StructLayout(LayoutKind.Sequential)] private struct IoCounters { public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount; }
+    [StructLayout(LayoutKind.Sequential)] private struct ExtendedLimits { public BasicLimits BasicLimitInformation; public IoCounters IoInfo; public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed; }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CreateJobObject(IntPtr attributes, string? name);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetInformationJobObject(IntPtr job, int type, IntPtr information, uint length);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseHandle(IntPtr handle);
+}

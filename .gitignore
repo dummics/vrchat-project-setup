@@ -13,3 +13,13 @@ setup-scripts/cache/
 
 # Local verification artifacts and reversible runtime backups
 .work/
+
+# .NET build outputs and local IDE state
+**/bin/
+!setup-scripts/bin/
+!setup-scripts/bin/vrcsetup.cmd
+**/obj/
+.vs/
+*.user
+TestResults/
+artifacts/

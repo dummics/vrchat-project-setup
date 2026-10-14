@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../VrcSetup.Core/VrcSetup.Core.csproj" /></ItemGroup>
+  <ItemGroup><PackageReference Include="System.Management" Version="10.0.0" /></ItemGroup>
+  <ItemGroup>
+    <Content Include="../../setup-scripts/config/vrcsetup.defaults" Link="Resources/vrcsetup.defaults" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../setup-scripts/config/unity-test-framework.dependencies.json" Link="Resources/unity-test-framework.dependencies.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../setup-scripts/lib/vrc-get/vrc-get_win64_86.exe" Link="Tools/vrc-get.exe" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../setup-scripts/lib/vrc-get/LICENSE" Link="Tools/vrc-get.LICENSE" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../VrcSetup.UnityBridge/VrcSetupPostImport.cs" Link="Resources/VrcSetupPostImport.cs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
