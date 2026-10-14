@@ -13,6 +13,143 @@ function Get-VrcSetupChangedLogTail {
     } catch { return $null }
 }
 
+function Initialize-VrcSetupProcessGuardType {
+    if ($null -ne ('VrcSetupNativeJob' -as [type])) { return $true }
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return $false }
+
+    try {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class VrcSetupNativeJob
+{
+    private const uint ProcessTerminate = 0x0001;
+    private const uint ProcessSetQuota = 0x0100;
+    private const int JobObjectExtendedLimitInformation = 9;
+    private const uint JobObjectLimitKillOnJobClose = 0x2000;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BasicLimitInformation
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public IntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoCounters
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ExtendedLimitInformation
+    {
+        public BasicLimitInformation BasicLimitInformation;
+        public IoCounters IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    public static IntPtr CreateKillOnCloseJob()
+    {
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) return IntPtr.Zero;
+
+        ExtendedLimitInformation limits = new ExtendedLimitInformation();
+        limits.BasicLimitInformation.LimitFlags = JobObjectLimitKillOnJobClose;
+        int size = Marshal.SizeOf(typeof(ExtendedLimitInformation));
+        IntPtr buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(limits, buffer, false);
+            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, buffer, (uint)size))
+            {
+                CloseHandle(job);
+                return IntPtr.Zero;
+            }
+            return job;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    public static bool AssignProcess(IntPtr job, uint processId)
+    {
+        if (job == IntPtr.Zero) return false;
+        IntPtr process = OpenProcess(ProcessTerminate | ProcessSetQuota, false, processId);
+        if (process == IntPtr.Zero) return false;
+        try { return AssignProcessToJobObject(job, process); }
+        finally { CloseHandle(process); }
+    }
+
+    public static void Close(IntPtr job)
+    {
+        if (job != IntPtr.Zero) CloseHandle(job);
+    }
+}
+'@ -ErrorAction Stop
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function New-VrcSetupProcessGuard {
+    param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
+
+    if (-not (Initialize-VrcSetupProcessGuardType)) { return [IntPtr]::Zero }
+    try {
+        $job = [VrcSetupNativeJob]::CreateKillOnCloseJob()
+        if ($job -eq [IntPtr]::Zero) { return [IntPtr]::Zero }
+        if (-not [VrcSetupNativeJob]::AssignProcess($job, [uint32]$Process.Id)) {
+            [VrcSetupNativeJob]::Close($job)
+            return [IntPtr]::Zero
+        }
+        return $job
+    } catch {
+        return [IntPtr]::Zero
+    }
+}
+
+function Close-VrcSetupProcessGuard {
+    param([IntPtr]$JobHandle)
+
+    if ($JobHandle -eq [IntPtr]::Zero) { return }
+    try { [VrcSetupNativeJob]::Close($JobHandle) } catch { }
+}
+
 function Show-ProcessProgress {
     param(
         [System.Diagnostics.Process]$Process,
@@ -50,17 +187,48 @@ function Show-ProcessProgress {
 
     $useWriteProgress = $true
     if ($env:VRCSETUP_PROGRESS_PLAIN -eq '1') { $useWriteProgress = ${false} }
-    # The Spectre panel captures this stream; CPU/RAM/times go on one pinned status
-    # line and only real Unity log changes become rows. Sentinel literal is shared
-    # with New-VrcSetupProgressRenderable / Invoke-VrcSetupSpectreOperation.
+    # The Spectre panel captures this stream; one live row represents the whole
+    # Unity/process phase. Sentinel literals are shared with
+    # New-VrcSetupProgressRenderable / Invoke-VrcSetupSpectreOperation.
     $embedded = ($env:VRCSETUP_EMBEDDED_PROGRESS -eq '1')
     if ($embedded) { $AllowCancel = ${false} }
     try {
         if (${null} -eq ${Host} -or ${null} -eq ${Host}.UI -or ${null} -eq ${Host}.UI.RawUI) { $useWriteProgress = ${false} }
     } catch { $useWriteProgress = ${false} }
 
+    # The Windows job handle kills this Unity process tree when the owning
+    # PowerShell process disappears unexpectedly (terminal close / hard Ctrl+C).
+    $processGuard = New-VrcSetupProcessGuard -Process $Process
+    $cancelState = [pscustomobject]@{ Requested = $false }
+    $cancelHandler = $null
+    try {
+        try {
+            $cancelHandler = [ConsoleCancelEventHandler]{
+                param($sender, $eventArgs)
+                $eventArgs.Cancel = $true
+                $cancelState.Requested = $true
+            }
+            [Console]::add_CancelKeyPress($cancelHandler)
+        } catch { $cancelHandler = $null }
+
+    try {
     while (-not $Process.HasExited) {
         Start-Sleep -Milliseconds $PollMs
+
+        if ($cancelState.Requested) {
+            try { Stop-ProcessTree -Pid $Process.Id } catch { }
+            try { $Process.WaitForExit(5000) | Out-Null } catch { }
+            try { if ($OnCancel) { & $OnCancel } } catch { }
+            try {
+                if ($useWriteProgress) { Write-Progress -Id $progressId -Activity $Prefix -Completed }
+            } catch { }
+            if ($embedded) {
+                Write-Host "::VRCSETUP_LIVE_COMMIT::${Prefix} Cancelled by Ctrl+C."
+            } else {
+                Write-Host "${Prefix} Cancelled by Ctrl+C." -ForegroundColor Yellow
+            }
+            return @{ Elapsed = "{0:mm}:{0:ss}" -f ((Get-Date) - $startTime); Cpu = $cpuPercent; MemoryMB = $memoryMB; ExitCode = $null; Cancelled = $true }
+        }
 
         if ($AllowCancel) {
             try {
@@ -101,7 +269,11 @@ function Show-ProcessProgress {
                                     Write-Progress -Id $progressId -Activity $Prefix -Completed
                                 }
                             } catch { }
-                            Write-Host "${Prefix} Cancelled." -ForegroundColor Yellow
+                            if ($embedded) {
+                                Write-Host "::VRCSETUP_LIVE_COMMIT::${Prefix} Cancelled."
+                            } else {
+                                Write-Host "${Prefix} Cancelled." -ForegroundColor Yellow
+                            }
                             return @{ Elapsed = "{0:mm}:{0:ss}" -f ((Get-Date) - $startTime); Cpu = $cpuPercent; MemoryMB = $memoryMB; ExitCode = $null; Cancelled = $true }
                         }
                     }
@@ -153,13 +325,11 @@ function Show-ProcessProgress {
         $displayLog = if ($cleanLog.Length -gt $maxLogLen) { $cleanLog.Substring(0, $maxLogLen) + "..." } else { $cleanLog }
 
         if ($embedded) {
-            # Pinned status line: the panel renders this on one fixed colored row and
-            # never as a log row, so CPU/RAM/timer updates do not advance the view.
-            Write-Host "::VRCSETUP_METRICS::CPU ${cpuPercent}%  RAM ${memoryMB}MB"
-            # A new log row appears only when Unity actually produced a new tail line.
-            if ($lastLogChanged -and -not [string]::IsNullOrWhiteSpace($cleanLog)) {
-                Write-Host $cleanLog
-            }
+            # One live row represents this whole Unity/process phase. The panel
+            # replaces it in place until the process commits the row on exit.
+            $liveStatus = "${Prefix} ${elapsedStr} | CPU: ${cpuPercent}% | RAM: ${memoryMB}MB"
+            if (-not [string]::IsNullOrWhiteSpace($cleanLog)) { $liveStatus += " | ${cleanLog}" }
+            Write-Host "::VRCSETUP_LIVE_STATUS::${liveStatus}"
         }
         elseif ($useWriteProgress) {
             $tail = $displayLog
@@ -196,7 +366,19 @@ function Show-ProcessProgress {
     } catch { }
 
     $finalMsg = ("${Prefix} Completed! Time: {0}" -f $elapsedStr)
-    Write-Host $finalMsg -ForegroundColor Green
+    if ($embedded) {
+        Write-Host "::VRCSETUP_LIVE_COMMIT::${finalMsg}"
+    } else {
+        Write-Host $finalMsg -ForegroundColor Green
+    }
     return @{ Elapsed = $elapsedStr; Cpu = $cpuPercent; MemoryMB = $memoryMB; ExitCode = $Process.ExitCode; Cancelled = $false }
+    } finally {
+        if ($cancelHandler) {
+            try { [Console]::remove_CancelKeyPress($cancelHandler) } catch { }
+        }
+    }
+    } finally {
+        Close-VrcSetupProcessGuard -JobHandle $processGuard
+    }
 }
 

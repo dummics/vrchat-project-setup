@@ -612,6 +612,24 @@ function Get-VrcSetupProgressVisibleRows {
     return [int]$available
 }
 
+function ConvertTo-VrcSetupProgressLineMarkup {
+    param([AllowEmptyString()][string]$Line)
+
+    $text = ([string]$Line -replace '[\x00-\x1F\x7F]', ' ').Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) { return '' }
+
+    $color = switch -Regex ($text) {
+        '(?i)\b(ERR|ERROR|FAILED|FAILURE)\b' { '#FB7185'; break }
+        '(?i)\b(WRN|WARN|WARNING)\b' { '#F6C451'; break }
+        '(?i)\b(ADDED|COMPLETED|SUCCESS|SUCCESSFULLY)\b' { '#67E8A5'; break }
+        '(?i)(Adding package|Processing package|Applying prerelease|Start importing|Importing|Creating|Resolving|Opening|UnityProject removing)' { '#75D7F7'; break }
+        '(?i)\b(INF|INFO)\b' { '#B7C7D3'; break }
+        default { '#DDEAF2'; break }
+    }
+
+    return "[${color}]$(ConvertTo-VrcSetupSpectreText $text)[/]"
+}
+
 function New-VrcSetupProgressRenderable {
     param(
         [string[]]$Lines = @(),
@@ -622,7 +640,7 @@ function New-VrcSetupProgressRenderable {
         [bool]$Follow = $true,
         [TimeSpan]$Elapsed = [TimeSpan]::Zero,
         [AllowEmptyString()][string]$LogFile = '',
-        [AllowEmptyString()][string]$Metrics = ''
+        [AllowEmptyString()][string]$LiveLine = ''
     )
 
     $windowWidth = try { [Console]::WindowWidth } catch { 0 }
@@ -631,6 +649,7 @@ function New-VrcSetupProgressRenderable {
     $innerWidth = [Math]::Max(20, $panelWidth - 4)
 
     $items = @($Lines)
+    if (-not [string]::IsNullOrWhiteSpace($LiveLine)) { $items += $LiveLine }
     $maxStart = [Math]::Max(0, $items.Count - $MaxVisible)
     $start = [Math]::Max(0, [Math]::Min($ScrollIndex, $maxStart))
     $visible = @(if ($items.Count -eq 0) { 'Starting...' } else { $items | Select-Object -Skip $start -First $MaxVisible })
@@ -638,7 +657,7 @@ function New-VrcSetupProgressRenderable {
     $safeLines = @($visible | ForEach-Object {
         $line = ([string]$_ -replace '[\x00-\x1F\x7F]', ' ').Trim()
         if ($line.Length -gt $innerWidth) { $line = $line.Substring(0, $innerWidth - 1) + '…' }
-        ConvertTo-VrcSetupSpectreText $line
+        ConvertTo-VrcSetupProgressLineMarkup -Line $line
     })
 
     $statusColor = switch ($Status) {
@@ -649,20 +668,13 @@ function New-VrcSetupProgressRenderable {
     }
     $rangeEnd = if ($items.Count -eq 0) { 0 } else { [Math]::Min($items.Count, $start + $MaxVisible) }
     $rangeStart = if ($items.Count -eq 0) { 0 } else { $start + 1 }
-    $followLabel = if ($Follow) { 'Following latest' } else { 'Paused for review' }
     $elapsedText = '{0:mm\:ss}' -f $Elapsed
     $summaryDetails = @($elapsedText)
     if (-not $Follow) { $summaryDetails += "Viewing messages ${rangeStart}-${rangeEnd} of $($items.Count)" }
-    $summaryDetails += $followLabel
     $statusLabel = switch ($Status) { 'Success' { 'Completed' } 'Failed' { 'Operation failed' } 'Cancelled' { 'Cancelled' } default { 'In progress' } }
     $summary = "[bold $statusColor]${statusLabel}[/]  [#78909F]$($summaryDetails -join '  ·  ')[/]"
-    if (-not [string]::IsNullOrWhiteSpace($Metrics)) {
-        # Pinned live status: CPU/RAM refresh in place on this fixed colored line and
-        # never add a row to the log box below.
-        $summary += "  [#67E8A5]$(ConvertTo-VrcSetupSpectreText $Metrics)[/]"
-    }
 
-    $logBody = [Spectre.Console.Markup]::new("[#DDEAF2]$($safeLines -join "`n")[/]")
+    $logBody = [Spectre.Console.Markup]::new($safeLines -join "`n")
     $logPanel = [Spectre.Console.Panel]::new($logBody)
     $logPanel.Header = [Spectre.Console.PanelHeader]::new(' Progress ')
     $logPanel.Border = [Spectre.Console.BoxBorder]::Rounded
@@ -720,20 +732,37 @@ function Invoke-VrcSetupSpectreOperation {
         Follow = $true
         Done = $false
         Exit = $false
+        CancelRequested = $false
         Status = 'Running'
         ResultStatus = 1
         LogFile = ''
-        Metrics = ''
+        LiveLine = ''
         OutputIndex = 0
         InformationIndex = 0
         ErrorIndex = 0
         WarningIndex = 0
     }
     $started = Get-Date
-    $initial = New-VrcSetupProgressRenderable -Lines @() -ScrollIndex 0 -MaxVisible $effectiveMaxVisible -Status Running -Follow:$true -Elapsed ([TimeSpan]::Zero) -Metrics $state.Metrics
+    $initial = New-VrcSetupProgressRenderable -Lines @() -ScrollIndex 0 -MaxVisible $effectiveMaxVisible -Status Running -Follow:$true -Elapsed ([TimeSpan]::Zero) -LiveLine $state.LiveLine
     $live = [Spectre.Console.AnsiConsole]::Live($initial)
     $live.AutoClear = $true
     $cursorWasVisible = $true
+    $cancelHandler = $null
+    try {
+        $cancelHandler = [ConsoleCancelEventHandler]{
+            param($sender, $eventArgs)
+            $eventArgs.Cancel = $true
+            $state.CancelRequested = $true
+            $state.ResultStatus = 2
+            $state.Status = 'Cancelled'
+            $state.Done = $true
+            $state.Exit = $true
+            try {
+                if ($job.State -in @('Running', 'NotStarted')) { Stop-Job -Job $job -ErrorAction SilentlyContinue }
+            } catch { }
+        }
+        [Console]::add_CancelKeyPress($cancelHandler)
+    } catch { $cancelHandler = $null }
     try {
         try { $cursorWasVisible = [Console]::CursorVisible; [Console]::CursorVisible = $false } catch { }
         $live.Start([System.Action[Spectre.Console.LiveDisplayContext]]{
@@ -769,8 +798,14 @@ function Invoke-VrcSetupSpectreOperation {
                     foreach ($line in @($text -split '\r?\n')) {
                         $clean = ($line -replace '[\x00-\x1F\x7F]', ' ').Trim()
                         if ([string]::IsNullOrWhiteSpace($clean)) { continue }
-                        if ($clean.StartsWith('::VRCSETUP_METRICS::')) {
-                            $state.Metrics = $clean.Substring('::VRCSETUP_METRICS::'.Length).Trim()
+                        if ($clean.StartsWith('::VRCSETUP_LIVE_STATUS::')) {
+                            $state.LiveLine = $clean.Substring('::VRCSETUP_LIVE_STATUS::'.Length).Trim()
+                            continue
+                        }
+                        if ($clean.StartsWith('::VRCSETUP_LIVE_COMMIT::')) {
+                            $committedLine = $clean.Substring('::VRCSETUP_LIVE_COMMIT::'.Length).Trim()
+                            if (-not [string]::IsNullOrWhiteSpace($committedLine)) { [void]$state.Lines.Add($committedLine) }
+                            $state.LiveLine = ''
                             continue
                         }
                         [void]$state.Lines.Add($clean)
@@ -786,7 +821,8 @@ function Invoke-VrcSetupSpectreOperation {
                     $state.Follow = $true
                 }
 
-                $maxStart = [Math]::Max(0, $state.Lines.Count - $effectiveMaxVisible)
+                $totalLineCount = $state.Lines.Count + $(if ([string]::IsNullOrWhiteSpace($state.LiveLine)) { 0 } else { 1 })
+                $maxStart = [Math]::Max(0, $totalLineCount - $effectiveMaxVisible)
                 if ($state.Follow) { $state.ScrollIndex = $maxStart }
                 try {
                     if ([Console]::KeyAvailable) {
@@ -811,13 +847,16 @@ function Invoke-VrcSetupSpectreOperation {
                 } catch { }
 
                 $completionLabel = if ($Title -eq 'Creating project') { 'Done - Back to projects' } else { 'Done - Back to project' }
-                $next = New-VrcSetupProgressRenderable -Lines @($state.Lines) -ScrollIndex $state.ScrollIndex -MaxVisible $effectiveMaxVisible -Status $state.Status -CompletionLabel $completionLabel -Follow:$state.Follow -Elapsed ((Get-Date) - $started) -LogFile $state.LogFile -Metrics $state.Metrics
+                $next = New-VrcSetupProgressRenderable -Lines @($state.Lines) -ScrollIndex $state.ScrollIndex -MaxVisible $effectiveMaxVisible -Status $state.Status -CompletionLabel $completionLabel -Follow:$state.Follow -Elapsed ((Get-Date) - $started) -LogFile $state.LogFile -LiveLine $state.LiveLine
                 $context.UpdateTarget($next)
                 $context.Refresh()
                 if (-not $state.Exit) { Start-Sleep -Milliseconds 120 }
             }
         })
     } finally {
+        if ($cancelHandler) {
+            try { [Console]::remove_CancelKeyPress($cancelHandler) } catch { }
+        }
         try { [Console]::CursorVisible = $cursorWasVisible } catch { }
         if ($job.State -in @('Running', 'NotStarted')) { Stop-Job -Job $job -ErrorAction SilentlyContinue }
         Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
