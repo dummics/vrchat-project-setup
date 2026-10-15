@@ -1,25 +1,29 @@
 # VRCSETUP Desktop migration
 
-Owner approved the full implementation and remote branch on 2026-10-14.
+Status: implementation complete for tester handoff, 16 October 2026. Version: **2.0.0-preview.2**, Windows x64.
 
-Branch: feature/winui-desktop. Base: 438aa35 after preserving the earlier TUI work in c76fc5a and documentation in 438aa35. Both base commits were pushed to main. Daily installation is preserved.
+Dom approved the complete migration, dedicated remote branch, installer and local installation. Branch: `feature/winui-desktop`; stable main is retained without a merge. Preexisting work was preserved and pushed as `c76fc5a` and `438aa35` before the feature branch. Core/client checkpoint: `7436185`; completed implementation: `31e54eb`; corrected installer migration and preview 2: `24f2cdc`.
 
-## Verified checkpoint
+## Delivered
 
-- .NET 10 shared core: typed snapshots, immutable package-policy maps, SDK version alignment, dry-run planning, per-project staging/bulk targets and common executor.
-- Infrastructure: atomic configuration with revision checking and legacy migration, project metadata/fallback/cache, local registry, VPM/vrc-get runner, hidden owned child-process guard, Unity import adapter and backup/recovery.
-- CLI/TUI clients use the C# core; the old daily tool remains available while migration is being validated.
-- Windows client uses WinUI 3 / Windows App SDK 2.5.1, native controls and shared package edit sessions. Unpackaged self-contained build succeeds with zero warnings.
-- 58 .NET tests passed, including manifest/config formats, SDK/latest policies, package staging, stale review/busy/backup-failure paths, actual filesystem/cache/lock behavior and configuration revision conflicts.
-- Existing PowerShell suite passed under PS7 and Windows PowerShell 5.1 before the branch was created; targeted progress/import-performance tests passed.
+- Shared C#/.NET 10 core and infrastructure, first-class CLI/Spectre TUI, native WinUI 3 desktop client and per-user standalone installer.
+- All A01–A38 parity rows and B01–B03 additions implemented; see [verification map](VERIFICATION.md). Creation recipes preserve setup policy; they do not clone entire private projects.
+- Project library, creation, package version control, presets/defaults/favorites, bulk targets, review, logs/reports, import pipeline, backup/recovery, cancellation and lifecycle operations use the shared engine.
+- Old PowerShell engine and its implementation-specific tests retired on this branch. Configuration/resources and the Unity-compatible import bridge are retained in their new source locations. Main and Git history preserve the previous implementation.
+- Standalone EXE, portable ZIP and SHA256SUMS are in the canonical checkout's `.work/artifacts/2026-10-14-winui-migration/release-2.0.0-preview.2/`. Generated binaries are not committed to Git or published as a GitHub release.
+- Preview 2 installed under `%LOCALAPPDATA%\Programs\VrcSetup`. Legacy settings were recovered and verified; the final upgrade preserves the configuration hash exactly. Original legacy and previous .NET program copies remain available as rollback backups. User PATH, command alias, Start-menu target and installed payload integrity verified.
 
-## Remaining work to satisfy the full mandate
+## Verification
 
-- Independent review of the core/executor and filesystem/process side effects, followed by fixes and regression tests.
-- CLI subprocess contract checks and real VPM/Unity E2E on disposable projects.
-- Native WinUI dispatcher/render checks and screenshots. Owner asked to continue without mouse/keyboard input; no interactive desktop test is authorized in this session.
-- Complete payload/installer tests, self-uninstall and preservation of user data/entrypoints; improve any incomplete parity surfaces found during verification.
-- Translate every A01–A38 and B01–B03 row to verified evidence. Do not treat this checkpoint as completed migration.
-- Documentation, release packaging, final targeted commit/push and clean branch status. No merge to main or daily-install promotion requested.
+- 76 .NET rule, planner/executor, filesystem/config, failure/recovery and CLI subprocess tests pass.
+- 17 real Unity/VPM E2E checks pass on two disposable projects, including CLI/shared-service creation, UnityPackage import, compiled probe and bulk add/remove/preset operations.
+- 18 native WinUI dispatcher/render checks pass on the self-contained published executable, with development runtime paths excluded. Six screens, two window sizes, dark theme and a package dialog are covered. No mouse/keyboard input was injected.
+- 17 standalone installer checks pass: legacy migration, install, upgrade, alias repair, running-CLI self-uninstall, settings/project preservation and shortcut ownership. The omitted-home portable-marker regression has a separate .NET test.
+- Release desktop/CLI/installer builds succeed with zero warnings. Independent review findings and live packaging/migration defects were fixed before handoff.
+- Disposable Unity projects and obsolete package candidates were removed after retaining evidence. Useful checks, native captures, logs, final distributables and live-install proof remain under `.work/artifacts/`.
 
-No automated goal was created. No personal memory is written. The approved plan is IMPLEMENTATION-PLAN.md; operational evidence stays in .work/artifacts/.
+## Acceptance boundaries
+
+Dom requested tests without desktop input. Human mouse/keyboard, screen reader, actual multiple-DPI displays and a clean tester PC remain acceptance checks, not claimed results. Android/iOS modules and exact prerelease installation were not exercised live. Unity/VCC/VPM and VPM's compatible runtime remain external prerequisites; the application itself bundles .NET/Windows App SDK runtimes. The installer is unsigned.
+
+Source changes and this handoff are committed/pushed on the feature branch. No personal-memory write or automated goal was created. [Distribution instructions](DISTRIBUTION.md) describe installation, portable mode, CLI and recovery.
