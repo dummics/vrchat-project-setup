@@ -1,19 +1,21 @@
 # Desktop migration verification
 
-Build: 2.0.0-preview.1, Windows x64. Verified on Dom's Windows machine on 14–16 October 2026. This is a tester build; no clean Windows VM or human interactive acceptance is claimed.
+Build: 2.0.0-preview.2, Windows x64. Verified on Dom's Windows machine on 14–16 October 2026. This is a tester build; no clean Windows VM or human interactive acceptance is claimed.
 
 ## Evidence
 
-The latest real Unity run passed all 17 checks; the standalone installer lifecycle passed all 16 checks. The final tester artifacts are in `tester-package`, with final native/lifecycle evidence in `ui-tester-package` and `installer-tester-package`.
+The latest real Unity run passed all 17 checks. Installer coverage includes legacy configuration migration, fresh installation, upgrade, repair and self-uninstall. The final tester artifacts are in `release-2.0.0-preview.2`, with final native/lifecycle evidence in `ui-preview2` and `installer-preview2`.
 
-- 75 .NET tests pass: rules, planners/executor, filesystem/storage, configuration revisions, CLI subprocess contracts and failure/recovery paths. `powershell -NoProfile -File tests/Run-Tests.ps1 -BuildDesktop` is the routine entrypoint.
+- 76 .NET tests pass: rules, planners/executor, filesystem/storage, configuration revisions, CLI subprocess contracts and failure/recovery paths. `powershell -NoProfile -File tests/Run-Tests.ps1 -BuildDesktop` is the routine entrypoint.
 - Native WinUI smoke verification runs the actual dispatcher, viewmodel commands and renderer: 18 checks, six screens at 1180×800 and 1366×768, dark theme and a package-editor dialog. It uses `--smoke-test <fresh-artifact-directory>`, never mouse/keyboard injection. The self-contained published app passes too, with development PATH entries removed and DOTNET_ROOT pointing to an absent runtime.
 - Real E2E harness: two disposable Unity 2022.3.22f1 projects, one created through the CLI subprocess and one through the same shared application service used by the GUI. A UnityPackage contains a text marker and a MonoBehaviour; asset existence, compiled Assembly-CSharp.dll, embedded SDK, completed state, add/remove/bulk package operations and preset save are checked. Test VCC registrations are removed in finally. Run explicitly with `dotnet run --project tests/VrcSetup.E2E -- --unity <Unity.exe> --artifacts <fresh-folder>`.
 - Installer verification exercises the actual standalone EXE: install, user-data separation, bundled CLI, upgrade/config preservation, previous-install backup, missing-alias repair, alias execution and running-CLI self-uninstall. Settings, a project marker and owned shortcuts are checked afterward. `tests/Run-InstallerTests.ps1` uses an isolated root/Start menu and suppresses user PATH changes.
 - Desktop and installer Debug/Release builds produce zero warnings. Publishing explicitly includes native XBF/PRI resources; build-only validation had missed their omission in the first publish candidate.
 - Independent review identified unsafe asset restore, insufficient recovery lock scope, exact-pin mismatch, linked-SDK selection loss, cancellation reporting, latest-policy loss and interrupted legacy migration. Each finding was fixed; regression tests cover the relevant core/storage behavior.
 
-Local evidence is under the canonical checkout's `.work/artifacts/2026-10-14-winui-migration/`: `e2e`, `e2e-final`, `ui-distribution-verified`, `installer-distribution`, and `distribution`. Generated content and private local paths are not published in Git.
+Local evidence is under the canonical checkout's `.work/artifacts/2026-10-14-winui-migration/`: `e2e`, `e2e-final`, `ui-preview2`, `installer-preview2`, `live-install`, and `release-2.0.0-preview.2`. Disposable Unity projects and superseded packaging candidates were removed after retaining checks/logs. Generated content and private local paths are not published in Git.
+
+The live upgrade exposed a portable-extraction marker incorrectly selecting temporary installer data storage. Preview 2 uses an explicit installed-data factory, shares migration logic with CLI installation, and has regression coverage for the omitted-home case. Dom's original configuration was restored from the hash-verified previous installation before retesting the corrected upgrade.
 
 ## Parity map
 

@@ -54,10 +54,7 @@ public partial class App : Application
                     Directory.CreateDirectory(Path.GetDirectoryName(target)!); entry.ExtractToFile(target);
                 }
             }
-            var paths = new AppPaths(home, extraction);
-            // Migrate the legacy user configuration before an upgrade moves its directory.
-            var legacy = Path.Combine(destination, "setup-scripts", "config", "vrcsetup.json");
-            if (File.Exists(legacy) && !File.Exists(paths.ConfigFile)) await new ConfigurationStore(paths).ImportAsync(legacy);
+            var paths = AppPaths.ForInstallation(home, extraction);
             return await new InstallationManager(paths).InstallAsync(destination);
         }
         finally { if (Directory.Exists(extraction)) Directory.Delete(extraction, true); }

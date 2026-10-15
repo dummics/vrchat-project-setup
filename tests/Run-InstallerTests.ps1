@@ -19,7 +19,13 @@ function Invoke-Installer([string]$name,[string[]]$Options) {
     Assert-Test ($data.Success -eq $true) ('Installer ' + $name + ' completed')
 }
 try {
+    $legacyConfig = Join-Path $program 'setup-scripts\config'; [void][IO.Directory]::CreateDirectory($legacyConfig)
+    [IO.File]::WriteAllText((Join-Path $program '.vrcsetup-installed'),'{}')
+    $legacyEditor = Join-Path $TestRoot 'Unity\Editor\Unity.exe'; $legacyProjects = Join-Path $TestRoot 'Project'
+    [IO.File]::WriteAllText((Join-Path $legacyConfig 'vrcsetup.json'),(@{ UnityEditorPath=$legacyEditor; UnityProjectsRoot=$legacyProjects; VpmPackages=@{ 'com.vrchat.base'='latest'; 'com.vrchat.avatars'='latest'; 'com.vrchat.core.vpm-resolver'='latest' } } | ConvertTo-Json -Depth 4))
     Invoke-Installer 'install' @()
+    $migrated = Get-Content -LiteralPath (Join-Path $dataRoot 'config.json') -Raw | ConvertFrom-Json
+    Assert-Test ($migrated.UnityEditorPath -eq $legacyEditor -and $migrated.UnityProjectsRoot -eq $legacyProjects) 'Legacy settings migrate outside the portable extraction folder'
     Assert-Test (Test-Path -LiteralPath (Join-Path $program 'app\desktop\VrcSetup.Desktop.exe')) 'Native desktop payload installed'
     Assert-Test (-not (Test-Path -LiteralPath (Join-Path $program '.vrcsetup-portable'))) 'Installed settings are external to program files'
     $cli = Join-Path $program 'app\cli\vrcsetup.exe'

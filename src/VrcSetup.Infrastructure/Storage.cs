@@ -17,6 +17,8 @@ public sealed class AppPaths
     public string? SourceRoot { get; }
     public string PayloadRoot { get; }
     public bool AllowLegacyImport { get; }
+    public static AppPaths ForInstallation(string? home, string payloadRoot) => new(
+        home ?? Environment.GetEnvironmentVariable("VRCSETUP_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup"), payloadRoot);
 
     public AppPaths(string? home = null, string? baseDirectory = null)
     {

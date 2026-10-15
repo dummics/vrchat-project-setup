@@ -25,6 +25,15 @@ public sealed class StorageContractTests : IDisposable
         Assert.Equal("3.10.5", snapshot.Packages[ProjectRules.BaseSdk]); Assert.Equal("1.0.0", snapshot.Packages["tool"]);
         Assert.Equal("2022.3.22f1", snapshot.UnityVersion); Assert.Equal("3.10.5", snapshot.InstalledVersions[ProjectRules.BaseSdk]);
     }
+    [Fact] public void InstallerDataHomeDoesNotFollowThePortableExtractionMarker()
+    {
+        var payload = Path.Combine(root, "installer-extraction"); Directory.CreateDirectory(payload);
+        File.WriteAllText(Path.Combine(payload, ".vrcsetup-portable"), "portable");
+        var paths = AppPaths.ForInstallation(null, payload);
+        Assert.NotEqual(Path.Combine(payload, "data"), paths.Home);
+        Assert.Equal(ProjectRules.NormalizePath(Environment.GetEnvironmentVariable("VRCSETUP_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup")), paths.Home);
+        Assert.Equal(ProjectRules.NormalizePath(Path.Combine(root, "isolated-data")), AppPaths.ForInstallation(Path.Combine(root, "isolated-data"), payload).Home);
+    }
     [Fact] public async Task MissingCanonicalMetadataIsMarkedRecovered()
     {
         File.Delete(Path.Combine(Project, "Packages", "vpm-manifest.json")); File.Delete(Path.Combine(Project, "ProjectSettings", "ProjectVersion.txt"));

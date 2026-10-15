@@ -33,8 +33,13 @@ public sealed class InstallationManager(AppPaths paths)
         if (Directory.Exists(target) && !File.Exists(Path.Combine(target, Marker)) && !File.Exists(Path.Combine(target, ".vrcsetup-installed"))) throw new IOException("Refusing to replace an unrecognized destination folder.");
         ProjectRules.EnsureContained(parent, target);
         await ValidatePayloadAsync(source, token);
+        var destinationPaths = paths.AllowLegacyImport && File.Exists(Path.Combine(source, ".vrcsetup-portable")) ? AppPaths.ForInstallation(null, source) : paths;
         var legacy = Path.Combine(target, "setup-scripts", "config", "vrcsetup.json");
-        if (File.Exists(legacy) && !File.Exists(paths.ConfigFile)) await new ConfigurationStore(paths).ImportAsync(legacy, token);
+        if (!File.Exists(destinationPaths.ConfigFile))
+        {
+            var configSource = File.Exists(legacy) ? legacy : paths.ConfigFile != destinationPaths.ConfigFile && File.Exists(paths.ConfigFile) ? paths.ConfigFile : null;
+            if (configSource is not null) await new ConfigurationStore(destinationPaths).ImportAsync(configSource, token);
+        }
         var manifest = await AtomicFile.ReadJsonAsync<PayloadManifest>(Path.Combine(source, ".vrcsetup-payload.json"), token) ?? throw new IOException("Payload manifest missing.");
         var stage = target + ".stage-" + Guid.NewGuid().ToString("N");
         var previous = Directory.Exists(target) ? target + ".previous-" + Guid.NewGuid().ToString("N") : null;
