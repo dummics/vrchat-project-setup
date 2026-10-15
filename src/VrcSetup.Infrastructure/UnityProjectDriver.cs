@@ -57,9 +57,15 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
             if (!HasBuildSupport(request.UnityEditorPath, target)) throw new IOException($"Unity build support is missing for {target}. Install it in Unity Hub.");
         if (Directory.Exists(request.TargetPath)) throw new IOException("Destination already exists.");
         Directory.CreateDirectory(Path.GetDirectoryName(request.TargetPath)!);
-        Directory.CreateDirectory(request.TargetPath);
-        await AtomicFile.WriteJsonAsync(Path.Combine(request.TargetPath, ".vrcsetup", "state.json"), new SetupState
-        { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
+        var stage = request.TargetPath + ".create-" + Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(stage);
+        try
+        {
+            await AtomicFile.WriteJsonAsync(Path.Combine(stage, ".vrcsetup", "state.json"), new SetupState
+            { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
+            Directory.Move(stage, request.TargetPath);
+        }
+        finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
         var log = NewUnityLog("create");
         var result = await runner.RunAsync(request.UnityEditorPath, ["-createProject", request.TargetPath, "-buildTarget", request.BuildTarget, "-quit", "-batchmode", "-logFile", log],
             progress: progress, phase: "Unity create", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(15), logFile: log);

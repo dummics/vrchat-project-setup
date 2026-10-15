@@ -24,6 +24,23 @@ public sealed class VrcSetupApplication
     {
         using var log = new OperationLog(Paths, plan.Id, progress);
         var report = await Executor.ApplyAsync(plan, log, cancellationToken);
+        foreach (var result in report.Results.Where(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings))
+        {
+            var creation = plan.Projects.First(x => x.Path == result.Path).Creation;
+            if (creation is null) continue;
+            try
+            {
+                var config = await Configuration.LoadAsync(CancellationToken.None);
+                config.LastProjectName = creation.Name; config.LastUnityPackagePath = creation.UnityPackagePath;
+                if (config.Naming.RememberUnityPackageNames) config.SavedProjectNames[creation.UnityPackagePath] = creation.Name;
+                await Configuration.SaveAsync(config, CancellationToken.None);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                log.Report(new(DateTime.UtcNow, "Settings", "Project ready; recent-name settings could not be saved: " + error.Message, EventSeverity.Warning, result.Path));
+                report = report with { Results = report.Results.Select(x => x.Path == result.Path ? x with { Status = OperationStatus.CompletedWithWarnings, Message = x.Message + " Recent-name preferences were not saved." } : x).ToArray() };
+            }
+        }
         var reportFile = Path.Combine(Paths.Logs, "operation-" + plan.Id + ".json");
         report = report with { Results = report.Results.Select(x => x with { LogFile = log.Path }).ToArray(), ReportFile = reportFile };
         await AtomicFile.WriteJsonAsync(reportFile, report, CancellationToken.None);

@@ -109,5 +109,39 @@ public sealed class StorageContractTests : IDisposable
         Assert.Equal("1.0.0", definition.SelectedVersion); Assert.Contains("2.0.0", definition.Versions);
     }
     [Fact] public void PathNormalizationKeepsLiteralSpecialCharacters() => Assert.Equal(Project, ProjectRules.NormalizePath("\"" + Project + "\""));
+    [Fact] public void DriveRootKeepsItsDirectorySeparator()
+    { var drive = Path.GetPathRoot(root)!; Assert.Equal(drive, ProjectRules.NormalizePath(drive)); }
+    [Fact] public async Task LatestPolicySurvivesProfileRoundTrip()
+    {
+        var app = App;
+        var plan = new ProjectPlan { Path = Project, Name = "test", ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string> { [ProjectRules.BaseSdk] = "latest" }, Changes = [], RequiredPackages = [ProjectRules.BaseSdk] };
+        await app.Projects.SaveProfileAsync(plan, default);
+        Assert.Equal("latest", (await app.Projects.ReadAsync(Project)).Policy[ProjectRules.BaseSdk]);
+    }
+    [Fact] public async Task CorruptConfigurationCanBeResetWithItsOriginalPreserved()
+    {
+        var app = App; await app.Configuration.LoadAsync(); File.WriteAllText(app.Paths.ConfigFile, "invalid-json");
+        await app.Configuration.ResetAsync();
+        Assert.Equal(2, (await app.Configuration.LoadAsync()).SchemaVersion);
+        Assert.Contains(Directory.EnumerateFiles(Path.Combine(app.Paths.Home, "migration")), x => File.ReadAllText(x) == "invalid-json");
+    }
+    [Fact] public async Task CancelledAssetRestoreLeavesCurrentAssetsIntact()
+    {
+        var app = App; var marker = Path.Combine(Project, "Assets", "marker.txt"); File.WriteAllText(marker, "original");
+        var plan = new ProjectPlan { Path = Project, Name = "test", ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(), Changes = [], ExtraImports = ["test"] };
+        var backup = await app.Projects.BackupAsync(plan, default); File.WriteAllText(marker, "current");
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => app.Projects.RestoreAsync(Project, backup, null, cancellation.Token));
+        Assert.Equal("current", File.ReadAllText(marker));
+    }
+    [Fact] public async Task ResolveFailureRollsBackTheRestoreItself()
+    {
+        var app = App; var marker = Path.Combine(Project, "Assets", "marker.txt"); File.WriteAllText(marker, "original");
+        var plan = new ProjectPlan { Path = Project, Name = "test", ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(), Changes = [], ExtraImports = ["test"] };
+        var backup = await app.Projects.BackupAsync(plan, default); File.WriteAllText(marker, "current");
+        app.Projects.Resolve = (_, _, _) => Task.FromResult(new ToolResult(1, "failed", ""));
+        await Assert.ThrowsAsync<IOException>(() => app.Projects.RestoreAsync(Project, backup, null, default));
+        Assert.Equal("current", File.ReadAllText(marker));
+    }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

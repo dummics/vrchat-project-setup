@@ -4,8 +4,10 @@
     <Project Path="src/VrcSetup.Core/VrcSetup.Core.csproj" />
     <Project Path="src/VrcSetup.Desktop/VrcSetup.Desktop.csproj" />
     <Project Path="src/VrcSetup.Infrastructure/VrcSetup.Infrastructure.csproj" />
+    <Project Path="src/VrcSetup.Installer/VrcSetup.Installer.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VrcSetup.Core.Tests/VrcSetup.Core.Tests.csproj" />
+    <Project Path="tests/VrcSetup.E2E/VrcSetup.E2E.csproj" />
   </Folder>
 </Solution>

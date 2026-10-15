@@ -23,14 +23,14 @@ public sealed class AppPaths
         var basePath = baseDirectory ?? AppContext.BaseDirectory;
         for (var directory = new DirectoryInfo(basePath); directory is not null; directory = directory.Parent)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "setup-scripts", "config", "vrcsetup.defaults"))) { SourceRoot = directory.FullName; break; }
+            if (File.Exists(Path.Combine(directory.FullName, "VrcSetup.slnx"))) { SourceRoot = directory.FullName; break; }
         }
         PayloadRoot = FindPayloadRoot(basePath);
         var explicitHome = home ?? Environment.GetEnvironmentVariable("VRCSETUP_HOME");
         AllowLegacyImport = string.IsNullOrWhiteSpace(explicitHome);
         var portable = File.Exists(Path.Combine(PayloadRoot, ".vrcsetup-portable"));
         Home = ProjectRules.NormalizePath(explicitHome ?? (portable ? Path.Combine(PayloadRoot, "data") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup")));
-        Resources = Directory.Exists(Path.Combine(basePath, "Resources")) ? Path.Combine(basePath, "Resources") : Path.Combine(SourceRoot ?? PayloadRoot, "setup-scripts", "config");
+        Resources = new[] { Path.Combine(basePath, "Resources"), Path.Combine(PayloadRoot, "app", "cli", "Resources"), Path.Combine(SourceRoot ?? PayloadRoot, "src", "VrcSetup.Infrastructure", "Resources") }.FirstOrDefault(Directory.Exists) ?? Path.Combine(basePath, "Resources");
         Tools = Path.Combine(basePath, "Tools");
     }
 
@@ -41,7 +41,7 @@ public sealed class AppPaths
         return start;
     }
     public string BridgePath => File.Exists(Path.Combine(Resources, "VrcSetupPostImport.cs")) ? Path.Combine(Resources, "VrcSetupPostImport.cs") : Path.Combine(SourceRoot ?? PayloadRoot, "src", "VrcSetup.UnityBridge", "VrcSetupPostImport.cs");
-    public string? VrcGetPath => new[] { Path.Combine(Tools, "vrc-get.exe"), Path.Combine(SourceRoot ?? PayloadRoot, "setup-scripts", "lib", "vrc-get", "vrc-get_win64_86.exe") }.FirstOrDefault(File.Exists);
+    public string? VrcGetPath => new[] { Path.Combine(Tools, "vrc-get.exe"), Path.Combine(SourceRoot ?? PayloadRoot, "src", "VrcSetup.Infrastructure", "Tools", "vrc-get.exe") }.FirstOrDefault(File.Exists);
     public string? FindLegacyConfiguration() => new[]
     {
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "VrcSetup", "setup-scripts", "config", "vrcsetup.json"),
@@ -89,6 +89,7 @@ public sealed class ConfigurationStore(AppPaths paths)
     public string? ImportedFrom { get; private set; }
     public async Task<AppConfiguration> LoadAsync(CancellationToken cancellationToken = default)
     {
+        using var initializationLock = await AtomicFile.LockAsync(Path.Combine(paths.Home, "initialize.lock"), cancellationToken);
         if (File.Exists(paths.ConfigFile))
         {
             var config = await AtomicFile.ReadJsonAsync<AppConfiguration>(paths.ConfigFile, cancellationToken) ?? throw new IOException("Configuration is empty.");
@@ -107,7 +108,9 @@ public sealed class ConfigurationStore(AppPaths paths)
             if (!string.IsNullOrWhiteSpace(initial.UnityEditorPath)) initial.UnityEditorPath = ProjectRules.NormalizePath(initial.UnityEditorPath, legacyRoot);
             if (!string.IsNullOrWhiteSpace(initial.UnityProjectsRoot)) initial.UnityProjectsRoot = ProjectRules.NormalizePath(initial.UnityProjectsRoot, legacyRoot);
             Directory.CreateDirectory(Path.Combine(paths.Home, "migration"));
-            File.Copy(legacy, Path.Combine(paths.Home, "migration", "legacy-config.json"), false);
+            var legacyBackup = Path.Combine(paths.Home, "migration", "legacy-config.json");
+            if (!File.Exists(legacyBackup)) File.Copy(legacy, legacyBackup);
+            else if (AtomicFile.Hash(legacyBackup) != AtomicFile.Hash(legacy)) File.Copy(legacy, Path.Combine(paths.Home, "migration", "legacy-config-" + Guid.NewGuid().ToString("N") + ".json"));
             ImportedFrom = legacy;
         }
         Normalize(initial);
@@ -128,14 +131,26 @@ public sealed class ConfigurationStore(AppPaths paths)
     {
         source = ProjectRules.NormalizePath(source);
         var imported = await AtomicFile.ReadJsonAsync<AppConfiguration>(source, cancellationToken) ?? throw new IOException("Configuration not found.");
-        var current = await LoadAsync(cancellationToken);
         Directory.CreateDirectory(Path.Combine(paths.Home, "migration"));
-        File.Copy(paths.ConfigFile, Path.Combine(paths.Home, "migration", $"config-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.json"));
-        imported.Revision = current.Revision;
+        if (File.Exists(paths.ConfigFile)) File.Copy(paths.ConfigFile, Path.Combine(paths.Home, "migration", $"config-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.json"));
+        imported.Revision = AtomicFile.Hash(paths.ConfigFile);
         if (!string.IsNullOrWhiteSpace(imported.UnityPackagesFolder)) imported.UnityPackagesFolder = ProjectRules.NormalizePath(imported.UnityPackagesFolder, ResolveLegacyBase(source));
+        if (!string.IsNullOrWhiteSpace(imported.UnityEditorPath)) imported.UnityEditorPath = ProjectRules.NormalizePath(imported.UnityEditorPath, ResolveLegacyBase(source));
+        if (!string.IsNullOrWhiteSpace(imported.UnityProjectsRoot)) imported.UnityProjectsRoot = ProjectRules.NormalizePath(imported.UnityProjectsRoot, ResolveLegacyBase(source));
         await SaveAsync(imported, cancellationToken);
         ImportedFrom = source;
         return imported;
+    }
+    public async Task<AppConfiguration> ResetAsync(CancellationToken cancellationToken = default)
+    {
+        var defaults = await AtomicFile.ReadJsonAsync<AppConfiguration>(Path.Combine(paths.Resources, "vrcsetup.defaults"), cancellationToken) ?? new();
+        defaults.Revision = AtomicFile.Hash(paths.ConfigFile);
+        if (File.Exists(paths.ConfigFile))
+        {
+            Directory.CreateDirectory(Path.Combine(paths.Home, "migration"));
+            File.Copy(paths.ConfigFile, Path.Combine(paths.Home, "migration", "before-reset-" + Guid.NewGuid().ToString("N") + ".json"));
+        }
+        await SaveAsync(defaults, cancellationToken); return defaults;
     }
     private static string ResolveLegacyBase(string source) => Path.GetFileName(Path.GetDirectoryName(source)) == "config" && Path.GetFileName(Directory.GetParent(Path.GetDirectoryName(source)!)!.FullName) == "setup-scripts"
         ? Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(source)!)!.FullName)!.FullName : Path.GetDirectoryName(source)!;

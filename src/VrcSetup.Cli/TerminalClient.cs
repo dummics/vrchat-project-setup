@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using Spectre.Console;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
@@ -65,6 +66,7 @@ public static class TerminalClient
         while (true)
         {
             AnsiConsole.Clear(); AnsiConsole.Write(new Rule(Escape(snapshots.Length == 1 ? snapshots[0].Name : $"{snapshots.Length} projects")));
+            foreach (var project in snapshots.Where(x => x.ProfileStatus.Length > 0)) AnsiConsole.MarkupLine("[grey]" + Escape(project.Name + ": " + project.ProfileStatus) + "[/]");
             var table = new Table().AddColumn("Package").AddColumn("Installed").AddColumn("Choice").AddColumn("After saving");
             foreach (var row in session.Rows().Where(x => x.Included || x.Action == "Will be removed")) table.AddRow(Escape(row.Name), Escape(row.InstalledVersion), Escape(row.SelectedVersion), Escape(row.Action));
             AnsiConsole.Write(table);
@@ -136,10 +138,11 @@ public static class TerminalClient
     {
         var package = ProjectRules.NormalizePath(Ask("UnityPackage file (paste or drag and drop)"));
         var name = Ask("Project name", ProjectRules.SuggestName(package, config));
+        var recipe = config.CreationRecipes.Count == 0 ? "No recipe" : Select("Creation recipe", config.CreationRecipes.Keys.Prepend("No recipe"));
         var preset = Select("Packages", config.PackagePresets.Keys.Prepend("My default packages"));
         var target = Select("Unity opens on", ProjectRules.BuildTargets, ProjectRules.SuggestBuildTarget(package));
         var platforms = AnsiConsole.Prompt(new MultiSelectionPrompt<string>().Title("Build and publish platforms").AddChoices(ProjectRules.BuildTargets).Select(target));
-        var plan = await app.PlanCreationAsync(package, config, name, preset == "My default packages" ? null : preset, buildTarget: target, publishingPlatforms: platforms.ToArray(), cancellationToken: token);
+        var plan = await app.PlanCreationAsync(package, config, name, preset == "My default packages" ? null : preset, buildTarget: target, publishingPlatforms: platforms.ToArray(), recipeName: recipe == "No recipe" ? null : recipe, cancellationToken: token);
         await ReviewAndRun(app, plan, token);
     }
     private static async Task<bool> ReviewAndRun(VrcSetupApplication app, OperationPlan plan, CancellationToken token)
@@ -147,15 +150,44 @@ public static class TerminalClient
         Program.PrintPlan(plan, false);
         if (!AnsiConsole.Confirm("Apply these changes?", false)) return false;
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var lines = new Queue<string>();
-        var progress = new InlineProgress<OperationEvent>(value =>
+        var incoming = new ConcurrentQueue<OperationEvent>(); var lines = new List<OperationEvent>();
+        var progress = new InlineProgress<OperationEvent>(incoming.Enqueue);
+        var operation = app.ApplyAsync(plan, progress, cancel.Token);
+        var scroll = 0; var follow = true;
+        await AnsiConsole.Live(new Panel("Starting…")).AutoClear(true).StartAsync(async live =>
         {
-            var color = value.Severity == EventSeverity.Error ? "red" : value.Severity == EventSeverity.Warning ? "yellow" : "grey";
-            AnsiConsole.MarkupLine($"[{color}]{Escape("[" + value.Phase + "] " + value.Message)}[/]");
-            lines.Enqueue(value.Message); if (lines.Count > 100) lines.Dequeue();
+            do
+            {
+                while (incoming.TryDequeue(out var entry)) { lines.Add(entry); if (lines.Count > 2000) { lines.RemoveAt(0); scroll = Math.Max(0, scroll - 1); } }
+                var height = Math.Max(4, Math.Min(30, AnsiConsole.Profile.Height - 14));
+                if (follow) scroll = Math.Max(0, lines.Count - height);
+                try
+                {
+                    if (Console.KeyAvailable)
+                    {
+                        switch (Console.ReadKey(true).Key)
+                        {
+                            case ConsoleKey.Q: case ConsoleKey.Escape: cancel.Cancel(); break;
+                            case ConsoleKey.PageUp: follow = false; scroll = Math.Max(0, scroll - height); break;
+                            case ConsoleKey.PageDown: follow = false; scroll = Math.Min(Math.Max(0, lines.Count - height), scroll + height); break;
+                            case ConsoleKey.UpArrow: follow = false; scroll = Math.Max(0, scroll - 1); break;
+                            case ConsoleKey.DownArrow: follow = false; scroll = Math.Min(Math.Max(0, lines.Count - height), scroll + 1); break;
+                            case ConsoleKey.End: follow = true; break;
+                        }
+                    }
+                }
+                catch (InvalidOperationException) { }
+                var messages = lines.Skip(scroll).Take(height).Select(value =>
+                {
+                    var color = value.Severity == EventSeverity.Error ? "red" : value.Severity == EventSeverity.Warning ? "yellow" : "grey";
+                    return $"[{color}]{Escape("[" + value.Phase + "] " + value.Message)}[/]";
+                });
+                var text = string.Join(Environment.NewLine, messages);
+                live.UpdateTarget(new Panel(new Markup((text.Length == 0 ? "Starting…" : text) + "\n[grey]PgUp/PgDn scroll · End follow · Q/Esc cancel[/]")) { Header = new PanelHeader(" Activity ") });
+                if (!operation.IsCompleted) await Task.Delay(150);
+            } while (!operation.IsCompleted || !incoming.IsEmpty);
         });
-        AnsiConsole.MarkupLine("[grey]Ctrl+C cancels the operation and preserves recovery information.[/]");
-        var report = await app.ApplyAsync(plan, progress, cancel.Token);
+        var report = await operation;
         var table = new Table().AddColumn("Project").AddColumn("Status").AddColumn("Result");
         foreach (var result in report.Results) table.AddRow(Escape(result.Project), Escape(result.Status.ToString()), Escape(result.Message));
         AnsiConsole.Write(table); Notice("Report: " + report.ReportFile);

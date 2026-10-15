@@ -7,6 +7,14 @@ namespace VrcSetup.Tests;
 
 public sealed class RulesTests
 {
+    [Fact] public void SavedUnityPackageNameIsSuggestedOnlyWhenEnabled()
+    {
+        var package = Path.GetFullPath("Avatar.unitypackage"); var config = new AppConfiguration();
+        config.SavedProjectNames[package] = "My creator name";
+        Assert.Equal("My creator name", ProjectRules.SuggestName(package, config));
+        config.Naming.RememberUnityPackageNames = false;
+        Assert.Equal("Avatar", ProjectRules.SuggestName(package, config));
+    }
     [Theory]
     [InlineData("CON")][InlineData("CON.avatar")][InlineData("NUL")][InlineData("COM1")][InlineData("..")][InlineData("folder/name")][InlineData("file:")][InlineData("ends.")][InlineData("ends ")][InlineData("")]
     public void InvalidWindowsNameIsRejected(string name) => Assert.Throws<ArgumentException>(() => ProjectRules.ValidateName(name));
@@ -72,5 +80,11 @@ public sealed class RulesTests
         var project = new ProjectSnapshot { Path = Path.GetFullPath("avatar"), Name = "avatar", Packages = new() { [ProjectRules.BaseSdk] = "3.10.5" } };
         var session = new PackageEditSession([project], new(), []);
         Assert.Throws<InvalidOperationException>(() => session.Toggle(ProjectRules.BaseSdk));
+    }
+    [Fact] public void AddingANewSdkDoesNotLoseTheSelectedComponent()
+    {
+        var project = new ProjectSnapshot { Path = Path.GetFullPath("avatar"), Name = "avatar", Packages = new() { [ProjectRules.BaseSdk] = "3.10.5", [ProjectRules.AvatarSdk] = "3.10.5" } };
+        var session = new PackageEditSession([project], new(), []); session.SetVersion(ProjectRules.WorldSdk, "3.10.6");
+        Assert.Equal("3.10.6", session.Selected[ProjectRules.WorldSdk]);
     }
 }

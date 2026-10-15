@@ -18,7 +18,8 @@ public static partial class ProjectRules
         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("A path is required.");
         value = Environment.ExpandEnvironmentVariables(value.Trim().Trim('"', '\''));
         value = Regex.Replace(value, @"`(?=[\s&()\[\]{}$;,])", "");
-        return Path.GetFullPath(value, basePath ?? Environment.CurrentDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var full = Path.GetFullPath(value, basePath ?? Environment.CurrentDirectory);
+        return full.Length > (Path.GetPathRoot(full)?.Length ?? 0) ? full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) : full;
     }
 
     public static void ValidateName(string name)
@@ -32,6 +33,7 @@ public static partial class ProjectRules
 
     public static string SuggestName(string package, AppConfiguration config)
     {
+        if (config.Naming.RememberUnityPackageNames && config.SavedProjectNames.TryGetValue(NormalizePath(package), out var remembered) && !string.IsNullOrWhiteSpace(remembered)) return remembered;
         var name = Path.GetFileNameWithoutExtension(package);
         foreach (var pattern in config.Naming.RegexRemovePatterns)
             name = Regex.Replace(name, pattern, "", RegexOptions.None, TimeSpan.FromSeconds(1));
@@ -77,7 +79,7 @@ public static partial class ProjectRules
     {
         root = NormalizePath(root);
         target = NormalizePath(target);
-        if (!target.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        if (!target.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             throw new IOException($"Destination must be inside {root}.");
         var directory = new DirectoryInfo(target);
         while (directory is not null && directory.FullName.Length >= root.Length)
@@ -152,7 +154,7 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             foreach (var target in creation.PublishingPlatforms.Append(creation.BuildTarget))
                 if (!ProjectRules.BuildTargets.Contains(target)) throw new ArgumentException($"Unsupported platform: {target}");
         }
-        var desired = ProjectRules.Merge(snapshot.Packages, selected, exact || creation is not null);
+        var desired = ProjectRules.Merge(snapshot.Policy.Count > 0 ? snapshot.Policy : snapshot.Packages, selected, exact || creation is not null);
         var required = ProjectRules.Foundation(snapshot.Packages.Count > 0 ? snapshot.Packages : desired, config);
         foreach (var id in remove ?? [])
         {
@@ -187,7 +189,12 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             ProjectRules.ValidatePackageId(entry.Key);
             if (resolved.ContainsKey(entry.Key)) continue;
             if (snapshot.Packages.TryGetValue(entry.Key, out var unchanged) && unchanged == entry.Value && entry.Value != "latest")
-            { resolved[entry.Key] = snapshot.InstalledVersions.GetValueOrDefault(entry.Key) ?? snapshot.LockedPackages.GetValueOrDefault(entry.Key) ?? unchanged; continue; }
+            {
+                // An exact pin is authoritative even if an import replaced the embedded version.
+                try { _ = new SemanticVersion(entry.Value); resolved[entry.Key] = entry.Value; }
+                catch (ArgumentException) { resolved[entry.Key] = snapshot.InstalledVersions.GetValueOrDefault(entry.Key) ?? snapshot.LockedPackages.GetValueOrDefault(entry.Key) ?? unchanged; }
+                continue;
+            }
             var versions = await catalog.GetVersionsAsync(entry.Key, cancellationToken);
             var version = entry.Value == "latest" ? SemanticVersion.Sort(versions, false).FirstOrDefault() : entry.Value;
             if (version is null || !versions.Contains(version, StringComparer.OrdinalIgnoreCase)) throw new InvalidOperationException($"Package/version not found: {entry.Key}@{entry.Value}");

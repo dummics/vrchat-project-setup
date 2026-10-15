@@ -27,4 +27,14 @@
     <Content Include="Assets/**" CopyToOutputDirectory="PreserveNewest" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
+  <Target Name="PublishNativeXamlResources" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_NativeXamlResource Include="$(TargetDir)*.xbf;$(TargetDir)$(AssemblyName).pri" />
+      <ResolvedFileToPublish Remove="@(_NativeXamlResource)" />
+      <ResolvedFileToPublish Include="@(_NativeXamlResource)">
+        <RelativePath>%(_NativeXamlResource.Filename)%(_NativeXamlResource.Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>

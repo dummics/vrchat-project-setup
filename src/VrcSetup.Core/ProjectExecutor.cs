@@ -5,6 +5,8 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
     public async Task<OperationReport> ApplyAsync(OperationPlan plan, IProgress<OperationEvent>? progress = null, CancellationToken cancellationToken = default)
     {
         if (plan.Projects.Length == 0) throw new ArgumentException("The operation plan is empty.");
+        if (plan.Projects.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plan.Projects.Length)
+            throw new ArgumentException("A project can only appear once in an operation plan.");
         var results = new List<ProjectOutcome>();
         foreach (var project in plan.Projects)
         {
@@ -13,10 +15,22 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             var phase = "Preflight";
             var mutated = false;
             var warnings = new List<string>();
+            IDisposable? projectLock = null;
             Emit(phase, $"Project: {project.Name}");
             try
             {
-                using var projectLock = await workspace.AcquireAsync(project.Path, cancellationToken);
+                projectLock = await workspace.AcquireAsync(project.Path, cancellationToken);
+                if (project.Changes.Select(x => x.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != project.Changes.Length ||
+                    project.DesiredPolicy.Keys.Except(project.Changes.Where(x => x.Kind != ChangeKind.Remove).Select(x => x.Id), StringComparer.OrdinalIgnoreCase).Any())
+                    throw new ArgumentException("The reviewed plan must contain exactly one change entry for every desired package.");
+                foreach (var change in project.Changes)
+                {
+                    ProjectRules.ValidatePackageId(change.Id);
+                    if (change.Kind != ChangeKind.Remove && (string.IsNullOrWhiteSpace(change.ResolvedVersion) || !project.DesiredPolicy.ContainsKey(change.Id)))
+                        throw new ArgumentException("The reviewed package plan is inconsistent: " + change.Id);
+                    if (change.Kind == ChangeKind.Remove && project.DesiredPolicy.ContainsKey(change.Id))
+                        throw new ArgumentException("Removed package remains in the reviewed policy: " + change.Id);
+                }
                 foreach (var import in project.ImportFingerprints)
                     if (ProjectRules.FileIdentity(import.Key) != import.Value) throw new ProjectSkippedException("UnityPackage changed after review. Review again before importing.");
                 if (workspace.IsBusy(project.Path)) throw new ProjectSkippedException("Open in Unity; skipped. Close Unity and review again.");
@@ -24,9 +38,16 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 {
                     var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
                     if (fresh.Fingerprint != project.ExpectedFingerprint) throw new ProjectSkippedException("Project changed after review; skipped. Review again.");
+                    var required = ProjectRules.Foundation(fresh.Packages, new()).Concat(project.RequiredPackages);
+                    foreach (var id in required)
+                        if (!project.DesiredPolicy.ContainsKey(id) || project.Changes.Any(x => x.Id == id && x.Kind == ChangeKind.Remove))
+                            throw new InvalidOperationException("Cannot remove required package: " + id);
                 }
                 else
                 {
+                    if (!project.Path.Equals(project.Creation.TargetPath, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Creation target does not match the reviewed project.");
+                    foreach (var id in ProjectRules.Foundation(project.DesiredPolicy, new()).Concat(project.RequiredPackages))
+                        if (!project.DesiredPolicy.ContainsKey(id)) throw new InvalidOperationException("Required package missing from creation plan: " + id);
                     if (Directory.Exists(project.Path) || File.Exists(project.Path)) throw new ProjectSkippedException("Destination appeared after review. Choose another name.");
                     phase = "Creating";
                     await driver.CreateAsync(project.Creation, progress, cancellationToken);
@@ -105,6 +126,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 results.Add(new(project.Name, project.Path, OperationStatus.Failed, message, BackupPath: backup?.Directory));
                 Emit(phase, message, EventSeverity.Error);
             }
+            finally { projectLock?.Dispose(); }
             void Emit(string eventPhase, string message, EventSeverity severity = EventSeverity.Info) => progress?.Report(new(DateTime.UtcNow, eventPhase, message, severity, project.Path));
         }
         return new(plan.Id, DateTime.UtcNow, results.ToArray(), plan.Projects.Select(x => x.Path).Except(results.Select(x => x.Path), StringComparer.OrdinalIgnoreCase).ToArray());

@@ -1,5 +1,4 @@
 **/logs
-**\setup-scripts\archive\legacy
 
 # User-generated config (contains local paths)
 setup-scripts/config/vrcsetup.json
@@ -16,8 +15,6 @@ setup-scripts/cache/
 
 # .NET build outputs and local IDE state
 **/bin/
-!setup-scripts/bin/
-!setup-scripts/bin/vrcsetup.cmd
 **/obj/
 .vs/
 *.user

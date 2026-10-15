@@ -15,6 +15,7 @@ public sealed class PackageEditSession
     public string? Preset { get; private set; }
     public string[] ExtraImports { get; set; } = [];
     public bool HasPendingChanges => Exact || Selected.Count > 0 || Removed.Count > 0 || ExtraImports.Length > 0;
+    public void AddDefinitions(IEnumerable<PackageDefinition> definitions) { foreach (var definition in definitions) known[definition.Id] = definition; }
     public PackageEditSession(ProjectSnapshot[] projects, AppConfiguration config, IEnumerable<PackageDefinition> definitions)
     {
         if (projects.Length == 0) throw new ArgumentException("Select at least one project.");
@@ -30,11 +31,12 @@ public sealed class PackageEditSession
             var installed = Projects.Select(x => x.InstalledVersions.GetValueOrDefault(id) ?? x.LockedPackages.GetValueOrDefault(id) ?? x.Packages.GetValueOrDefault(id) ?? "Not installed").Distinct().ToArray();
             var exists = Projects.Any(x => x.Packages.ContainsKey(id) || IsRequired(id) && x.LockedPackages.ContainsKey(id));
             var included = !Removed.Contains(id) && (Exact ? Selected.ContainsKey(id) || IsRequired(id) : exists || Selected.ContainsKey(id));
-            var selected = Selected.GetValueOrDefault(id) ?? (installed.Length == 1 ? installed[0] : "Mixed — unchanged");
+            var policies = Projects.Select(x => x.Policy.GetValueOrDefault(id) ?? x.InstalledVersions.GetValueOrDefault(id) ?? x.Packages.GetValueOrDefault(id) ?? "Not installed").Distinct().ToArray();
+            var selected = Selected.GetValueOrDefault(id) ?? (policies.Length == 1 ? policies[0] : "Mixed — unchanged");
             var action = !included && exists ? "Will be removed" : Selected.ContainsKey(id) && !exists ? "Will be added" : Selected.ContainsKey(id) ? "Will be changed" : IsRequired(id) ? "Always included" : exists ? "Included" : "Available";
             return new PackageWorkspaceRow(id, known.GetValueOrDefault(id)?.DisplayName ?? id, installed.Length == 1 ? installed[0] : "Mixed", selected, action, IsRequired(id), included, Targets.GetValueOrDefault(id)?.Length ?? Projects.Length);
         }).Where(x => string.IsNullOrWhiteSpace(query) || (x.Id + " " + x.Name).Contains(query, StringComparison.OrdinalIgnoreCase))
-          .OrderBy(x => x.Required ? 0 : x.Included || Removed.Contains(x.Id) ? 1 : 2).ThenBy(x => x.Name).ToArray();
+          .OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : x.Id == ProjectRules.AvatarSdk || x.Id == ProjectRules.WorldSdk ? 1 : x.Id == ProjectRules.Resolver ? 2 : x.Required ? 3 : x.Included || Removed.Contains(x.Id) ? 4 : 5).ThenBy(x => x.Name).ToArray();
     }
     public void SetVersion(string id, string version)
     {
@@ -42,7 +44,7 @@ public sealed class PackageEditSession
         if (string.IsNullOrWhiteSpace(version)) throw new ArgumentException("Choose a version or latest.");
         if (ProjectRules.SdkIds.Contains(id))
         {
-            var linked = Projects.SelectMany(x => x.Packages.Keys).Concat(Selected.Keys).Append(ProjectRules.BaseSdk).Where(ProjectRules.SdkIds.Contains).Distinct();
+            var linked = Projects.SelectMany(x => x.Packages.Keys).Concat(Selected.Keys).Append(ProjectRules.BaseSdk).Append(id).Where(ProjectRules.SdkIds.Contains).Distinct();
             foreach (var sdk in linked) { Selected[sdk] = version; Removed.Remove(sdk); }
         }
         else { Selected[id] = version; Removed.Remove(id); }

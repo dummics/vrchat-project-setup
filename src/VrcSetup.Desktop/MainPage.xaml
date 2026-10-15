@@ -54,7 +54,7 @@
                             <ComboBox Grid.Column="1" Header="Creation recipe" ItemsSource="{Binding Recipes}" SelectedItem="{Binding SelectedRecipe, Mode=TwoWay}" HorizontalAlignment="Stretch"/>
                         </Grid>
                         <Button Content="Customize packages" Command="{Binding CustomizeCreationPackagesCommand}" HorizontalAlignment="Left"/>
-                        <ComboBox Header="Unity opens on" ItemsSource="{Binding PlatformChoices}" SelectedItem="{Binding BuildTarget, Mode=TwoWay}" MinWidth="240"/>
+                        <ComboBox Header="Unity opens on" ItemsSource="{Binding PlatformOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding BuildTarget, Mode=TwoWay}" MinWidth="240"/>
                         <StackPanel Spacing="8"><TextBlock Text="Build and publish platforms"/><StackPanel Orientation="Horizontal" Spacing="20">
                             <CheckBox Content="Windows" IsChecked="{Binding PublishWindows, Mode=TwoWay}"/><CheckBox Content="Android / Quest" IsChecked="{Binding PublishAndroid, Mode=TwoWay}"/><CheckBox Content="iOS" IsChecked="{Binding PublishIos, Mode=TwoWay}"/>
                         </StackPanel></StackPanel>
@@ -63,8 +63,8 @@
                 </ScrollViewer>
 
                 <Grid x:Name="WorkspaceView" Visibility="Collapsed">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <TextBlock Text="{Binding WorkspaceTitle}" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,14"/>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <StackPanel Margin="0,0,0,14"><TextBlock Text="{Binding WorkspaceTitle}" Style="{StaticResource TitleTextBlockStyle}"/><TextBlock Text="{Binding WorkspaceProfile}" Opacity="0.7" TextWrapping="Wrap"/></StackPanel>
                     <CommandBar Grid.Row="1" DefaultLabelPosition="Right" HorizontalAlignment="Stretch" Margin="0,0,0,12">
                         <AppBarButton Label="Add package" Icon="Add" Command="{Binding SearchPackagesCommand}"/>
                         <AppBarButton Label="Version" Icon="Edit" Command="{Binding ChooseVersionCommand}"/>
@@ -82,7 +82,8 @@
                         </CommandBar.SecondaryCommands>
                     </CommandBar>
                     <TextBox Grid.Row="2" PlaceholderText="Filter packages" Text="{Binding PackageFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Filter project packages" Margin="0,0,0,12"/>
-                    <ListView Grid.Row="3" ItemsSource="{Binding Packages}" SelectedItem="{Binding SelectedPackage, Mode=TwoWay}" DoubleTapped="PackageDoubleTapped">
+                    <Grid Grid.Row="3" Padding="6,4" ColumnSpacing="16" Opacity="0.65"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/><ColumnDefinition Width="130"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions><TextBlock Text="Package"/><TextBlock Grid.Column="1" Text="Installed"/><TextBlock Grid.Column="2" Text="Choice"/><TextBlock Grid.Column="3" Text="After saving"/></Grid>
+                    <ListView Grid.Row="4" ItemsSource="{Binding Packages}" SelectedItem="{Binding SelectedPackage, Mode=TwoWay}" DoubleTapped="PackageDoubleTapped">
                         <ListView.ItemTemplate><DataTemplate>
                             <Grid Padding="6,10" ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/><ColumnDefinition Width="130"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions>
                                 <StackPanel Spacing="4"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Id}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis"/></StackPanel>
@@ -92,7 +93,7 @@
                             </Grid>
                         </DataTemplate></ListView.ItemTemplate>
                     </ListView>
-                    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0"><Button Content="Open in Unity" Command="{Binding OpenUnityCommand}"/><Button Content="Apply changes" Command="{Binding ApplyChangesCommand}" Style="{StaticResource AccentButtonStyle}"/></StackPanel>
+                    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0"><Button Content="Open in Unity" Command="{Binding OpenUnityCommand}"/><Button Content="Apply changes" Command="{Binding ApplyChangesCommand}" Style="{StaticResource AccentButtonStyle}"/></StackPanel>
                 </Grid>
 
                 <Grid x:Name="PresetsView" Visibility="Collapsed">
@@ -117,7 +118,7 @@
                 <Grid x:Name="ActivityView" Visibility="Collapsed">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <TextBlock Text="Activity &amp; recovery" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,16"/>
-                    <CommandBar Grid.Row="1" DefaultLabelPosition="Right" Margin="0,0,0,12"><AppBarButton Label="Logs folder" Icon="Folder" Command="{Binding OpenLogsCommand}"/><AppBarButton Label="Incomplete projects" Icon="Repair" Command="{Binding RecoverProjectCommand}"/><AppBarButton Label="Restore backup" Icon="Undo" Command="{Binding RestoreBackupCommand}"/></CommandBar>
+                    <CommandBar Grid.Row="1" DefaultLabelPosition="Right" Margin="0,0,0,12"><AppBarButton Label="Logs folder" Icon="Folder" Command="{Binding OpenLogsCommand}"/><AppBarButton Label="JSON report" Icon="Document" Command="{Binding OpenReportCommand}"/><AppBarButton Label="Incomplete projects" Icon="Repair" Command="{Binding RecoverProjectCommand}"/><AppBarButton Label="Restore backup" Icon="Undo" Command="{Binding RestoreBackupCommand}"/></CommandBar>
                     <ListView Grid.Row="2" ItemsSource="{Binding Activity}" SelectionMode="None"><ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" Padding="4,6"/></DataTemplate></ListView.ItemTemplate></ListView>
                 </Grid>
 
@@ -129,6 +130,7 @@
                         <Expander Header="Naming" HorizontalAlignment="Stretch"><StackPanel Spacing="14"><TextBox Header="Prefix" Text="{Binding NamingPrefix, Mode=TwoWay}"/><TextBox Header="Suffix" Text="{Binding NamingSuffix, Mode=TwoWay}"/><TextBox Header="Cleanup regex rules (one per line)" Text="{Binding NamingPatterns, Mode=TwoWay}" AcceptsReturn="True" MinHeight="80"/><CheckBox Content="Remember UnityPackage names" IsChecked="{Binding RememberNames, Mode=TwoWay}"/></StackPanel></Expander>
                         <Expander Header="Additional imports" HorizontalAlignment="Stretch"><StackPanel Spacing="12"><TextBox Header="UnityPackages folder" Text="{Binding ExtraImportsFolder, Mode=TwoWay}"/><Button Content="Browse" Command="{Binding PickExtraFolderCommand}"/></StackPanel></Expander>
                         <ComboBox Header="Theme" ItemsSource="{Binding ThemeChoices}" SelectedItem="{Binding Theme, Mode=TwoWay}"/>
+                        <Expander Header="Application maintenance" HorizontalAlignment="Stretch"><StackPanel Orientation="Horizontal" Spacing="12"><Button Content="Repair installation" Command="{Binding RepairInstallationCommand}"/><Button Content="Uninstall" Command="{Binding UninstallApplicationCommand}"/></StackPanel></Expander>
                         <StackPanel Orientation="Horizontal" Spacing="12"><Button Content="Save settings" Command="{Binding SaveSettingsCommand}" Style="{StaticResource AccentButtonStyle}"/><Button Content="Import legacy config" Command="{Binding ImportSettingsCommand}"/><Button Content="Reset" Command="{Binding ResetSettingsCommand}"/></StackPanel>
                     </StackPanel>
                 </ScrollViewer>

@@ -6,7 +6,7 @@ Data: 14 ottobre 2026. Stato: approvato da Dom per implementazione completa e co
 
 Realizzare VRCSETUP Desktop in C# con WinUI 3 e Windows App SDK stabile, su .NET 10. Trasferire la logica applicativa in un core C# condiviso con una CLI/TUI .NET. Conservare creazione da UnityPackage, pacchetti, preset, import, bulk editing e recovery dell'attuale tool. La GUI rende questi flussi più accessibili e mantiene i controlli avanzati disponibili.
 
-Questa consegna contiene analisi, inventario e piano. Non sono stati creati branch, compilati prototipi, avviati Unity/VCC o modificati progetti, configurazioni e installazione. La conferma di Dom autorizzerà l'avvio del lavoro sul nuovo branch; l'intero sviluppo resta da eseguire e verificare.
+Il piano e' stato approvato il 14 ottobre 2026. Le sezioni di baseline e le stime registrano l'analisi iniziale; implementazione e verifiche correnti sono descritte in PROGRESS.md e VERIFICATION.md.
 
 ## 1. Baseline e scope Git
 

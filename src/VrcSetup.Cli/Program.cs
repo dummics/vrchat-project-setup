@@ -31,6 +31,13 @@ public static class Program
     public static async Task<int> ExecuteAsync(VrcSetupApplication app, CommandLine command, CancellationToken cancellationToken)
     {
         var verb = command.Positionals.FirstOrDefault()?.ToLowerInvariant() ?? "setup";
+        if (verb == "config" && command.Positionals.ElementAtOrDefault(1) == "reset")
+        {
+            if (!command.Has("yes") && !Confirm("Reset your VRCSETUP settings?")) return 2;
+            await app.Configuration.ResetAsync(cancellationToken); Console.WriteLine("Settings reset; previous file backed up."); return 0;
+        }
+        if (verb == "config" && command.Positionals.ElementAtOrDefault(1) == "import")
+        { await app.Configuration.ImportAsync(command.Required(2, "Legacy config path"), cancellationToken); Console.WriteLine("Configuration imported; original preserved."); return 0; }
         var config = await app.Configuration.LoadAsync(cancellationToken);
         var progress = new InlineProgress<OperationEvent>(value => Console.Error.WriteLine($"[{value.Phase}] {value.Message}"));
         switch (verb)
@@ -141,8 +148,7 @@ public static class Program
                 if (action == "reset")
                 {
                     if (!command.Has("yes") && !Confirm("Reset your VRCSETUP settings?")) return 2;
-                    var defaults = await AtomicFile.ReadJsonAsync<AppConfiguration>(Path.Combine(app.Paths.Resources, "vrcsetup.defaults"), cancellationToken) ?? new();
-                    defaults.Revision = config.Revision; await app.Configuration.SaveAsync(defaults, cancellationToken); return 0;
+                    await app.Configuration.ResetAsync(cancellationToken); return 0;
                 }
                 if (action != "set") throw new ArgumentException("Use config show, set, import or reset.");
                 if (command.Value("root") is { } root) config.UnityProjectsRoot = ProjectRules.NormalizePath(root);
@@ -185,6 +191,13 @@ public static class Program
                     var confirmed = command.Has("yes") || Confirm("Delete this incomplete project and all of its contents? " + project);
                     if (!confirmed) return 2;
                     await app.Projects.CleanupAsync(project, config.UnityProjectsRoot, confirmed, cancellationToken); return 0;
+                }
+                if (action == "close-unity")
+                {
+                    if (!int.TryParse(command.Value("pid"), out var pid)) throw new ArgumentException("--pid must identify the Unity editor to close.");
+                    var confirmed = command.Has("yes") || Confirm("Force close Unity PID " + pid + " for " + project + "? Unsaved work may be lost.");
+                    if (!confirmed) return 2;
+                    await app.Projects.CloseUnityAsync(project, pid, confirmed, cancellationToken); return 0;
                 }
                 if (action == "restore")
                 {
@@ -230,7 +243,7 @@ public static class Program
             foreach (var result in report.Results) Console.WriteLine($"{result.Project}: {result.Status} {result.Message}");
             Console.WriteLine("Report: " + report.ReportFile);
         }
-        if (report.Results.Any(x => x.Status == OperationStatus.Cancelled)) return 2;
+        if (report.Cancelled) return 2;
         return report.Success ? 0 : 1;
     }
     public static void PrintPlan(OperationPlan plan, bool dryRun)

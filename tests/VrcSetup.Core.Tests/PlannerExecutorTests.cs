@@ -24,11 +24,27 @@ public sealed class PlannerExecutorTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string>(), new(), remove: [ProjectRules.BaseSdk]));
         Assert.Equal(0, workspace.Backups);
     }
+    [Fact] public async Task ImportedPlanCannotBypassFoundationProtection()
+    {
+        var workspace = new MemoryWorkspace(); var driver = new MemoryDriver(workspace);
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string>(), new());
+        var policy = new Dictionary<string, string>(project.DesiredPolicy); policy.Remove(ProjectRules.BaseSdk);
+        project = project with { DesiredPolicy = policy, RequiredPackages = [], Changes = project.Changes.Select(x => x.Id == ProjectRules.BaseSdk ? x with { Kind = ChangeKind.Remove, ResolvedVersion = null } : x).ToArray() };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
+        Assert.Equal(OperationStatus.Failed, report.Results.Single().Status); Assert.Equal(0, workspace.Backups); Assert.Equal(0, driver.Calls);
+    }
     [Fact] public async Task MissingEmbeddedPackageIsRepairedEvenIfLockedVersionMatches()
     {
         var workspace = new MemoryWorkspace(); workspace.Project.InstalledVersions.Remove("tool");
         var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string>(), new());
         Assert.Equal(ChangeKind.Update, plan.Changes.Single(x => x.Id == "tool").Kind);
+    }
+    [Fact] public async Task ExactPinWinsOverAStaleEmbeddedVersion()
+    {
+        var workspace = new MemoryWorkspace(); workspace.Project.InstalledVersions["tool"] = "1.1.0";
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "1.0.0" }, new());
+        var change = plan.Changes.Single(x => x.Id == "tool");
+        Assert.Equal("1.0.0", change.ResolvedVersion); Assert.Equal(ChangeKind.Update, change.Kind);
     }
     [Fact] public async Task ChangedProjectAfterReviewIsSkipped()
     {
@@ -57,7 +73,7 @@ public sealed class PlannerExecutorTests
         var workspace = new MemoryWorkspace(); var driver = new MemoryDriver(workspace) { Fail = true };
         var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
-        Assert.Equal(OperationStatus.Failed, report.Results.Single().Status); Assert.Equal(1, workspace.Restores);
+        Assert.Equal(OperationStatus.Failed, report.Results.Single().Status); Assert.Equal(1, workspace.Restores); Assert.True(workspace.LockHeldDuringRestore); Assert.False(workspace.LeaseHeld);
     }
     [Fact] public async Task SuccessfulExecutionVerifiesMetadataAndCompletes()
     {
@@ -70,6 +86,15 @@ public sealed class PlannerExecutorTests
     {
         var catalog = new FixtureCatalog(); catalog.Versions[ProjectRules.BaseSdk] = ["3.10.5-beta.1"];
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ProjectPlanner(new MemoryWorkspace(), catalog).PlanAsync(Path.GetFullPath("avatar"), new Dictionary<string, string> { [ProjectRules.BaseSdk] = "3.10.5-beta.1" }, new()));
+    }
+    [Fact] public async Task CancellationBetweenProjectsDoesNotReportFullSuccess()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var workspace = new MemoryWorkspace { CancelOnComplete = cancellation }; var driver = new MemoryDriver(workspace);
+        var first = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var second = first with { Name = "second", Path = Path.GetFullPath("second") };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [first, second]), cancellationToken: cancellation.Token);
+        Assert.False(report.Success); Assert.True(report.Cancelled); Assert.Equal([second.Path], report.NotProcessed);
     }
 }
 
@@ -92,16 +117,16 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
         InstalledVersions = new() { [ProjectRules.BaseSdk] = "3.10.5", [ProjectRules.AvatarSdk] = "3.10.5", [ProjectRules.Resolver] = "0.1.29", ["tool"] = "1.0.0", ["custom"] = "1.0.0" },
         LockedPackages = new() { ["tool"] = "1.0.0" }
     };
-    public bool Busy; public bool BackupFailure; public int Backups, Restores; public bool Completed;
+    public bool Busy; public bool BackupFailure; public int Backups, Restores; public bool Completed; public bool LeaseHeld, LockHeldDuringRestore; public CancellationTokenSource? CancelOnComplete;
     public Task<ProjectSnapshot> ReadAsync(string path, CancellationToken cancellationToken = default) => Task.FromResult(Project with { Path = path });
     public bool IsBusy(string path) => Busy;
-    public Task<IDisposable> AcquireAsync(string path, CancellationToken cancellationToken) => Task.FromResult<IDisposable>(new Lease());
+    public Task<IDisposable> AcquireAsync(string path, CancellationToken cancellationToken) { LeaseHeld = true; return Task.FromResult<IDisposable>(new Lease(() => LeaseHeld = false)); }
     public Task<BackupRecord> BackupAsync(ProjectPlan plan, CancellationToken cancellationToken) { Backups++; if (BackupFailure) throw new IOException("Backup denied"); return Task.FromResult(new BackupRecord("backup", new Dictionary<string, string?>())); }
-    public Task<bool> RestoreAsync(string project, BackupRecord backup, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Restores++; return Task.FromResult(true); }
+    public Task<bool> RestoreAsync(string project, BackupRecord backup, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Restores++; LockHeldDuringRestore = LeaseHeld; return Task.FromResult(true); }
     public Task SaveProfileAsync(ProjectPlan plan, CancellationToken cancellationToken) => Task.CompletedTask;
     public Task SetStepAsync(string path, string step, bool done, CancellationToken cancellationToken) => Task.CompletedTask;
-    public Task CompleteAsync(string path, CancellationToken cancellationToken) { Completed = true; return Task.CompletedTask; }
-    private sealed class Lease : IDisposable { public void Dispose() { } }
+    public Task CompleteAsync(string path, CancellationToken cancellationToken) { Completed = true; CancelOnComplete?.Cancel(); return Task.CompletedTask; }
+    private sealed class Lease(Action close) : IDisposable { public void Dispose() => close(); }
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {

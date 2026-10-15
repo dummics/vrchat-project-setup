@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework><OutputType>WinExe</OutputType><UseWPF>true</UseWPF>
+    <AssemblyName>VrcSetupInstaller</AssemblyName><RuntimeIdentifier>win-x64</RuntimeIdentifier><SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile><IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract><EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed><PublishReadyToRun>false</PublishReadyToRun>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../VrcSetup.Infrastructure/VrcSetup.Infrastructure.csproj" /></ItemGroup>
+  <ItemGroup Condition="Exists('$(PayloadArchive)')"><EmbeddedResource Include="$(PayloadArchive)" LogicalName="VrcSetup.Payload.zip" /></ItemGroup>
+</Project>

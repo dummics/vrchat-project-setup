@@ -14,7 +14,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private readonly Window window;
     private readonly SemaphoreSlim dialogGate = new(1, 1);
     private bool initialized;
+    private bool syncingNavigation;
+    private readonly TaskCompletionSource initializedCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public Task Initialized => initializedCompletion.Task;
     public MainViewModel ViewModel { get; }
+    public void CloseApplication() => window.Close();
     public MainPage(Window window, VrcSetupApplication app)
     {
         this.window = window;
@@ -27,7 +31,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         Loaded += async (_, _) =>
         {
             if (initialized) return; initialized = true;
-            await ViewModel.InitializeAsync(); ShowPage(ViewModel.CurrentPage);
+            try { await ViewModel.InitializeAsync(); ShowPage(ViewModel.CurrentPage); initializedCompletion.TrySetResult(); }
+            catch (Exception error) { initializedCompletion.TrySetException(error); }
         };
     }
     private void ShowPage(string page)
@@ -38,10 +43,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         PresetsView.Visibility = page == "Presets" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
+        syncingNavigation = true;
+        try { Navigation.SelectedItem = page == "Settings" ? Navigation.SettingsItem : Navigation.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page == "Workspace" ? "Projects" : page)); }
+        finally { syncingNavigation = false; }
     }
     private void NavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (ViewModel is null) return;
+        if (ViewModel is null || syncingNavigation) return;
         ViewModel.CurrentPage = args.IsSettingsSelected ? "Settings" : (args.SelectedItem as NavigationViewItem)?.Tag?.ToString() ?? "Projects";
     }
     private void NewProjectClicked(object sender, RoutedEventArgs args) => ViewModel.CurrentPage = "Create";
@@ -103,6 +111,12 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         filter.TextChanged += (_, _) => { list.ItemsSource = items.Where(x => x.Contains(filter.Text, StringComparison.OrdinalIgnoreCase)).ToArray(); if (list.Items.Count > 0) list.SelectedIndex = 0; };
         return await ShowDialog(dialog) == ContentDialogResult.Primary ? list.SelectedItem?.ToString() : null;
     }
+    public async Task<string[]?> ChooseManyAsync(string title, string[] items)
+    {
+        var list = new ListView { ItemsSource = items, SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = 340, MinWidth = 400 };
+        var dialog = new ContentDialog { Title = title, Content = list, PrimaryButtonText = "Add selected", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
+        return await ShowDialog(dialog) == ContentDialogResult.Primary ? list.SelectedItems.OfType<string>().ToArray() : null;
+    }
     public async Task<string?> VersionAsync(string package, string[] versions, string current)
     {
         var filter = new TextBox { PlaceholderText = "Version or prefix", Text = "" };
@@ -143,5 +157,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         stack.Children.Add(new TextBlock { Text = "Projects open in Unity or changed after this review will be skipped. Backups are kept in each project's .vrcsetup folder.", TextWrapping = TextWrapping.Wrap });
         var dialog = new ContentDialog { Title = "Review changes", Content = new ScrollViewer { Content = stack, MaxHeight = 430 }, PrimaryButtonText = plan.Projects.Any(x => x.Creation is not null) ? "Create project" : "Apply changes", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Close };
         return await ShowDialog(dialog) == ContentDialogResult.Primary;
+    }
+    public async Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions)
+    {
+        using var editor = new PackageSetDialog(title, packages, config, known, search, versions);
+        return await ShowDialog(editor.Dialog) == ContentDialogResult.Primary ? editor.Result() : null;
     }
 }

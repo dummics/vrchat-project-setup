@@ -15,9 +15,13 @@ public interface IDesktopInteraction
     Task<bool> ReviewAsync(OperationPlan plan);
     Task<string?> TextAsync(string title, string initial = "");
     Task<string?> ChooseAsync(string title, string[] items);
+    Task<string[]?> ChooseManyAsync(string title, string[] items);
     Task<string?> VersionAsync(string package, string[] versions, string current);
     Task<string[]?> ChooseProjectsAsync(string title, ProjectSnapshot[] projects, string[] selected);
     Task ShowErrorAsync(string message);
+    void CloseApplication();
+    Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions);
 }
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
@@ -52,6 +56,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial bool IsRefreshing { get; set; }
     [ObservableProperty] public partial string Status { get; set; } = "Ready";
     [ObservableProperty] public partial string WorkspaceTitle { get; set; } = "Packages";
+    [ObservableProperty] public partial string WorkspaceProfile { get; set; } = "";
+    private string lastReport = "";
     [ObservableProperty] public partial PackageWorkspaceRow? SelectedPackage { get; set; }
     [ObservableProperty] public partial PackageDefinition? SelectedDefinition { get; set; }
     [ObservableProperty] public partial string UnityEditorPath { get; set; } = "";
@@ -64,6 +70,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial string Theme { get; set; } = "System";
     [ObservableProperty] public partial string LastLog { get; set; } = "";
     public string[] PlatformChoices => ProjectRules.BuildTargets;
+    public PlatformOption[] PlatformOptions => [new("Windows", "StandaloneWindows64"), new("Android / Quest", "Android"), new("iOS", "iOS")];
     public string[] ThemeChoices => ["System", "Light", "Dark"];
     public string[] SortChoices => ["recent", "name"];
     [ObservableProperty] public partial string ProjectSort { get; set; } = "recent";
@@ -103,6 +110,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ProjectName = ProjectRules.SuggestName(value, config); BuildTarget = ProjectRules.SuggestBuildTarget(value);
         PublishAndroid = BuildTarget == "Android"; PublishWindows = !PublishAndroid;
     }
+    partial void OnSelectedPresetChanged(string value) => creationOverrides = null;
+    partial void OnSelectedRecipeChanged(string value)
+    {
+        if (!config.CreationRecipes.TryGetValue(value, out var recipe)) { creationOverrides = null; return; }
+        SelectedPreset = string.IsNullOrWhiteSpace(recipe.Preset) || !config.PackagePresets.ContainsKey(recipe.Preset) ? "My default packages" : recipe.Preset;
+        creationOverrides = recipe.Packages.Count > 0 ? new(recipe.Packages) : null;
+        BuildTarget = recipe.BuildTarget; PublishWindows = recipe.PublishingPlatforms.Contains("StandaloneWindows64"); PublishAndroid = recipe.PublishingPlatforms.Contains("Android"); PublishIos = recipe.PublishingPlatforms.Contains("iOS");
+    }
     private void FilterProjects() => Replace(Projects, allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase)));
     private void RenderWorkspace()
     {
@@ -135,6 +150,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (session?.HasPendingChanges == true && !await ui.ConfirmAsync("Pending changes", "Discard staged package changes?", "Discard")) return;
         var fresh = new List<ProjectSnapshot>(); foreach (var project in projects) fresh.Add(await app.Projects.ReadAsync(project.Path));
         session = new(fresh.ToArray(), config, await app.Catalog.KnownAsync(config, fresh.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)));
+        WorkspaceProfile = string.Join(Environment.NewLine, fresh.Where(x => x.ProfileStatus.Length > 0).Select(x => (fresh.Count > 1 ? x.Name + ": " : "") + x.ProfileStatus));
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : $"{projects.Length} projects"; PackageFilter = ""; RenderWorkspace(); CurrentPage = "Workspace";
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>
@@ -149,11 +165,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var query = await ui.TextAsync("Search packages"); if (string.IsNullOrWhiteSpace(query)) return;
         var results = await app.Catalog.SearchAsync(query); if (results.Length == 0) { Status = "No packages found"; return; }
-        var choice = await ui.ChooseAsync("Add package", results.Select(x => x.DisplayName + " · " + x.Id).ToArray());
-        var item = results.FirstOrDefault(x => x.DisplayName + " · " + x.Id == choice); if (item is null) return;
-        var version = await ui.VersionAsync(item.Id, await app.Catalog.GetVersionsAsync(item.Id), item.SelectedVersion); if (version is null) return;
-        if (session is not null) { session.SetVersion(item.Id, version); RenderWorkspace(); }
-        else { await app.Catalog.RememberAsync([item with { SelectedVersion = version }]); await LoadRegistry(); }
+        var choices = await ui.ChooseManyAsync("Add packages", results.Select(x => x.DisplayName + " · " + x.Id).ToArray()); if (choices is null) return;
+        foreach (var item in results.Where(x => choices.Contains(x.DisplayName + " · " + x.Id)))
+        {
+            var version = await ui.VersionAsync(item.Id, await app.Catalog.GetVersionsAsync(item.Id), item.SelectedVersion); if (version is null) continue;
+            if (session is not null) session.SetVersion(item.Id, version);
+            else await app.Catalog.RememberAsync([item with { SelectedVersion = version }]);
+        }
+        if (session is not null) RenderWorkspace(); else await LoadRegistry();
     });
     [RelayCommand] private async Task ApplyPreset() => await Guard(async () =>
     {
@@ -225,9 +244,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var report = await Run(plan);
         if (report.Success)
         {
-            config.LastProjectName = ProjectName; config.LastUnityPackagePath = PackageFile;
-            if (config.Naming.RememberUnityPackageNames) config.SavedProjectNames[ProjectRules.NormalizePath(PackageFile)] = ProjectName;
-            await app.Configuration.SaveAsync(config); creationOverrides = null;
+            config = await app.Configuration.LoadAsync(); creationOverrides = null;
             await OpenProjectsAsync([await app.Projects.ReadAsync(plan.Projects[0].Path)]);
         }
     });
@@ -239,6 +256,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             var progress = new SynchronizationProgress<OperationEvent>(context, AppendActivity);
             var report = await app.ApplyAsync(plan, progress, cancellation.Token);
             LastLog = report.Results.FirstOrDefault()?.LogFile ?? "";
+            lastReport = report.ReportFile ?? "";
             foreach (var result in report.Results) AppendActivity(new(DateTime.UtcNow, result.Status.ToString(), result.Project + ": " + result.Message, report.Success ? EventSeverity.Info : EventSeverity.Warning));
             Status = report.Success ? "Completed" : "Recovery available";
             return report;
@@ -281,24 +299,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     private async Task<Dictionary<string, string>?> EditPackageSet(Dictionary<string, string> working, string title)
     {
-        while (true)
-        {
-            var action = await ui.ChooseAsync(title, ["Add or change package", "Remove package", "Save", "Discard"]);
-            if (action is null or "Discard") return null;
-            if (action == "Save") return working;
-            if (action == "Remove package")
-            {
-                var id = await ui.ChooseAsync("Remove optional package", working.Keys.Where(x => !ProjectRules.Foundation(working, config).Contains(x)).ToArray());
-                if (id is not null) working.Remove(id);
-            }
-            else
-            {
-                var id = await ui.TextAsync("Package ID"); if (string.IsNullOrWhiteSpace(id)) continue;
-                var version = await ui.VersionAsync(id, await app.Catalog.GetVersionsAsync(id), working.GetValueOrDefault(id) ?? "latest"); if (version is null) continue;
-                if (ProjectRules.SdkIds.Contains(id)) foreach (var sdk in working.Keys.Where(ProjectRules.SdkIds.Contains).Append(id).Distinct().ToArray()) working[sdk] = version;
-                else working[id] = version;
-            }
-        }
+        return await ui.EditPackagesAsync(title, working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync);
     }
     [RelayCommand] private async Task FavoriteDefinition() => await Guard(async () =>
     {
@@ -359,9 +360,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task ResetSettings() => await Guard(async () =>
     {
         if (!await ui.ConfirmAsync("Reset settings", "Reset defaults, presets and paths? Your Unity projects are preserved.", "Reset")) return;
-        var defaults = await AtomicFile.ReadJsonAsync<AppConfiguration>(Path.Combine(app.Paths.Resources, "vrcsetup.defaults")) ?? new(); defaults.Revision = config.Revision;
-        await app.Configuration.SaveAsync(defaults); config = defaults; LoadSettings(); LoadPresetNames(); await LoadRegistry();
+        config = await app.Configuration.ResetAsync(); LoadSettings(); LoadPresetNames(); await LoadRegistry();
     });
+    [RelayCommand] private async Task RepairInstallation() => await Guard(async () =>
+    {
+        await new InstallationManager(app.Paths).RepairAsync(InstallationRoot()); Status = "Installation and shortcuts verified";
+    });
+    [RelayCommand] private async Task UninstallApplication() => await Guard(async () =>
+    {
+        var root = InstallationRoot();
+        if (!await ui.ConfirmAsync("Uninstall VRCSETUP", root + "\nSettings and Unity projects will be preserved.", "Uninstall")) return;
+        await new InstallationManager(app.Paths).UninstallAsync(root, true); ui.CloseApplication();
+    });
+    private string InstallationRoot() => File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")) ? app.Paths.PayloadRoot : InstallationManager.DefaultRoot;
     [RelayCommand] private async Task ImportSettings() => await Guard(async () =>
     { if (await ui.PickFileAsync(".json") is { } file) { config = await app.Configuration.ImportAsync(file); LoadSettings(); LoadPresetNames(); await LoadRegistry(); } });
     [RelayCommand] private async Task RecoverProject() => await Guard(async () =>
@@ -369,8 +380,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var candidates = allProjects.Where(x => x.Incomplete).ToArray();
         var choice = await ui.ChooseAsync("Incomplete project", candidates.Select(x => x.Name + " · " + x.Path).ToArray());
         var project = candidates.FirstOrDefault(x => x.Name + " · " + x.Path == choice); if (project is null) return;
-        var action = await ui.ChooseAsync("Recovery", ["Inspect packages / retry", "Reimport original UnityPackage", "Delete incomplete project", "Open folder"]);
+        var action = await ui.ChooseAsync("Recovery", ["Inspect packages / retry", "Reimport original UnityPackage", "Delete incomplete project", "Close a blocking Unity editor", "Open folder"]);
         if (action == "Open folder") OpenPath(project.Path);
+        if (action == "Close a blocking Unity editor")
+        {
+            var processes = ProjectWorkspace.GetUnityProcesses(project.Path);
+            var selected = await ui.ChooseAsync("Unity process", processes.Select(x => "PID " + x.Pid + " · " + project.Name).ToArray());
+            var process = processes.FirstOrDefault(x => "PID " + x.Pid + " · " + project.Name == selected);
+            if (process.Pid > 0 && await ui.ConfirmAsync("Close Unity editor", "Force close PID " + process.Pid + " for " + project.Path + "? Unsaved work may be lost.", "Close Unity")) await app.Projects.CloseUnityAsync(project.Path, process.Pid, true);
+        }
         if (action == "Inspect packages / retry") await OpenProjectsAsync([project]);
         if (action == "Reimport original UnityPackage")
         {
@@ -392,6 +410,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     [RelayCommand] private void OpenLogs() { Directory.CreateDirectory(app.Paths.Logs); OpenPath(app.Paths.Logs); }
     [RelayCommand] private void OpenLastLog() { if (File.Exists(LastLog)) OpenPath(LastLog); }
+    [RelayCommand] private void OpenReport() { if (File.Exists(lastReport)) OpenPath(lastReport); }
     [RelayCommand] private void OpenProjectFolder() { if (session is not null) OpenPath(session.Projects[0].Path); }
     [RelayCommand] private async Task OpenUnity() => await Guard(async () =>
     {
@@ -415,3 +434,4 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
 public sealed class SynchronizationProgress<T>(SynchronizationContext context, Action<T> callback) : IProgress<T>
 { public void Report(T value) => context.Post(_ => callback(value), null); }
+public sealed record PlatformOption(string Label, string Value);

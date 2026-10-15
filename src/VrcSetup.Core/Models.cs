@@ -95,9 +95,11 @@ public sealed record ProjectSnapshot
     public Dictionary<string, string> Packages { get; init; } = [];
     public Dictionary<string, string> LockedPackages { get; init; } = [];
     public Dictionary<string, string> InstalledVersions { get; init; } = [];
+    public Dictionary<string, string> Policy { get; init; } = [];
     public string? PresetName { get; init; }
     public bool ProfileModified { get; init; }
     public bool PresetChanged { get; init; }
+    public string ProfileStatus => string.Join(" · ", new[] { PresetName, ProfileModified ? "Project packages modified" : null, PresetChanged ? "Preset definition changed" : null }.Where(x => !string.IsNullOrWhiteSpace(x)));
     public string ConfigurationFingerprint { get; init; } = "";
     public bool Incomplete { get; init; }
     public int PackageCount => Packages.Count;
@@ -118,7 +120,8 @@ public sealed record OperationEvent(DateTime Timestamp, string Phase, string Mes
 public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null);
 public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOutcome[] Results, string[] NotProcessed, string? ReportFile = null)
 {
-    public bool Success => Results.Length > 0 && Results.All(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings or OperationStatus.Unchanged);
+    public bool Success => NotProcessed.Length == 0 && Results.Length > 0 && Results.All(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings or OperationStatus.Unchanged);
+    public bool Cancelled => NotProcessed.Length > 0 || Results.Any(x => x.Status == OperationStatus.Cancelled);
 }
 
 public sealed record CreationRequest(string UnityPackagePath, string Name, string TargetPath, string UnityEditorPath, string BuildTarget, string[] PublishingPlatforms, string[] ExtraImports);
