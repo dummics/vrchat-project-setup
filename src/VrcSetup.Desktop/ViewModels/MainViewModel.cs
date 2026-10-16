@@ -40,7 +40,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<PackageDefinition> Registry { get; } = [];
     public ObservableCollection<string> Presets { get; } = [DefaultPresetKey];
     public ObservableCollection<string> Recipes { get; } = [];
-    public ObservableCollection<string> Activity { get; } = [];
+    public ObservableCollection<UiActivityEntry> Activity { get; } = [];
     public ObservableCollection<ProjectSnapshot> SelectedProjects { get; } = [];
     [ObservableProperty] public partial string CurrentPage { get; set; } = "Projects";
     [ObservableProperty] public partial string ProjectFilter { get; set; } = "";
@@ -102,13 +102,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void LoadPresetNames()
     {
         var names = new[] { DefaultPresetKey }.Concat(config.PackagePresets.Keys.Order()).ToArray();
+        var editing = names.Contains(EditingPreset) ? EditingPreset : DefaultPresetKey;
+        var selected = names.Contains(SelectedPreset) ? SelectedPreset : DefaultPresetKey;
         presetSwitching = true;
-        if (!names.Contains(EditingPreset)) EditingPreset = DefaultPresetKey;
-        if (!names.Contains(SelectedPreset)) SelectedPreset = DefaultPresetKey;
         foreach (var name in names.Where(x => !Presets.Contains(x))) Presets.Add(name);
         foreach (var name in Presets.Where(x => !names.Contains(x)).ToArray()) Presets.Remove(name);
+        EditingPreset = editing; SelectedPreset = selected;
         presetSwitching = false;
-        Replace(Recipes, new[] { "No recipe" }.Concat(config.CreationRecipes.Keys.Order()));
+        var recipeNames = new[] { "No recipe" }.Concat(config.CreationRecipes.Keys.Order()).ToArray();
+        var recipe = recipeNames.Contains(SelectedRecipe) ? SelectedRecipe : "No recipe";
+        foreach (var name in recipeNames.Where(x => !Recipes.Contains(x))) Recipes.Add(name);
+        foreach (var name in Recipes.Where(x => !recipeNames.Contains(x)).ToArray()) Recipes.Remove(name);
+        SelectedRecipe = recipe;
         OnPropertyChanged(nameof(EditingPreset)); OnPropertyChanged(nameof(SelectedPreset));
     }
     private async Task LoadRegistry() { Replace(Registry, await app.Catalog.KnownAsync(config, session?.Projects.Select(x => (IReadOnlyDictionary<string, string>)x.Packages))); RefreshLibraryRows(); }
@@ -277,8 +282,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private void CancelOperation() { operation?.Cancel(); refresh?.Cancel(); }
     public void AppendActivity(OperationEvent value)
     {
-        Activity.Add($"{value.Timestamp.ToLocalTime():HH:mm:ss}  {value.Phase}  {value.Message}");
+        Activity.Add(new($"{value.Timestamp.ToLocalTime():HH:mm}", value.Phase, value.Message));
         while (Activity.Count > 300) Activity.RemoveAt(0);
+        OnPropertyChanged(nameof(ActivityEmptyVisibility));
         Status = value.Phase;
     }
     [RelayCommand] private async Task SavePreset() => await Guard(async () =>
@@ -300,7 +306,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task CreatePreset() => await Guard(async () =>
     {
         var name = await ui.TextAsync("New preset"); if (string.IsNullOrWhiteSpace(name)) return;
-        if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || config.PackagePresets.ContainsKey(name)) throw new ArgumentException("Choose a different preset name.");
+        if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Choose a different preset name.");
         if (PresetDirty && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + PresetLabel + "?", "Discard")) return;
         config.PackagePresets[name] = new(presetWorking.Count > 0 ? presetWorking : config.VpmPackages); await app.Configuration.SaveAsync(config); LoadPresetNames(); presetSwitching = true; EditingPreset = name; presetSwitching = false; LoadEditingPreset();
     });

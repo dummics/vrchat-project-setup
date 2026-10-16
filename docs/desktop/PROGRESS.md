@@ -1,6 +1,16 @@
 # VRCSETUP Desktop migration
 
-Status: usability revision for tester handoff, 16 October 2026. Version: **2.0.0-preview.3**, Windows x64.
+Status: visual polish revision, 16 October 2026. Version: **2.0.0-preview.4**, Windows x64.
+
+## Preview 4 visual polish
+
+Projects keeps its existing flow, with aligned rows and a per-project package-management icon replacing normal Ready/count text. Exceptional project states retain a warning icon. Create and Settings use constrained, stretching scroll content to prevent fields and actions overflowing the viewport.
+
+Packages has a centered preset selector and separate Preset packages / My packages tabs. Local packages appear as cards with favorite stars and inclusion state for the current preset. Row menus contain secondary actions; the save/discard strip only appears for pending changes. Preset rename preserves staged edits, creation overrides and case-insensitive template references. Required package removal stays disabled.
+
+The compact version dialog defaults to the current choice; Automatic represents the same `latest` engine policy. Search, previews and exact versions remain under Advanced. Activity moves to footer navigation and uses structured entries, an empty state and a contextual project-actions menu. Restore and unfinished-project actions remain available without developer mode. Settings shares field widths, grouped surfaces and aligned switches.
+
+The core and terminal client are unchanged. Evidence and the new installer/portable build live under `.work/artifacts/2026-10-16-polish/`. Native fixture verification covers 1024, 1180 and 1366 pixel window widths, package-menu data context, rename/template references, library state and form bounds. Human desktop input remains outside these automated checks.
 
 ## Preview 3 usability revision
 

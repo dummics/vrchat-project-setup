@@ -42,7 +42,8 @@ public sealed class PackageSetDialog : IDisposable
         panel.Children.Add(list);
         var row = new Grid { ColumnSpacing = 10 }; row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         version = new ComboBox { Header = "Version for highlighted package", IsEditable = true, ItemsSource = new[] { "latest" }, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var useVersion = new Button { Content = "Use version", VerticalAlignment = VerticalAlignment.Bottom }; Grid.SetColumn(useVersion, 1); row.Children.Add(version); row.Children.Add(useVersion); panel.Children.Add(row);
+        var useVersion = new Button { Content = "Use version", VerticalAlignment = VerticalAlignment.Bottom }; Grid.SetColumn(useVersion, 1); row.Children.Add(version); row.Children.Add(useVersion);
+        panel.Children.Add(new Expander { Header = "Version options", Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
         Dialog = new() { Title = title, Content = panel, PrimaryButtonText = "Save selection", CloseButtonText = "Discard", DefaultButton = ContentDialogButton.Primary };
         Dialog.Closed += (_, _) => cancellation.Cancel();
         find.Click += async (_, _) =>

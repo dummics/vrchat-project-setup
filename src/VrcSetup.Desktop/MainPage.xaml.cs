@@ -45,7 +45,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
-        try { Navigation.SelectedItem = page == "Settings" ? Navigation.SettingsItem : Navigation.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page == "Workspace" ? "Projects" : page)); }
+        try { Navigation.SelectedItem = page == "Settings" ? Navigation.SettingsItem : Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page == "Workspace" ? "Projects" : page)); }
         finally { syncingNavigation = false; }
     }
     private void NavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -61,6 +61,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ViewModel.SelectedProjects.Clear(); foreach (var selected in ProjectList.SelectedItems.OfType<ProjectSnapshot>()) ViewModel.SelectedProjects.Add(selected); ViewModel.NotifyProjectSelection();
     }
     private void ProjectClicked(object sender, ItemClickEventArgs args) { }
+    private async void ProjectPackagesClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project); }
     private async void PackageDoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => await ViewModel.ChooseVersionCommand.ExecuteAsync(null);
     private async void SortChanged(object sender, SelectionChangedEventArgs args) { if (initializedCompletion.Task.IsCompletedSuccessfully && ViewModel is not null && !ViewModel.IsBusy) await ViewModel.ChangeSortCommand.ExecuteAsync(null); }
     private void ErrorClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.DismissErrorCommand.Execute(null);
@@ -68,7 +70,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void PresetRemoveClicked(object sender, RoutedEventArgs args) => ViewModel.RemovePresetPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
     private void LibraryAddClicked(object sender, RoutedEventArgs args) => ViewModel.AddLibraryPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
     private async void PackageStarClicked(object sender, RoutedEventArgs args) => await ViewModel.TogglePackageFavoriteCommand.ExecuteAsync((sender as FrameworkElement)?.DataContext as UiPackageRow);
-    private async void LibraryExpanded(Expander sender, ExpanderExpandingEventArgs args) => await ViewModel.RefreshCatalogCommand.ExecuteAsync(null);
+    private void PackageTabChanged(object sender, SelectionChangedEventArgs args)
+    { if (ViewModel is not null && PackageTabs.SelectedIndex == 1 && ViewModel.Application.AllowBackgroundCatalogRefresh) _ = ViewModel.RefreshCatalogCommand.ExecuteAsync(null); }
     private void PackageDragLeave(object sender, DragEventArgs args) => PackageDropZone.BorderThickness = new Thickness(2);
     private void PackageDragOver(object sender, DragEventArgs args)
     { if (args.DataView.Contains(StandardDataFormats.StorageItems)) { args.AcceptedOperation = DataPackageOperation.Copy; PackageDropZone.BorderThickness = new Thickness(3); args.DragUIOverride.Caption = "Import UnityPackage"; args.DragUIOverride.IsCaptionVisible = true; } }
@@ -95,7 +98,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async Task<ContentDialogResult> ShowDialog(ContentDialog dialog)
     {
         await dialogGate.WaitAsync();
-        try { dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = RequestedTheme; return await dialog.ShowAsync(); }
+        try { dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = RequestedTheme; dialog.PrimaryButtonStyle = (Style)Resources["ActionButton"]; return await dialog.ShowAsync(); }
         finally { dialogGate.Release(); }
     }
     public async Task<bool> ConfirmAsync(string title, string content, string action) => await ShowDialog(new()
@@ -128,16 +131,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     public async Task<string?> VersionAsync(string package, string[] versions, string current)
     {
-        var filter = new TextBox { PlaceholderText = "Version or prefix", Text = "" };
-        var prerelease = new CheckBox { Content = "Show prereleases", IsChecked = current.Contains('-') && !current.StartsWith("Mixed") };
-        var exact = new TextBox { Header = "Exact version (optional)", PlaceholderText = "Leave blank to use the selected version" };
-        var list = new ListView { MaxHeight = 260, MinWidth = 400 };
-        void Refresh() { list.ItemsSource = new[] { "latest" }.Concat(SemanticVersion.Sort(versions, prerelease.IsChecked == true).Where(x => x.StartsWith(filter.Text, StringComparison.OrdinalIgnoreCase))).ToArray(); list.SelectedItem = list.Items.Contains(current) ? current : "latest"; }
-        filter.TextChanged += (_, _) => Refresh(); prerelease.Checked += (_, _) => Refresh(); prerelease.Unchecked += (_, _) => Refresh(); Refresh();
-        var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(filter); panel.Children.Add(prerelease); panel.Children.Add(list); panel.Children.Add(exact);
-        var dialog = new ContentDialog { Title = PackageCatalog.FriendlyName(package), Content = panel, PrimaryButtonText = "Use version", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
-        if (await ShowDialog(dialog) != ContentDialogResult.Primary) return null;
-        return string.IsNullOrWhiteSpace(exact.Text) ? list.SelectedItem?.ToString() : exact.Text.Trim();
+        var picker = new VersionPickerDialog(package, versions, current);
+        return await ShowDialog(picker.Dialog) == ContentDialogResult.Primary ? picker.Result : null;
     }
     public async Task<string[]?> ChooseProjectsAsync(string title, ProjectSnapshot[] projects, string[] selected)
     {

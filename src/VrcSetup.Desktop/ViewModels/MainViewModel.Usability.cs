@@ -15,8 +15,8 @@ public sealed partial class MainViewModel
     private bool initializedLibrary;
     public ObservableCollection<UiPackageRow> PresetPackages { get; } = [];
     public ObservableCollection<UiPackageRow> LibraryPackages { get; } = [];
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetLabel))] public partial string EditingPreset { get; set; } = DefaultPresetKey;
-    [ObservableProperty] public partial bool PresetDirty { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetLabel)), NotifyPropertyChangedFor(nameof(IsCustomPreset)), NotifyPropertyChangedFor(nameof(PresetSaveContext))] public partial string EditingPreset { get; set; } = DefaultPresetKey;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetChangesVisibility))] public partial bool PresetDirty { get; set; }
     [ObservableProperty] public partial string LibraryFilter { get; set; } = "";
     [ObservableProperty] public partial bool FavoritesOnly { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(IsErrorVisible))] public partial string ErrorMessage { get; set; } = "";
@@ -27,6 +27,10 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial Visibility EmptyProjectsVisibility { get; set; } = Visibility.Collapsed;
     [ObservableProperty] public partial string EmptyProjectsMessage { get; set; } = "";
     public string PresetLabel => EditingPreset == DefaultPresetKey ? "Default" : EditingPreset;
+    public bool IsCustomPreset => EditingPreset != DefaultPresetKey;
+    public Visibility PresetChangesVisibility => PresetDirty ? Visibility.Visible : Visibility.Collapsed;
+    public string PresetSaveContext => "Unsaved changes · " + PresetLabel;
+    public Visibility ActivityEmptyVisibility => Activity.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool HasSelectedProjects => SelectedProjects.Count > 0;
     public void NotifyProjectSelection() => OnPropertyChanged(nameof(HasSelectedProjects));
     public bool IsErrorVisible => ErrorMessage.Length > 0;
@@ -44,7 +48,8 @@ public sealed partial class MainViewModel
     { if (value == "Presets" && initializedLibrary && app.AllowBackgroundCatalogRefresh) _ = RefreshCatalogCommand.ExecuteAsync(null); }
     partial void OnEditingPresetChanged(string oldValue, string newValue)
     {
-        if (presetSwitching || !Presets.Contains(newValue)) return;
+        if (presetSwitching) return;
+        if (!Presets.Contains(newValue)) { presetSwitching = true; EditingPreset = Presets.Contains(oldValue) ? oldValue : DefaultPresetKey; presetSwitching = false; return; }
         _ = Guard(async () =>
         {
             if (PresetDirty && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + (oldValue == DefaultPresetKey ? "Default" : oldValue) + "?", "Discard"))
@@ -56,7 +61,7 @@ public sealed partial class MainViewModel
     {
         presetWorking = new(EditingPreset == DefaultPresetKey ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(EditingPreset) ?? []);
         foreach (var id in ProjectRules.Foundation(presetWorking, config)) presetWorking.TryAdd(id, "latest");
-        PresetDirty = false; RenderPreset();
+        PresetDirty = false; RenderPreset(); RefreshLibraryRows();
         initializedLibrary = true;
     }
     private UiPackageRow MakeRow(string id, string version, bool required = false) => new(id,
@@ -75,6 +80,27 @@ public sealed partial class MainViewModel
         EmptyProjectsMessage = ProjectFilter.Length > 0 ? "No projects match your search." : string.IsNullOrWhiteSpace(ProjectsRoot) ? "Choose a projects folder in Settings, or add an existing project." : !Directory.Exists(ProjectsRoot) ? "Projects folder is unavailable: " + ProjectsRoot + ". Reconnect the drive or choose another folder." : "No Unity projects found in " + ProjectsRoot;
     }
     [RelayCommand] private void DismissError() => ErrorMessage = "";
+    [RelayCommand] private async Task OpenProjectPackages(ProjectSnapshot? project) => await Guard(async () =>
+    { if (project is not null) await OpenProjectsAsync([project]); });
+    [RelayCommand] private async Task RenamePreset() => await Guard(async () =>
+    {
+        if (!IsCustomPreset) return;
+        var name = await ui.TextAsync("Rename preset", EditingPreset); if (name is not null) await RenameEditingPresetAsync(name);
+    });
+    internal async Task RenameEditingPresetAsync(string name)
+    {
+        var old = EditingPreset; name = name.Trim();
+        var overrides = creationOverrides;
+        if (!IsCustomPreset || string.IsNullOrWhiteSpace(name) || name == old) return;
+        if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Choose a different preset name.");
+        config.PackagePresets[name] = config.PackagePresets[old]; config.PackagePresets.Remove(old);
+        foreach (var key in config.CreationRecipes.Where(x => x.Value.Preset.Equals(old, StringComparison.OrdinalIgnoreCase)).Select(x => x.Key).ToArray()) config.CreationRecipes[key] = config.CreationRecipes[key] with { Preset = name };
+        await app.Configuration.SaveAsync(config);
+        presetSwitching = true;
+        try { if (!Presets.Contains(name)) Presets.Add(name); EditingPreset = name; if (SelectedPreset.Equals(old, StringComparison.OrdinalIgnoreCase)) SelectedPreset = name; }
+        finally { presetSwitching = false; }
+        LoadPresetNames(); creationOverrides = overrides;
+    }
     [RelayCommand] private async Task AddPresetPackages() => await Guard(async () =>
     {
         var edited = await EditPackageSet(new(presetWorking), "Add packages — " + PresetLabel); if (edited is null) return;
@@ -127,7 +153,15 @@ public sealed partial class MainViewModel
 public sealed record UiPackageRow(string Id, string Name, string Version, bool Required, bool Favorite, bool Included)
 {
     public bool CanAdd => !Included;
+    public Visibility AddVisibility => Included ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility IncludedVisibility => Included ? Visibility.Visible : Visibility.Collapsed;
+    public bool CanRemove => !Required;
+    public string VersionLabel => Version == "latest" ? "Automatic" : Version;
+    public string AddLabel => Included ? "In preset" : "Add to preset";
+    public string FavoriteAction => Favorite ? "Remove favorite" : "Add to favorites";
+    public Visibility FavoriteVisibility => Favorite ? Visibility.Visible : Visibility.Collapsed;
     public string StarGlyph => Favorite ? "\uE735" : "\uE734";
     public SolidColorBrush StarBrush => new(Favorite ? Microsoft.UI.Colors.Gold : Microsoft.UI.Colors.Gray);
     public Visibility RemoveVisibility => Required ? Visibility.Collapsed : Visibility.Visible;
 }
+public sealed record UiActivityEntry(string Time, string Phase, string Message);

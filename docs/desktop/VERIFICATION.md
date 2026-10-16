@@ -1,6 +1,12 @@
 # Desktop migration verification
 
-Build: 2.0.0-preview.3, Windows x64. Verified on Dom's Windows machine on 14–16 October 2026. This is a tester build; no clean Windows VM or human interactive acceptance is claimed.
+Build: 2.0.0-preview.4, Windows x64. Verified on Dom's Windows machine on 14–16 October 2026. This is a tester build; no clean Windows VM or human interactive acceptance is claimed.
+
+## Preview 4 visual polish
+
+The shared .NET suite remains 81 tests. The expanded native WinUI sweep has 54 checks: three window widths, form bounds, preset/library consistency, contextual save strip, footer navigation, row-menu data context and required-package protection, a compact version picker including exact prereleases, and preset rename preserving staged edits/template references. `ui-verified` contains the development render evidence. The source adds no Unity project mutation path; real personal projects are inspected only for startup metadata.
+
+The library-card state mismatch and transient ComboBox null selection during rename were caught and fixed during native testing. Review also identified case-insensitive template references, creation customization preservation and normal-user access to restore; these are handled in the final implementation. Final packaged/native/lifecycle results are recorded with the distributables in `.work/artifacts/2026-10-16-polish/`.
 
 ## Preview 3 follow-up
 

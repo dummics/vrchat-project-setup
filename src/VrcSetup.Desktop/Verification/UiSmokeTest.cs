@@ -27,6 +27,7 @@ public static class UiSmokeTest
         await File.WriteAllTextAsync(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
         var config = await application.Configuration.LoadAsync(); config.UnityProjectsRoot = Path.GetDirectoryName(project)!;
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
+        config.CreationRecipes["PC template"] = new() { Preset = "creator pc", Packages = packages }; await application.Configuration.SaveAsync(config);
         return application;
     }
     public static async Task RunAsync(MainWindow window, string artifacts)
@@ -37,9 +38,13 @@ public static class UiSmokeTest
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == "My default packages", "Preset selector has a visible selection after binding");
         Require(viewModel.WorkVisibility == Visibility.Collapsed, "Idle footer actions are hidden");
+        Require(viewModel.PresetChangesVisibility == Visibility.Collapsed, "Preset save actions are contextual");
+        var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)page.FindName("Navigation");
+        Require(navigation.FooterMenuItems.OfType<Microsoft.UI.Xaml.Controls.NavigationViewItem>().Any(x => x.Tag?.ToString() == "Activity"), "Activity is in the navigation footer");
         viewModel.SelectedRecipe = null!; viewModel.SelectedRecipe = "No recipe";
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
+        Require(viewModel.LibraryPackages.All(x => x.Included == viewModel.PresetPackages.Any(p => p.Id == x.Id)), "Library cards reflect the selected preset");
         var original = await viewModel.Application.Projects.ReadAsync(viewModel.Projects[0].Path);
         var optional = viewModel.PresetPackages.First(x => x.Id == "gogoloco");
         viewModel.RemovePresetPackageCommand.Execute(optional);
@@ -60,6 +65,16 @@ public static class UiSmokeTest
         viewModel.EditingPreset = "Creator PC";
         await viewModel.ReloadConfigurationAsync();
         Require(!viewModel.PresetDirty && viewModel.PresetPackages.Any(x => x.Id == "gogoloco"), "Reloaded configuration replaces the selected preset working copy");
+        viewModel.SelectedPreset = "Creator PC";
+        var creationField = typeof(VrcSetup_Desktop.ViewModels.MainViewModel).GetField("creationOverrides", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var creationSelection = new Dictionary<string, string> { ["custom.creation-package"] = "1.2.3" }; creationField.SetValue(viewModel, creationSelection);
+        viewModel.RemovePresetPackageCommand.Execute(viewModel.PresetPackages.First(x => x.Id == "gogoloco"));
+        await viewModel.RenameEditingPresetAsync("Creator renamed");
+        saved = await viewModel.Application.Configuration.LoadAsync();
+        Require(viewModel.PresetDirty && !viewModel.PresetPackages.Any(x => x.Id == "gogoloco") && saved.PackagePresets["Creator renamed"].ContainsKey("gogoloco"), "Rename preserves unsaved package edits without saving them");
+        Require(saved.CreationRecipes["PC template"].Preset == "Creator renamed" && viewModel.SelectedPreset == "Creator renamed", "Renaming keeps template and creation preset references");
+        Require(ReferenceEquals(creationField.GetValue(viewModel), creationSelection), "Renaming retains customized packages in the creation draft");
+        viewModel.DiscardPresetChangesCommand.Execute(null);
         viewModel.EditingPreset = "My default packages";
         viewModel.PackageFile = Path.Combine(artifacts, "Avatar Quest.unitypackage");
         Require(viewModel.ProjectName.Length > 0 && viewModel.BuildTarget == "Android", "Dropped package suggests name and one platform");
@@ -70,7 +85,8 @@ public static class UiSmokeTest
         Require(viewModel.Projects.Count == 1, "Native project library loaded");
         viewModel.ProjectFilter = "Quest"; Require(viewModel.Projects.Count == 0, "Project filter empty state");
         viewModel.ProjectFilter = "PC"; Require(viewModel.Projects.Count == 1, "Project filter recovers matches");
-        viewModel.SelectedProjects.Add(viewModel.Projects[0]); await viewModel.OpenSelectedProjectsCommand.ExecuteAsync(null);
+        await viewModel.OpenProjectPackagesCommand.ExecuteAsync(viewModel.Projects[0]);
+        Require(viewModel.CurrentPage == "Workspace", "Project package action opens the shared workspace");
         Require(viewModel.Packages.Any(x => x.Id == "gogoloco"), "Native package workspace uses shared metadata");
         viewModel.SelectedPackage = viewModel.Packages.First(x => x.Id == "gogoloco");
         await viewModel.TogglePackageCommand.ExecuteAsync(null);
@@ -85,7 +101,17 @@ public static class UiSmokeTest
             Require(editor.Result().ContainsKey("custom.required"), "Native preset working copy preserves custom foundation");
             editor.Dialog.Hide(); await shown;
         }
-        foreach (var size in new[] { new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
+        var versionPicker = new VersionPickerDialog("gogoloco", ["1.8.6", "1.9.0-beta.1"], "1.8.6");
+        Require(versionPicker.Result == "1.8.6" && !versionPicker.Advanced.IsExpanded, "Version picker preserves pinned choice with advanced controls collapsed");
+        versionPicker.Dialog.XamlRoot = page.XamlRoot;
+        versionPicker.Dialog.PrimaryButtonStyle = (Style)page.Resources["ActionButton"];
+        var versionShown = versionPicker.Dialog.ShowAsync(); await Task.Delay(180);
+        await Render(versionPicker.Dialog, Path.Combine(artifacts, "version-picker.png")); versionPicker.Dialog.Hide(); await versionShown;
+        versionPicker.Choice.SelectedIndex = 0;
+        Require(versionPicker.Result == "latest", "Automatic UI choice retains shared latest policy");
+        versionPicker.Exact.Text = "1.9.0-beta.1";
+        Require(versionPicker.Result == "1.9.0-beta.1", "Advanced exact prerelease remains available");
+        foreach (var size in new[] { new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
         {
             window.AppWindow.Resize(size);
             foreach (var screen in new[] { "Projects", "Workspace", "Create", "Presets", "Settings", "Activity" })
@@ -95,7 +121,26 @@ public static class UiSmokeTest
                 await Task.Delay(180);
                 page.UpdateLayout();
                 Require(page.ActualWidth > 0 && page.ActualHeight > 0, "Layout measured: " + screen + " " + size.Width);
+                if (screen is "Create" or "Settings")
+                {
+                    var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");
+                    var viewport = (FrameworkElement)page.FindName(screen == "Create" ? "CreateView" : "SettingsView");
+                    var origin = form.TransformToVisual(viewport).TransformPoint(new(0, 0));
+                    Require(origin.X >= -1 && origin.X + form.ActualWidth <= viewport.ActualWidth + 1, "Form fits viewport: " + screen + " " + size.Width);
+                }
                 await Render(page, Path.Combine(artifacts, screen.ToLowerInvariant() + "-" + size.Width + ".png"));
+                if (screen == "Presets")
+                {
+                    if (size.Width == 1180)
+                    {
+                        var options = Descendants(page).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(x) == "Package options");
+                        var menu = (Microsoft.UI.Xaml.Controls.MenuFlyout)options.Flyout; menu.ShowAt(options); await Task.Delay(120);
+                        Require(menu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Last().DataContext is VrcSetup_Desktop.ViewModels.UiPackageRow { Required: true } && !menu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Last().IsEnabled, "Package menu inherits row context and protects required packages");
+                        await Render(page, Path.Combine(artifacts, "preset-menu.png")); menu.Hide();
+                    }
+                    var tabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("PackageTabs"); tabs.SelectedIndex = 1; await Task.Delay(180);
+                    await Render(page, Path.Combine(artifacts, "my-packages-" + size.Width + ".png")); tabs.SelectedIndex = 0;
+                }
             }
         }
         viewModel.Theme = "Dark"; viewModel.CurrentPage = "Workspace"; await Task.Delay(180);
@@ -108,6 +153,14 @@ public static class UiSmokeTest
         saved.UnityProjectsRoot = availableRoot; await viewModel.Application.Configuration.SaveAsync(saved); await viewModel.ReloadConfigurationAsync(); await viewModel.RefreshProjectsCommand.ExecuteAsync(null);
         await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "ui-smoke.json"), new { Passed = true, Checks = checks, page.ActualWidth, page.ActualHeight, Scale = page.XamlRoot.RasterizationScale, InputInjected = false });
         void Require(bool condition, string message) { if (!condition) throw new IOException(message); checks.Add(message); }
+    }
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i); yield return child;
+            foreach (var descendant in Descendants(child)) yield return descendant;
+        }
     }
     public static async Task Render(FrameworkElement element, string path)
     {
