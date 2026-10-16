@@ -8,6 +8,8 @@ The shared .NET suite remains 81 tests. The expanded native WinUI sweep has 54 c
 
 The library-card state mismatch and transient ComboBox null selection during rename were caught and fixed during native testing. Review also identified case-insensitive template references, creation customization preservation and normal-user access to restore; these are handled in the final implementation. Final packaged/native/lifecycle results are recorded with the distributables in `.work/artifacts/2026-10-16-polish/`.
 
+The final self-contained preview 4 passes 55 native checks with SDK/runtime search paths excluded, including creation-draft preservation during rename. Its standalone installer passes all 17 isolated lifecycle checks. The live installation succeeds with the configuration hash unchanged and the independent legacy alias retained. Published ProductVersion identifies implementation commit `870d2ff`; desktop acceptance still belongs to Dom/testers.
+
 ## Preview 3 follow-up
 
 - 81 .NET tests pass, including legacy terminal panel rendering with special characters, shared developer flags/logging, malformed-project isolation and completed-state serializer compatibility.
