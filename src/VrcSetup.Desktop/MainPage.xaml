@@ -1,16 +1,24 @@
 <Page
     x:Class="VrcSetup_Desktop.MainPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:VrcSetup_Desktop">
+    <Page.Resources>
+        <local:DisplayLabelConverter x:Key="DisplayLabel"/>
+        <Style x:Key="ActionButton" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}"><Setter Property="Background" Value="#51CEBD"/><Setter Property="Foreground" Value="#102B29"/><Setter Property="Padding" Value="18,10"/></Style>
+        <Style x:Key="PresetSaveButton" TargetType="Button" BasedOn="{StaticResource ActionButton}"><Setter Property="Background" Value="#BCA5FA"/><Setter Property="Foreground" Value="#251C36"/></Style>
+        <DataTemplate x:Key="PresetChoice"><TextBlock Text="{Binding Converter={StaticResource DisplayLabel}}"/></DataTemplate>
+    </Page.Resources>
     <Grid>
-        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <NavigationView x:Name="Navigation" IsBackButtonVisible="Collapsed" PaneDisplayMode="Left" OpenPaneLength="220"
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <InfoBar IsOpen="{Binding IsErrorVisible}" Message="{Binding ErrorMessage}" Title="" Severity="Error" IsClosable="True" Closed="ErrorClosed" Margin="12,8"/>
+        <NavigationView x:Name="Navigation" Grid.Row="1" IsBackButtonVisible="Collapsed" PaneDisplayMode="Left" OpenPaneLength="220"
                         IsSettingsVisible="True" SelectionChanged="NavigationChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Projects" Tag="Projects" Icon="Library"/>
                 <NavigationViewItem Content="Create project" Tag="Create" Icon="Add"/>
                 <NavigationViewItem Content="Packages &amp; presets" Tag="Presets" Icon="AllApps"/>
-                <NavigationViewItem Content="Activity &amp; recovery" Tag="Activity" Icon="Clock"/>
+                <NavigationViewItem Content="Activity" Tag="Activity" Icon="Clock"/>
             </NavigationView.MenuItems>
             <Grid Padding="28,20,28,20">
                 <Grid x:Name="ProjectsView">
@@ -19,7 +27,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <TextBlock Text="Projects" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center"/>
                         <Button Grid.Column="1" Content="Add existing" Command="{Binding PickExistingProjectCommand}"/>
-                        <Button Grid.Column="2" Content="New project" Style="{StaticResource AccentButtonStyle}" Click="NewProjectClicked"/>
+                        <Button Grid.Column="2" Content="New project" Style="{StaticResource ActionButton}" Click="NewProjectClicked"/>
                     </Grid>
                     <Grid Grid.Row="1" ColumnSpacing="12" Margin="0,0,0,16">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="130"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -37,28 +45,25 @@
                             </Grid>
                         </DataTemplate></ListView.ItemTemplate>
                     </ListView>
-                    <Button Grid.Row="3" Content="Manage selected projects" Command="{Binding OpenSelectedProjectsCommand}" HorizontalAlignment="Right" Margin="0,16,0,0"/>
+                    <StackPanel Grid.Row="2" Visibility="{Binding EmptyProjectsVisibility}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" MaxWidth="460"><FontIcon Glyph="&#xE8B7;" FontSize="40" Opacity="0.55"/><TextBlock Text="{Binding EmptyProjectsMessage}" TextWrapping="Wrap" TextAlignment="Center"/><Button Content="Choose projects folder" Command="{Binding PickProjectsRootCommand}" HorizontalAlignment="Center"/></StackPanel>
+                    <ProgressRing Grid.Row="2" IsActive="{Binding IsLoadingProjects}" Width="36" Height="36" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Button Grid.Row="3" Content="Open selected projects" IsEnabled="{Binding HasSelectedProjects}" Command="{Binding OpenSelectedProjectsCommand}" Style="{StaticResource ActionButton}" HorizontalAlignment="Right" Margin="0,16,0,0"/>
                 </Grid>
 
                 <ScrollViewer x:Name="CreateView" Visibility="Collapsed">
-                    <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="18" AllowDrop="True" DragOver="PackageDragOver" Drop="PackageDropped">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Stretch" Spacing="22">
                         <TextBlock Text="Create project" Style="{StaticResource TitleTextBlockStyle}"/>
-                        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <TextBox Header="UnityPackage" Text="{Binding PackageFile, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Drop a .unitypackage here" AutomationProperties.Name="UnityPackage path"/>
-                            <Button Grid.Column="1" Content="Browse" Command="{Binding PickPackageCommand}" VerticalAlignment="Bottom"/>
+                        <Border x:Name="PackageDropZone" AllowDrop="True" DragOver="PackageDragOver" Drop="PackageDropped" DragLeave="PackageDragLeave" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="#51CEBD" BorderThickness="2" CornerRadius="12" Padding="24" MinHeight="118">
+                            <Grid ColumnSpacing="20"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><FontIcon Glyph="&#xE8B7;" FontSize="32" Foreground="#51CEBD"/><TextBlock Grid.Column="1" Text="{Binding PackageFileLabel}" FontSize="18" VerticalAlignment="Center" TextWrapping="Wrap" ToolTipService.ToolTip="{Binding PackageFile}"/><Button Grid.Column="2" Content="Choose file" Command="{Binding PickPackageCommand}" VerticalAlignment="Center"/></Grid>
+                        </Border>
+                        <Grid ColumnSpacing="18"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="210"/></Grid.ColumnDefinitions>
+                            <TextBox Header="Project name" PlaceholderText="Generated from the file name" Text="{Binding ProjectName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                            <ComboBox x:Name="PlatformSelector" Grid.Column="1" Header="Platform" ItemsSource="{Binding PlatformOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding BuildTarget, Mode=TwoWay}" HorizontalAlignment="Stretch"/>
                         </Grid>
-                        <TextBox Header="Project name" Text="{Binding ProjectName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                        <TextBlock Text="{Binding ProjectsRoot}" Opacity="0.65" TextWrapping="Wrap"/>
-                        <Grid ColumnSpacing="18"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <ComboBox Header="Package preset" ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset, Mode=TwoWay}" HorizontalAlignment="Stretch"/>
-                            <ComboBox Grid.Column="1" Header="Creation recipe" ItemsSource="{Binding Recipes}" SelectedItem="{Binding SelectedRecipe, Mode=TwoWay}" HorizontalAlignment="Stretch"/>
-                        </Grid>
-                        <Button Content="Customize packages" Command="{Binding CustomizeCreationPackagesCommand}" HorizontalAlignment="Left"/>
-                        <ComboBox Header="Unity opens on" ItemsSource="{Binding PlatformOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding BuildTarget, Mode=TwoWay}" MinWidth="240"/>
-                        <StackPanel Spacing="8"><TextBlock Text="Build and publish platforms"/><StackPanel Orientation="Horizontal" Spacing="20">
-                            <CheckBox Content="Windows" IsChecked="{Binding PublishWindows, Mode=TwoWay}"/><CheckBox Content="Android / Quest" IsChecked="{Binding PublishAndroid, Mode=TwoWay}"/><CheckBox Content="iOS" IsChecked="{Binding PublishIos, Mode=TwoWay}"/>
-                        </StackPanel></StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,10,0,0"><Button Content="Review and create" Command="{Binding CreateProjectCommand}" Style="{StaticResource AccentButtonStyle}"/><Button Content="Save recipe" Command="{Binding SaveRecipeCommand}"/></StackPanel>
+                        <TextBlock Text="{Binding DestinationPreview}" Opacity="0.65" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding DestinationPreview}"/>
+                        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><ComboBox Header="Preset" ItemsSource="{Binding Presets}" ItemTemplate="{StaticResource PresetChoice}" SelectedItem="{Binding SelectedPreset, Mode=TwoWay}" HorizontalAlignment="Stretch"/><Button Grid.Column="1" Content="Customize packages" Command="{Binding CustomizeCreationPackagesCommand}" VerticalAlignment="Bottom"/></Grid>
+                        <Button Content="Review and create" Command="{Binding CreateProjectCommand}" Style="{StaticResource ActionButton}" HorizontalAlignment="Right"/>
+                        <Expander Header="Templates and file path" HorizontalAlignment="Stretch"><StackPanel Spacing="16"><ComboBox Header="Template" ItemsSource="{Binding Recipes}" ItemTemplate="{StaticResource PresetChoice}" SelectedItem="{Binding SelectedRecipe, Mode=TwoWay}" HorizontalAlignment="Stretch"/><TextBox Header="UnityPackage path" Text="{Binding PackageFile, Mode=TwoWay}"/><Button Content="Save as template" Command="{Binding SaveRecipeCommand}"/></StackPanel></Expander>
                     </StackPanel>
                 </ScrollViewer>
 
@@ -93,32 +98,38 @@
                             </Grid>
                         </DataTemplate></ListView.ItemTemplate>
                     </ListView>
-                    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0"><Button Content="Open in Unity" Command="{Binding OpenUnityCommand}"/><Button Content="Apply changes" Command="{Binding ApplyChangesCommand}" Style="{StaticResource AccentButtonStyle}"/></StackPanel>
+                    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0"><Button Content="Open in Unity" Command="{Binding OpenUnityCommand}"/><Button Content="Apply changes" Command="{Binding ApplyChangesCommand}" Style="{StaticResource ActionButton}"/></StackPanel>
                 </Grid>
 
                 <Grid x:Name="PresetsView" Visibility="Collapsed">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <TextBlock Text="Packages &amp; presets" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,16"/>
-                    <CommandBar Grid.Row="1" DefaultLabelPosition="Right" Margin="0,0,0,14">
-                        <AppBarButton Label="New preset" Icon="Add" Command="{Binding CreatePresetCommand}"/>
-                        <AppBarButton Label="Edit preset / defaults" Icon="Edit" Command="{Binding EditPresetCommand}"/>
-                        <AppBarButton Label="Find packages" Icon="Find" Command="{Binding SearchPackagesCommand}"/>
-                        <CommandBar.SecondaryCommands><AppBarButton Label="Delete preset" Command="{Binding DeletePresetCommand}"/><AppBarButton Label="Delete recipe" Command="{Binding DeleteRecipeCommand}"/></CommandBar.SecondaryCommands>
-                    </CommandBar>
-                    <ListView Grid.Row="2" ItemsSource="{Binding Registry}" SelectedItem="{Binding SelectedDefinition, Mode=TwoWay}">
-                        <ListView.ItemTemplate><DataTemplate><Grid Padding="6,12" ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
-                            <StackPanel Spacing="4"><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/><TextBlock Text="{Binding Id}" Opacity="0.6" FontSize="12"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedVersion}" VerticalAlignment="Center"/>
+                    <Grid ColumnSpacing="12" Margin="0,0,0,22"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <ComboBox x:Name="PresetSelector" Header="Preset" ItemsSource="{Binding Presets}" ItemTemplate="{StaticResource PresetChoice}" SelectedItem="{Binding EditingPreset, Mode=TwoWay}" FontSize="22" MinWidth="230" HorizontalAlignment="Left"/>
+                        <Button Grid.Column="1" Content="Add package" Command="{Binding AddPresetPackagesCommand}" Style="{StaticResource ActionButton}" VerticalAlignment="Bottom"/>
+                        <Button Grid.Column="2" Content="New preset" Command="{Binding CreatePresetCommand}" VerticalAlignment="Bottom"/>
+                        <Button Grid.Column="3" VerticalAlignment="Bottom" AutomationProperties.Name="Preset options"><FontIcon Glyph="&#xE712;"/><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="Delete selected preset" Command="{Binding DeletePresetCommand}"/></MenuFlyout></Button.Flyout></Button>
+                    </Grid>
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,0,0,12"><Button Content="Discard changes" Command="{Binding DiscardPresetChangesCommand}" IsEnabled="{Binding PresetDirty}"/><Button Content="Save preset" Command="{Binding SaveEditedPresetCommand}" IsEnabled="{Binding PresetDirty}" Style="{StaticResource PresetSaveButton}"/></StackPanel>
+                    <Grid Grid.Row="2"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <ListView ItemsSource="{Binding PresetPackages}" SelectionMode="None">
+                        <ListView.ItemTemplate><DataTemplate><Grid Padding="0,10" ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="120"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions>
+                            <Button Click="PackageStarClicked" Background="Transparent" BorderThickness="0" Padding="8" AutomationProperties.Name="Favorite package"><FontIcon Glyph="{Binding StarGlyph}" Foreground="{Binding StarBrush}" FontSize="18"/></Button>
+                            <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Id}" Opacity="0.55" FontSize="11" TextTrimming="CharacterEllipsis"/></StackPanel>
+                            <Button Grid.Column="2" Content="{Binding Version}" Click="PresetVersionClicked" HorizontalAlignment="Stretch" VerticalAlignment="Center" ToolTipService.ToolTip="Choose version"/>
+                            <Button Grid.Column="3" Click="PresetRemoveClicked" Visibility="{Binding RemoveVisibility}" Background="Transparent" BorderThickness="0" Padding="8" AutomationProperties.Name="Remove from preset"><FontIcon Glyph="&#xE711;" FontSize="12"/></Button>
                         </Grid></DataTemplate></ListView.ItemTemplate>
                     </ListView>
-                    <CommandBar Grid.Row="3" DefaultLabelPosition="Right" Margin="0,14,0,0">
-                        <AppBarButton Label="Add to preset" Icon="Add" Command="{Binding RegistryToPresetCommand}"/><AppBarButton Label="Toggle favorite" Icon="Favorite" Command="{Binding FavoriteDefinitionCommand}"/><AppBarButton Label="Refresh in background" Icon="Refresh" Command="{Binding RefreshCatalogCommand}"/><AppBarButton Label="Stop refresh" Icon="Cancel" Command="{Binding CancelOperationCommand}"/>
-                    </CommandBar>
+                    <Expander Grid.Row="1" Header="My packages" Expanding="LibraryExpanded" HorizontalAlignment="Stretch" Margin="0,16,0,0"><StackPanel Spacing="12">
+                        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox PlaceholderText="Filter saved packages" Text="{Binding LibraryFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/><ToggleButton Grid.Column="1" IsChecked="{Binding FavoritesOnly, Mode=TwoWay}" Content="★ Favorites"/></Grid>
+                        <ListView ItemsSource="{Binding LibraryPackages}" SelectionMode="None" MaxHeight="210"><ListView.ItemTemplate><DataTemplate><Grid Padding="0,6" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button Click="PackageStarClicked" Background="Transparent" BorderThickness="0" Padding="6" AutomationProperties.Name="Favorite package"><FontIcon Glyph="{Binding StarGlyph}" Foreground="{Binding StarBrush}" FontSize="16"/></Button><StackPanel Grid.Column="1"><TextBlock Text="{Binding Name}"/><TextBlock Text="{Binding Id}" FontSize="11" Opacity="0.55"/></StackPanel><Button Grid.Column="2" Content="Add" Click="LibraryAddClicked" IsEnabled="{Binding CanAdd}"/></Grid></DataTemplate></ListView.ItemTemplate></ListView>
+                    </StackPanel></Expander>
+                    </Grid>
                 </Grid>
 
                 <Grid x:Name="ActivityView" Visibility="Collapsed">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                    <TextBlock Text="Activity &amp; recovery" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,16"/>
-                    <CommandBar Grid.Row="1" DefaultLabelPosition="Right" Margin="0,0,0,12"><AppBarButton Label="Logs folder" Icon="Folder" Command="{Binding OpenLogsCommand}"/><AppBarButton Label="JSON report" Icon="Document" Command="{Binding OpenReportCommand}"/><AppBarButton Label="Incomplete projects" Icon="Repair" Command="{Binding RecoverProjectCommand}"/><AppBarButton Label="Restore backup" Icon="Undo" Command="{Binding RestoreBackupCommand}"/></CommandBar>
+                    <TextBlock Text="Activity" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,16"/>
+                    <CommandBar Grid.Row="1" DefaultLabelPosition="Right" Visibility="{Binding DeveloperVisibility}" Margin="0,0,0,12"><AppBarButton Label="Diagnostic files" Icon="Folder" Command="{Binding OpenDiagnosticsCommand}"/><AppBarButton Label="Operation report" Icon="Document" Command="{Binding OpenReportCommand}"/><AppBarButton Label="Unfinished projects" Icon="Repair" Command="{Binding RecoverProjectCommand}"/><AppBarButton Label="Restore project" Icon="Undo" Command="{Binding RestoreBackupCommand}"/></CommandBar>
                     <ListView Grid.Row="2" ItemsSource="{Binding Activity}" SelectionMode="None"><ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" Padding="4,6"/></DataTemplate></ListView.ItemTemplate></ListView>
                 </Grid>
 
@@ -130,6 +141,7 @@
                         <Expander Header="Naming" HorizontalAlignment="Stretch"><StackPanel Spacing="14"><TextBox Header="Prefix" Text="{Binding NamingPrefix, Mode=TwoWay}"/><TextBox Header="Suffix" Text="{Binding NamingSuffix, Mode=TwoWay}"/><TextBox Header="Cleanup regex rules (one per line)" Text="{Binding NamingPatterns, Mode=TwoWay}" AcceptsReturn="True" MinHeight="80"/><CheckBox Content="Remember UnityPackage names" IsChecked="{Binding RememberNames, Mode=TwoWay}"/></StackPanel></Expander>
                         <Expander Header="Additional imports" HorizontalAlignment="Stretch"><StackPanel Spacing="12"><TextBox Header="UnityPackages folder" Text="{Binding ExtraImportsFolder, Mode=TwoWay}"/><Button Content="Browse" Command="{Binding PickExtraFolderCommand}"/></StackPanel></Expander>
                         <ComboBox Header="Theme" ItemsSource="{Binding ThemeChoices}" SelectedItem="{Binding Theme, Mode=TwoWay}"/>
+                        <Expander Header="Developer tools" HorizontalAlignment="Stretch"><StackPanel Spacing="14"><ToggleSwitch Header="Developer mode" IsOn="{Binding DeveloperMode, Mode=TwoWay}"/><CheckBox Content="Verbose diagnostics" IsChecked="{Binding VerboseDiagnostics, Mode=TwoWay}"/><CheckBox Content="Record tool output" IsChecked="{Binding TraceTools, Mode=TwoWay}"/><Button Content="Open diagnostic files" Command="{Binding OpenDiagnosticsCommand}"/><Button Content="Reload saved settings" Command="{Binding ReloadSettingsCommand}"/></StackPanel></Expander>
                         <Expander Header="Application maintenance" HorizontalAlignment="Stretch"><StackPanel Orientation="Horizontal" Spacing="12"><Button Content="Repair installation" Command="{Binding RepairInstallationCommand}"/><Button Content="Uninstall" Command="{Binding UninstallApplicationCommand}"/></StackPanel></Expander>
                         <StackPanel Orientation="Horizontal" Spacing="12"><Button Content="Save settings" Command="{Binding SaveSettingsCommand}" Style="{StaticResource AccentButtonStyle}"/><Button Content="Import legacy config" Command="{Binding ImportSettingsCommand}"/><Button Content="Reset" Command="{Binding ResetSettingsCommand}"/></StackPanel>
                     </StackPanel>
@@ -137,10 +149,10 @@
             </Grid>
         </NavigationView>
 
-        <Border Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="20,10">
+        <Border Grid.Row="2" Visibility="{Binding WorkVisibility}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="20,10">
             <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="10"><ProgressRing Width="18" Height="18" IsActive="{Binding IsBusy}"/><TextBlock Text="{Binding Status}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></StackPanel>
-                <Button Grid.Column="1" Content="Activity" Click="ActivityClicked"/><Button Grid.Column="2" Content="Full log" Command="{Binding OpenLastLogCommand}"/><Button Grid.Column="3" Content="Cancel" Command="{Binding CancelOperationCommand}"/>
+                <Button Grid.Column="1" Content="Activity" Click="ActivityClicked"/><Button Grid.Column="3" Content="Stop" Command="{Binding CancelOperationCommand}"/>
             </Grid>
         </Border>
     </Grid>

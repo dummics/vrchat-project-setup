@@ -14,7 +14,7 @@ public static class UiSmokeTest
     public static async Task<VrcSetupApplication> PrepareAsync(string artifacts)
     {
         artifacts = ProjectRules.NormalizePath(artifacts); Directory.CreateDirectory(artifacts);
-        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"));
+        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh"]);
         var project = Path.Combine(artifacts, "projects", "Creator [PC] & café");
         Directory.CreateDirectory(Path.Combine(project, "Assets")); Directory.CreateDirectory(Path.Combine(project, "ProjectSettings"));
         Dictionary<string, string> packages = new() { [ProjectRules.BaseSdk] = "3.10.5", [ProjectRules.AvatarSdk] = "3.10.5", [ProjectRules.Resolver] = "0.1.29", ["gogoloco"] = "1.8.6" };
@@ -33,6 +33,40 @@ public static class UiSmokeTest
     {
         var page = window.Page; await page.Initialized;
         var viewModel = page.ViewModel; var checks = new List<string>();
+        Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
+        Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
+        Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == "My default packages", "Preset selector has a visible selection after binding");
+        Require(viewModel.WorkVisibility == Visibility.Collapsed, "Idle footer actions are hidden");
+        viewModel.SelectedRecipe = null!; viewModel.SelectedRecipe = "No recipe";
+        Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
+        viewModel.EditingPreset = "Creator PC";
+        var original = await viewModel.Application.Projects.ReadAsync(viewModel.Projects[0].Path);
+        var optional = viewModel.PresetPackages.First(x => x.Id == "gogoloco");
+        viewModel.RemovePresetPackageCommand.Execute(optional);
+        Require(viewModel.PresetDirty && !viewModel.PresetPackages.Any(x => x.Id == "gogoloco"), "Preset edits are staged in the selected preset");
+        await viewModel.SaveEditedPresetCommand.ExecuteAsync(null);
+        var saved = await viewModel.Application.Configuration.LoadAsync();
+        Require(!saved.PackagePresets["Creator PC"].ContainsKey("gogoloco") && saved.VpmPackages.ContainsKey("gogoloco"), "Saving named preset preserves Default");
+        Require((await viewModel.Application.Projects.ReadAsync(original.Path)).Fingerprint == original.Fingerprint, "Preset edits do not mutate project files");
+        var favorite = saved.FavoritePackages.Contains("gogoloco");
+        await viewModel.TogglePackageFavoriteCommand.ExecuteAsync(viewModel.LibraryPackages.First(x => x.Id == "gogoloco"));
+        Require((await viewModel.Application.Configuration.LoadAsync()).FavoritePackages.Contains("gogoloco") != favorite, "Package star persists the favorite choice");
+        viewModel.AddLibraryPackageCommand.Execute(viewModel.LibraryPackages.First(x => x.Id == "gogoloco"));
+        Require(viewModel.PresetDirty && viewModel.PresetPackages.Any(x => x.Id == "gogoloco"), "Saved library package is added without a repository search");
+        viewModel.DiscardPresetChangesCommand.Execute(null); viewModel.EditingPreset = "My default packages";
+        saved = await viewModel.Application.Configuration.LoadAsync();
+        saved.PackagePresets["Creator PC"]["gogoloco"] = "1.8.6";
+        await viewModel.Application.Configuration.SaveAsync(saved);
+        viewModel.EditingPreset = "Creator PC";
+        await viewModel.ReloadConfigurationAsync();
+        Require(!viewModel.PresetDirty && viewModel.PresetPackages.Any(x => x.Id == "gogoloco"), "Reloaded configuration replaces the selected preset working copy");
+        viewModel.EditingPreset = "My default packages";
+        viewModel.PackageFile = Path.Combine(artifacts, "Avatar Quest.unitypackage");
+        Require(viewModel.ProjectName.Length > 0 && viewModel.BuildTarget == "Android", "Dropped package suggests name and one platform");
+        viewModel.CurrentPage = "Create"; await Task.Delay(150); page.UpdateLayout(); viewModel.ProjectName = "My avatar";
+        ((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PlatformSelector")).SelectedValue = "StandaloneWindows64";
+        await Task.Delay(80);
+        Require(viewModel.BuildTarget == "StandaloneWindows64" && viewModel.DestinationPreview.Contains("My avatar"), "Single platform and editable name bind to creation: " + viewModel.BuildTarget);
         Require(viewModel.Projects.Count == 1, "Native project library loaded");
         viewModel.ProjectFilter = "Quest"; Require(viewModel.Projects.Count == 0, "Project filter empty state");
         viewModel.ProjectFilter = "PC"; Require(viewModel.Projects.Count == 1, "Project filter recovers matches");
@@ -66,10 +100,16 @@ public static class UiSmokeTest
         }
         viewModel.Theme = "Dark"; viewModel.CurrentPage = "Workspace"; await Task.Delay(180);
         await Render(page, Path.Combine(artifacts, "workspace-dark.png")); viewModel.Theme = theme;
+        saved = await viewModel.Application.Configuration.LoadAsync(); var availableRoot = saved.UnityProjectsRoot;
+        saved.UnityProjectsRoot = Path.Combine(artifacts, "offline-drive"); await viewModel.Application.Configuration.SaveAsync(saved);
+        await viewModel.ReloadConfigurationAsync(); viewModel.ProjectFilter = "does not exist"; viewModel.ProjectFilter = "";
+        await viewModel.RefreshProjectsCommand.ExecuteAsync(null);
+        Require(viewModel.EmptyProjectsVisibility == Visibility.Visible && viewModel.EmptyProjectsMessage.Contains("unavailable"), "Unavailable project root has a recovery folder prompt");
+        saved.UnityProjectsRoot = availableRoot; await viewModel.Application.Configuration.SaveAsync(saved); await viewModel.ReloadConfigurationAsync(); await viewModel.RefreshProjectsCommand.ExecuteAsync(null);
         await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "ui-smoke.json"), new { Passed = true, Checks = checks, page.ActualWidth, page.ActualHeight, Scale = page.XamlRoot.RasterizationScale, InputInjected = false });
         void Require(bool condition, string message) { if (!condition) throw new IOException(message); checks.Add(message); }
     }
-    private static async Task Render(FrameworkElement element, string path)
+    public static async Task Render(FrameworkElement element, string path)
     {
         var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(element);
         var pixels = await bitmap.GetPixelsAsync(); CryptographicBuffer.CopyToByteArray(pixels, out var bytes);

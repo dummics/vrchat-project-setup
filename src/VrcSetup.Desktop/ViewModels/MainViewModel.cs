@@ -34,10 +34,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? operation;
     private CancellationTokenSource? refresh;
     private readonly SynchronizationContext context;
+    private readonly SemaphoreSlim actionGate = new(1, 1);
     public ObservableCollection<ProjectSnapshot> Projects { get; } = [];
     public ObservableCollection<PackageWorkspaceRow> Packages { get; } = [];
     public ObservableCollection<PackageDefinition> Registry { get; } = [];
-    public ObservableCollection<string> Presets { get; } = [];
+    public ObservableCollection<string> Presets { get; } = [DefaultPresetKey];
     public ObservableCollection<string> Recipes { get; } = [];
     public ObservableCollection<string> Activity { get; } = [];
     public ObservableCollection<ProjectSnapshot> SelectedProjects { get; } = [];
@@ -82,11 +83,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         await Guard(async () =>
         {
-            config = await app.Configuration.LoadAsync(); LoadSettings(); LoadPresetNames();
-            await LoadRegistry();
+            config = await app.Configuration.LoadAsync(); app.ConfigureDiagnostics(config); LoadSettings(); LoadPresetNames();
+            try { await LoadRegistry(); } catch (Exception error) { app.Diagnostics.Write("Package library", error.Message, error); AppendActivity(new(DateTime.UtcNow, "Packages", "Saved package library could not load: " + error.Message, EventSeverity.Warning)); }
+            LoadEditingPreset();
             if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot) && Directory.Exists(config.UnityProjectsRoot)) await RefreshProjectsCore();
+            UpdateProjectState();
             if (string.IsNullOrWhiteSpace(config.UnityEditorPath) || string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) CurrentPage = "Settings";
-            if (app.Configuration.ImportedFrom is { } imported) AppendActivity(new(DateTime.UtcNow, "Migration", "Legacy settings imported; original preserved: " + imported));
+            if (config.Diagnostics.Verbose && app.Configuration.ImportedFrom is { } imported) AppendActivity(new(DateTime.UtcNow, "Migration", "Settings imported: " + imported));
         });
     }
     private void LoadSettings()
@@ -94,18 +97,26 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
         NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
         RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ProjectSort = config.ProjectLibrarySort;
+        DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
     }
     private void LoadPresetNames()
     {
-        Replace(Presets, new[] { "My default packages" }.Concat(config.PackagePresets.Keys.Order()));
+        var names = new[] { DefaultPresetKey }.Concat(config.PackagePresets.Keys.Order()).ToArray();
+        presetSwitching = true;
+        if (!names.Contains(EditingPreset)) EditingPreset = DefaultPresetKey;
+        if (!names.Contains(SelectedPreset)) SelectedPreset = DefaultPresetKey;
+        foreach (var name in names.Where(x => !Presets.Contains(x))) Presets.Add(name);
+        foreach (var name in Presets.Where(x => !names.Contains(x)).ToArray()) Presets.Remove(name);
+        presetSwitching = false;
         Replace(Recipes, new[] { "No recipe" }.Concat(config.CreationRecipes.Keys.Order()));
-        if (!Presets.Contains(SelectedPreset)) SelectedPreset = "My default packages";
+        OnPropertyChanged(nameof(EditingPreset)); OnPropertyChanged(nameof(SelectedPreset));
     }
-    private async Task LoadRegistry() => Replace(Registry, await app.Catalog.KnownAsync(config, session?.Projects.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)));
+    private async Task LoadRegistry() { Replace(Registry, await app.Catalog.KnownAsync(config, session?.Projects.Select(x => (IReadOnlyDictionary<string, string>)x.Packages))); RefreshLibraryRows(); }
     partial void OnProjectFilterChanged(string value) => FilterProjects();
     partial void OnPackageFilterChanged(string value) => RenderWorkspace();
     partial void OnPackageFileChanged(string value)
     {
+        OnPropertyChanged(nameof(PackageFileLabel));
         if (string.IsNullOrWhiteSpace(value)) return;
         ProjectName = ProjectRules.SuggestName(value, config); BuildTarget = ProjectRules.SuggestBuildTarget(value);
         PublishAndroid = BuildTarget == "Android"; PublishWindows = !PublishAndroid;
@@ -113,12 +124,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSelectedPresetChanged(string value) => creationOverrides = null;
     partial void OnSelectedRecipeChanged(string value)
     {
-        if (!config.CreationRecipes.TryGetValue(value, out var recipe)) { creationOverrides = null; return; }
+        if (string.IsNullOrWhiteSpace(value) || !config.CreationRecipes.TryGetValue(value, out var recipe)) { creationOverrides = null; return; }
         SelectedPreset = string.IsNullOrWhiteSpace(recipe.Preset) || !config.PackagePresets.ContainsKey(recipe.Preset) ? "My default packages" : recipe.Preset;
         creationOverrides = recipe.Packages.Count > 0 ? new(recipe.Packages) : null;
         BuildTarget = recipe.BuildTarget; PublishWindows = recipe.PublishingPlatforms.Contains("StandaloneWindows64"); PublishAndroid = recipe.PublishingPlatforms.Contains("Android"); PublishIos = recipe.PublishingPlatforms.Contains("iOS");
     }
-    private void FilterProjects() => Replace(Projects, allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase)));
+    private void FilterProjects() { Replace(Projects, allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase))); UpdateProjectState(); }
     private void RenderWorkspace()
     {
         var selected = SelectedPackage?.Id;
@@ -128,8 +139,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task RefreshProjects() => await Guard(RefreshProjectsCore);
     private async Task RefreshProjectsCore()
     {
-        allProjects = await app.Projects.ScanAsync(config.UnityProjectsRoot, ProjectSort, true); FilterProjects();
-        Status = $"{allProjects.Length} projects";
+        IsLoadingProjects = true; ErrorMessage = "";
+        try { allProjects = await app.Projects.ScanAsync(config.UnityProjectsRoot, ProjectSort, true); FilterProjects(); Status = $"{allProjects.Length} projects"; }
+        catch when (!Directory.Exists(config.UnityProjectsRoot)) { allProjects = []; FilterProjects(); throw; }
+        finally { IsLoadingProjects = false; UpdateProjectState(); }
     }
     [RelayCommand] private async Task ChangeSort()
     {
@@ -237,9 +250,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private Dictionary<string, string>? creationOverrides;
     [RelayCommand] private async Task CreateProject() => await Guard(async () =>
     {
-        var platforms = new List<string>(); if (PublishWindows) platforms.Add("StandaloneWindows64"); if (PublishAndroid) platforms.Add("Android"); if (PublishIos) platforms.Add("iOS");
-        if (platforms.Count == 0) throw new InvalidOperationException("Choose at least one publishing platform.");
-        var plan = await app.PlanCreationAsync(PackageFile, config, ProjectName, SelectedPreset == "My default packages" ? null : SelectedPreset, creationOverrides, BuildTarget, platforms.ToArray(), SelectedRecipe == "No recipe" ? null : SelectedRecipe);
+        var plan = await app.PlanCreationAsync(PackageFile, config, ProjectName, SelectedPreset == "My default packages" ? null : SelectedPreset, creationOverrides, BuildTarget, [BuildTarget], SelectedRecipe == "No recipe" ? null : SelectedRecipe);
         if (!await ui.ReviewAsync(plan)) return;
         var report = await Run(plan);
         if (report.Success)
@@ -288,14 +299,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     [RelayCommand] private async Task CreatePreset() => await Guard(async () =>
     {
-        var name = await ui.TextAsync("New creator preset"); if (string.IsNullOrWhiteSpace(name)) return;
-        var result = await EditPackageSet(new(config.VpmPackages), name); if (result is null) return;
-        config.PackagePresets[name] = result; await app.Configuration.SaveAsync(config); LoadPresetNames(); await LoadRegistry();
+        var name = await ui.TextAsync("New preset"); if (string.IsNullOrWhiteSpace(name)) return;
+        if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || config.PackagePresets.ContainsKey(name)) throw new ArgumentException("Choose a different preset name.");
+        if (PresetDirty && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + PresetLabel + "?", "Discard")) return;
+        config.PackagePresets[name] = new(presetWorking.Count > 0 ? presetWorking : config.VpmPackages); await app.Configuration.SaveAsync(config); LoadPresetNames(); presetSwitching = true; EditingPreset = name; presetSwitching = false; LoadEditingPreset();
     });
     [RelayCommand] private async Task DeletePreset() => await Guard(async () =>
     {
-        var name = await ui.ChooseAsync("Delete preset", config.PackagePresets.Keys.ToArray()); if (name is null) return;
-        if (await ui.ConfirmAsync("Delete preset", name, "Delete")) { config.PackagePresets.Remove(name); await app.Configuration.SaveAsync(config); LoadPresetNames(); }
+        var name = EditingPreset; if (name == DefaultPresetKey) { Status = "Default cannot be deleted"; return; }
+        if (await ui.ConfirmAsync("Delete preset", name, "Delete")) { config.PackagePresets.Remove(name); await app.Configuration.SaveAsync(config); LoadPresetNames(); presetSwitching = true; EditingPreset = DefaultPresetKey; presetSwitching = false; LoadEditingPreset(); }
     });
     private async Task<Dictionary<string, string>?> EditPackageSet(Dictionary<string, string> working, string title)
     {
@@ -317,19 +329,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     [RelayCommand] private async Task RefreshCatalog()
     {
-        if (IsRefreshing) return;
+        if (IsRefreshing || !app.AllowBackgroundCatalogRefresh) return;
         using var cancellation = new CancellationTokenSource(); refresh = cancellation; IsRefreshing = true;
-        try { await app.Catalog.RefreshAsync(Registry.ToArray(), new SynchronizationProgress<OperationEvent>(context, AppendActivity), cancellation.Token); await LoadRegistry(); }
+        try { await app.Catalog.RefreshAsync(Registry.Where(x => x.UpdatedUtc is null || x.UpdatedUtc < DateTime.UtcNow.AddHours(-6)).Take(12).ToArray(), new SynchronizationProgress<OperationEvent>(context, value => { if (DeveloperMode) AppendActivity(value); }), cancellation.Token); await LoadRegistry(); }
         catch (OperationCanceledException) { Status = "Refresh stopped; saved definitions kept"; }
-        catch (Exception error) { await ui.ShowErrorAsync(error.Message); }
+        catch (Exception error) { app.Diagnostics.Write("Package refresh", error.Message, error); if (DeveloperMode) AppendActivity(new(DateTime.UtcNow, "Packages", error.Message, EventSeverity.Warning)); }
         finally { IsRefreshing = false; refresh = null; }
     }
     [RelayCommand] private async Task SaveRecipe() => await Guard(async () =>
     {
-        var name = await ui.TextAsync("Save creation recipe"); if (string.IsNullOrWhiteSpace(name)) return;
-        var platforms = new List<string>(); if (PublishWindows) platforms.Add("StandaloneWindows64"); if (PublishAndroid) platforms.Add("Android"); if (PublishIos) platforms.Add("iOS");
+        var name = await ui.TextAsync("Save template"); if (string.IsNullOrWhiteSpace(name)) return;
         config.CreationRecipes[name] = new() { Preset = SelectedPreset == "My default packages" ? "" : SelectedPreset,
-            Packages = creationOverrides ?? new(SelectedPreset == "My default packages" ? config.VpmPackages : config.PackagePresets[SelectedPreset]), BuildTarget = BuildTarget, PublishingPlatforms = platforms.ToArray(), ExtraImports = app.ExtraImports(config) };
+            Packages = creationOverrides ?? new(SelectedPreset == "My default packages" ? config.VpmPackages : config.PackagePresets[SelectedPreset]), BuildTarget = BuildTarget, PublishingPlatforms = [BuildTarget], ExtraImports = app.ExtraImports(config) };
         await app.Configuration.SaveAsync(config); LoadPresetNames();
     });
     [RelayCommand] private async Task DeleteRecipe() => await Guard(async () =>
@@ -346,7 +357,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         config.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
         config.UnityPackagesFolder = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? null : ProjectRules.NormalizePath(ExtraImportsFolder);
         config.Naming = new() { DefaultPrefix = NamingPrefix, DefaultSuffix = NamingSuffix, RegexRemovePatterns = patterns.ToList(), RememberUnityPackageNames = RememberNames }; config.Theme = Theme;
+        config.Diagnostics = new() { DeveloperMode = DeveloperMode, Verbose = VerboseDiagnostics, TraceTools = TraceTools }; app.Diagnostics.Configure(config.Diagnostics);
         await app.Configuration.SaveAsync(config); Status = "Settings saved";
+        if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) await RefreshProjectsCore();
     });
     [RelayCommand] private async Task PickEditor()
     {
@@ -355,12 +368,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         { var choice = await ui.ChooseAsync("Unity Editor", editors.Select(x => x.Version + " · " + x.Path).Append("Browse").ToArray()); var editor = editors.FirstOrDefault(x => x.Version + " · " + x.Path == choice); if (editor.Path is not null) { UnityEditorPath = editor.Path; return; } }
         if (await ui.PickFileAsync(".exe") is { } file) UnityEditorPath = file;
     }
-    [RelayCommand] private async Task PickProjectsRoot() { if (await ui.PickFolderAsync() is { } folder) ProjectsRoot = folder; }
+    [RelayCommand] private async Task PickProjectsRoot() => await Guard(async () =>
+    {
+        if (await ui.PickFolderAsync() is not { } folder) return; ProjectsRoot = folder;
+        if (CurrentPage == "Projects") { config.UnityProjectsRoot = folder; await app.Configuration.SaveAsync(config); await RefreshProjectsCore(); }
+    });
     [RelayCommand] private async Task PickExtraFolder() { if (await ui.PickFolderAsync() is { } folder) ExtraImportsFolder = folder; }
     [RelayCommand] private async Task ResetSettings() => await Guard(async () =>
     {
         if (!await ui.ConfirmAsync("Reset settings", "Reset defaults, presets and paths? Your Unity projects are preserved.", "Reset")) return;
-        config = await app.Configuration.ResetAsync(); LoadSettings(); LoadPresetNames(); await LoadRegistry();
+        await app.Configuration.ResetAsync(); await ReloadConfigurationAsync();
     });
     [RelayCommand] private async Task RepairInstallation() => await Guard(async () =>
     {
@@ -374,7 +391,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     private string InstallationRoot() => File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")) ? app.Paths.PayloadRoot : InstallationManager.DefaultRoot;
     [RelayCommand] private async Task ImportSettings() => await Guard(async () =>
-    { if (await ui.PickFileAsync(".json") is { } file) { config = await app.Configuration.ImportAsync(file); LoadSettings(); LoadPresetNames(); await LoadRegistry(); } });
+    {
+        if (PresetDirty && !await ui.ConfirmAsync("Unsaved preset", "Discard changes before importing settings?", "Discard")) return;
+        if (await ui.PickFileAsync(".json") is { } file) { await app.Configuration.ImportAsync(file); await ReloadConfigurationAsync(); }
+    });
     [RelayCommand] private async Task RecoverProject() => await Guard(async () =>
     {
         var candidates = allProjects.Where(x => x.Incomplete).ToArray();
@@ -424,9 +444,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async Task Guard(Func<Task> action)
     {
         if (IsBusy) return;
-        try { await action(); }
+        await actionGate.WaitAsync();
+        try { ErrorMessage = ""; await action(); }
         catch (OperationCanceledException) { Status = "Cancelled; recovery information preserved"; }
-        catch (Exception error) { Status = "Action failed"; AppendActivity(new(DateTime.UtcNow, "Error", error.Message, EventSeverity.Error)); await ui.ShowErrorAsync(error.Message); }
+        catch (Exception error) { app.Diagnostics.Write(CurrentPage, error.Message, error); ErrorMessage = error.Message; Status = "Action failed"; AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : error.Message, EventSeverity.Error)); }
+        finally { actionGate.Release(); }
     }
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items) { collection.Clear(); foreach (var item in items) collection.Add(item); }
     public void Dispose() { operation?.Cancel(); refresh?.Cancel(); }

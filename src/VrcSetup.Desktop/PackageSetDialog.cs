@@ -74,13 +74,14 @@ public sealed class PackageSetDialog : IDisposable
             session.SetVersion(focused, selected); Render();
         };
         Render();
+        query.TextChanged += (_, _) => Render();
     }
     private void Render()
     {
         rendering = true;
         try
         {
-            var rows = session.Rows(); list.ItemsSource = rows;
+            var rows = session.Rows(query.Text); list.ItemsSource = rows;
             foreach (var item in rows.Where(x => x.Included)) list.SelectedItems.Add(item);
             focused ??= rows.FirstOrDefault()?.Id;
             version.Text = rows.FirstOrDefault(x => x.Id == focused)?.SelectedVersion ?? "latest";

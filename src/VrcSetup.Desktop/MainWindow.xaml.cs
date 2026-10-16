@@ -16,7 +16,7 @@ public sealed partial class MainWindow : Window
         var page = Page = new MainPage(this, application ?? new VrcSetupApplication()); RootFrame.Content = page;
         AppWindow.Closing += async (_, args) =>
         {
-            if (page.ViewModel.IsBusy || page.ViewModel.IsRefreshing)
+            if (page.ViewModel.IsBusy)
             {
                 args.Cancel = true;
                 if (await page.ConfirmAsync("Operation running", "Cancel the running operation and preserve recovery information?", "Cancel operation")) page.ViewModel.CancelOperationCommand.Execute(null);

@@ -15,7 +15,7 @@ public static class Program
         {
             var command = new CommandLine(args);
             if (command.Has("help") || command.Positionals.FirstOrDefault() is "help" or "/?") { PrintHelp(); return 0; }
-            var app = new VrcSetupApplication(command.Value("home"));
+            var app = new VrcSetupApplication(command.Value("home"), new[] { "--developer", "--verbose", "--trace-tools", "--no-catalog-refresh" }.Where(command.Has).ToArray());
             if (command.Positionals.Count == 0 && !command.Has("projectpath") || command.Has("wizard"))
             {
                 if (Console.IsInputRedirected || Console.IsOutputRedirected) { PrintHelp(); return 0; }
@@ -39,6 +39,7 @@ public static class Program
         if (verb == "config" && command.Positionals.ElementAtOrDefault(1) == "import")
         { await app.Configuration.ImportAsync(command.Required(2, "Legacy config path"), cancellationToken); Console.WriteLine("Configuration imported; original preserved."); return 0; }
         var config = await app.Configuration.LoadAsync(cancellationToken);
+        app.ConfigureDiagnostics(config);
         var progress = new InlineProgress<OperationEvent>(value => Console.Error.WriteLine($"[{value.Phase}] {value.Message}"));
         switch (verb)
         {
@@ -216,7 +217,9 @@ public static class Program
             case "gui":
             {
                 var executable = new[] { Path.Combine(app.Paths.PayloadRoot, "app", "desktop", "VrcSetup.Desktop.exe"), Path.Combine(AppContext.BaseDirectory, "VrcSetup.Desktop.exe") }.FirstOrDefault(File.Exists) ?? throw new IOException("Desktop payload not found. Run the Desktop project or a published release.");
-                Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true }); return 0;
+                  var start = new ProcessStartInfo(executable) { UseShellExecute = true };
+                  foreach (var flag in new[] { "developer", "verbose", "trace-tools", "no-catalog-refresh" }) if (command.Has(flag)) start.ArgumentList.Add("--" + flag);
+                  Process.Start(start); return 0;
             }
             case "repair":
             case "install":
@@ -298,6 +301,8 @@ public static class Program
 
         Options accept old PowerShell spelling and --kebab-case aliases.
         --home isolates configuration/cache/logs. --plan exports the reviewed plan.
+        --developer --verbose --trace-tools enable local development diagnostics.
+        --no-catalog-refresh disables automatic desktop package version lookups.
         Platforms: StandaloneWindows64, Android, iOS.
         """);
 }

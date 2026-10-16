@@ -1,8 +1,18 @@
 # Desktop migration verification
 
-Build: 2.0.0-preview.2, Windows x64. Verified on Dom's Windows machine on 14–16 October 2026. This is a tester build; no clean Windows VM or human interactive acceptance is claimed.
+Build: 2.0.0-preview.3, Windows x64. Verified on Dom's Windows machine on 14–16 October 2026. This is a tester build; no clean Windows VM or human interactive acceptance is claimed.
 
-## Evidence
+## Preview 3 follow-up
+
+- 81 .NET tests pass, including legacy terminal panel rendering with special characters, shared developer flags/logging, malformed-project isolation and completed-state serializer compatibility.
+- 32 native WinUI checks pass in the published self-contained executable, with SDK/runtime search paths excluded. They cover preset selection/binding, named-preset staging without changing Default or project files, persisted favorite stars, local package addition, configuration reload, a single platform/name binding, offline-root recovery, the project/package workspace, six screens at two sizes, dark theme and the package dialog. No desktop input is injected.
+- Native startup with copied real installed configuration/cache loads 45 projects with no error activity. The reported previous empty/error screen was not reproduced. A portable diagnose without existing portable settings correctly fails and writes its diagnostic log; the real-configuration check explicitly selects the installed home.
+- The standalone preview 3 installer passes all 17 isolated lifecycle checks. This run preserves the live preview 2 process and settings. Original PowerShell `vrcsetup-legacy` remains independent and available.
+- Independent review findings about configuration reload, staged edits lost on nested Back/version failures, recovery navigation and unavailable project roots were resolved. Human input, DPI/accessibility and clean tester-PC acceptance remain open.
+
+New evidence and EXE/ZIP/checksums: `.work/artifacts/2026-10-16-usability/` in the canonical checkout. The existing Unity/VPM E2E evidence below was retained; those setup operations did not change in this usability revision and personal projects were not mutated.
+
+## Previous migration evidence (preview 2)
 
 The latest real Unity run passed all 17 checks. Installer coverage includes legacy configuration migration, fresh installation, upgrade, repair and self-uninstall. The final tester artifacts are in `release-2.0.0-preview.2`, with final native/lifecycle evidence in `ui-preview2` and `installer-preview2`.
 

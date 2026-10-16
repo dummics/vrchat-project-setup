@@ -8,17 +8,28 @@ public sealed class VrcSetupApplication
     public AppPaths Paths { get; }
     public ConfigurationStore Configuration { get; }
     public ToolRunner Tools { get; }
+    public DiagnosticLog Diagnostics { get; }
     public PackageCatalog Catalog { get; }
     public ProjectWorkspace Projects { get; }
     public ProjectPlanner Planner { get; }
     public ProjectExecutor Executor { get; }
     public UnityProjectDriver Unity { get; }
-    public VrcSetupApplication(string? home = null)
+    private readonly string[] diagnosticFlags;
+    public bool AllowBackgroundCatalogRefresh => !diagnosticFlags.Contains("--no-catalog-refresh");
+    public VrcSetupApplication(string? home = null, string[]? diagnosticFlags = null)
     {
-        Paths = new(home); Configuration = new(Paths); Tools = new(); Projects = new(Paths);
+        this.diagnosticFlags = diagnosticFlags ?? [];
+        Paths = new(home); Configuration = new(Paths); Diagnostics = new(Paths); Tools = new(Diagnostics); Projects = new(Paths, Diagnostics);
         Catalog = new(Paths, Tools, Configuration); Unity = new(Paths, Tools, Projects);
         Projects.Resolve = Unity.ResolveAsync;
         Planner = new(Projects, Catalog); Executor = new(Projects, Unity);
+    }
+    public void ConfigureDiagnostics(AppConfiguration config)
+    {
+        Diagnostics.Configure(config.Diagnostics);
+        Diagnostics.DeveloperMode |= diagnosticFlags.Contains("--developer");
+        Diagnostics.Verbose |= diagnosticFlags.Contains("--verbose");
+        Diagnostics.TraceTools |= diagnosticFlags.Contains("--trace-tools");
     }
     public async Task<OperationReport> ApplyAsync(OperationPlan plan, IProgress<OperationEvent>? progress = null, CancellationToken cancellationToken = default)
     {

@@ -8,7 +8,7 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed class ProjectWorkspace(AppPaths paths) : IProjectWorkspace
+public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics = null) : IProjectWorkspace
 {
     private static readonly string[] ManifestNames = ["Packages/manifest.json", "Packages/vpm-manifest.json", "Packages/packages-lock.json"];
     private static readonly HashSet<string> Exclusions = new(["Assets", "Library", "Logs", "obj", "Packages", "ProjectSettings", "Temp", "UserSettings", ".git", ".vrcsetup", ".vpm-validation-cache", ".work"], StringComparer.OrdinalIgnoreCase);
@@ -76,7 +76,7 @@ public sealed class ProjectWorkspace(AppPaths paths) : IProjectWorkspace
         var incomplete = false;
         if (File.Exists(stateFile))
         {
-            try { using var state = JsonDocument.Parse(File.ReadAllText(stateFile)); incomplete = !state.RootElement.TryGetProperty("completed", out var completed) || completed.ValueKind != JsonValueKind.True; }
+            try { using var state = JsonDocument.Parse(File.ReadAllText(stateFile)); incomplete = TryProperty(state.RootElement, "completed") is not { ValueKind: JsonValueKind.True }; }
             catch (JsonException) { incomplete = true; }
         }
         string? preset = null; var modified = false; var presetChanged = false;
@@ -154,17 +154,26 @@ public sealed class ProjectWorkspace(AppPaths paths) : IProjectWorkspace
             cancellationToken.ThrowIfCancellationRequested();
             if (File.Exists(Path.Combine(item.Path, ".vrcsetup", "state.json")) && (!Directory.Exists(Path.Combine(item.Path, "Assets")) || !Directory.Exists(Path.Combine(item.Path, "Packages"))))
             {
-                var state = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(item.Path, ".vrcsetup", "state.json"), cancellationToken);
-                if (state is { Completed: false }) result.Add(new() { Path = item.Path, Name = Path.GetFileName(item.Path), Status = "Incomplete", Incomplete = true, Fingerprint = Fingerprint(item.Path), LastUpdatedUtc = state.LastUpdatedAt });
+                try
+                {
+                    var state = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(item.Path, ".vrcsetup", "state.json"), cancellationToken);
+                    if (state is { Completed: false }) result.Add(new() { Path = item.Path, Name = Path.GetFileName(item.Path), Status = "Incomplete", Incomplete = true, Fingerprint = Fingerprint(item.Path), LastUpdatedUtc = state.LastUpdatedAt });
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+                { diagnostics?.Write("Project state", item.Path, error); result.Add(new() { Path = item.Path, Name = Path.GetFileName(item.Path), Status = "Needs attention", Incomplete = true }); }
                 continue;
             }
             if (Directory.Exists(Path.Combine(item.Path, "Assets")) && Directory.Exists(Path.Combine(item.Path, "Packages")))
             {
-                var fingerprint = Fingerprint(item.Path);
-                // Profiles/state are cheap but can change independently of manifests.
-                if (cache.TryGetValue(item.Path, out var cached) && cached.Fingerprint == fingerprint && cached.ConfigurationFingerprint == AtomicFile.Hash(paths.ConfigFile))
-                    result.Add(cached with { LastUpdatedUtc = new[] { Directory.GetLastWriteTimeUtc(item.Path), cached.LastUpdatedUtc }.Max() });
-                else result.Add(await ReadAsync(item.Path, cancellationToken));
+                try
+                {
+                    var fingerprint = Fingerprint(item.Path);
+                    if (cache.TryGetValue(item.Path, out var cached) && cached.Fingerprint == fingerprint && cached.ConfigurationFingerprint == AtomicFile.Hash(paths.ConfigFile))
+                        result.Add(cached with { LastUpdatedUtc = new[] { Directory.GetLastWriteTimeUtc(item.Path), cached.LastUpdatedUtc }.Max() });
+                    else result.Add(await ReadAsync(item.Path, cancellationToken));
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException)
+                { diagnostics?.Write("Project library", item.Path, error); result.Add(new() { Path = item.Path, Name = Path.GetFileName(item.Path), Status = "Needs attention" }); }
                 continue;
             }
             if (item.Depth > maxDepth) continue;
@@ -173,7 +182,8 @@ public sealed class ProjectWorkspace(AppPaths paths) : IProjectWorkspace
                 foreach (var folder in Directory.EnumerateDirectories(item.Path))
                     if (!Exclusions.Contains(Path.GetFileName(folder)) && !new DirectoryInfo(folder).Attributes.HasFlag(FileAttributes.ReparsePoint)) queue.Enqueue((folder, item.Depth + 1));
             }
-            catch (UnauthorizedAccessException) { }
+            catch (Exception error) when (error is UnauthorizedAccessException or IOException)
+            { diagnostics?.Write("Project folder", item.Path, error); }
         }
         await AtomicFile.WriteJsonAsync(cacheFile, result, cancellationToken);
         return sort == "name" ? result.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToArray() : result.OrderByDescending(x => x.LastUpdatedUtc).ThenBy(x => x.Name).ToArray();

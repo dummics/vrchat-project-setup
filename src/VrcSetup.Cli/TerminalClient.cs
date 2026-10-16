@@ -11,16 +11,17 @@ public static class TerminalClient
     public static async Task<int> RunAsync(VrcSetupApplication app, CancellationToken cancellationToken)
     {
         var config = await app.Configuration.LoadAsync(cancellationToken);
+        app.ConfigureDiagnostics(config);
         while (!cancellationToken.IsCancellationRequested)
         {
             AnsiConsole.Clear(); AnsiConsole.Write(new Rule("[bold cyan]VRChat Project Setup[/]").LeftJustified());
-            var choice = Select("", ["My projects", "Create project", "Packages and creator presets", "Settings", "Activity and recovery", "Open Windows app", "Exit"]);
+            var choice = Select("VRChat Project Setup", LegacyTerminal.HomeChoices);
             try
             {
                 switch (choice)
                 {
                     case "My projects": await Projects(app, config, cancellationToken); break;
-                    case "Create project": await Create(app, config, cancellationToken); break;
+                    case "Import avatar or asset": await Create(app, config, cancellationToken); break;
                     case "Packages and creator presets": await Presets(app, config, cancellationToken); break;
                     case "Settings": await Settings(app, config, cancellationToken); break;
                     case "Activity and recovery": await Recovery(app, config, cancellationToken); break;
@@ -29,6 +30,7 @@ public static class TerminalClient
                 }
                 config = await app.Configuration.LoadAsync(cancellationToken);
             }
+            catch (NavigationBackException) { }
             catch (Exception error) when (error is ArgumentException or IOException or InvalidOperationException or System.Text.Json.JsonException)
             { Notice(error.Message, true); }
         }
@@ -42,7 +44,10 @@ public static class TerminalClient
         var snapshots = await app.Projects.ScanAsync(root, config.ProjectLibrarySort, cancellationToken: token);
         while (true)
         {
-            var action = Select("Projects", ["Choose projects", "Open folder directly", "Filter", "Refresh", "Change sort order", "Back"]);
+            AnsiConsole.Clear(); var picked = LegacyTerminal.Projects(snapshots);
+            if (picked.Action == "Back") return;
+            if (picked.Action == "Open") { await Edit(app, config, picked.Projects, token); continue; }
+            var action = Select("Project library", ["Open folder directly", "Refresh", "Change sort order", "Back"]);
             if (action == "Back") return;
             if (action == "Change sort order") { config.ProjectLibrarySort = Select("Order", ["recent", "name"]); await app.Configuration.SaveAsync(config, token); }
             else if (action == "Refresh") snapshots = await app.Projects.ScanAsync(root, config.ProjectLibrarySort, true, cancellationToken: token);
@@ -65,24 +70,22 @@ public static class TerminalClient
         var session = new PackageEditSession(snapshots, config, await app.Catalog.KnownAsync(config, snapshots.Select(x => (IReadOnlyDictionary<string, string>)x.Packages), token));
         while (true)
         {
-            AnsiConsole.Clear(); AnsiConsole.Write(new Rule(Escape(snapshots.Length == 1 ? snapshots[0].Name : $"{snapshots.Length} projects")));
-            foreach (var project in snapshots.Where(x => x.ProfileStatus.Length > 0)) AnsiConsole.MarkupLine("[grey]" + Escape(project.Name + ": " + project.ProfileStatus) + "[/]");
-            var table = new Table().AddColumn("Package").AddColumn("Installed").AddColumn("Choice").AddColumn("After saving");
-            foreach (var row in session.Rows().Where(x => x.Included || x.Action == "Will be removed")) table.AddRow(Escape(row.Name), Escape(row.InstalledVersion), Escape(row.SelectedVersion), Escape(row.Action));
-            AnsiConsole.Write(table);
-            var action = Select("", ["Change package version", "Add packages", "Remove package", "Apply creator preset", "Copy package selection", "Favorites", "Choose projects for a package", "Additional imports", "Save as preset", "Undo pending changes", "Apply changes", "Back"]);
+            try
+            {
+            AnsiConsole.Clear();
+            var workspaceChoice = await LegacyTerminal.EditPackages(snapshots.Length == 1 ? snapshots[0].Name : $"{snapshots.Length} projects", session, id => app.Catalog.GetVersionsAsync(id, token));
+            var action = workspaceChoice.Action;
+            if (action == "Options") action = Select("Project packages", ["Choose projects for a package", "Additional imports", "Save as preset", "Favorites", "Undo pending changes", "Back"]);
             if (action == "Back")
             {
                 if (!session.HasPendingChanges || AnsiConsole.Confirm("Discard pending changes?", false)) return;
                 continue;
             }
-            try
-            {
                 switch (action)
                 {
                     case "Change package version":
                     {
-                        var id = ChooseRow(session.Rows().Where(x => x.Included).ToArray());
+                        var id = workspaceChoice.PackageId ?? ChooseRow(session.Rows().Where(x => x.Included).ToArray());
                         if (id is not null) session.SetVersion(id, await Version(app, id, token)); break;
                     }
                     case "Add packages":
@@ -130,6 +133,7 @@ public static class TerminalClient
                     }
                 }
             }
+            catch (NavigationBackException) { }
             catch (Exception error) when (error is IOException or ArgumentException or InvalidOperationException) { Notice(error.Message, true); }
         }
     }
@@ -137,13 +141,30 @@ public static class TerminalClient
     private static async Task Create(VrcSetupApplication app, AppConfiguration config, CancellationToken token)
     {
         var package = ProjectRules.NormalizePath(Ask("UnityPackage file (paste or drag and drop)"));
-        var name = Ask("Project name", ProjectRules.SuggestName(package, config));
-        var recipe = config.CreationRecipes.Count == 0 ? "No recipe" : Select("Creation recipe", config.CreationRecipes.Keys.Prepend("No recipe"));
-        var preset = Select("Packages", config.PackagePresets.Keys.Prepend("My default packages"));
-        var target = Select("Unity opens on", ProjectRules.BuildTargets, ProjectRules.SuggestBuildTarget(package));
-        var platforms = AnsiConsole.Prompt(new MultiSelectionPrompt<string>().Title("Build and publish platforms").AddChoices(ProjectRules.BuildTargets).Select(target));
-        var plan = await app.PlanCreationAsync(package, config, name, preset == "My default packages" ? null : preset, buildTarget: target, publishingPlatforms: platforms.ToArray(), recipeName: recipe == "No recipe" ? null : recipe, cancellationToken: token);
-        await ReviewAndRun(app, plan, token);
+        var name = ProjectRules.SuggestName(package, config); var preset = "My default packages"; string? recipe = null;
+        var target = ProjectRules.SuggestBuildTarget(package); var platforms = new[] { target }; Dictionary<string, string>? packages = null;
+        while (true)
+        {
+            try
+            {
+            AnsiConsole.Clear();
+            AnsiConsole.Write(new Panel(new Markup(Escape($"{Path.GetFileName(package)}\n{name}\n{Path.Combine(config.UnityProjectsRoot, name)}\nPreset: {preset}\nPlatforms: {string.Join(", ", platforms)}"))).Border(BoxBorder.Rounded).BorderColor(new Color(76, 106, 122)));
+            var action = Select("UnityPackage setup", ["Start importing", "Package presets", "Customize packages", "Edit project name", "Build and publish platforms", "Templates", "Back"]);
+            if (action == "Back") return;
+            if (action == "Package presets") { preset = Select("Creator preset", config.PackagePresets.Keys.Prepend("My default packages")); packages = null; }
+            if (action == "Customize packages") packages = await EditPackageSet(app, config, new(packages ?? (preset == "My default packages" ? config.VpmPackages : config.PackagePresets[preset])), "Project packages", token) ?? packages;
+            if (action == "Edit project name") name = Ask("Project name", name);
+            if (action == "Build and publish platforms") { platforms = AnsiConsole.Prompt(new MultiSelectionPrompt<string>().Title("Platforms").AddChoices(ProjectRules.BuildTargets).Select(target)).ToArray(); if (platforms.Length > 0) target = platforms[0]; }
+            if (action == "Templates") { var selected = Select("Template", config.CreationRecipes.Keys.Prepend("None")); recipe = selected == "None" ? null : selected; }
+            if (action == "Start importing")
+            {
+                var plan = await app.PlanCreationAsync(package, config, name, preset == "My default packages" ? null : preset, packages, target, platforms, recipe, token);
+                if (await ReviewAndRun(app, plan, token)) return;
+            }
+            }
+            catch (NavigationBackException) { }
+            catch (Exception error) when (error is IOException or ArgumentException or InvalidOperationException) { Notice(error.Message, true); }
+        }
     }
     private static async Task<bool> ReviewAndRun(VrcSetupApplication app, OperationPlan plan, CancellationToken token)
     {
@@ -227,15 +248,8 @@ public static class TerminalClient
                 else
                 {
                     var working = new Dictionary<string, string>(name == "My default packages" ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(name) ?? config.VpmPackages);
-                    while (true)
-                    {
-                        var action = Select("Edit " + Escape(name), ["Add/change package", "Remove package", "Save", "Discard"]);
-                        if (action == "Discard") break;
-                        if (action == "Save") { if (name == "My default packages") config.VpmPackages = working; else config.PackagePresets[name] = working; break; }
-                        if (action == "Add/change package") { var id = Ask("Package ID"); working[id] = await Version(app, id, token); }
-                        else if (working.Count > 0)
-                        { var id = Select("Package", working.Keys); if (ProjectRules.Foundation(working, config).Contains(id)) Notice("Required package stays included."); else working.Remove(id); }
-                    }
+                    if (await EditPackageSet(app, config, working, name, token) is { } edited)
+                    { if (name == "My default packages") config.VpmPackages = edited; else config.PackagePresets[name] = edited; }
                 }
             }
             await app.Configuration.SaveAsync(config, token);
@@ -274,7 +288,40 @@ public static class TerminalClient
         if (next == "Inspect packages / retry") await Edit(app, config, [project], token);
         if (next == "Delete incomplete project") await Program.ExecuteAsync(app, new(["recovery", "cleanup", project.Path]), token);
     }
-    private static string? ChooseRow(PackageWorkspaceRow[] rows) => rows.Length == 0 ? null : AnsiConsole.Prompt(new SelectionPrompt<PackageWorkspaceRow>().Title("Package").PageSize(15).UseConverter(x => Escape($"{x.Name} | {x.SelectedVersion}")).AddChoices(rows)).Id;
+    private static async Task<Dictionary<string, string>?> EditPackageSet(VrcSetupApplication app, AppConfiguration config, Dictionary<string, string> working, string title, CancellationToken token)
+    {
+        foreach (var id in ProjectRules.Foundation(working, config)) working.TryAdd(id, "latest");
+        var snapshot = new ProjectSnapshot { Name = title, Path = Path.GetFullPath("preset-working-copy"), Packages = new(working), Policy = new(working) };
+        var session = new PackageEditSession([snapshot], config, await app.Catalog.KnownAsync(config, [working], token));
+        while (true)
+        {
+            try
+            {
+            AnsiConsole.Clear(); var picked = await LegacyTerminal.EditPackages(title, session, id => app.Catalog.GetVersionsAsync(id, token));
+            if (picked.Action == "Back") { if (!session.HasPendingChanges || AnsiConsole.Confirm("Discard pending changes?", false)) return null; continue; }
+            if (picked.Action == "Apply changes") { var result = ProjectRules.Merge(working, session.Selected, session.Exact); foreach (var removedId in session.Removed) result.Remove(removedId); return result; }
+            if (picked.Action == "Change package version" && picked.PackageId is { } packageId) session.SetVersion(packageId, await Version(app, packageId, token));
+            if (picked.Action == "Copy package selection")
+            {
+                var source = await app.Projects.ReadAsync(ProjectRules.NormalizePath(Ask("Reference project folder")), token);
+                session.ApplyPreset("Reference: " + source.Name, source.Packages, Select("Apply mode", ["Keep custom packages", "Match exactly"]) == "Match exactly");
+            }
+            if (picked.Action == "Add packages")
+            {
+                var matches = await app.Catalog.SearchAsync(Ask("Search packages"), token);
+                if (matches.Length == 0) { Notice("No packages found."); continue; }
+                var choices = AnsiConsole.Prompt(new MultiSelectionPrompt<PackageDefinition>().NotRequired().Title("Add packages").UseConverter(x => Escape(x.DisplayName + " · " + x.Id)).AddChoices(matches));
+                foreach (var item in choices) session.SetVersion(item.Id, await Version(app, item.Id, token));
+            }
+            if (picked.Action == "Apply creator preset") { var name = Select("Creator preset", config.PackagePresets.Keys.Prepend("My default packages")); session.ApplyPreset(name, name == "My default packages" ? config.VpmPackages : config.PackagePresets[name], true); }
+            if (picked.Action == "Favorites") foreach (var favorite in config.FavoritePackages) session.SetVersion(favorite, "latest");
+            if (picked.Action == "Options") { if (Select("Packages", ["Undo pending changes", "Back"]) == "Undo pending changes") session.Reset(); }
+            }
+            catch (NavigationBackException) { }
+            catch (Exception error) when (error is IOException or ArgumentException or InvalidOperationException) { Notice(error.Message, true); }
+        }
+    }
+    private static string? ChooseRow(PackageWorkspaceRow[] rows) => rows.Length == 0 ? null : rows.FirstOrDefault(x => x.Id == Select("Package", rows.Select(x => x.Id)))?.Id;
     private static async Task<string> Version(VrcSetupApplication app, string id, CancellationToken token)
     {
         ProjectRules.ValidatePackageId(id);
@@ -287,8 +334,7 @@ public static class TerminalClient
     private static string Select(string title, IEnumerable<string> choices, string? initial = null)
     {
         var items = choices.ToArray(); if (items.Length == 0) throw new InvalidOperationException("No choices available.");
-        if (initial is not null) items = items.OrderBy(x => x == initial ? 0 : 1).ToArray();
-        return AnsiConsole.Prompt(new SelectionPrompt<string>().Title(title).PageSize(15).UseConverter(Escape).AddChoices(items));
+        return LegacyTerminal.Choose(title, items, initial is null ? 0 : Math.Max(0, Array.IndexOf(items, initial)));
     }
     private static string Ask(string prompt, string? initial = null) => AnsiConsole.Prompt(new TextPrompt<string>(Escape(prompt)).AllowEmpty().DefaultValue(initial ?? ""));
     private static string Escape(string value) => Markup.Escape(value);

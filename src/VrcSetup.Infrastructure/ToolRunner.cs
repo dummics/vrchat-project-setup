@@ -6,7 +6,7 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed class ToolRunner
+public sealed class ToolRunner(DiagnosticLog? diagnostics = null)
 {
     public async Task<ToolResult> RunAsync(string executable, IEnumerable<string> arguments, string? workingDirectory = null,
         IProgress<OperationEvent>? progress = null, string phase = "Tool", CancellationToken cancellationToken = default, TimeSpan? timeout = null,
@@ -15,6 +15,7 @@ public sealed class ToolRunner
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        diagnostics?.Write(phase, "Starting " + Path.GetFileName(executable));
         using var timeoutSource = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(10));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
         using var process = new Process { StartInfo = start };
@@ -61,6 +62,7 @@ public sealed class ToolRunner
                 var text = await reader.ReadToEndAsync(linked.Token);
                 foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries)) Emit(line.TrimEnd('\r'));
             }
+            diagnostics?.Write(phase, "Exit " + process.ExitCode + " after " + (DateTime.UtcNow - startTime).TotalSeconds.ToString("F1") + "s");
             return new(process.ExitCode, stdout.ToString(), stderr.ToString());
         }
         catch (OperationCanceledException)
@@ -76,6 +78,7 @@ public sealed class ToolRunner
         }
         void Emit(string line)
         {
+            if (diagnostics?.TraceTools == true) diagnostics.Write(phase, line);
             var severity = Regex.IsMatch(line, @"(?i)\b(ERR|ERROR|FAILED|FAILURE)\b") ? EventSeverity.Error : Regex.IsMatch(line, @"(?i)\b(WRN|WARN|WARNING)\b") ? EventSeverity.Warning : EventSeverity.Info;
             progress?.Report(new(DateTime.UtcNow, phase, line, severity, workingDirectory));
         }

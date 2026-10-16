@@ -165,6 +165,7 @@ public sealed class ConfigurationStore(AppPaths paths)
         config.CreationRecipes = new(config.CreationRecipes ?? [], StringComparer.OrdinalIgnoreCase);
         config.SavedProjectNames = new(config.SavedProjectNames ?? [], StringComparer.OrdinalIgnoreCase);
         config.Naming ??= new(); config.Naming.RegexRemovePatterns ??= [];
+        config.Diagnostics ??= new();
         config.RequiredPackages ??= [ProjectRules.BaseSdk, ProjectRules.AvatarSdk, ProjectRules.Resolver];
         config.FavoritePackages ??= []; config.DefaultPackages ??= [];
         config.ProjectLibrarySort = config.ProjectLibrarySort == "name" ? "name" : "recent";

@@ -18,6 +18,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private readonly TaskCompletionSource initializedCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Task Initialized => initializedCompletion.Task;
     public MainViewModel ViewModel { get; }
+    public bool SuppressDialogs { get; set; }
     public void CloseApplication() => window.Close();
     public MainPage(Window window, VrcSetupApplication app)
     {
@@ -57,15 +58,23 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void ProjectsSelected(object sender, SelectionChangedEventArgs args)
     {
         if (ViewModel is null) return;
-        ViewModel.SelectedProjects.Clear(); foreach (var selected in ProjectList.SelectedItems.OfType<ProjectSnapshot>()) ViewModel.SelectedProjects.Add(selected);
+        ViewModel.SelectedProjects.Clear(); foreach (var selected in ProjectList.SelectedItems.OfType<ProjectSnapshot>()) ViewModel.SelectedProjects.Add(selected); ViewModel.NotifyProjectSelection();
     }
     private void ProjectClicked(object sender, ItemClickEventArgs args) { }
     private async void PackageDoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => await ViewModel.ChooseVersionCommand.ExecuteAsync(null);
-    private async void SortChanged(object sender, SelectionChangedEventArgs args) { if (initialized && ViewModel is not null && !ViewModel.IsBusy) await ViewModel.ChangeSortCommand.ExecuteAsync(null); }
+    private async void SortChanged(object sender, SelectionChangedEventArgs args) { if (initializedCompletion.Task.IsCompletedSuccessfully && ViewModel is not null && !ViewModel.IsBusy) await ViewModel.ChangeSortCommand.ExecuteAsync(null); }
+    private void ErrorClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.DismissErrorCommand.Execute(null);
+    private async void PresetVersionClicked(object sender, RoutedEventArgs args) => await ViewModel.ChangePresetVersionCommand.ExecuteAsync((sender as FrameworkElement)?.DataContext as UiPackageRow);
+    private void PresetRemoveClicked(object sender, RoutedEventArgs args) => ViewModel.RemovePresetPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
+    private void LibraryAddClicked(object sender, RoutedEventArgs args) => ViewModel.AddLibraryPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
+    private async void PackageStarClicked(object sender, RoutedEventArgs args) => await ViewModel.TogglePackageFavoriteCommand.ExecuteAsync((sender as FrameworkElement)?.DataContext as UiPackageRow);
+    private async void LibraryExpanded(Expander sender, ExpanderExpandingEventArgs args) => await ViewModel.RefreshCatalogCommand.ExecuteAsync(null);
+    private void PackageDragLeave(object sender, DragEventArgs args) => PackageDropZone.BorderThickness = new Thickness(2);
     private void PackageDragOver(object sender, DragEventArgs args)
-    { if (args.DataView.Contains(StandardDataFormats.StorageItems)) args.AcceptedOperation = DataPackageOperation.Copy; }
+    { if (args.DataView.Contains(StandardDataFormats.StorageItems)) { args.AcceptedOperation = DataPackageOperation.Copy; PackageDropZone.BorderThickness = new Thickness(3); args.DragUIOverride.Caption = "Import UnityPackage"; args.DragUIOverride.IsCaptionVisible = true; } }
     private async void PackageDropped(object sender, DragEventArgs args)
     {
+        PackageDropZone.BorderThickness = new Thickness(2);
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var items = await args.DataView.GetStorageItemsAsync();
         var file = items.FirstOrDefault(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase));
@@ -91,8 +100,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     public async Task<bool> ConfirmAsync(string title, string content, string action) => await ShowDialog(new()
     { Title = title, Content = new TextBlock { Text = content, TextWrapping = TextWrapping.Wrap, MaxWidth = 500 }, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary;
-    public async Task ShowErrorAsync(string message) => await ShowDialog(new()
-    { Title = "Action could not complete", Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 }, CloseButtonText = "Back" });
+    public async Task ShowErrorAsync(string message)
+    { if (!SuppressDialogs) await ShowDialog(new() { Title = "Action could not complete", Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 }, CloseButtonText = "Back" }); }
     public async Task<string?> TextAsync(string title, string initial = "")
     {
         var field = new TextBox { Text = initial, MinWidth = 360 };

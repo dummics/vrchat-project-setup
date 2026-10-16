@@ -4,14 +4,15 @@ Windows companion for repeatable VRChat Unity projects. A native WinUI 3 desktop
 
 ## Install or run portable
 
-Use the standalone `Install-VrcSetup-2.0.0-preview.2-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
+Use the standalone `Install-VrcSetup-2.0.0-preview.3-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
 
 This branch is `feature/winui-desktop`. The main-branch source ZIP contains the earlier PowerShell product. Source from this branch requires the .NET 10 SDK and Windows build tools; source and the distributable package are distinct downloads.
 
 ## Features
 
 - Project library with search, sorting, metadata recovery and bulk selection.
-- Creation from UnityPackages, creator presets, reusable creation recipes, naming rules and separate Unity/publishing platforms.
+- Creation from UnityPackages with an automatic editable name, one desktop platform choice, creator presets and optional reusable templates. CLI retains advanced platform controls.
+- Preset editing with a clear selected preset, staged changes, local package library, favorite stars and asynchronous version refresh.
 - A shared package workspace: stage multiple additions, pins, latest updates and removals, then review per-project changes before saving.
 - Linked VRChat SDK versions, required-package protection, exact prereleases, favorites and package registry.
 - Overlay or exact preset application, package selection from another project, individual bulk targets and undo.
@@ -23,6 +24,8 @@ Unity with the necessary build modules, Creator Companion repositories and the V
 ## CLI
 
 `vrcsetup` without arguments opens the terminal UI. `vrcsetup gui` opens the Windows app. Use `vrcsetup help` for all commands and flags; legacy PowerShell flag spellings remain accepted.
+
+The C# TUI restores the original Import / My projects flow, colored panels, searchable project selection and keyboard package workspace. Dom's original PowerShell version is also preserved locally as `vrcsetup-legacy` during GUI acceptance; it remains independent of v2 upgrades.
 
 ```powershell
 vrcsetup projects --json

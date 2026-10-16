@@ -1,6 +1,18 @@
 # VRCSETUP Desktop migration
 
-Status: implementation complete for tester handoff, 16 October 2026. Version: **2.0.0-preview.2**, Windows x64.
+Status: usability revision for tester handoff, 16 October 2026. Version: **2.0.0-preview.3**, Windows x64.
+
+## Preview 3 usability revision
+
+Dom's original PowerShell TUI is available immediately through the independent `vrcsetup-legacy` installation. It is retained while the GUI is evaluated. The shared-core C# TUI now follows its primary Import / My projects flow, panel presentation, searchable/multiselect project library and keyboard package workspace. Nested Back/Esc and version lookup failures preserve staged edits; recovery remains reachable.
+
+The desktop Create page now has an obvious drop zone, automatic editable name, destination, one platform choice and preset customization. Optional templates are collapsed. Presets have a visible Default/named selection, direct staged editing, Add package, favorite stars and a local My packages library with asynchronous stale version refresh. The idle operation footer is hidden; Activity replaces Activity & recovery in normal navigation. Developer tools expose shared JSONL diagnostics and runtime flags.
+
+The reported blank/error Projects screen did not reproduce with copied real settings: the final native startup loaded 45 projects without errors (43 at the initial check, before the owner added more). Catalog failures no longer prevent project scanning, initialization callbacks are gated, malformed project metadata is isolated, and unavailable roots/empty searches have explicit messages and a folder-selection action. No personal Unity project was modified by these checks.
+
+Preview 3 artifacts and verification are retained under the canonical checkout's `.work/artifacts/2026-10-16-usability/`. The original migration's Unity and lifecycle evidence below remains applicable; the new UI tests use fixture projects and native rendering without mouse/keyboard injection. The running preview 2 instance is preserved; install the new package after closing it normally.
+
+## Previous migration checkpoint (preview 2)
 
 Dom approved the complete migration, dedicated remote branch, installer and local installation. Branch: `feature/winui-desktop`; stable main is retained without a merge. Preexisting work was preserved and pushed as `c76fc5a` and `438aa35` before the feature branch. Core/client checkpoint: `7436185`; completed implementation: `31e54eb`; corrected installer migration and preview 2: `24f2cdc`.
 

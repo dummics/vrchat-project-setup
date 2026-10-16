@@ -52,6 +52,7 @@ public sealed class AppConfiguration
     public string LastUnityPackagePath { get; set; } = "";
     public string ProjectLibrarySort { get; set; } = "recent";
     public string Theme { get; set; } = "System";
+    public DiagnosticSettings Diagnostics { get; set; } = new();
     [JsonIgnore] public string? Revision { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalSettings { get; set; }
     public AppConfiguration Copy()
@@ -68,6 +69,13 @@ public sealed class NamingSettings
     public string DefaultSuffix { get; set; } = "";
     public List<string> RegexRemovePatterns { get; set; } = [];
     public bool RememberUnityPackageNames { get; set; } = true;
+}
+
+public sealed class DiagnosticSettings
+{
+    public bool DeveloperMode { get; set; }
+    public bool Verbose { get; set; }
+    public bool TraceTools { get; set; }
 }
 
 public sealed record CreationRecipe
