@@ -41,7 +41,7 @@ public sealed partial class MainViewModel
     partial void OnDeveloperModeChanged(bool value) { OnPropertyChanged(nameof(DeveloperVisibility)); }
     partial void OnProjectNameChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
     partial void OnProjectsRootChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
-    partial void OnLibraryFilterChanged(string value) { RefreshLibraryRows(); _ = SearchLibraryAsync(value); }
+    partial void OnLibraryFilterChanged(string value) { onlineMatches.Clear(); RefreshLibraryRows(); _ = SearchLibraryAsync(value ?? ""); }
     partial void OnFavoritesOnlyChanged(bool value) => RefreshLibraryRows();
     partial void OnEditingPresetChanged(string oldValue, string newValue)
     {
@@ -70,8 +70,9 @@ public sealed partial class MainViewModel
     private void RefreshLibraryRows()
     {
         browserIncluded = session?.Rows().Where(x => x.Included).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+        var tokens = (LibraryFilter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         Replace(LibraryPackages, Registry.Where(x =>
-        (!FavoritesOnly || config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase)) && (x.Id + " " + x.DisplayName).Contains(LibraryFilter, StringComparison.OrdinalIgnoreCase))
+        (!FavoritesOnly || config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase)) && (onlineMatches.Contains(x.Id) || tokens.All(token => (x.Id + " " + x.DisplayName).Contains(token, StringComparison.OrdinalIgnoreCase))))
         .Select(x => MakeRow(x.Id, x.SelectedVersion)).OrderByDescending(x => x.Favorite).ThenBy(x => x.Name));
     }
     private void UpdateProjectState()

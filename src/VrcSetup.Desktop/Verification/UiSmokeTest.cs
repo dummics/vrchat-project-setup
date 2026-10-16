@@ -112,6 +112,8 @@ public static class UiSmokeTest
             Require(!flow.WorkspaceDirty && !flow.Packages.Any(x => x.Id == "com.vrcfury.vrcfury"), "Revert restores the installed project selection");
             flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco")); flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco"));
             Require(!flow.WorkspaceDirty, "Undoing a removal restores the original version policy without a new change");
+            flow.LibraryFilter = "vrc fury";
+            Require(flow.LibraryPackages.Any(x => x.Id == "com.vrcfury.vrcfury"), "Local library search accepts multiple query words"); flow.LibraryFilter = "";
         }
         var theme = viewModel.Theme;
         using (var editor = new PackageSetDialog("Creator packages", new() { ["custom.required"] = "1.0.0" }, new() { RequiredPackages = ["custom.required"] }, [],

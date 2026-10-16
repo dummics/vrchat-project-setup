@@ -16,6 +16,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial bool IsSearchingPackages { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CatalogNoticeVisibility))] public partial string CatalogNotice { get; set; } = "";
     private HashSet<string> browserIncluded = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> onlineMatches = new(StringComparer.OrdinalIgnoreCase);
     public Visibility CatalogNoticeVisibility => CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PresetHeaderVisibility => BrowsingProjectPackages ? Visibility.Collapsed : Visibility.Visible;
     public Visibility ProjectCatalogVisibility => BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
@@ -83,6 +84,7 @@ public sealed partial class MainViewModel
             if (token.IsCancellationRequested || source != packageSearch) return;
             var merged = Registry.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
             foreach (var item in found) merged[item.Id] = item;
+            onlineMatches = found.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             Replace(Registry, merged.Values);
             session?.AddDefinitions(found); RefreshLibraryRows();
             CatalogNotice = found.Length == 0 && LibraryPackages.Count == 0 ? "No matching packages" : "";
