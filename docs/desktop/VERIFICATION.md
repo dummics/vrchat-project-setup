@@ -8,6 +8,8 @@ The shared-core .NET suite remains 81 tests. Expanded native verification covers
 
 The browser is a reusable WinUI UserControl; publishing must include `PackageBrowserView.xbf` along with main XAML/PRI resources. Candidate packaging and native evidence stay in `.work/artifacts/2026-10-16-package-flow/`. The preview5 installer is not executed; preview4's earlier lifecycle evidence remains historical. No installer/desktop input or personal-project mutation is authorized for this candidate.
 
+Final candidate: 76 published native checks pass with development runtime/SDK search paths excluded. This includes multiword local search, a project library screen at three widths, off-dispatcher lookup coalescing and retry, navigation confirmation, draft preservation and Revert. Real-config diagnostics load 45 projects and confirm the form fits the entire client. Packaged implementation commit: `ef8205b`. The installed preview4 assembly hash and user configuration hash remain identical to the baseline; the preview5 installer was built but never run. Final EXE/ZIP/SHA256 are in `release-2.0.0-preview.5-final`.
+
 ## Preview 4 visual polish
 
 The shared .NET suite remains 81 tests. The expanded native WinUI sweep has 54 checks: three window widths, form bounds, preset/library consistency, contextual save strip, footer navigation, row-menu data context and required-package protection, a compact version picker including exact prereleases, and preset rename preserving staged edits/template references. `ui-verified` contains the development render evidence. The source adds no Unity project mutation path; real personal projects are inspected only for startup metadata.
