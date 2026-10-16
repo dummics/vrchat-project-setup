@@ -12,7 +12,6 @@ public sealed partial class MainViewModel
     private const string DefaultPresetKey = "My default packages";
     private Dictionary<string, string> presetWorking = new(StringComparer.OrdinalIgnoreCase);
     private bool presetSwitching;
-    private bool initializedLibrary;
     public ObservableCollection<UiPackageRow> PresetPackages { get; } = [];
     public ObservableCollection<UiPackageRow> LibraryPackages { get; } = [];
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetLabel)), NotifyPropertyChangedFor(nameof(IsCustomPreset)), NotifyPropertyChangedFor(nameof(PresetSaveContext))] public partial string EditingPreset { get; set; } = DefaultPresetKey;
@@ -28,7 +27,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial string EmptyProjectsMessage { get; set; } = "";
     public string PresetLabel => EditingPreset == DefaultPresetKey ? "Default" : EditingPreset;
     public bool IsCustomPreset => EditingPreset != DefaultPresetKey;
-    public Visibility PresetChangesVisibility => PresetDirty ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PresetChangesVisibility => PresetDirty && !BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
     public string PresetSaveContext => "Unsaved changes · " + PresetLabel;
     public Visibility ActivityEmptyVisibility => Activity.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool HasSelectedProjects => SelectedProjects.Count > 0;
@@ -42,10 +41,8 @@ public sealed partial class MainViewModel
     partial void OnDeveloperModeChanged(bool value) { OnPropertyChanged(nameof(DeveloperVisibility)); }
     partial void OnProjectNameChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
     partial void OnProjectsRootChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
-    partial void OnLibraryFilterChanged(string value) => RefreshLibraryRows();
+    partial void OnLibraryFilterChanged(string value) { RefreshLibraryRows(); _ = SearchLibraryAsync(value); }
     partial void OnFavoritesOnlyChanged(bool value) => RefreshLibraryRows();
-    partial void OnCurrentPageChanged(string value)
-    { if (value == "Presets" && initializedLibrary && app.AllowBackgroundCatalogRefresh) _ = RefreshCatalogCommand.ExecuteAsync(null); }
     partial void OnEditingPresetChanged(string oldValue, string newValue)
     {
         if (presetSwitching) return;
@@ -62,18 +59,21 @@ public sealed partial class MainViewModel
         presetWorking = new(EditingPreset == DefaultPresetKey ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(EditingPreset) ?? []);
         foreach (var id in ProjectRules.Foundation(presetWorking, config)) presetWorking.TryAdd(id, "latest");
         PresetDirty = false; RenderPreset(); RefreshLibraryRows();
-        initializedLibrary = true;
     }
     private UiPackageRow MakeRow(string id, string version, bool required = false) => new(id,
-        Registry.FirstOrDefault(x => x.Id == id)?.DisplayName ?? VrcSetup.Infrastructure.PackageCatalog.FriendlyName(id), version, required, config.FavoritePackages.Contains(id, StringComparer.OrdinalIgnoreCase), presetWorking.ContainsKey(id));
+        Registry.FirstOrDefault(x => x.Id == id)?.DisplayName ?? VrcSetup.Infrastructure.PackageCatalog.FriendlyName(id), version, required, config.FavoritePackages.Contains(id, StringComparer.OrdinalIgnoreCase), BrowsingProjectPackages ? browserIncluded.Contains(id) : presetWorking.ContainsKey(id), BrowsingProjectPackages);
     private void RenderPreset()
     {
         var required = ProjectRules.Foundation(presetWorking, config);
         Replace(PresetPackages, presetWorking.Select(x => MakeRow(x.Key, x.Value, required.Contains(x.Key))).OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : ProjectRules.SdkIds.Contains(x.Id) ? 1 : x.Id == ProjectRules.Resolver ? 2 : x.Required ? 3 : 4).ThenBy(x => x.Name));
     }
-    private void RefreshLibraryRows() => Replace(LibraryPackages, Registry.Where(x =>
+    private void RefreshLibraryRows()
+    {
+        browserIncluded = session?.Rows().Where(x => x.Included).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+        Replace(LibraryPackages, Registry.Where(x =>
         (!FavoritesOnly || config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase)) && (x.Id + " " + x.DisplayName).Contains(LibraryFilter, StringComparison.OrdinalIgnoreCase))
         .Select(x => MakeRow(x.Id, x.SelectedVersion)).OrderByDescending(x => x.Favorite).ThenBy(x => x.Name));
+    }
     private void UpdateProjectState()
     {
         EmptyProjectsVisibility = !IsLoadingProjects && Projects.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -101,11 +101,6 @@ public sealed partial class MainViewModel
         finally { presetSwitching = false; }
         LoadPresetNames(); creationOverrides = overrides;
     }
-    [RelayCommand] private async Task AddPresetPackages() => await Guard(async () =>
-    {
-        var edited = await EditPackageSet(new(presetWorking), "Add packages — " + PresetLabel); if (edited is null) return;
-        presetWorking = edited; PresetDirty = true; RenderPreset(); await LoadRegistry();
-    });
     [RelayCommand] private async Task SaveEditedPreset() => await Guard(async () =>
     {
         var name = EditingPreset; var saved = new Dictionary<string, string>(presetWorking);
@@ -129,7 +124,11 @@ public sealed partial class MainViewModel
         presetWorking.Remove(row.Id); PresetDirty = true; RenderPreset(); RefreshLibraryRows();
     }
     [RelayCommand] private void AddLibraryPackage(UiPackageRow? row)
-    { if (row is not null && !presetWorking.ContainsKey(row.Id)) { presetWorking[row.Id] = row.Version; PresetDirty = true; RenderPreset(); RefreshLibraryRows(); } }
+    {
+        if (row is null || IsBusy) return;
+        if (BrowsingProjectPackages) { session?.AddDefinitions(Registry); if (session?.Removed.Contains(row.Id) == true) ToggleWorkspacePackage(session.Rows().First(x => x.Id == row.Id)); else StageWorkspaceVersion(row.Id, row.Version); }
+        else if (!presetWorking.ContainsKey(row.Id)) { presetWorking[row.Id] = row.Version; PresetDirty = true; RenderPreset(); RefreshLibraryRows(); }
+    }
     [RelayCommand] private async Task TogglePackageFavorite(UiPackageRow? row) => await Guard(async () =>
     {
         if (row is null) return;
@@ -150,14 +149,15 @@ public sealed partial class MainViewModel
     });
 }
 
-public sealed record UiPackageRow(string Id, string Name, string Version, bool Required, bool Favorite, bool Included)
+public sealed record UiPackageRow(string Id, string Name, string Version, bool Required, bool Favorite, bool Included, bool ProjectContext = false)
 {
     public bool CanAdd => !Included;
     public Visibility AddVisibility => Included ? Visibility.Collapsed : Visibility.Visible;
     public Visibility IncludedVisibility => Included ? Visibility.Visible : Visibility.Collapsed;
     public bool CanRemove => !Required;
-    public string VersionLabel => Version == "latest" ? "Automatic" : Version;
-    public string AddLabel => Included ? "In preset" : "Add to preset";
+    public string VersionLabel => Version == "latest" ? "Latest" : Version;
+    public string AddLabel => Included ? "Added" : ProjectContext ? "Add to project" : "Add to preset";
+    public string IncludedLabel => ProjectContext ? "✓ In project" : "✓ In preset";
     public string FavoriteAction => Favorite ? "Remove favorite" : "Add to favorites";
     public Visibility FavoriteVisibility => Favorite ? Visibility.Visible : Visibility.Collapsed;
     public string StarGlyph => Favorite ? "\uE735" : "\uE734";

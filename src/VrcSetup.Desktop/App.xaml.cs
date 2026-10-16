@@ -25,6 +25,21 @@ public partial class App : Application
                 await Task.Delay(700);
                 await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "startup.png"));
                 await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(output, "startup.json"), new { Projects = main.Page.ViewModel.Projects.Count, main.Page.ViewModel.Status, Activity = main.Page.ViewModel.Activity.ToArray() });
+                if (arguments.Contains("--inspect-pages"))
+                {
+                    var vm = main.Page.ViewModel;
+                    if (vm.Projects.Count > 0) await vm.OpenProjectPackagesCommand.ExecuteAsync(vm.Projects[0]);
+                    foreach (var screen in new[] { "Workspace", "Create", "Catalog" })
+                    {
+                        if (screen == "Catalog") vm.OpenProjectCatalogCommand.Execute(null); else vm.CurrentPage = screen;
+                        await Task.Delay(250); main.Page.UpdateLayout();
+                        await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, screen.ToLowerInvariant() + ".png"));
+                    }
+                    vm.CurrentPage = "Create"; await Task.Delay(200); main.Page.UpdateLayout();
+                    var form = (FrameworkElement)main.Page.FindName("CreateForm"); var origin = form.TransformToVisual(main.Page).TransformPoint(new(0, 0));
+                    var host = (FrameworkElement)main.Page.FindName("PageContent"); var view = (FrameworkElement)main.Page.FindName("CreateView"); var nav = (Microsoft.UI.Xaml.Controls.NavigationView)main.Page.FindName("Navigation");
+                    await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(output, "layout.json"), new { ClientWidth = main.Page.ActualWidth, FormLeft = origin.X, FormWidth = form.ActualWidth, HostWidth = host.ActualWidth, HostMax = host.MaxWidth, ViewWidth = view.ActualWidth, NavWidth = nav.ActualWidth, nav.IsPaneOpen, Mode = nav.DisplayMode.ToString(), Fits = origin.X >= 0 && origin.X + form.ActualWidth <= main.Page.ActualWidth + 1 });
+                }
                 main.Close(); Exit();
             }
             catch (Exception error) { app.Diagnostics.Write("Startup", error.Message, error); Environment.ExitCode = 1; Exit(); }

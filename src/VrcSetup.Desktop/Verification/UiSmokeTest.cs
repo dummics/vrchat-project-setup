@@ -39,6 +39,9 @@ public static class UiSmokeTest
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == "My default packages", "Preset selector has a visible selection after binding");
         Require(viewModel.WorkVisibility == Visibility.Collapsed, "Idle footer actions are hidden");
         Require(viewModel.PresetChangesVisibility == Visibility.Collapsed, "Preset save actions are contextual");
+        var retries = 0;
+        var retryCache = new AsyncVersionCache((_, _) => Task.FromResult(Interlocked.Increment(ref retries) == 1 ? Array.Empty<string>() : new[] { "1.0.0" }));
+        Require((await retryCache.GetAsync("retry.package")).Length == 0 && (await retryCache.GetAsync("retry.package")).Length == 1, "Empty version responses can retry after recovery");
         var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)page.FindName("Navigation");
         Require(navigation.FooterMenuItems.OfType<Microsoft.UI.Xaml.Controls.NavigationViewItem>().Any(x => x.Tag?.ToString() == "Activity"), "Activity is in the navigation footer");
         viewModel.SelectedRecipe = null!; viewModel.SelectedRecipe = "No recipe";
@@ -91,6 +94,25 @@ public static class UiSmokeTest
         viewModel.SelectedPackage = viewModel.Packages.First(x => x.Id == "gogoloco");
         await viewModel.TogglePackageCommand.ExecuteAsync(null);
         Require(viewModel.Packages.First(x => x.Id == "gogoloco").Action == "Will be removed", "GUI command stages optional removal");
+        var decisions = new FlowInteraction(page);
+        using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
+        {
+            await flow.InitializeAsync(); await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
+            flow.StageWorkspaceVersion("gogoloco", "1.8.7");
+            Require(!await flow.NavigateAsync("Settings") && flow.CurrentPage == "Workspace" && flow.WorkspaceDirty, "Rejecting navigation keeps the active project draft");
+            decisions.ConfirmResult = true;
+            Require(await flow.NavigateAsync("Projects") && !flow.WorkspaceDirty, "Confirmed navigation discards only staged project edits");
+            await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]); flow.OpenProjectCatalogCommand.Execute(null);
+            Require(flow.CurrentPage == "Catalog" && flow.BrowsingProjectPackages, "Add package opens the shared in-page library");
+            flow.AddLibraryPackageCommand.Execute(flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury"));
+            Require(flow.WorkspaceDirty && flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury").Included, "Local package addition is immediate and staged for the project");
+            flow.BackToProjectCommand.Execute(null);
+            Require(flow.CurrentPage == "Workspace" && flow.WorkspaceDirty, "Returning from the library keeps the same pending batch");
+            await flow.UndoChangesCommand.ExecuteAsync(null);
+            Require(!flow.WorkspaceDirty && !flow.Packages.Any(x => x.Id == "com.vrcfury.vrcfury"), "Revert restores the installed project selection");
+            flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco")); flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco"));
+            Require(!flow.WorkspaceDirty, "Undoing a removal restores the original version policy without a new change");
+        }
         var theme = viewModel.Theme;
         using (var editor = new PackageSetDialog("Creator packages", new() { ["custom.required"] = "1.0.0" }, new() { RequiredPackages = ["custom.required"] }, [],
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>())))
@@ -114,9 +136,10 @@ public static class UiSmokeTest
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
         {
             window.AppWindow.Resize(size);
-            foreach (var screen in new[] { "Projects", "Workspace", "Create", "Presets", "Settings", "Activity" })
+            foreach (var screen in new[] { "Projects", "Workspace", "Catalog", "Create", "Presets", "Settings", "Activity" })
             {
-                viewModel.CurrentPage = screen;
+                if (screen == "Catalog") viewModel.OpenProjectCatalogCommand.Execute(null);
+                else { if (viewModel.BrowsingProjectPackages) viewModel.BackToProjectCommand.Execute(null); viewModel.CurrentPage = screen; }
                 if (screen == "Activity") viewModel.AppendActivity(new(DateTime.UtcNow, "Verified", "Native renderer / shared viewmodel verification"));
                 await Task.Delay(180);
                 page.UpdateLayout();
@@ -127,6 +150,8 @@ public static class UiSmokeTest
                     var viewport = (FrameworkElement)page.FindName(screen == "Create" ? "CreateView" : "SettingsView");
                     var origin = form.TransformToVisual(viewport).TransformPoint(new(0, 0));
                     Require(origin.X >= -1 && origin.X + form.ActualWidth <= viewport.ActualWidth + 1, "Form fits viewport: " + screen + " " + size.Width);
+                    var global = form.TransformToVisual(page).TransformPoint(new(0, 0));
+                    Require(global.X >= 0 && global.X + form.ActualWidth <= page.ActualWidth + 1, "Form fits entire client window: " + screen + " " + size.Width);
                 }
                 await Render(page, Path.Combine(artifacts, screen.ToLowerInvariant() + "-" + size.Width + ".png"));
                 if (screen == "Presets")
@@ -137,6 +162,22 @@ public static class UiSmokeTest
                         var menu = (Microsoft.UI.Xaml.Controls.MenuFlyout)options.Flyout; menu.ShowAt(options); await Task.Delay(120);
                         Require(menu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Last().DataContext is VrcSetup_Desktop.ViewModels.UiPackageRow { Required: true } && !menu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Last().IsEnabled, "Package menu inherits row context and protects required packages");
                         await Render(page, Path.Combine(artifacts, "preset-menu.png")); menu.Hide();
+                        var selector = Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<PackageVersionSelector>().First();
+                        var uiThread = Environment.CurrentManagedThreadId; var worker = uiThread; var calls = 0;
+                        var release = new TaskCompletionSource<string[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        var cache = new AsyncVersionCache(async (_, _) => { Interlocked.Increment(ref calls); worker = Environment.CurrentManagedThreadId; return await release.Task; });
+                        selector.VersionSource = cache.GetAsync; selector.CachedSource = _ => ["1.0.1"];
+                        for (var i = 0; i < 8; i++) { selector.Flyout.ShowAt(selector); await Task.Delay(20); selector.Flyout.Hide(); await Task.Delay(20); }
+                        await Task.Delay(250);
+                        Require(calls == 1 && worker != uiThread, "Repeated version opens share one off-dispatcher lookup");
+                        release.SetResult(["1.0.1", "2.0.0-beta.1"]); await cache.GetAsync(selector.PackageId);
+                        selector.Flyout.ShowAt(selector); await Task.Delay(100);
+                        var flyoutPanel = (Microsoft.UI.Xaml.Controls.StackPanel)((Microsoft.UI.Xaml.Controls.Flyout)selector.Flyout).Content;
+                        var releases = flyoutPanel.Children.OfType<Microsoft.UI.Xaml.Controls.ListView>().Single();
+                        Require(releases.Items.Count >= 2 && releases.Items.Cast<object>().All(x => !x.ToString()!.Contains("beta")), "Version dropdown hides betas and keeps Latest: " + string.Join("; ", releases.Items.Cast<object>()) + " / selected=" + selector.Value);
+                        selector.PickVersion("1.0.1");
+                        Require(viewModel.PresetDirty, "Version dropdown stages a preset pin without a dialog");
+                        viewModel.DiscardPresetChangesCommand.Execute(null);
                     }
                     var tabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("PackageTabs"); tabs.SelectedIndex = 1; await Task.Delay(180);
                     await Render(page, Path.Combine(artifacts, "my-packages-" + size.Width + ".png")); tabs.SelectedIndex = 0;

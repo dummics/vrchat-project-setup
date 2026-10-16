@@ -78,7 +78,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public VrcSetupApplication Application => app;
 
     public MainViewModel(VrcSetupApplication app, IDesktopInteraction interaction)
-    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); }
+    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); }
     public async Task InitializeAsync()
     {
         await Guard(async () =>
@@ -138,8 +138,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void RenderWorkspace()
     {
         var selected = SelectedPackage?.Id;
-        Replace(Packages, session?.Rows(PackageFilter) ?? []);
+        Replace(Packages, session?.Rows(PackageFilter).Where(x => x.Action != "Available") ?? []);
         SelectedPackage = Packages.FirstOrDefault(x => x.Id == selected) ?? Packages.FirstOrDefault();
+        NotifyWorkspaceChanges();
     }
     [RelayCommand] private async Task RefreshProjects() => await Guard(RefreshProjectsCore);
     private async Task RefreshProjectsCore()
@@ -167,7 +168,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (session?.HasPendingChanges == true && !await ui.ConfirmAsync("Pending changes", "Discard staged package changes?", "Discard")) return;
         var fresh = new List<ProjectSnapshot>(); foreach (var project in projects) fresh.Add(await app.Projects.ReadAsync(project.Path));
-        session = new(fresh.ToArray(), config, await app.Catalog.KnownAsync(config, fresh.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)));
+        var known = await Task.Run(() => app.Catalog.KnownAsync(config, fresh.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)));
+        session = new(fresh.ToArray(), config, known); Replace(Registry, known);
+        try { await app.Catalog.RememberAsync(known, preserveSelections: true); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Package library cache", error.Message, error); }
         WorkspaceProfile = string.Join(Environment.NewLine, fresh.Where(x => x.ProfileStatus.Length > 0).Select(x => (fresh.Count > 1 ? x.Name + ": " : "") + x.ProfileStatus));
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : $"{projects.Length} projects"; PackageFilter = ""; RenderWorkspace(); CurrentPage = "Workspace";
     }
@@ -178,19 +182,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (session is null || SelectedPackage is null) return;
         var id = SelectedPackage.Id; var version = await ui.VersionAsync(id, await app.Catalog.GetVersionsAsync(id), SelectedPackage.SelectedVersion);
         if (version is not null) { session.SetVersion(id, version); RenderWorkspace(); }
-    });
-    [RelayCommand] private async Task SearchPackages() => await Guard(async () =>
-    {
-        var query = await ui.TextAsync("Search packages"); if (string.IsNullOrWhiteSpace(query)) return;
-        var results = await app.Catalog.SearchAsync(query); if (results.Length == 0) { Status = "No packages found"; return; }
-        var choices = await ui.ChooseManyAsync("Add packages", results.Select(x => x.DisplayName + " · " + x.Id).ToArray()); if (choices is null) return;
-        foreach (var item in results.Where(x => choices.Contains(x.DisplayName + " · " + x.Id)))
-        {
-            var version = await ui.VersionAsync(item.Id, await app.Catalog.GetVersionsAsync(item.Id), item.SelectedVersion); if (version is null) continue;
-            if (session is not null) session.SetVersion(item.Id, version);
-            else await app.Catalog.RememberAsync([item with { SelectedVersion = version }]);
-        }
-        if (session is not null) RenderWorkspace(); else await LoadRegistry();
     });
     [RelayCommand] private async Task ApplyPreset() => await Guard(async () =>
     {
@@ -457,7 +448,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         finally { actionGate.Release(); }
     }
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items) { collection.Clear(); foreach (var item in items) collection.Add(item); }
-    public void Dispose() { operation?.Cancel(); refresh?.Cancel(); }
+    public void Dispose() { operation?.Cancel(); refresh?.Cancel(); packageSearch?.Cancel(); lifetime.Cancel(); }
 }
 
 public sealed class SynchronizationProgress<T>(SynchronizationContext context, Action<T> callback) : IProgress<T>

@@ -12,6 +12,8 @@ The application is a community utility, independent of VRChat Inc. Unsigned test
 
 Preview 4 keeps the original core/TUI while polishing the desktop. Packages uses a centered preset selector with Preset packages and My packages tabs; package/preset menus hold secondary actions, and save controls appear for pending edits. Automatic version selection means `latest`; Advanced contains preview and exact-version controls. Activity is in the navigation footer, with restore and unfinished-project actions in its menu.
 
+Preview 5 is an uninstalled review candidate. My packages and project Add package share an in-page local/online browser. Version choices are row dropdowns with a beta filter; Latest retains the shared `latest` policy. Project changes remain staged until Apply, with Back/Revert and confirmation before leaving a pending draft. The installed preview4 is deliberately preserved until Dom requests another upgrade.
+
 ## Portable
 
 Extract VrcSetup-<version>-win-x64.zip, then run VRChat Project Setup.bat or app/desktop/VrcSetup.Desktop.exe. The portable marker keeps settings under data/ in the extracted folder. Use bin/vrcsetup.cmd for the terminal.

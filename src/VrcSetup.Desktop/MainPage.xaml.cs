@@ -24,6 +24,9 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         this.window = window;
         InitializeComponent(); ViewModel = new(app, this); DataContext = ViewModel;
+        SizeChanged += (_, _) => ConstrainContent();
+        Navigation.DisplayModeChanged += (_, _) => ConstrainContent();
+        CreateView.SizeChanged += (_, _) => ConstrainForms(); SettingsView.SizeChanged += (_, _) => ConstrainForms();
         ViewModel.PropertyChanged += (_, eventArgs) =>
         {
             if (eventArgs.PropertyName == nameof(ViewModel.CurrentPage)) ShowPage(ViewModel.CurrentPage);
@@ -42,19 +45,32 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         CreateView.Visibility = page == "Create" ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceView.Visibility = page == "Workspace" ? Visibility.Visible : Visibility.Collapsed;
         PresetsView.Visibility = page == "Presets" ? Visibility.Visible : Visibility.Collapsed;
+        CatalogView.Visibility = page == "Catalog" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
-        try { Navigation.SelectedItem = page == "Settings" ? Navigation.SettingsItem : Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page == "Workspace" ? "Projects" : page)); }
+        try { Navigation.SelectedItem = page == "Settings" ? Navigation.SettingsItem : Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page)); }
         finally { syncingNavigation = false; }
     }
-    private void NavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    private async void NavigationInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
         if (ViewModel is null || syncingNavigation) return;
-        ViewModel.CurrentPage = args.IsSettingsSelected ? "Settings" : (args.SelectedItem as NavigationViewItem)?.Tag?.ToString() ?? "Projects";
+        await ViewModel.NavigateAsync(args.IsSettingsInvoked ? "Settings" : (args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() ?? "Projects");
+        ShowPage(ViewModel.CurrentPage);
     }
-    private void NewProjectClicked(object sender, RoutedEventArgs args) => ViewModel.CurrentPage = "Create";
-    private void ActivityClicked(object sender, RoutedEventArgs args) => ViewModel.CurrentPage = "Activity";
+    private async void NewProjectClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Create");
+    private async void ActivityClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Activity");
+    private void ConstrainContent()
+    {
+        var pane = Navigation.DisplayMode == NavigationViewDisplayMode.Expanded ? Navigation.OpenPaneLength : Navigation.DisplayMode == NavigationViewDisplayMode.Compact ? Navigation.CompactPaneLength : 0;
+        PageContent.MaxWidth = Math.Max(1, ActualWidth - pane);
+        ConstrainForms();
+    }
+    private void ConstrainForms()
+    {
+        if (CreateView.ActualWidth > 0) CreateForm.Width = Math.Min(760, CreateView.ActualWidth);
+        if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Min(760, SettingsView.ActualWidth);
+    }
     private void ProjectsSelected(object sender, SelectionChangedEventArgs args)
     {
         if (ViewModel is null) return;
@@ -66,12 +82,17 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void PackageDoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => await ViewModel.ChooseVersionCommand.ExecuteAsync(null);
     private async void SortChanged(object sender, SelectionChangedEventArgs args) { if (initializedCompletion.Task.IsCompletedSuccessfully && ViewModel is not null && !ViewModel.IsBusy) await ViewModel.ChangeSortCommand.ExecuteAsync(null); }
     private void ErrorClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.DismissErrorCommand.Execute(null);
-    private async void PresetVersionClicked(object sender, RoutedEventArgs args) => await ViewModel.ChangePresetVersionCommand.ExecuteAsync((sender as FrameworkElement)?.DataContext as UiPackageRow);
+    private void VersionSelectorLoaded(object sender, RoutedEventArgs args)
+    { if (sender is PackageVersionSelector selector) { selector.VersionSource = ViewModel.LoadVersionsAsync; selector.CachedSource = ViewModel.CachedVersions; } }
+    private void PresetVersionPicked(object? sender, string version)
+    { if ((sender as FrameworkElement)?.DataContext is UiPackageRow row) ViewModel.StagePresetVersion(row.Id, version); }
+    private void WorkspaceVersionPicked(object? sender, string version)
+    { if ((sender as FrameworkElement)?.DataContext is PackageWorkspaceRow row) ViewModel.StageWorkspaceVersion(row.Id, version); }
+    private void WorkspaceToggleClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is PackageWorkspaceRow row) ViewModel.ToggleWorkspacePackage(row); }
     private void PresetRemoveClicked(object sender, RoutedEventArgs args) => ViewModel.RemovePresetPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
     private void LibraryAddClicked(object sender, RoutedEventArgs args) => ViewModel.AddLibraryPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
     private async void PackageStarClicked(object sender, RoutedEventArgs args) => await ViewModel.TogglePackageFavoriteCommand.ExecuteAsync((sender as FrameworkElement)?.DataContext as UiPackageRow);
-    private void PackageTabChanged(object sender, SelectionChangedEventArgs args)
-    { if (ViewModel is not null && PackageTabs.SelectedIndex == 1 && ViewModel.Application.AllowBackgroundCatalogRefresh) _ = ViewModel.RefreshCatalogCommand.ExecuteAsync(null); }
     private void PackageDragLeave(object sender, DragEventArgs args) => PackageDropZone.BorderThickness = new Thickness(2);
     private void PackageDragOver(object sender, DragEventArgs args)
     { if (args.DataView.Contains(StandardDataFormats.StorageItems)) { args.AcceptedOperation = DataPackageOperation.Copy; PackageDropZone.BorderThickness = new Thickness(3); args.DragUIOverride.Caption = "Import UnityPackage"; args.DragUIOverride.IsCaptionVisible = true; } }

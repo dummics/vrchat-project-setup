@@ -1,6 +1,12 @@
 # Desktop migration verification
 
-Build: 2.0.0-preview.4, Windows x64. Verified on Dom's Windows machine on 14–16 October 2026. This is a tester build; no clean Windows VM or human interactive acceptance is claimed.
+Build: 2.0.0-preview.5 candidate, Windows x64. Verified on Dom's Windows machine on 14–16 October 2026. Preview4 stays installed at the owner's explicit request. No clean Windows VM or human interactive acceptance is claimed.
+
+## Preview 5 package flow
+
+The shared-core .NET suite remains 81 tests. Expanded native verification covers rejecting and accepting navigation, local project-package staging through the shared library, returning without losing the batch, Revert and per-row removal undo, beta filtering, a single off-dispatcher load for repeated dropdown opens, retry after an empty lookup, and full client-window form bounds across three widths. Native diagnostics with copied real config/metadata reproduce the old clipped form and verify the fix without touching Unity projects.
+
+The browser is a reusable WinUI UserControl; publishing must include `PackageBrowserView.xbf` along with main XAML/PRI resources. Candidate packaging and native evidence stay in `.work/artifacts/2026-10-16-package-flow/`. The preview5 installer is not executed; preview4's earlier lifecycle evidence remains historical. No installer/desktop input or personal-project mutation is authorized for this candidate.
 
 ## Preview 4 visual polish
 

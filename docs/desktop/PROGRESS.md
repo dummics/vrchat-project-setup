@@ -1,6 +1,16 @@
 # VRCSETUP Desktop migration
 
-Status: visual polish revision, 16 October 2026. Version: **2.0.0-preview.4**, Windows x64.
+Status: package-flow candidate, 16 October 2026. Version: **2.0.0-preview.5**, Windows x64. **Do not install yet:** Dom explicitly requested preserving the installed preview 4.
+
+## Preview 5 package workflow
+
+Project management now has explicit Projects/Back navigation, Revert and a contextual batch Apply strip. The Installed column itself opens the version dropdown; Choice/After saving and the long action menu are removed. Rows show only a small pending-change hint. Navigation asks before discarding staged project/preset edits, including clicking an already selected Projects navigation item. Returning from the package browser preserves the active batch.
+
+The project Add package action and the My packages preset tab share a reusable in-page browser. Local definitions are immediately filterable/addable; typing also starts debounced, cancellable catalog/repository/VRC-Get lookup in the background. The project browser has no preset-editing tab or preset selector. Project-observed definitions are remembered in the local registry.
+
+Preset and project versions use native row dropdowns with a beta filter. A shared bounded single-flight cache moves synchronous catalog/tool work off the dispatcher, prevents repeat lookups for pending requests, preserves existing pins, and retries empty/faulted results. No version ContentDialog is queued by these rows.
+
+Create clipping was reproduced with copied real settings: form right1238 exceeded client1164 although viewport-only checks looked valid. Explicit viewport-sized, left-aligned forms and resize handling now put the form at249..1009 in the same client. The native test checks full-window bounds as well as the local viewport. Candidate evidence is under `.work/artifacts/2026-10-16-package-flow/`; personal project data and the preview4 installation are not changed.
 
 ## Preview 4 visual polish
 
