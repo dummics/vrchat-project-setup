@@ -14,6 +14,25 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
     private readonly ConcurrentDictionary<string, SharedJob> jobs = new();
     private SignatureSnapshot? index;
     private string Cache => Path.Combine(paths.Cache, "inspection");
+    public async Task<int> ClearObservationCacheAsync(CancellationToken token = default)
+    {
+        await work.WaitAsync(token);
+        try
+        {
+            if (!Directory.Exists(Cache)) return 0;
+            ProjectRules.EnsureContained(paths.Cache, Cache);
+            var removed = 0;
+            foreach (var file in Directory.EnumerateFiles(Cache, "archive-*.json", SearchOption.TopDirectoryOnly))
+            {
+                token.ThrowIfCancellationRequested();
+                ProjectRules.EnsureContained(Cache, file);
+                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) continue;
+                File.Delete(file); removed++;
+            }
+            return removed;
+        }
+        finally { work.Release(); }
+    }
     private sealed class SharedJob
     {
         public readonly CancellationTokenSource Cancellation = new();

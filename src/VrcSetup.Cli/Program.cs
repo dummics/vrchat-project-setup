@@ -43,6 +43,8 @@ public static class Program
         var progress = new InlineProgress<OperationEvent>(value => Console.Error.WriteLine($"[{value.Phase}] {value.Message}"));
         switch (verb)
         {
+            case "imports":
+                return await ImportCommands.ExecuteAsync(app, command, config, cancellationToken);
             case "inspect":
             {
                 if (command.Value("index-project") is { } project) await app.Inspection.IndexProjectAsync(project, cancellationToken);
@@ -304,6 +306,9 @@ public static class Program
                          [-BuildTarget target] [-PublishingPlatforms targets...] [-DryRun]
         vrcsetup setup <project-or-package> [-Preset name] [-Exact] [-DryRun]
         vrcsetup inspect <file.unitypackage> [--json] [--deep] [--index-project <project>]
+        vrcsetup imports run <files...> [--parallel 1|2] [-Preset name] [-DryRun] [--yes] [-Json]
+        vrcsetup imports list|recover [job-id] [--yes] [-Json]
+        vrcsetup imports apply-plan <reviewed-plan.json> [--parallel 1|2] [--yes] [-Json]
         vrcsetup bulk apply <projects...> [-Preset name] [-Package specs...] [-Exact]
                          [--target-map file.json] [-DryRun]
         vrcsetup recipes list|save|remove [name] [-Preset name] [-DryRun]

@@ -11,6 +11,7 @@ public sealed class VrcSetupApplication
     public DiagnosticLog Diagnostics { get; }
     public PackageCatalog Catalog { get; }
     public PackageInspectionService Inspection { get; }
+    public ImportQueue Imports { get; }
     public ProjectWorkspace Projects { get; }
     public ProjectPlanner Planner { get; }
     public ProjectExecutor Executor { get; }
@@ -23,7 +24,7 @@ public sealed class VrcSetupApplication
         Paths = new(home); Configuration = new(Paths); Diagnostics = new(Paths); Tools = new(Diagnostics); Projects = new(Paths, Diagnostics);
         Catalog = new(Paths, Tools, Configuration); Inspection = new(Paths, packageInspector); Unity = new(Paths, Tools, Projects);
         Projects.Resolve = Unity.ResolveAsync;
-        Planner = new(Projects, Catalog); Executor = new(Projects, Unity);
+        Planner = new(Projects, Catalog); Executor = new(Projects, Unity); Imports = new(this);
     }
     public void ConfigureDiagnostics(AppConfiguration config)
     {
@@ -32,11 +33,11 @@ public sealed class VrcSetupApplication
         Diagnostics.Verbose |= diagnosticFlags.Contains("--verbose");
         Diagnostics.TraceTools |= diagnosticFlags.Contains("--trace-tools");
     }
-    public async Task<OperationReport> ApplyAsync(OperationPlan plan, IProgress<OperationEvent>? progress = null, CancellationToken cancellationToken = default)
+    public async Task<OperationReport> ApplyAsync(OperationPlan plan, IProgress<OperationEvent>? progress = null, CancellationToken cancellationToken = default, bool rememberCreation = true)
     {
         using var log = new OperationLog(Paths, plan.Id, progress);
         var report = await Executor.ApplyAsync(plan, log, cancellationToken);
-        foreach (var result in report.Results.Where(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings))
+        foreach (var result in report.Results.Where(x => rememberCreation && (x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings)))
         {
             var creation = plan.Projects.First(x => x.Path == result.Path).Creation;
             if (creation is null) continue;

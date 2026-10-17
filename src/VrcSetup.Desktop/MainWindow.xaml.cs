@@ -24,12 +24,14 @@ public sealed partial class MainWindow : Window
             closePromptPending = true;
             try
             {
-                if (page.ViewModel.IsBusy)
+                if (page.ViewModel.IsBusy || page.ViewModel.HasActiveImports)
                 {
-                    if (await page.ConfirmAsync("Operation running", "Cancel the running operation and preserve recovery information?", "Cancel operation")) page.ViewModel.CancelOperationCommand.Execute(null);
+                    if (await page.ConfirmAsync("Imports running", "Cancel running operations and preserve recovery information? Close again after they stop.", "Cancel operations"))
+                    { page.ViewModel.CancelOperationCommand.Execute(null); page.ViewModel.CancelAllImports(); }
                 }
-                else if (await page.ViewModel.ConfirmCloseAsync() && !page.ViewModel.IsBusy)
+                else if (await page.ViewModel.ConfirmCloseAsync() && !page.ViewModel.IsBusy && !page.ViewModel.HasActiveImports)
                 {
+                    await page.ViewModel.FinishImportsAsync();
                     closingConfirmed = true;
                     DispatcherQueue.TryEnqueue(() => Close());
                 }

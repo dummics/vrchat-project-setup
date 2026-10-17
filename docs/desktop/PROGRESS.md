@@ -1,6 +1,12 @@
 # VRCSETUP Desktop migration
 
-Status: **2.0.0-preview.8**, 17 October 2026, Windows x64. Dom has authorized installation after accurate static review without direct functional tests. The previous preview 7 installation hold is superseded by that request.
+Status: **2.0.0-preview.9 candidate**, 17 October 2026, Windows x64. Dom authorized installing this revision and real import tests using the Desktop GIGGLES and Lulla PC/Quest packages. This supersedes the earlier no-direct-tests constraint for the requested checks.
+
+## Preview 9 projects and multiple imports
+
+Projects now has direct Open project, relative modification time, responsive rows and package management without Unity version/kind columns. The package sheet follows the supplied Creator Companion references while retaining batch Apply/Revert. The new [Imports queue](IMPORT-QUEUE.md) shares the core pipeline with CLI: multi-file review, one/two workers, per-project steps/log/cancel, persistent history, explicit reviewed recovery and bounded analysis-cache clearing. Existing source files/personal presets are not changed by recognition.
+
+Initial verification: 104 .NET tests and 132 native WinUI checks pass. Native rendering covers five widths, direct project actions/date and the new Imports page, without mouse/keyboard injection. Installation and real four-file import results will be recorded with final verification. Evidence: `.work/artifacts/2026-10-17-projects-import-queue/`.
 
 ## Preview 8 reviewed installation
 

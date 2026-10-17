@@ -48,6 +48,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         CatalogView.Visibility = page == "Catalog" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
+        ImportsView.Visibility = page == "Imports" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
         try { Navigation.SelectedItem = page == "Settings" ? Navigation.SettingsItem : Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page)); }
         finally { syncingNavigation = false; }
@@ -91,6 +92,24 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void ProjectClicked(object sender, ItemClickEventArgs args) { }
     private async void ProjectPackagesClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project); }
+    private async void ProjectOpenClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.LaunchProjectCommand.ExecuteAsync(project); }
+    private void ProjectRowLoaded(object sender, RoutedEventArgs args) => LayoutProjectRow(sender);
+    private void ProjectRowSizeChanged(object sender, SizeChangedEventArgs args) => LayoutProjectRow(sender);
+    private static void LayoutProjectRow(object sender)
+    {
+        if (sender is not Grid grid) return;
+        var narrow = grid.ActualWidth < 640;
+        if (grid.Tag is bool previous && previous == narrow) return;
+        grid.Tag = narrow; grid.ColumnSpacing = narrow ? 0 : 16; grid.RowSpacing = narrow ? 8 : 0;
+        grid.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(130);
+        grid.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : GridLength.Auto;
+        foreach (var child in grid.Children.OfType<FrameworkElement>())
+        {
+            if (child.Name == "ProjectModified") { Grid.SetColumn(child, narrow ? 0 : 1); Grid.SetRow(child, narrow ? 1 : 0); }
+            if (child.Name == "ProjectActions") { Grid.SetColumn(child, narrow ? 0 : 2); Grid.SetRow(child, narrow ? 2 : 0); }
+        }
+    }
     private async void PackageDoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => await ViewModel.ChooseVersionCommand.ExecuteAsync(null);
     private async void SortChanged(object sender, SelectionChangedEventArgs args) { if (initializedCompletion.Task.IsCompletedSuccessfully && ViewModel is not null && !ViewModel.IsBusy) await ViewModel.ChangeSortCommand.ExecuteAsync(null); }
     private void ErrorClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.DismissErrorCommand.Execute(null);
@@ -113,9 +132,30 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         PackageDropZone.BorderThickness = new Thickness(2);
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var items = await args.DataView.GetStorageItemsAsync();
-        var file = items.FirstOrDefault(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase));
-        if (file is not null) ViewModel.PackageFile = file.Path;
+        var files = items.Where(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (files.Length > 1) await ViewModel.AddImportFilesAsync(files.Select(x => x.Path));
+        else if (files.Length == 1) ViewModel.PackageFile = files[0].Path;
     }
+    private async void ImportFilesClicked(object sender, RoutedEventArgs args)
+    {
+        if (!await ViewModel.NavigateAsync("Imports")) return;
+        var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(".unitypackage");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
+        var files = await picker.PickMultipleFilesAsync();
+        await ViewModel.AddImportFilesAsync(files.Select(x => x.Path));
+    }
+    private async void ImportFilesDropped(object sender, DragEventArgs args)
+    {
+        if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        var files = await args.DataView.GetStorageItemsAsync();
+        await ViewModel.AddImportFilesAsync(files.Where(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)).Select(x => x.Path));
+    }
+    private void ImportCancelClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.CancelImport(row); }
+    private void ImportLogClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.OpenImportLog(row); }
+    private async void ImportRecoverClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.RecoverImportAsync(row); }
     public async Task<string?> PickFileAsync(string extension)
     {
         var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(extension);

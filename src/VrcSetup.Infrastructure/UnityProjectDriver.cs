@@ -7,7 +7,14 @@ namespace VrcSetup.Infrastructure;
 
 public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, ProjectWorkspace workspace) : IProjectDriver
 {
+    private static readonly SemaphoreSlim preparation = new(1);
     public async Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
+    {
+        await preparation.WaitAsync(cancellationToken);
+        try { await PrepareCoreAsync(plan, progress, cancellationToken); }
+        finally { preparation.Release(); }
+    }
+    private async Task PrepareCoreAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
         if (plan.Creation is not null)
         {

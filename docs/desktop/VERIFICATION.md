@@ -1,6 +1,12 @@
 # Desktop migration verification
 
-Build: 2.0.0-preview.8, Windows x64. Dom authorized installation after static code review without direct functional tests on 17 October 2026. No clean Windows VM or human interactive acceptance is claimed.
+Build: 2.0.0-preview.9 candidate, Windows x64. Dom has authorized installation and real GIGGLES/Lulla PC/Quest import tests. No clean Windows VM or human interactive acceptance is claimed.
+
+## Preview 9 verification
+
+104 .NET tests pass, including durable queue completion/restart, a maximum of two concurrent jobs, queued cancellation without execution, duplicate target rejection, interruption without automatic resume, cache clearing that preserves knowledge/history and malformed-version sorting. Native published WinUI checks pass 132 assertions at 520/760/1024/1180/1366 pixels, including Projects action bounds/date materialization and the Imports idle layout. No input injection is used. Source and native evidence: `.work/artifacts/2026-10-17-projects-import-queue/`.
+
+Real import target selection is limited to the four requested Desktop UnityPackages. Existing projects/source archives and personal preset pins are preserved. The GIGGLES PC archive's PCS editor assembly explicitly references Modular Avatar/NDMF, so its reviewed project plan adds Modular Avatar; this is not a change to the default preset or an automatic promotion of generic text hints. Final installation, import/compile outcomes and any recovery findings will be appended after execution.
 
 ## Preview 8 verification boundary
 

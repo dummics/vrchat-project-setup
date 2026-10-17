@@ -78,7 +78,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public VrcSetupApplication Application => app;
 
     public MainViewModel(VrcSetupApplication app, IDesktopInteraction interaction)
-    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); }
+    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); app.Imports.Changed += ImportsChanged; }
     public async Task InitializeAsync()
     {
         await Guard(async () =>
@@ -86,6 +86,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             config = await app.Configuration.LoadAsync(); app.ConfigureDiagnostics(config); LoadSettings(); LoadPresetNames();
             try { await LoadRegistry(); } catch (Exception error) { app.Diagnostics.Write("Package library", error.Message, error); AppendActivity(new(DateTime.UtcNow, "Packages", "Saved package library could not load: " + error.Message, EventSeverity.Warning)); }
             LoadEditingPreset();
+            try { await app.Imports.InitializeAsync(lifetime.Token); }
+            catch (Exception error) { app.Diagnostics.Write("Import history", error.Message, error); AppendActivity(new(DateTime.UtcNow, "Imports", "Import queue unavailable: " + error.Message, EventSeverity.Warning)); }
             if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot) && Directory.Exists(config.UnityProjectsRoot)) await RefreshProjectsCore();
             UpdateProjectState();
             if (string.IsNullOrWhiteSpace(config.UnityEditorPath) || string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) CurrentPage = "Settings";
@@ -440,11 +442,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task OpenUnity() => await Guard(async () =>
     {
         if (session is null) return;
-        var project = session.Projects[0].Path;
+        await LaunchUnityAsync(session.Projects[0].Path);
+    });
+    [RelayCommand] private async Task LaunchProject(ProjectSnapshot? project) => await Guard(async () =>
+    {
+        if (project is not null) await LaunchUnityAsync(project.Path);
+    });
+    private async Task LaunchUnityAsync(string project)
+    {
+        if (!Directory.Exists(project)) throw new IOException("Project folder is unavailable: " + project);
         UnityProjectDriver.ValidateEditor(config.UnityEditorPath);
         if (app.Projects.IsBusy(project)) { Status = "Project is already open in Unity"; return; }
         var start = new ProcessStartInfo(config.UnityEditorPath) { UseShellExecute = false }; start.ArgumentList.Add("-projectPath"); start.ArgumentList.Add(project); Process.Start(start); await Task.CompletedTask;
-    });
+    }
     private static void OpenPath(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     private async Task Guard(Func<Task> action)
     {
@@ -456,7 +466,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         finally { actionGate.Release(); }
     }
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items) { collection.Clear(); foreach (var item in items) collection.Add(item); }
-    public void Dispose() { operation?.Cancel(); refresh?.Cancel(); packageSearch?.Cancel(); inspectionRequest?.Cancel(); lifetime.Cancel(); }
+    public void Dispose()
+    {
+        operation?.Cancel(); refresh?.Cancel(); packageSearch?.Cancel(); inspectionRequest?.Cancel(); lifetime.Cancel();
+        app.Imports.Changed -= ImportsChanged;
+        _ = app.Imports.DisposeAsync().AsTask().ContinueWith(task => { if (task.Exception is { } error) app.Diagnostics.Write("Closing imports", error.Message, error); }, TaskScheduler.Default);
+    }
 }
 
 public sealed class SynchronizationProgress<T>(SynchronizationContext context, Action<T> callback) : IProgress<T>

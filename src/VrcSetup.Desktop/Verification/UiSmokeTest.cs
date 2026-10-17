@@ -196,7 +196,7 @@ public static class UiSmokeTest
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(520, 800), new Windows.Graphics.SizeInt32(760, 800), new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
         {
             window.AppWindow.Resize(size);
-            foreach (var screen in new[] { "Projects", "Workspace", "Catalog", "Create", "Presets", "Settings", "Activity" })
+            foreach (var screen in new[] { "Projects", "Workspace", "Catalog", "Create", "Presets", "Settings", "Activity", "Imports" })
             {
                 if (screen == "Catalog") viewModel.OpenProjectCatalogCommand.Execute(null);
                 else { if (viewModel.BrowsingProjectPackages) viewModel.BackToProjectCommand.Execute(null); viewModel.CurrentPage = screen; }
@@ -204,6 +204,16 @@ public static class UiSmokeTest
                 await Task.Delay(180);
                 page.UpdateLayout();
                 Require(page.ActualWidth > 0 && page.ActualHeight > 0, "Layout measured: " + screen + " " + size.Width);
+                if (screen == "Projects")
+                {
+                    var projects = (FrameworkElement)page.FindName("ProjectList");
+                    var open = Descendants(projects).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => x.Content as string == "Open project");
+                    var origin = open.TransformToVisual(page).TransformPoint(new(0, 0));
+                    Require(origin.X >= 0 && origin.X + open.ActualWidth <= page.ActualWidth + 1, "Direct project action fits client: " + size.Width);
+                    Require(Descendants(projects).OfType<FrameworkElement>().Any(x => x.Name == "ProjectModified"), "Project last-modified field is materialized: " + size.Width);
+                }
+                if (screen == "Imports")
+                    Require(((FrameworkElement)page.FindName("ImportsView")).ActualWidth > 200 && viewModel.ImportsIdle, "Imports page has a usable idle layout: " + size.Width);
                 if (screen is "Create" or "Settings")
                 {
                     var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");
