@@ -8,6 +8,8 @@ The core and infrastructure now provide bounded streaming UnityPackage inspectio
 
 The first delivery is local-only. Repository-content downloads and broad online creator-package discovery are subsequent work; manual catalog search remains available. Evidence: `.work/artifacts/2026-10-17-inspection-preview7/`. No installer execution or installed-copy update is authorized for this candidate.
 
+Final candidate: 99 core tests and 112 published native checks pass. Installer/ZIP/checksums are in `release-verified`; implementation `5957763`. Real-corpus scans are approximately 0.09/0.43/1.23 seconds; cached Lulla is 0.27 seconds including process startup. Installed preview6 and its configuration hashes remain unchanged. This is tester-ready packaging, not a claim of human acceptance or clean-machine validation.
+
 ## Preview 6 responsive polish
 
 Navigation automatically collapses at narrow widths. Creation fields and preset actions stack when their viewport is below 560 pixels; the chosen filename stays on one ellipsized line. Native verification includes 520 and 760 pixel windows alongside the existing three widths.
