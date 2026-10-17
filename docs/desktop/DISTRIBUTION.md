@@ -18,6 +18,8 @@ Narrow windows use compact navigation and vertically stacked creation fields. Th
 
 ## Portable
 
+Preview 7 is a review candidate with offline UnityPackage inspection and package suggestions. It is packaged for testing without changing the installed preview 6. `vrcsetup inspect <file> --json` and `--deep` use the same local analyzer as Create; neither starts Unity or installs dependencies. See [inspection behavior](PACKAGE-INSPECTION.md).
+
 Extract VrcSetup-<version>-win-x64.zip, then run VRChat Project Setup.bat or app/desktop/VrcSetup.Desktop.exe. The portable marker keeps settings under data/ in the extracted folder. Use bin/vrcsetup.cmd for the terminal.
 
 ## CLI

@@ -10,17 +10,18 @@ public sealed class VrcSetupApplication
     public ToolRunner Tools { get; }
     public DiagnosticLog Diagnostics { get; }
     public PackageCatalog Catalog { get; }
+    public PackageInspectionService Inspection { get; }
     public ProjectWorkspace Projects { get; }
     public ProjectPlanner Planner { get; }
     public ProjectExecutor Executor { get; }
     public UnityProjectDriver Unity { get; }
     private readonly string[] diagnosticFlags;
     public bool AllowBackgroundCatalogRefresh => !diagnosticFlags.Contains("--no-catalog-refresh");
-    public VrcSetupApplication(string? home = null, string[]? diagnosticFlags = null)
+    public VrcSetupApplication(string? home = null, string[]? diagnosticFlags = null, IUnityPackageInspector? packageInspector = null)
     {
         this.diagnosticFlags = diagnosticFlags ?? [];
         Paths = new(home); Configuration = new(Paths); Diagnostics = new(Paths); Tools = new(Diagnostics); Projects = new(Paths, Diagnostics);
-        Catalog = new(Paths, Tools, Configuration); Unity = new(Paths, Tools, Projects);
+        Catalog = new(Paths, Tools, Configuration); Inspection = new(Paths, packageInspector); Unity = new(Paths, Tools, Projects);
         Projects.Resolve = Unity.ResolveAsync;
         Planner = new(Projects, Catalog); Executor = new(Projects, Unity);
     }

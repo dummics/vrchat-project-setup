@@ -21,7 +21,7 @@ public interface IDesktopInteraction
     Task ShowErrorAsync(string message);
     void CloseApplication();
     Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
-        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions);
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null);
 }
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
@@ -122,6 +122,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnPackageFileChanged(string value)
     {
         OnPropertyChanged(nameof(PackageFileLabel));
+        creationOverrides = null;
+        _ = InspectCreationPackageAsync(value);
         if (string.IsNullOrWhiteSpace(value)) return;
         ProjectName = ProjectRules.SuggestName(value, config); BuildTarget = ProjectRules.SuggestBuildTarget(value);
         PublishAndroid = BuildTarget == "Android"; PublishWindows = !PublishAndroid;
@@ -240,8 +242,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     { if (await ui.PickFileAsync(".unitypackage") is { } file) { PackageFile = file; CurrentPage = "Create"; } }
     [RelayCommand] private async Task CustomizeCreationPackages() => await Guard(async () =>
     {
-        var working = new Dictionary<string, string>(SelectedPreset == "My default packages" ? config.VpmPackages : config.PackagePresets[SelectedPreset]);
-        if (await EditPackageSet(working, "Packages for this project") is { } edited) creationOverrides = edited;
+        var working = new Dictionary<string, string>(creationOverrides ?? (SelectedPreset == "My default packages" ? config.VpmPackages : config.PackagePresets[SelectedPreset]));
+        if (await ui.EditPackagesAsync("Packages for this project", working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync, CreationInspection) is { } edited) creationOverrides = edited;
     });
     private Dictionary<string, string>? creationOverrides;
     [RelayCommand] private async Task CreateProject() => await Guard(async () =>
@@ -448,7 +450,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         finally { actionGate.Release(); }
     }
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items) { collection.Clear(); foreach (var item in items) collection.Add(item); }
-    public void Dispose() { operation?.Cancel(); refresh?.Cancel(); packageSearch?.Cancel(); lifetime.Cancel(); }
+    public void Dispose() { operation?.Cancel(); refresh?.Cancel(); packageSearch?.Cancel(); inspectionRequest?.Cancel(); lifetime.Cancel(); }
 }
 
 public sealed class SynchronizationProgress<T>(SynchronizationContext context, Action<T> callback) : IProgress<T>

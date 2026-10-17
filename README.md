@@ -8,7 +8,7 @@ Use the standalone `Install-VrcSetup-2.0.0-preview.6-win-x64.exe` tester package
 
 This branch is `feature/winui-desktop`. The main-branch source ZIP contains the earlier PowerShell product. Source from this branch requires the .NET 10 SDK and Windows build tools; source and the distributable package are distinct downloads.
 
-Current source is preview 6: shared in-page package search, row version dropdowns, guarded staged project navigation, narrow-window layouts and stable favorite cards. The shared selection dialog uses a tall list and compact actions. Installation was requested on 17 October after the earlier preview 5 review hold.
+Current source is the preview 7 candidate: offline UnityPackage dependency inspection, an included signature index, observation caching and contextual package suggestions shared with the CLI. [Inspection details](docs/desktop/PACKAGE-INSPECTION.md). Preview 6 stays installed on Dom's PC; the new candidate must not be installed until requested.
 
 ## Features
 

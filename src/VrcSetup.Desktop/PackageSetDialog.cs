@@ -20,14 +20,18 @@ public sealed class PackageSetDialog : IDisposable
     private readonly Func<string, CancellationToken, Task<PackageDefinition[]>> search;
     private CancellationTokenSource? searching;
     private bool rendering;
+    private readonly PackageInspectionReport? inspection;
+    private readonly HashSet<string> originalSelection;
     public PackageSetDialog(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
-        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions)
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null)
     {
-        configuration = config; this.search = search;
+        configuration = config; this.search = search; this.inspection = inspection;
+        originalSelection = packages.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var working = new Dictionary<string, string>(packages);
         foreach (var id in ProjectRules.Foundation(working, config)) working.TryAdd(id, "latest");
         var snapshot = new ProjectSnapshot { Path = Path.GetFullPath("preset-working-copy"), Name = title, Packages = new(working), Policy = new(working) };
-        session = new([snapshot], config, known);
+        var discovered = inspection?.Suggestions.Select(x => new PackageDefinition(x.Id, VrcSetup.Infrastructure.PackageCatalog.FriendlyName(x.Id), "latest")) ?? [];
+        session = new([snapshot], config, known.Concat(discovered).DistinctBy(x => x.Id, StringComparer.OrdinalIgnoreCase));
         versionCache = new(async (id, token) =>
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, cancellation.Token);
@@ -44,14 +48,27 @@ public sealed class PackageSetDialog : IDisposable
         query = new TextBox { PlaceholderText = "Search packages", MinHeight = 34 };
         panel.Children.Add(query);
         notice = new InfoBar { IsOpen = false, IsClosable = true }; panel.Children.Add(notice);
+        if (inspection is not null)
+        {
+            var recommended = inspection.Suggestions.Where(x => DependencyAdvisor.SuggestedVersion(x) is not null && !working.ContainsKey(x.Id)
+                && !(x.Id == ProjectRules.WorldSdk && working.ContainsKey(ProjectRules.AvatarSdk)) && !(x.Id == ProjectRules.AvatarSdk && working.ContainsKey(ProjectRules.WorldSdk))).ToArray();
+            if (recommended.Length > 0)
+            {
+                var addDetected = new Button { Content = $"Add detected ({recommended.Length})", MinHeight = 30, Padding = new Thickness(10, 4, 10, 4) };
+                addDetected.Click += (_, _) => { foreach (var item in recommended) if (!session.Rows().Any(x => x.Id == item.Id && x.Included)) session.SetVersion(item.Id, DependencyAdvisor.SuggestedVersion(item)!); Render(); addDetected.Visibility = Visibility.Collapsed; };
+                panel.Children.Add(addDetected);
+            }
+            if (!inspection.Observation.ArchiveComplete || !inspection.Observation.TextComplete) ShowNotice("Analysis is partial. Other packages may still be required.");
+            else if (inspection.Suggestions.Any(x => x.Confidence == DependencyConfidence.Included && working.ContainsKey(x.Id))) ShowNotice("This file includes packages also present in your selection. Review before importing.");
+        }
         list = new ListView { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = 480, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         list.Resources["ListViewItemBackgroundSelected"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         list.Resources["ListViewItemBackgroundSelectedPointerOver"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(18, 128, 128, 128));
         list.Resources["ListViewItemBackgroundSelectedPressed"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(28, 128, 128, 128));
         list.ItemTemplate = (DataTemplate)XamlReader.Load("""
-            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:local="using:VrcSetup_Desktop">
+            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:VrcSetup_Desktop">
               <Grid Padding="4,6" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
-                <StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Id}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis"/></StackPanel>
+                <StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="PackageDetail" Text="{Binding Id}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis"/></StackPanel>
                 <local:PackageVersionSelector Grid.Column="1" PackageId="{Binding Id}" Value="{Binding SelectedVersion}" MinHeight="30" Padding="8,4" VerticalAlignment="Center"/>
               </Grid>
             </DataTemplate>
@@ -77,7 +94,12 @@ public sealed class PackageSetDialog : IDisposable
         list.SelectionChanged += (_, args) =>
         {
             if (rendering) return;
-            foreach (var added in args.AddedItems.OfType<PackageWorkspaceRow>()) if (!added.Included) session.Toggle(added.Id);
+            foreach (var added in args.AddedItems.OfType<PackageWorkspaceRow>())
+                if (!added.Included)
+                {
+                    if (NeedsExactVersion(added.Id) && added.SelectedVersion is "latest" or "Not installed") ShowNotice("Choose an exact version for " + added.Name + ". Required: " + Advice(added.Id)!.VersionConstraint);
+                    else session.Toggle(added.Id);
+                }
             foreach (var removed in args.RemovedItems.OfType<PackageWorkspaceRow>())
             {
                 if (removed.Required) ShowNotice("The required VRChat foundation stays included.");
@@ -125,18 +147,33 @@ public sealed class PackageSetDialog : IDisposable
     }
     private void WireSelectors(DependencyObject parent)
     {
+        if (parent is TextBlock { Name: "PackageDetail", DataContext: PackageWorkspaceRow row } detail && detail.Tag as string != row.Id)
+        {
+            detail.Tag = row.Id;
+            var hint = Advice(row.Id);
+            detail.Text = hint is null ? row.Id : hint.Confidence == DependencyConfidence.Declared ? "Requires " + hint.VersionConstraint : hint.Confidence.ToString();
+            ToolTipService.SetToolTip(detail, hint is null ? row.Id : row.Id + "\n" + string.Join("\n", hint.Evidence.Take(3).Select(x => x.Kind + " · " + x.Asset)));
+        }
         if (parent is PackageVersionSelector selector)
         {
             if (selector.VersionSource is null)
             {
                 selector.VersionSource = versionCache.GetAsync;
                 selector.VersionPicked += VersionPicked;
+                if (inspection?.Suggestions.FirstOrDefault(x => x.Id.Equals(selector.PackageId, StringComparison.OrdinalIgnoreCase)) is { } advice)
+                    ToolTipService.SetToolTip(selector, advice.Confidence + (advice.VersionConstraint is { Length: > 0 } constraint ? " · requires " + constraint : "") + "\n" + string.Join("\n", advice.Evidence.Take(3).Select(x => x.Kind + " · " + x.Asset)));
             }
         }
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++) WireSelectors(VisualTreeHelper.GetChild(parent, index));
     }
     private void VersionPicked(object? sender, string value)
-    { if (sender is PackageVersionSelector selector) { session.SetVersion(selector.PackageId, value); Render(); } }
+    {
+        if (sender is not PackageVersionSelector selector) return;
+        if (NeedsExactVersion(selector.PackageId) && value == "latest") { ShowNotice("Choose an exact version. Required: " + Advice(selector.PackageId)!.VersionConstraint); return; }
+        session.SetVersion(selector.PackageId, value); Render();
+    }
+    private DependencySuggestion? Advice(string id) => inspection?.Suggestions.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+    private bool NeedsExactVersion(string id) => !originalSelection.Contains(id) && Advice(id) is { Confidence: DependencyConfidence.Declared } advice && DependencyAdvisor.SuggestedVersion(advice) is null;
     private void ShowNotice(string message) { notice.Message = message; notice.IsOpen = true; }
     public Dictionary<string, string> Result()
     {

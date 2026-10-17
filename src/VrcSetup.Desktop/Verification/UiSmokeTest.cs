@@ -115,6 +115,41 @@ public static class UiSmokeTest
             flow.LibraryFilter = "vrc fury";
             Require(flow.LibraryPackages.Any(x => x.Id == "com.vrcfury.vrcfury"), "Local library search accepts multiple query words"); flow.LibraryFilter = "";
         }
+        Require((await new VrcSetupApplication(Path.Combine(artifacts, "seed-check-home")).Inspection.LoadIndexAsync()).Signatures.Length > 1000, "Published bundle includes the offline dependency signature seed");
+        var inspectionFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
+        using (var file = File.Create(inspectionFile))
+        using (var compressed = new System.IO.Compression.GZipStream(file, System.IO.Compression.CompressionMode.Compress))
+        using (var tar = new System.Formats.Tar.TarWriter(compressed))
+        using (var data = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("Assets/Test.prefab")))
+            tar.WriteEntry(new System.Formats.Tar.UstarTarEntry(System.Formats.Tar.TarEntryType.RegularFile, "11111111111111111111111111111111/pathname") { DataStream = data });
+        var delayed = new DelayedInspectionReader();
+        var slowApp = new VrcSetupApplication(Path.Combine(artifacts, "slow-inspection-home"), ["--no-catalog-refresh"], delayed);
+        using (var responsive = new VrcSetup_Desktop.ViewModels.MainViewModel(slowApp, page))
+        {
+            responsive.PackageFile = inspectionFile;
+            await delayed.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var dispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            page.DispatcherQueue.TryEnqueue(() => dispatched.TrySetResult());
+            await dispatched.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            Require(responsive.IsInspectingPackage, "Dispatcher remains usable while package analysis is pending");
+            responsive.PackageFile = ""; delayed.Release.TrySetResult(); await Task.Delay(120);
+            Require(responsive.CreationInspection is null && responsive.InspectionStatus.Length == 0, "Replacing a file rejects stale inspection results");
+        }
+        var proof = new DependencyEvidence("Assets/Test.prefab", "script");
+        var advice = new PackageInspectionReport(new(1, 0, 0, true, true, [], [], 0), "fixture", "Avatar prefab", 0,
+            [new("com.vrcfury.vrcfury", DependencyConfidence.Detected, null, [proof]), new("com.poiyomi.toon", DependencyConfidence.Detected, null, [proof]), new(ProjectRules.WorldSdk, DependencyConfidence.Detected, null, [proof]), new("example.range", DependencyConfidence.Declared, ">=2.0.0", [proof])], false);
+        using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0" }, new(), viewModel.Registry.ToArray(),
+            (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>()), advice))
+        {
+            suggested.Dialog.XamlRoot = page.XamlRoot; var shown = suggested.Dialog.ShowAsync(); await Task.Delay(180); suggested.Dialog.UpdateLayout();
+            var add = Descendants(suggested.Dialog).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => x.Content is string text && text.StartsWith("Add detected"));
+            var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(add);
+            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke(); await Task.Delay(100);
+            Require(suggested.Result()["com.vrcfury.vrcfury"] == "latest" && suggested.Result()["com.poiyomi.toon"] == "8.0.0", "Detected packages stage additions without replacing existing pins");
+            Require(!suggested.Result().ContainsKey(ProjectRules.WorldSdk) && !suggested.Result().ContainsKey("example.range"), "Suggestions preserve SDK kind and do not convert declared ranges into latest");
+            await Render(suggested.Dialog, Path.Combine(artifacts, "detected-packages.png")); suggested.Dialog.Hide(); await shown;
+            Require(!suggested.Accepted, "Detected selection stays staged until the user accepts");
+        }
         var theme = viewModel.Theme;
         var librarySnapshot = viewModel.LibraryPackages.ToArray();
         var favoriteRow = librarySnapshot.First();
@@ -157,7 +192,7 @@ public static class UiSmokeTest
         Require(versionPicker.Result == "latest", "Automatic UI choice retains shared latest policy");
         versionPicker.Exact.Text = "1.9.0-beta.1";
         Require(versionPicker.Result == "1.9.0-beta.1", "Advanced exact prerelease remains available");
-        viewModel.PackageFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
+        viewModel.PackageFile = inspectionFile;
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(520, 800), new Windows.Graphics.SizeInt32(760, 800), new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
         {
             window.AppWindow.Resize(size);
@@ -232,6 +267,16 @@ public static class UiSmokeTest
         {
             var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i); yield return child;
             foreach (var descendant in Descendants(child)) yield return descendant;
+        }
+    }
+    private sealed class DelayedInspectionReader : IUnityPackageInspector
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<ArchiveObservation> ReadAsync(string path, InspectionOptions options, CancellationToken token)
+        {
+            Started.TrySetResult(); await Release.Task.WaitAsync(token);
+            var info = new FileInfo(path); return new(1, info.Length, info.LastWriteTimeUtc.Ticks, true, true, [], [], 0);
         }
     }
     public static async Task Render(FrameworkElement element, string path)

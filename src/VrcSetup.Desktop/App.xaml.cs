@@ -5,7 +5,16 @@ namespace VrcSetup_Desktop;
 public partial class App : Application
 {
     private Window? window;
-    public App() => InitializeComponent();
+    public App()
+    {
+        InitializeComponent();
+        UnhandledException += (_, error) =>
+        {
+            var args = Environment.GetCommandLineArgs(); var index = Array.IndexOf(args, "--smoke-test");
+            if (index >= 0 && index + 1 < args.Length)
+                try { System.IO.Directory.CreateDirectory(args[index + 1]); System.IO.File.WriteAllText(System.IO.Path.Combine(args[index + 1], "unhandled.txt"), error.Exception.ToString()); } catch (System.IO.IOException) { }
+        };
+    }
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var arguments = Environment.GetCommandLineArgs();

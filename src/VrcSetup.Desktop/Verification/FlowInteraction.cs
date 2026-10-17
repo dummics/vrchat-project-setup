@@ -18,5 +18,5 @@ internal sealed class FlowInteraction(IDesktopInteraction inner) : IDesktopInter
     public Task<string[]?> ChooseProjectsAsync(string title, ProjectSnapshot[] projects, string[] selected) => inner.ChooseProjectsAsync(title, projects, selected);
     public Task ShowErrorAsync(string message) => inner.ShowErrorAsync(message);
     public void CloseApplication() => inner.CloseApplication();
-    public Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known, Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions) => inner.EditPackagesAsync(title, packages, config, known, search, versions);
+    public Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known, Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null) => inner.EditPackagesAsync(title, packages, config, known, search, versions, inspection);
 }

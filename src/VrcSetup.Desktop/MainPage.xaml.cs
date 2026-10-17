@@ -192,13 +192,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (project.NeedsEasyLoginRepository) stack.Children.Add(new TextBlock { Text = "Ensure Vulpine Vault repository; recognized legacy Easy Login assets will be backed up and migrated.", TextWrapping = TextWrapping.Wrap });
         }
         stack.Children.Add(new TextBlock { Text = "Projects open in Unity or changed after this review will be skipped. Backups are kept in each project's .vrcsetup folder.", TextWrapping = TextWrapping.Wrap });
+        if (plan.Projects.Any(x => x.Creation is not null) && ViewModel.InspectionReviewNote.Length > 0) stack.Children.Add(new TextBlock { Text = ViewModel.InspectionReviewNote, TextWrapping = TextWrapping.Wrap });
         var dialog = new ContentDialog { Title = "Review changes", Content = new ScrollViewer { Content = stack, MaxHeight = 430 }, PrimaryButtonText = plan.Projects.Any(x => x.Creation is not null) ? "Create project" : "Apply changes", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Close };
         return await ShowDialog(dialog) == ContentDialogResult.Primary;
     }
     public async Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
-        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions)
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null)
     {
-        using var editor = new PackageSetDialog(title, packages, config, known, search, versions);
+        using var editor = new PackageSetDialog(title, packages, config, known, search, versions, inspection);
         await ShowDialog(editor.Dialog);
         return editor.Accepted ? editor.Result() : null;
     }

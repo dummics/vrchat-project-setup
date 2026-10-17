@@ -4,8 +4,8 @@ public sealed class CommandLine
 {
     public List<string> Positionals { get; } = [];
     private readonly Dictionary<string, List<string>> options = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly HashSet<string> Flags = new(["json", "dryrun", "test", "refresh", "exact", "yes", "wizard", "help", "extras", "replace", "prerelease", "developer", "verbose", "tracetools", "nocatalogrefresh"], StringComparer.OrdinalIgnoreCase);
-    private static readonly HashSet<string> Values = new(["home", "name", "sort", "preset", "recipe", "package", "buildtarget", "publishingplatforms", "projectpath", "root", "unity", "theme", "targetmap", "plan", "backup", "pid", "extra"], StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> Flags = new(["json", "deep", "dryrun", "test", "refresh", "exact", "yes", "wizard", "help", "extras", "replace", "prerelease", "developer", "verbose", "tracetools", "nocatalogrefresh"], StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> Values = new(["home", "indexproject", "name", "sort", "preset", "recipe", "package", "buildtarget", "publishingplatforms", "projectpath", "root", "unity", "theme", "targetmap", "plan", "backup", "pid", "extra"], StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> MultiValues = new(["package", "publishingplatforms", "extra"], StringComparer.OrdinalIgnoreCase);
     public CommandLine(IEnumerable<string> arguments)
     {

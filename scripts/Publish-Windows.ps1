@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '2.0.0-preview.6',
+    [string]$Version = '2.0.0-preview.7',
     [string]$OutputDirectory,
     [switch]$SkipInstaller
 )
@@ -21,6 +21,9 @@ Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Cli\VrcS
 Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Desktop\VrcSetup.Desktop.csproj'),'-c','Release','-p:Platform=x64',('-p:Version=' + $Version),'-o',(Join-Path $payload 'app\desktop'),'--nologo')
 foreach ($resource in @('MainWindow.xbf','MainPage.xbf','PackageBrowserView.xbf','VrcSetup.Desktop.pri')) {
     if (-not (Test-Path -LiteralPath (Join-Path $payload ('app\desktop\' + $resource)))) { throw "Native XAML publish resource missing: $resource" }
+}
+foreach ($client in @('cli','desktop')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $payload ('app\' + $client + '\Resources\dependency-signatures.json')))) { throw "Dependency signature seed missing from published $client." }
 }
 foreach ($name in @('VRChat Project Setup.bat','Install VRChat Project Setup.bat','Repair VRChat Project Setup.bat','Uninstall VRChat Project Setup.bat')) {
     $text = switch ($name) {

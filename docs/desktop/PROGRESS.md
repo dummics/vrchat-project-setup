@@ -1,6 +1,12 @@
 # VRCSETUP Desktop migration
 
-Status: **2.0.0-preview.6 installed and verified**, 17 October 2026, Windows x64. Dom requested installation, superseding the earlier preview 5 review hold. The installer exited successfully; all 45 projects remain visible, the configuration hash is unchanged and the separate legacy alias remains available.
+Status: **2.0.0-preview.7 candidate**, 17 October 2026, Windows x64. **Do not install:** Dom requested working on the new version while preserving the installed preview 6.
+
+## Preview 7 offline dependency inspection
+
+The core and infrastructure now provide bounded streaming UnityPackage inspection, GUID-based advisory classification, an included metadata seed, personal signatures and observation caching. The CLI adds inspect/--deep/--index-project; the desktop automatically inspects selected files without blocking Create and adds suggestions to the existing package dialog. Pin/SDK-kind preservation, explicit range choices, stale-request rejection and staged acceptance are covered by tests. See [inspection behavior and delivery boundary](PACKAGE-INSPECTION.md).
+
+The first delivery is local-only. Repository-content downloads and broad online creator-package discovery are subsequent work; manual catalog search remains available. Evidence: `.work/artifacts/2026-10-17-inspection-preview7/`. No installer execution or installed-copy update is authorized for this candidate.
 
 ## Preview 6 responsive polish
 

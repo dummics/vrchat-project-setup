@@ -43,6 +43,19 @@ public static class Program
         var progress = new InlineProgress<OperationEvent>(value => Console.Error.WriteLine($"[{value.Phase}] {value.Message}"));
         switch (verb)
         {
+            case "inspect":
+            {
+                if (command.Value("index-project") is { } project) await app.Inspection.IndexProjectAsync(project, cancellationToken);
+                var report = await app.Inspection.InspectAsync(command.Required(1, "UnityPackage path"), command.Has("deep") ? InspectionOptions.Extended : null, cancellationToken);
+                if (command.Has("json")) Console.WriteLine(JsonSerializer.Serialize(report, JsonDefaults.Options));
+                else
+                {
+                    Console.WriteLine($"{report.Scope} · {(report.FromCache ? "cached" : "scanned")} · {(report.Observation.ArchiveComplete ? "archive read" : "partial archive")}");
+                    PrintData(report.Suggestions.Select(x => new { Package = x.Id, x.Confidence, Requirement = x.VersionConstraint ?? "" }).ToArray(), false);
+                    foreach (var limitation in report.Observation.Limitations) Console.Error.WriteLine(limitation);
+                }
+                return report.Observation.ArchiveComplete ? 0 : 2;
+            }
             case "projects":
             {
                 var root = command.Value("root") ?? config.UnityProjectsRoot;
@@ -290,6 +303,7 @@ public static class Program
         vrcsetup create <file.unitypackage> [-Name name] [-Preset name] [-Package specs...]
                          [-BuildTarget target] [-PublishingPlatforms targets...] [-DryRun]
         vrcsetup setup <project-or-package> [-Preset name] [-Exact] [-DryRun]
+        vrcsetup inspect <file.unitypackage> [--json] [--deep] [--index-project <project>]
         vrcsetup bulk apply <projects...> [-Preset name] [-Package specs...] [-Exact]
                          [--target-map file.json] [-DryRun]
         vrcsetup recipes list|save|remove [name] [-Preset name] [-DryRun]
