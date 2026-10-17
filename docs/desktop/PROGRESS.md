@@ -1,6 +1,6 @@
 # VRCSETUP Desktop migration
 
-Status: **2.0.0-preview.10 candidate**, 17 October 2026, Windows x64. Preview 9 remains installed. Dom owns acceptance testing; no further actual import, desktop automation or installation is performed for this candidate.
+Status: **2.0.0-preview.10 installed**, 17 October 2026, Windows x64, on Dom's explicit request. Installer exit 0; all 759 installed payload hashes match, configuration hash unchanged and legacy launcher preserved. Implementation a5f0c40. Dom owns acceptance testing; no actual import, app launch or desktop automation was performed. Evidence: `.work/artifacts/2026-10-17-unified-imports/installed-verification.json`.
 
 ## Preview 10 unified import page
 

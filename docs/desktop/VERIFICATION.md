@@ -1,6 +1,6 @@
 # Desktop migration verification
 
-Build: 2.0.0-preview.10 candidate, Windows x64; preview 9 remains installed. Dom owns runtime acceptance. No clean Windows VM or human interactive acceptance is claimed.
+Build: 2.0.0-preview.10 installed, Windows x64, implementation a5f0c40. Subsequent owner-authorized installation: exit 0, 759 installed files match their hashes, config unchanged and legacy launcher present. No app/import run; Dom owns runtime acceptance. No clean Windows VM or human interactive acceptance is claimed.
 
 ## Preview 10 verification boundary
 
