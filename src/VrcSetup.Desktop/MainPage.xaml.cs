@@ -59,6 +59,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ShowPage(ViewModel.CurrentPage);
     }
     private async void NewProjectClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Create");
+    private async void ImportSettingsClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Settings");
     private async void ActivityClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Activity");
     private void ConstrainContent()
     {
@@ -225,6 +226,20 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     public async Task<bool> ReviewAsync(OperationPlan plan)
     {
+        if (plan.Projects.Length > 0 && plan.Projects.All(x => x.Creation is not null))
+        {
+            var recap = new StackPanel { Spacing = 14, MaxWidth = 440 };
+            foreach (var project in plan.Projects)
+            {
+                var platform = project.Creation!.BuildTarget switch { "Android" => "Android / Quest", "iOS" => "iOS", _ => "Windows" };
+                var preset = project.PresetName is null or "My default packages" ? "Default" : project.PresetName;
+                var row = new StackPanel { Spacing = 4 };
+                row.Children.Add(new TextBlock { Text = project.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+                row.Children.Add(new TextBlock { Text = $"{platform} · {preset} · {project.DesiredPolicy.Count} packages", Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
+                ToolTipService.SetToolTip(row, project.Path); recap.Children.Add(row);
+            }
+            return await ShowDialog(new() { Title = plan.Projects.Length == 1 ? "Import project" : $"Import {plan.Projects.Length} projects", Content = new ScrollViewer { Content = recap, MaxHeight = 360 }, PrimaryButtonText = "Import", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Primary }) == ContentDialogResult.Primary;
+        }
         var stack = new StackPanel { Spacing = 14, MaxWidth = 600 };
         foreach (var project in plan.Projects)
         {

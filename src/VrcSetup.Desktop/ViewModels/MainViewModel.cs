@@ -267,7 +267,26 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         { creationOverrides = edited; if (SelectedImportDraft is { } draft) draft.Packages = new(edited); }
     });
     private Dictionary<string, string>? creationOverrides;
-    [RelayCommand] private async Task CreateProject() => await Guard(QueueCreationAsync);
+    [RelayCommand] private async Task CreateProject()
+    {
+        ImportError = "";
+        if (IsBusy) { ImportError = "Wait for the current operation to finish, then try again."; return; }
+        IsPreparingImport = true;
+        try
+        {
+            await actionGate.WaitAsync(lifetime.Token);
+            try { await QueueCreationAsync(); }
+            finally { actionGate.Release(); }
+        }
+        catch (OperationCanceledException) { ImportError = "Import preparation cancelled. Your files are still selected."; }
+        catch (Exception error)
+        {
+            app.Diagnostics.Write("Import review", error.Message, error);
+            ImportError = error.Message;
+            AppendActivity(new(DateTime.UtcNow, "Error", error.Message, EventSeverity.Error));
+        }
+        finally { IsPreparingImport = false; }
+    }
     private async Task<OperationReport> Run(OperationPlan plan)
     {
         using var cancellation = new CancellationTokenSource(); operation = cancellation; IsBusy = true;

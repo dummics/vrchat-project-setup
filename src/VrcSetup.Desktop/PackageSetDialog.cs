@@ -2,6 +2,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using VrcSetup.Core;
 
 namespace VrcSetup_Desktop;
@@ -22,6 +24,8 @@ public sealed class PackageSetDialog : IDisposable
     private bool rendering;
     private readonly PackageInspectionReport? inspection;
     private readonly HashSet<string> originalSelection;
+    private readonly ObservableCollection<PackageChoiceRow> visibleRows = [];
+    private readonly Dictionary<string, int> displayOrder = new(StringComparer.OrdinalIgnoreCase);
     public PackageSetDialog(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
         Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null)
     {
@@ -62,6 +66,7 @@ public sealed class PackageSetDialog : IDisposable
             else if (inspection.Suggestions.Any(x => x.Confidence == DependencyConfidence.Included && working.ContainsKey(x.Id))) ShowNotice("This file includes packages also present in your selection. Review before importing.");
         }
         list = new ListView { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = 480, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        list.ItemsSource = visibleRows;
         list.Resources["ListViewItemBackgroundSelected"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         list.Resources["ListViewItemBackgroundSelectedPointerOver"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(18, 128, 128, 128));
         list.Resources["ListViewItemBackgroundSelectedPressed"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(28, 128, 128, 128));
@@ -94,13 +99,13 @@ public sealed class PackageSetDialog : IDisposable
         list.SelectionChanged += (_, args) =>
         {
             if (rendering) return;
-            foreach (var added in args.AddedItems.OfType<PackageWorkspaceRow>())
+            foreach (var added in args.AddedItems.OfType<PackageChoiceRow>())
                 if (!added.Included)
                 {
                     if (NeedsExactVersion(added.Id) && added.SelectedVersion is "latest" or "Not installed") ShowNotice("Choose an exact version for " + added.Name + ". Required: " + Advice(added.Id)!.VersionConstraint);
                     else session.Toggle(added.Id);
                 }
-            foreach (var removed in args.RemovedItems.OfType<PackageWorkspaceRow>())
+            foreach (var removed in args.RemovedItems.OfType<PackageChoiceRow>())
             {
                 if (removed.Required) ShowNotice("The required VRChat foundation stays included.");
                 else if (removed.Included) session.Toggle(removed.Id);
@@ -132,8 +137,27 @@ public sealed class PackageSetDialog : IDisposable
         rendering = true;
         try
         {
-            var rows = session.Rows(query.Text); list.ItemsSource = rows;
-            foreach (var item in rows.Where(x => x.Included)) list.SelectedItems.Add(item);
+            // Freeze ordering for this dialog lifetime. Search may change visibility,
+            // but toggles/version edits must preserve containers, focus and scroll.
+            var all = session.Rows();
+            foreach (var row in all) if (!displayOrder.ContainsKey(row.Id)) displayOrder[row.Id] = displayOrder.Count;
+            var rows = all.Where(x => string.IsNullOrWhiteSpace(query.Text) || (x.Id + " " + x.Name).Contains(query.Text, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => displayOrder[x.Id]).ToArray();
+            var ids = rows.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            for (var index = visibleRows.Count - 1; index >= 0; index--) if (!ids.Contains(visibleRows[index].Id)) visibleRows.RemoveAt(index);
+            for (var index = 0; index < rows.Length; index++)
+            {
+                var row = rows[index];
+                var existing = visibleRows.FirstOrDefault(x => x.Id.Equals(row.Id, StringComparison.OrdinalIgnoreCase));
+                if (existing is null) visibleRows.Insert(index, new(row));
+                else existing.Update(row);
+            }
+            foreach (var item in visibleRows)
+            {
+                var selected = list.SelectedItems.Contains(item);
+                if (item.Included && !selected) list.SelectedItems.Add(item);
+                else if (!item.Included && selected) list.SelectedItems.Remove(item);
+            }
             ResizeDialog();
         }
         finally { rendering = false; }
@@ -147,7 +171,7 @@ public sealed class PackageSetDialog : IDisposable
     }
     private void WireSelectors(DependencyObject parent)
     {
-        if (parent is TextBlock { Name: "PackageDetail", DataContext: PackageWorkspaceRow row } detail && detail.Tag as string != row.Id)
+        if (parent is TextBlock { Name: "PackageDetail", DataContext: PackageChoiceRow row } detail && detail.Tag as string != row.Id)
         {
             detail.Tag = row.Id;
             var hint = Advice(row.Id);
@@ -183,4 +207,20 @@ public sealed class PackageSetDialog : IDisposable
         return result;
     }
     public void Dispose() { searching?.Cancel(); searching?.Dispose(); cancellation.Cancel(); cancellation.Dispose(); }
+
+    public sealed class PackageChoiceRow(PackageWorkspaceRow row) : ObservableObject
+    {
+        private PackageWorkspaceRow current = row;
+        public string Id => current.Id;
+        public string Name => current.Name;
+        public string SelectedVersion => current.SelectedVersion;
+        public bool Included => current.Included;
+        public bool Required => current.Required;
+        public void Update(PackageWorkspaceRow value)
+        {
+            var previous = current; current = value;
+            if (previous.Name != value.Name) OnPropertyChanged(nameof(Name));
+            if (previous.SelectedVersion != value.SelectedVersion) OnPropertyChanged(nameof(SelectedVersion));
+        }
+    }
 }

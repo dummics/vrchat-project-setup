@@ -11,6 +11,14 @@ public sealed partial class MainViewModel
 {
     public ObservableCollection<UiImportRow> ImportJobs { get; } = [];
     private const int RequestedParallelism = int.MaxValue;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportReviewLabel)), NotifyPropertyChangedFor(nameof(ImportPreparingVisibility))]
+    public partial bool IsPreparingImport { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportErrorVisibility)), NotifyPropertyChangedFor(nameof(ImportSettingsVisibility))]
+    public partial string ImportError { get; set; } = "";
+    public string ImportReviewLabel => IsPreparingImport ? "Preparing review…" : "Review and import";
+    public Visibility ImportPreparingVisibility => IsPreparingImport ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ImportErrorVisibility => ImportError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ImportSettingsVisibility => ImportError.Contains("Settings", StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ResourceSummaryVisibility => HasActiveImports ? Visibility.Visible : Visibility.Collapsed;
     public string ResourceSummary
     {
@@ -96,6 +104,16 @@ public sealed partial class MainViewModel
     private async Task QueueCreationAsync()
     {
         var choices = config.Copy(); var preset = SelectedPreset == DefaultPresetKey ? null : SelectedPreset;
+        // Use the settings currently visible in the UI, without saving unrelated edits.
+        choices.UnityEditorPath = string.IsNullOrWhiteSpace(UnityEditorPath) ? "" : ProjectRules.NormalizePath(UnityEditorPath);
+        choices.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
+        if (!File.Exists(choices.UnityEditorPath) || !Path.GetFileName(choices.UnityEditorPath).Equals("Unity.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            var editors = UnityProjectDriver.FindEditors();
+            if (editors.Length != 1) throw new IOException("Choose a Unity Editor in Settings before importing.");
+            choices.UnityEditorPath = editors[0].Path;
+            UnityEditorPath = editors[0].Path;
+        }
         var recipe = SelectedRecipe == "No recipe" ? null : SelectedRecipe;
         var inputFile = PackageFile; var inputName = ProjectName; var inputPlatform = BuildTarget;
         var inputPackages = creationOverrides;

@@ -169,8 +169,21 @@ public static class UiSmokeTest
             editor.Dialog.UpdateLayout();
             var inlineVersion = Descendants(editor.Dialog).OfType<PackageVersionSelector>().First(x => x.PackageId == "custom.required");
             Require(inlineVersion.VersionSource is not null, "Shared package editor wires inline version selector");
+            var choiceList = Descendants(editor.Dialog).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => x.Items.OfType<PackageSetDialog.PackageChoiceRow>().Any());
+            var stableChoices = choiceList.Items.OfType<PackageSetDialog.PackageChoiceRow>().ToArray();
+            var choiceSource = choiceList.ItemsSource;
+            var optional = stableChoices.FirstOrDefault(x => !x.Required);
+            if (optional is not null)
+            {
+                var included = choiceList.SelectedItems.Contains(optional);
+                if (included) choiceList.SelectedItems.Remove(optional); else choiceList.SelectedItems.Add(optional);
+                Require(ReferenceEquals(choiceSource, choiceList.ItemsSource) && stableChoices.SequenceEqual(choiceList.Items.OfType<PackageSetDialog.PackageChoiceRow>()), "Package toggle preserves source, row instances and display order");
+                Require(editor.Result().ContainsKey(optional.Id) != included, "Stable package row still stages the toggle");
+                if (included) choiceList.SelectedItems.Add(optional); else choiceList.SelectedItems.Remove(optional);
+            }
             inlineVersion.PickVersion("1.2.3"); await Task.Delay(100);
             Require(editor.Result()["custom.required"] == "1.2.3", "Shared editor stages version directly from its row");
+            Require(ReferenceEquals(choiceSource, choiceList.ItemsSource) && stableChoices.SequenceEqual(choiceList.Items.OfType<PackageSetDialog.PackageChoiceRow>()), "Version edit preserves package row instances and order");
             await Render(editor.Dialog, Path.Combine(artifacts, "package-editor.png"));
             Require(editor.Result().ContainsKey("custom.required"), "Native preset working copy preserves custom foundation");
             var buttons = Descendants((DependencyObject)editor.Dialog.Content).OfType<Microsoft.UI.Xaml.Controls.Button>().Where(x => x.Content is string text && text is "Done" or "Cancel").ToArray();
