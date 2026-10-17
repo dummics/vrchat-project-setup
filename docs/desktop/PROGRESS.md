@@ -1,6 +1,8 @@
 # VRCSETUP Desktop migration
 
-## Preview 12 candidate
+## Preview 12 installed
+
+Installed implementation ae6ab80 on 17 October 2026: installer exit 0, 759 installed hashes and release checksums verified, settings unchanged and legacy launcher preserved. Nine focused fixture tests pass, including seven simultaneous jobs and shared-log reading. Release publication has zero compiler diagnostics. No GUI/terminal input injection or interactive visual acceptance was performed.
 
 State-aware resume/missing-asset import, shared log-reader fix, startup recovery prompt, import timers, fixed header resource status and simplified controls/manual-input settings are implemented. TUI import context/progress boxes are restored without changing its shared core. No UI automation or terminal input injection was used.
 

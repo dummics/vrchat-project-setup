@@ -2,6 +2,8 @@
 
 ## Preview 12 verification
 
+Installed implementation ae6ab80: installer exit 0, all 759 installed file hashes match, EXE/ZIP checksums verified, config unchanged, legacy command preserved. Nine targeted fixture checks pass on the final source. Release GUI/CLI/installer publishing reports zero compiler diagnostics. Positive missing-asset archive generation is verified with synthetic fixtures; the real Lulla recovery required no new asset import and validated Unity settle/completion instead.
+
 Focused temporary-fixture checks cover writer-compatible log reads, missing-asset filtering that preserves edited paths/moved GUIDs, state/source classification, durable queue cancellation/restart and seven simultaneous jobs without an artificial worker cap. No desktop input is injected. Real Lulla Quest recovery completed with a backup and final Unity validation only; original package versions/assets were preserved, with no full avatar reimport. Evidence and reviewed plan: `.work/artifacts/2026-10-17-preview12-project-state/`. TUI keyboard/layout acceptance remains with Dom; source compilation is not a visual acceptance test.
 
 ## Preview 11 verification boundary
