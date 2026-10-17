@@ -1,6 +1,10 @@
 # Desktop migration verification
 
-Build: 2.0.0-preview.9 installed, Windows x64. Dom took over testing and stopped the real import run. No clean Windows VM or human interactive acceptance is claimed.
+Build: 2.0.0-preview.10 candidate, Windows x64; preview 9 remains installed. Dom owns runtime acceptance. No clean Windows VM or human interactive acceptance is claimed.
+
+## Preview 10 verification boundary
+
+Reviewed draft snapshot/revision preservation, unified navigation, narrow field layout, stable job instances with active-first ordering, shared FIFO scheduling/cancellation, resource warning hysteresis and bounded asynchronous log reads. Release GUI and CLI compilation/publishing validate the candidate's syntax/resources. No test suite, UI automation, app launch, actual Unity import or installation is executed for this revision. The native smoke-check source follows the unified page but was not run. Evidence: `.work/artifacts/2026-10-17-unified-imports/`. Earlier test counts and installed-file checks apply only to their named revisions.
 
 ## Preview 9 verification
 

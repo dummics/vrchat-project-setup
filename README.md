@@ -4,11 +4,11 @@ Windows companion for repeatable VRChat Unity projects. A native WinUI 3 desktop
 
 ## Install or run portable
 
-Use the standalone `Install-VrcSetup-2.0.0-preview.9-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
+Use the standalone `Install-VrcSetup-2.0.0-preview.10-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
 
 This branch is `feature/winui-desktop`. The main-branch source ZIP contains the earlier PowerShell product. Source from this branch requires the .NET 10 SDK and Windows build tools; source and the distributable package are distinct downloads.
 
-Current source is preview 9, installed on Dom's PC: direct project opening and modification dates, a cleaner package sheet, and a durable [multiple-import queue](docs/desktop/IMPORT-QUEUE.md) with per-project logs/cancel/recovery and one/two workers. Offline inspection and version/discovery caches remain separate from My Packages. [Inspection details](docs/desktop/PACKAGE-INSPECTION.md) and [research intake](docs/desktop/RECOGNITION-RESEARCH.md). Automated checks pass; Dom stopped the requested real-import run to take over testing. The two created GIGGLES projects remain unfinished; Lulla was not started. No full four-project import success is claimed.
+Current source is preview 10: a single [import page](docs/desktop/IMPORT-QUEUE.md), with active jobs at the top, editable staged files, expandable logs and unobtrusive resource warnings. The GUI imposes no two/six-worker cap. Direct project opening, modification dates, shared CLI/core and the separate legacy terminal launcher remain available. Offline inspection and version/discovery caches remain separate from My Packages. [Inspection details](docs/desktop/PACKAGE-INSPECTION.md) and [research intake](docs/desktop/RECOGNITION-RESEARCH.md). Preview 10 is a candidate, not installed or runtime-tested; Dom owns acceptance testing. Installed preview 9 and unfinished real-test projects are preserved.
 
 ## Features
 

@@ -48,7 +48,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         CatalogView.Visibility = page == "Catalog" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
-        ImportsView.Visibility = page == "Imports" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
         try { Navigation.SelectedItem = page == "Settings" ? Navigation.SettingsItem : Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page)); }
         finally { syncingNavigation = false; }
@@ -71,7 +70,10 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         if (CreateView.ActualWidth > 0)
         {
-            CreateForm.Width = Math.Min(760, CreateView.ActualWidth);
+            CreateLayout.Width = Math.Min(880, CreateView.ActualWidth);
+            CreateForm.Width = CreateLayout.Width;
+            ImportQueueSection.Width = CreateLayout.Width;
+            ImportQueueList.MaxHeight = ViewModel.ImportJobs.Any(x => x.DetailsOpen) ? Math.Min(520, Math.Max(260, CreateView.ActualHeight - 140)) : 220;
             var narrow = CreateForm.Width < 560;
             ProjectFields.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(210);
             Grid.SetColumn(PlatformSelector, narrow ? 0 : 1); Grid.SetRow(PlatformSelector, narrow ? 1 : 0);
@@ -129,27 +131,34 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if (args.DataView.Contains(StandardDataFormats.StorageItems)) { args.AcceptedOperation = DataPackageOperation.Copy; PackageDropZone.BorderThickness = new Thickness(3); args.DragUIOverride.Caption = "Import UnityPackage"; args.DragUIOverride.IsCaptionVisible = true; } }
     private async void PackageDropped(object sender, DragEventArgs args)
     {
+        args.Handled = true;
         PackageDropZone.BorderThickness = new Thickness(2);
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var items = await args.DataView.GetStorageItemsAsync();
         var files = items.Where(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (files.Length > 1) await ViewModel.AddImportFilesAsync(files.Select(x => x.Path));
-        else if (files.Length == 1) ViewModel.PackageFile = files[0].Path;
+        ViewModel.StageImportFiles(files.Select(x => x.Path));
     }
     private async void ImportFilesClicked(object sender, RoutedEventArgs args)
     {
-        if (!await ViewModel.NavigateAsync("Imports")) return;
+        if (!await ViewModel.NavigateAsync("Create")) return;
         var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(".unitypackage");
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
         var files = await picker.PickMultipleFilesAsync();
-        await ViewModel.AddImportFilesAsync(files.Select(x => x.Path));
+        ViewModel.StageImportFiles(files.Select(x => x.Path));
     }
     private async void ImportFilesDropped(object sender, DragEventArgs args)
     {
+        args.Handled = true;
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var files = await args.DataView.GetStorageItemsAsync();
-        await ViewModel.AddImportFilesAsync(files.Where(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)).Select(x => x.Path));
+        ViewModel.StageImportFiles(files.Where(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)).Select(x => x.Path));
     }
+    private void RemoveImportDraftClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportDraft draft) ViewModel.RemoveImportDraft(draft); }
+    private async void ImportDetailsExpanded(Expander sender, ExpanderExpandingEventArgs args)
+    { if (sender.DataContext is UiImportRow row) { row.DetailsOpen = true; ConstrainForms(); await ViewModel.RefreshImportLogAsync(row, true); } }
+    private void ImportDetailsCollapsed(object sender, object args)
+    { if (sender is Expander { DataContext: UiImportRow row }) { row.DetailsOpen = false; ConstrainForms(); } }
     private void ImportCancelClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.CancelImport(row); }
     private void ImportLogClicked(object sender, RoutedEventArgs args)

@@ -78,7 +78,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public VrcSetupApplication Application => app;
 
     public MainViewModel(VrcSetupApplication app, IDesktopInteraction interaction)
-    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); app.Imports.Changed += ImportsChanged; }
+    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); app.Imports.ConfigureParallelism(int.MaxValue); app.Imports.Changed += ImportsChanged; }
     public async Task InitializeAsync()
     {
         await Guard(async () =>
@@ -128,6 +128,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnPackageFilterChanged(string value) => RenderWorkspace();
     partial void OnPackageFileChanged(string value)
     {
+        if (!switchingImportDraft && ImportDrafts.Count > 0 && SelectedImportDraft?.File != value)
+        {
+            switchingImportDraft = true;
+            ImportDrafts.Clear(); SelectedImportDraft = null;
+            switchingImportDraft = false; NotifyDrafts();
+        }
         OnPropertyChanged(nameof(PackageFileLabel));
         creationOverrides = null;
         _ = InspectCreationPackageAsync(value);
@@ -135,12 +141,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ProjectName = ProjectRules.SuggestName(value, config); BuildTarget = ProjectRules.SuggestBuildTarget(value);
         PublishAndroid = BuildTarget == "Android"; PublishWindows = !PublishAndroid;
     }
-    partial void OnSelectedPresetChanged(string value) => creationOverrides = null;
+    partial void OnSelectedPresetChanged(string value)
+    {
+        creationOverrides = null;
+        foreach (var draft in ImportDrafts) draft.Packages = null;
+    }
     partial void OnSelectedRecipeChanged(string value)
     {
+        foreach (var draft in ImportDrafts) draft.Packages = null;
         if (string.IsNullOrWhiteSpace(value) || !config.CreationRecipes.TryGetValue(value, out var recipe)) { creationOverrides = null; return; }
         SelectedPreset = string.IsNullOrWhiteSpace(recipe.Preset) || !config.PackagePresets.ContainsKey(recipe.Preset) ? "My default packages" : recipe.Preset;
         creationOverrides = recipe.Packages.Count > 0 ? new(recipe.Packages) : null;
+        if (SelectedImportDraft is { } selected) selected.Packages = creationOverrides is null ? null : new(creationOverrides);
         BuildTarget = recipe.BuildTarget; PublishWindows = recipe.PublishingPlatforms.Contains("StandaloneWindows64"); PublishAndroid = recipe.PublishingPlatforms.Contains("Android"); PublishIos = recipe.PublishingPlatforms.Contains("iOS");
     }
     private void FilterProjects() { Replace(Projects, allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase))); UpdateProjectState(); }
@@ -251,20 +263,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task CustomizeCreationPackages() => await Guard(async () =>
     {
         var working = new Dictionary<string, string>(creationOverrides ?? (SelectedPreset == "My default packages" ? config.VpmPackages : config.PackagePresets[SelectedPreset]));
-        if (await ui.EditPackagesAsync("Packages for this project", working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync, CreationInspection) is { } edited) creationOverrides = edited;
+        if (await ui.EditPackagesAsync("Packages for this project", working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync, CreationInspection) is { } edited)
+        { creationOverrides = edited; if (SelectedImportDraft is { } draft) draft.Packages = new(edited); }
     });
     private Dictionary<string, string>? creationOverrides;
-    [RelayCommand] private async Task CreateProject() => await Guard(async () =>
-    {
-        var plan = await app.PlanCreationAsync(PackageFile, config, ProjectName, SelectedPreset == "My default packages" ? null : SelectedPreset, creationOverrides, BuildTarget, [BuildTarget], SelectedRecipe == "No recipe" ? null : SelectedRecipe);
-        if (!await ui.ReviewAsync(plan)) return;
-        var report = await Run(plan);
-        if (report.Success)
-        {
-            config = await app.Configuration.LoadAsync(); creationOverrides = null;
-            await OpenProjectsAsync([await app.Projects.ReadAsync(plan.Projects[0].Path)]);
-        }
-    });
+    [RelayCommand] private async Task CreateProject() => await Guard(QueueCreationAsync);
     private async Task<OperationReport> Run(OperationPlan plan)
     {
         using var cancellation = new CancellationTokenSource(); operation = cancellation; IsBusy = true;

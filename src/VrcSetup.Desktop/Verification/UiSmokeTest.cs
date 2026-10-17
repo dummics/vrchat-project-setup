@@ -196,7 +196,7 @@ public static class UiSmokeTest
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(520, 800), new Windows.Graphics.SizeInt32(760, 800), new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
         {
             window.AppWindow.Resize(size);
-            foreach (var screen in new[] { "Projects", "Workspace", "Catalog", "Create", "Presets", "Settings", "Activity", "Imports" })
+            foreach (var screen in new[] { "Projects", "Workspace", "Catalog", "Create", "Presets", "Settings", "Activity" })
             {
                 if (screen == "Catalog") viewModel.OpenProjectCatalogCommand.Execute(null);
                 else { if (viewModel.BrowsingProjectPackages) viewModel.BackToProjectCommand.Execute(null); viewModel.CurrentPage = screen; }
@@ -212,8 +212,8 @@ public static class UiSmokeTest
                     Require(origin.X >= 0 && origin.X + open.ActualWidth <= page.ActualWidth + 1, "Direct project action fits client: " + size.Width);
                     Require(Descendants(projects).OfType<FrameworkElement>().Any(x => x.Name == "ProjectModified"), "Project last-modified field is materialized: " + size.Width);
                 }
-                if (screen == "Imports")
-                    Require(((FrameworkElement)page.FindName("ImportsView")).ActualWidth > 200 && viewModel.ImportsIdle, "Imports page has a usable idle layout: " + size.Width);
+                if (screen == "Create")
+                    Require(((FrameworkElement)page.FindName("ImportQueueSection")).ActualWidth > 200 && viewModel.ImportsIdle, "Shared import page has a usable queue layout: " + size.Width);
                 if (screen is "Create" or "Settings")
                 {
                     var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");

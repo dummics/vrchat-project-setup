@@ -15,7 +15,8 @@ internal static class ImportCommands
             Console.WriteLine(JsonSerializer.Serialize(history, JsonDefaults.Options)); return 0;
         }
         if (action is not ("run" or "recover" or "apply-plan")) throw new ArgumentException("Use imports run, list, apply-plan or recover.");
-        var parallel = int.TryParse(command.Value("parallel") ?? "1", out var limit) && limit is >= 1 and <= 2 ? limit : throw new ArgumentException("--parallel must be 1 or 2.");
+        var parallelValue = command.Value("parallel") ?? "1";
+        var parallel = parallelValue.Equals("auto", StringComparison.OrdinalIgnoreCase) ? 0 : int.TryParse(parallelValue, out var limit) && limit > 0 ? limit : throw new ArgumentException("--parallel must be auto or a positive number.");
         await using var queue = app.Imports;
         OperationPlan reviewed; CreationRequest? recoverySource = null;
         if (action == "apply-plan")

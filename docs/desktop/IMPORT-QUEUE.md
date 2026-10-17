@@ -1,10 +1,12 @@
 # Multiple imports
 
-Imports accepts up to 50 `.unitypackage` files per addition, from the file picker or drag and drop. Each file creates its own Unity project. Names follow existing naming rules; platform is inferred from each filename (PC/Quest), and the selected saved preset is copied into each plan. Use Create for an individual name, platform or custom package selection. Conflicting/existing destinations are rejected rather than overwritten.
+Import projects is one page at every window width. Add `.unitypackage` files through the picker or drag and drop, including while other imports run. Each file creates its own Unity project. Select a staged file to change its inferred name, platform or package selection before reviewing the batch. The selected saved preset is copied into each plan. Conflicting/existing destinations are rejected rather than overwritten. New or edited drafts are preserved if input changes while planning.
 
-Review the combined plan before starting. Imports defaults to one project at a time; two is an explicit option, applied when starting an idle queue. Each row shows a coarse step bar, current step, last message, Log and contextual Cancel/Recover. This is phase progress, not a measured percentage of imported bytes. Completed items remain until Clear completed history. The row collection is reconciled in place; progress publication is throttled and terminal/step transitions are immediate.
+Review the combined plan before starting. Active imports appear above the input form, ahead of finished history. Each compact row shows its name, current step and coarse progress bar; expand it for messages, a bounded live console tail, the full log and contextual Cancel/Recover. Reviewed job inputs remain fixed after starting. This is phase progress, not a measured percentage of imported bytes. Completed items remain until Clear completed history. Row instances and expanded state survive progress updates; transitions are immediate and repetitive progress is throttled.
 
-The queue wraps the same shared planner/executor, project locks, fingerprints, backup, Unity import and package verification as CLI/TUI. Project preparation is serialized; VPM already has a process-wide named mutex. Two Unity projects can run concurrently, so this option uses more RAM/disk. Background version or recognition lookups do not alter a reviewed import. Batch operations intentionally do not overwrite the single-project recent-name preferences while the user may be editing Settings.
+The GUI has no package-count or worker-count selector and no artificial two/six-job cap. Reviewed jobs can run concurrently; required preparation/VPM locks still serialize their own critical sections. RAM/CPU are sampled every three seconds. Sustained high usage produces an inline text warning while imports are active, without a popup, automatic cancellation or GUI resource throttling. This is advisory, not a guarantee against resource exhaustion. The optional CLI scheduling limit remains available separately.
+
+The queue wraps the same shared planner/executor, project locks, fingerprints, backup, Unity import and package verification as CLI/TUI. Background version or recognition lookups do not alter a reviewed import. Batch operations intentionally do not overwrite recent-name preferences while the user may be editing Settings. Console tails read at most 64 KiB from the log asynchronously, only for expanded rows with live updates enabled.
 
 ## Cancellation and recovery
 
@@ -17,6 +19,8 @@ Recover rebuilds a fresh plan and requires another review. It checks that an exi
 Clear analysis cache removes only generated `cache/inspection/archive-*.json`, under the same I/O gate as inspection. Signatures, personal packages, presets, import journal, logs, backups and Unity Library directories are preserved. It does not cancel an import or remove Unity caches.
 
 ## CLI
+
+`--parallel` accepts any positive worker count or `auto` for a resource-based recommendation. The CLI defaults to one worker. Changing capacity never interrupts a running job; only new starts observe the capacity.
 
 ```powershell
 vrcsetup imports run 'C:\Downloads\Avatar PC.unitypackage' 'C:\Downloads\Avatar Quest.unitypackage' --dry-run --json

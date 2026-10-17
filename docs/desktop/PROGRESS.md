@@ -1,6 +1,12 @@
 # VRCSETUP Desktop migration
 
-Status: **2.0.0-preview.9 installed**, 17 October 2026, Windows x64. Dom stopped the real-import tests after returning to the PC and will perform acceptance himself. No further import test is authorized by that earlier request.
+Status: **2.0.0-preview.10 candidate**, 17 October 2026, Windows x64. Preview 9 remains installed. Dom owns acceptance testing; no further actual import, desktop automation or installation is performed for this candidate.
+
+## Preview 10 unified import page
+
+Import projects is one responsive page: active jobs at the top, staged files and editable per-file name/platform/packages below. Adding files does not navigate away or follow an active job. Details and a bounded live console expand on demand. The GUI exposes no concurrency setting and imposes no two/six-job cap; sustained RAM/CPU pressure generates inline text warnings only. Reviewed job inputs remain fixed; cancel, logs and explicit recovery stay contextual. CLI optional positive worker counts and resource-based automatic scheduling share the same queue/core.
+
+Validation: static code review and Release compilation/publishing only, with no new test-suite or real import execution. Evidence and package: `.work/artifacts/2026-10-17-unified-imports/`. Preview 9 counts below are historical, not evidence for preview 10.
 
 ## Preview 9 projects and multiple imports
 

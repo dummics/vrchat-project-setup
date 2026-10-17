@@ -20,7 +20,55 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
     private readonly Dictionary<string, CancellationTokenSource> cancellations = [];
     private readonly List<Task> workers = [];
     private readonly Dictionary<string, long> lastPublication = [];
-    private SemaphoreSlim slots = new(1);
+    private readonly HashSet<string> claimed = [];
+    private TaskCompletionSource capacityChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly CancellationTokenSource monitoring = new();
+    private Task? resourceWorker;
+    private SystemResourceUsage? resources;
+    private int requestedParallelism = 1;
+    public SystemResourceUsage? Resources { get { lock (sync) return resources; } }
+    public int EffectiveParallelism { get { lock (sync) return requestedParallelism > 0 ? requestedParallelism : resources?.SuggestedParallelism ?? 1; } }
+    public void ConfigureParallelism(int value)
+    {
+        if (value < 0) throw new ArgumentException("Use zero for automatic scheduling or a positive parallel import count.");
+        lock (sync) { requestedParallelism = value; PulseCapacity(); }
+        Publish();
+    }
+    private void PulseCapacity()
+    {
+        var previous = capacityChanged;
+        capacityChanged = new(TaskCreationOptions.RunContinuationsAsynchronously); previous.TrySetResult();
+    }
+    private async Task ClaimAsync(string id, CancellationToken token)
+    {
+        while (true)
+        {
+            token.ThrowIfCancellationRequested(); Task changed;
+            lock (sync)
+            {
+                var first = jobs.FirstOrDefault(x => x.State == "Queued" && !claimed.Contains(x.Id));
+                if (claimed.Count < EffectiveParallelism && first?.Id == id)
+                { claimed.Add(id); PulseCapacity(); return; }
+                changed = capacityChanged.Task;
+            }
+            await changed.WaitAsync(token);
+        }
+    }
+    private async Task MonitorResourcesAsync()
+    {
+        var sampler = new SystemResourceSampler();
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            do
+            {
+                var usage = sampler.Sample();
+                lock (sync) { resources = usage; if (requestedParallelism == 0) PulseCapacity(); }
+                Publish();
+            } while (await timer.WaitForNextTickAsync(monitoring.Token));
+        }
+        catch (OperationCanceledException) { }
+    }
     private FileStream? lease;
     private bool initialized, stopping;
     private string Journal => Path.Combine(app.Paths.Home, "imports.json");
@@ -43,6 +91,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                     throw new IOException("Import history is invalid; the original file was preserved.");
                 lock (sync) jobs.AddRange(saved.Select(x => x.Active ? x with { State = "Interrupted", Step = "Interrupted", Message = "Review recovery before continuing." } : x));
                 await SaveAsync(token); initialized = true;
+                resourceWorker = Task.Run(MonitorResourcesAsync);
             }
             catch { lease.Dispose(); lease = null; lock (sync) jobs.Clear(); throw; }
         }
@@ -53,7 +102,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
     public async Task EnqueueAsync(OperationPlan reviewed, int parallelism = 1, CreationRequest? recoverySource = null, CancellationToken token = default)
     {
         await InitializeAsync(token);
-        if (parallelism is < 1 or > 2) throw new ArgumentException("Choose one or two parallel imports.");
+        if (parallelism < 0) throw new ArgumentException("Use zero for automatic scheduling or a positive parallel import count.");
         if (reviewed.Projects.Length == 0 || reviewed.Projects.Select(x => ProjectRules.NormalizePath(x.Path)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != reviewed.Projects.Length)
             throw new ArgumentException("Each import needs a distinct project destination.");
         var pending = reviewed.Projects.Select(project =>
@@ -69,10 +118,9 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
             lock (sync)
             {
                 if (stopping) throw new IOException("Import queue is closing.");
-                if (jobs.Count + pending.Length > 2000) throw new IOException("Clear completed import history before adding more imports.");
                 var active = jobs.Where(x => x.Active).Select(x => ProjectRules.NormalizePath(x.ProjectPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 if (pending.Any(x => active.Contains(ProjectRules.NormalizePath(x.ProjectPath)))) throw new IOException("An import for this project is already queued.");
-                if (cancellations.Count == 0 && !jobs.Any(x => x.Active)) { slots.Dispose(); slots = new(parallelism); }
+                requestedParallelism = parallelism;
                 jobs.AddRange(pending);
                 foreach (var item in pending) cancellations[item.Id] = new();
             }
@@ -92,21 +140,21 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                 foreach (var item in pending)
                 {
                     var cancellation = cancellations[item.Id];
-                    var permission = slots.WaitAsync(cancellation.Token);
-                    workers.Add(Task.Run(() => RunAsync(item, cancellation, permission)));
+                    workers.Add(Task.Run(() => RunAsync(item, cancellation)));
                 }
+                PulseCapacity();
             }
         }
         finally { journalGate.Release(); }
         Publish();
     }
 
-    private async Task RunAsync(ImportJob item, CancellationTokenSource cancellation, Task permission)
+    private async Task RunAsync(ImportJob item, CancellationTokenSource cancellation)
     {
         var acquired = false;
         try
         {
-            await permission; acquired = true; cancellation.Token.ThrowIfCancellationRequested();
+            await ClaimAsync(item.Id, cancellation.Token); acquired = true; cancellation.Token.ThrowIfCancellationRequested();
             Update(item.Id, x => x with { State = "Running", Step = "Starting", Message = "" });
             await PersistAsync();
             var progress = new InlineProgress(value => Update(item.Id, x => x with
@@ -126,7 +174,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         }
         finally
         {
-            lock (sync) { if (acquired) slots.Release(); cancellations.Remove(item.Id); }
+            lock (sync) { if (acquired) claimed.Remove(item.Id); cancellations.Remove(item.Id); PulseCapacity(); }
             cancellation.Dispose();
             await PersistAsync();
         }
@@ -140,6 +188,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                 var index = jobs.FindIndex(x => x.Id == id);
                 if (index >= 0 && jobs[index].Active) jobs[index] = jobs[index] with { State = "Cancelling", Step = "Stopping safely" };
                 cancellation.Cancel();
+                PulseCapacity();
             }
         Publish();
     }
@@ -211,12 +260,32 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         try { lock (sync) { stopping = true; pending = workers.ToArray(); } }
         finally { journalGate.Release(); }
         CancelAll(); await Task.WhenAll(pending);
+        monitoring.Cancel(); if (resourceWorker is not null) await resourceWorker;
         lease?.Dispose(); lease = null;
     }
     private string FindLog(string id)
     {
         try { return Directory.Exists(app.Paths.Logs) ? Directory.EnumerateFiles(app.Paths.Logs, "vrcsetup-*-" + id + ".log").FirstOrDefault() ?? "" : ""; }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return ""; }
+    }
+    public async Task<(string Text, string Stamp)> ReadLogTailAsync(string id, string previousStamp = "", CancellationToken token = default)
+    {
+        var job = Snapshot().FirstOrDefault(x => x.Id == id);
+        if (job is null) return ("Import not found.", "");
+        return await Task.Run(async () =>
+        {
+            var file = job.LogFile.Length > 0 ? job.LogFile : FindLog(id);
+            if (string.IsNullOrWhiteSpace(file) || !File.Exists(file)) return ("Log becomes available when the import starts.", "");
+            ProjectRules.EnsureContained(app.Paths.Logs, file);
+            var info = new FileInfo(file); var stamp = info.Length + ":" + info.LastWriteTimeUtc.Ticks;
+            if (stamp == previousStamp) return ("", stamp);
+            await using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.Asynchronous);
+            var offset = Math.Max(0, stream.Length - 65536); stream.Seek(offset, SeekOrigin.Begin);
+            using var reader = new StreamReader(stream);
+            if (offset > 0) await reader.ReadLineAsync(token);
+            var buffer = new char[65536]; var count = await reader.ReadBlockAsync(buffer, token);
+            return (new string(buffer, 0, count), stamp);
+        }, token);
     }
     private static string Phase(string phase) => phase switch
     { "Creating" or "Unity create" => "Create", "Prepare" or "Repository" => "Prepare", "Packages" or "VPM" or "Repair" => "Packages", "Import" or "Unity import" => "Import", "Post-import validation" => "Validate", "Completed" => "Finish", _ => phase };

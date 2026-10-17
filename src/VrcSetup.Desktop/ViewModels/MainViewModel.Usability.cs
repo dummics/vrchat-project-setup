@@ -37,11 +37,14 @@ public sealed partial class MainViewModel
     public bool IsErrorVisible => ErrorMessage.Length > 0;
     public Visibility WorkVisibility => IsBusy ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DeveloperVisibility => DeveloperMode ? Visibility.Visible : Visibility.Collapsed;
-    public string PackageFileLabel => string.IsNullOrWhiteSpace(PackageFile) ? "Drop a .unitypackage here" : Path.GetFileName(PackageFile);
+    public string PackageFileLabel => ImportDrafts.Count > 1 ? $"{ImportDrafts.Count} packages selected" : string.IsNullOrWhiteSpace(PackageFile) ? "Drop .unitypackages here" : Path.GetFileName(PackageFile);
     public string DestinationPreview => string.IsNullOrWhiteSpace(ProjectsRoot) ? "Choose a projects folder in Settings" : Path.Combine(ProjectsRoot, string.IsNullOrWhiteSpace(ProjectName) ? "Project name" : ProjectName);
     partial void OnIsBusyChanged(bool value) { OnPropertyChanged(nameof(WorkVisibility)); }
     partial void OnDeveloperModeChanged(bool value) { OnPropertyChanged(nameof(DeveloperVisibility)); }
-    partial void OnProjectNameChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
+    partial void OnProjectNameChanged(string value)
+    { OnPropertyChanged(nameof(DestinationPreview)); if (!switchingImportDraft && SelectedImportDraft is { } draft) draft.Name = value; }
+    partial void OnBuildTargetChanged(string value)
+    { if (!switchingImportDraft && SelectedImportDraft is { } draft) draft.Platform = value; }
     partial void OnProjectsRootChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
     partial void OnLibraryFilterChanged(string value) { libraryFavoriteSnapshot = null; onlineMatches.Clear(); RefreshLibraryRows(); _ = SearchLibraryAsync(value ?? ""); }
     partial void OnFavoritesOnlyChanged(bool value) { libraryFavoriteSnapshot = null; RefreshLibraryRows(); }
