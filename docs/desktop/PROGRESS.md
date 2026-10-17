@@ -1,10 +1,12 @@
 # VRCSETUP Desktop migration
 
-## Preview 13 candidate — not installed
+## Preview 13 installed
+
+Installed on Dom's explicit request on 17 October 2026 from implementation 09d6a68: installer exit 0, all 759 installed payload hashes verified, configuration/import journal/legacy launcher hashes unchanged. Previous installation preserved by the installer. App was closed; no active Unity project imports were found. Stale Running/Queued journal rows had completed project markers and were left unchanged for normal startup reconciliation. No application or import was launched during installation. Evidence: `installed-verification.txt` and `install-result.json` in the artifact directory below.
 
 Compact import fields and preset controls, one merged preset/detected package preview, stable suggestion rows and draft-only Add/Review actions. Clear completed now hides successful rows while retaining durable Activity history; optional auto-hide defaults off. Activity separates Imports/Operations with expandable details and individual logs, contextual project checks/resume/missing-asset reimport and associated-backup restore. Missing source selection requires confirmation and keeps recorded recovery ownership. Global recovery pickers are removed. Explorer root actions added to Imports/Projects; analysis cache clearing moved to Settings.
 
-31 isolated fixture tests pass (queue/history persistence, recognition/pins, recovery/source classification, shared logs and missing-asset preservation). Release build/publication passed without compiler diagnostics; 759 payload hashes and installer/archive SHA-256 checks verified. Final candidate is in `final-release/`; earlier packaging output is intermediate. No installer execution, real import, application launch, desktop/TUI automation or interaction with the owner's ongoing imports. Evidence: `.work/artifacts/2026-10-17-preview13-history-preview/`.
+31 isolated fixture tests pass (queue/history persistence, recognition/pins, recovery/source classification, shared logs and missing-asset preservation). Release build/publication passed without compiler diagnostics; 759 payload hashes and installer/archive SHA-256 checks verified. Final package is in `final-release/`; earlier packaging output is intermediate. No real import, application launch or desktop/TUI automation was performed. Evidence: `.work/artifacts/2026-10-17-preview13-history-preview/`.
 
 ## Preview 12 installed
 
