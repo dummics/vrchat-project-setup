@@ -8,6 +8,8 @@ Research intake is recorded in [RECOGNITION-RESEARCH.md](RECOGNITION-RESEARCH.md
 
 Review also corrected loss of pending changes on window close and numeric overflow while sorting malformed package versions. The shared planner/executor, terminal workflow and explicit staged application remain intact. This delivery uses static review, Release compilation/publishing and installed-file integrity verification. No new test-suite, UI automation or Unity import run is claimed. Evidence: `.work/artifacts/2026-10-17-preview8-reviewed-install/`.
 
+Installation completed successfully: preview 8 implementation `4bd3c36`, 759 installed payload files match their manifest hashes, EXE/ZIP checksums verified, zero compiler diagnostics. Settings and the separate legacy launcher retain their baseline hashes; Start-menu target and command PATH entry are correct. Preview 6 remains in the installer's `.previous-*` rollback directory. The app was not launched. New research signatures and the remote harvester remain unimplemented, not silently added to this release.
+
 ## Preview 7 offline dependency inspection
 
 The core and infrastructure now provide bounded streaming UnityPackage inspection, GUID-based advisory classification, an included metadata seed, personal signatures and observation caching. The CLI adds inspect/--deep/--index-project; the desktop automatically inspects selected files without blocking Create and adds suggestions to the existing package dialog. Pin/SDK-kind preservation, explicit range choices, stale-request rejection and staged acceptance are covered by tests. See [inspection behavior and delivery boundary](PACKAGE-INSPECTION.md).
