@@ -1,12 +1,18 @@
 # VRCSETUP Desktop migration
 
-Status: **2.0.0-preview.7 candidate**, 17 October 2026, Windows x64. **Do not install:** Dom requested working on the new version while preserving the installed preview 6.
+Status: **2.0.0-preview.8**, 17 October 2026, Windows x64. Dom has authorized installation after accurate static review without direct functional tests. The previous preview 7 installation hold is superseded by that request.
+
+## Preview 8 reviewed installation
+
+Research intake is recorded in [RECOGNITION-RESEARCH.md](RECOGNITION-RESEARCH.md). Search/version metadata no longer populate the personal package registry; transient discovery results stay out of the unfiltered library unless selected/favorited. Existing saved entries are preserved. Recognition excludes known world-only identities; the metadata seed contains 3,410 observations across 12 identities. Existing world project workflows remain available.
+
+Review also corrected loss of pending changes on window close and numeric overflow while sorting malformed package versions. The shared planner/executor, terminal workflow and explicit staged application remain intact. This delivery uses static review, Release compilation/publishing and installed-file integrity verification. No new test-suite, UI automation or Unity import run is claimed. Evidence: `.work/artifacts/2026-10-17-preview8-reviewed-install/`.
 
 ## Preview 7 offline dependency inspection
 
 The core and infrastructure now provide bounded streaming UnityPackage inspection, GUID-based advisory classification, an included metadata seed, personal signatures and observation caching. The CLI adds inspect/--deep/--index-project; the desktop automatically inspects selected files without blocking Create and adds suggestions to the existing package dialog. Pin/SDK-kind preservation, explicit range choices, stale-request rejection and staged acceptance are covered by tests. See [inspection behavior and delivery boundary](PACKAGE-INSPECTION.md).
 
-The first delivery is local-only. Repository-content downloads and broad online creator-package discovery are subsequent work; manual catalog search remains available. Evidence: `.work/artifacts/2026-10-17-inspection-preview7/`. No installer execution or installed-copy update is authorized for this candidate.
+The first delivery was local-only. Repository-content downloads and broad online creator-package discovery remain subsequent work; manual catalog search is available. Historical evidence: `.work/artifacts/2026-10-17-inspection-preview7/`. Its installer was not executed during the preview 7 hold.
 
 Final candidate: 99 core tests and 112 published native checks pass. Installer/ZIP/checksums are in `release-verified`; implementation `5957763`. Real-corpus scans are approximately 0.09/0.43/1.23 seconds; cached Lulla is 0.27 seconds including process startup. Installed preview6 and its configuration hashes remain unchanged. This is tester-ready packaging, not a claim of human acceptance or clean-machine validation.
 

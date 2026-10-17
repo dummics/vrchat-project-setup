@@ -15,6 +15,7 @@ public sealed partial class MainViewModel
     public ObservableCollection<UiPackageRow> PresetPackages { get; } = [];
     public ObservableCollection<UiPackageRow> LibraryPackages { get; } = [];
     private HashSet<string>? libraryFavoriteSnapshot;
+    private HashSet<string> personalPackageIds = new(StringComparer.OrdinalIgnoreCase);
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetLabel)), NotifyPropertyChangedFor(nameof(IsCustomPreset)), NotifyPropertyChangedFor(nameof(PresetSaveContext))] public partial string EditingPreset { get; set; } = DefaultPresetKey;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetChangesVisibility))] public partial bool PresetDirty { get; set; }
     [ObservableProperty] public partial string LibraryFilter { get; set; } = "";
@@ -77,7 +78,9 @@ public sealed partial class MainViewModel
         browserIncluded = session?.Rows().Where(x => x.Included).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var tokens = (LibraryFilter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         libraryFavoriteSnapshot ??= config.FavoritePackages.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var desired = Registry.Where(x =>
+        var desired = Registry.Where(x => (tokens.Length > 0 || personalPackageIds.Contains(x.Id) ||
+            config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase) || presetWorking.ContainsKey(x.Id) ||
+            BrowsingProjectPackages && browserIncluded.Contains(x.Id)) &&
         (!FavoritesOnly || libraryFavoriteSnapshot.Contains(x.Id)) && (onlineMatches.Contains(x.Id) || tokens.All(token => (x.Id + " " + x.DisplayName).Contains(token, StringComparison.OrdinalIgnoreCase))))
         .Select(x => MakeRow(x.Id, x.SelectedVersion)).OrderByDescending(x => libraryFavoriteSnapshot.Contains(x.Id)).ThenBy(x => x.Name).ToArray();
         var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);

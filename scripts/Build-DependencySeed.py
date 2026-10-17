@@ -5,7 +5,7 @@ relative metadata paths and SHA256; it does not assert publisher verification.
 """
 import argparse, hashlib, json, pathlib, re
 
-ALLOWED = {'com.vrchat.base', 'com.vrchat.avatars', 'com.vrchat.worlds', 'com.vrchat.core.vpm-resolver',
+ALLOWED = {'com.vrchat.base', 'com.vrchat.avatars', 'com.vrchat.core.vpm-resolver',
            'com.vrcfury.vrcfury', 'com.poiyomi.toon', 'com.poiyomi.thryeditor', 'gogoloco',
            'com.llealloo.audiolink', 'adjerry91.vrcft.templates', 'dev.foxscore.easy-login',
            'nadena.dev.modular-avatar', 'nadena.dev.ndmf'}

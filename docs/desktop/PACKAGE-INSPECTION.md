@@ -34,7 +34,7 @@ Included package manifests identify bundled content separately. If bundled conte
 
 ## Seed and personal index
 
-The included metadata-only seed has 3,735 signatures across 13 package identities and 17 observed package/version records. It is about 575 KiB. It covers VRChat SDK Base/Avatars/Worlds/Resolver, VRCFury, Poiyomi/Thry, Modular Avatar/NDMF, GoGo Loco, AudioLink, VRCFT Templates and Easy Login. Some signatures are generic controller/asset anchors and intentionally produce Possible rather than Detected results.
+The included metadata-only seed has 3,410 signatures across 12 package identities and 16 observed package/version records. It is about 526 KiB. It covers VRChat SDK Base/Avatars/Resolver, VRCFury, Poiyomi/Thry, Modular Avatar/NDMF, GoGo Loco, AudioLink, VRCFT Templates and Easy Login. Some signatures are generic controller/asset anchors and intentionally produce Possible rather than Detected results. Preview 8 excludes known world-only identities from automatic advice and indexing. This does not disable existing world-project management. See [research intake and expansion boundary](RECOGNITION-RESEARCH.md).
 
 `scripts/Build-DependencySeed.py` regenerates the seed from explicitly named Packages directories. The allowlist excludes unrelated creator packages. Its provenance JSON records relative metadata paths, observed versions and SHA256 values; it is an observation of local installed package metadata, **not a publisher attestation**. No source asset/script/DLL content is distributed in the seed. Version coverage is finite; the seed is shipped with application updates.
 

@@ -1,6 +1,12 @@
 # Desktop migration verification
 
-Build: 2.0.0-preview.7 candidate, Windows x64. Verified on Dom's Windows machine on 14–17 October 2026. **Preview 6 remains installed; do not install the new candidate.** No clean Windows VM or human interactive acceptance is claimed.
+Build: 2.0.0-preview.8, Windows x64. Dom authorized installation after static code review without direct functional tests on 17 October 2026. No clean Windows VM or human interactive acceptance is claimed.
+
+## Preview 8 verification boundary
+
+Review follows input selection/background analysis, isolated dialog working copies, manual acceptance, creation review, shared planner/executor, existing-project fingerprints/backups, batch application, navigation/close protection, version/cache persistence and installer rollback/config preservation. Confirmed defects fixed: lookup/search adding personal entries, world-only recognition escaping avatar scope, unguarded window-close drafts and malformed-version numeric overflow. The research's unverified signatures are not treated as production data.
+
+Validation for this revision consists of Release compilation/publishing, static inspection of resources/data and hash-based verification of the resulting installation and unchanged settings. No test suite, native UI automation, actual Unity import or functional subprocess check is run for preview 8, as requested. Previous preview 7 test counts below are historical evidence only and do not establish that these new changes passed those tests. Detailed evidence and installation outcome live in `.work/artifacts/2026-10-17-preview8-reviewed-install/`.
 
 ## Preview 7 offline inspection
 

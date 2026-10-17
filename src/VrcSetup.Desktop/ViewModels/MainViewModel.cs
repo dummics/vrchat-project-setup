@@ -116,7 +116,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         SelectedRecipe = recipe;
         OnPropertyChanged(nameof(EditingPreset)); OnPropertyChanged(nameof(SelectedPreset));
     }
-    private async Task LoadRegistry() { Replace(Registry, await app.Catalog.KnownAsync(config, session?.Projects.Select(x => (IReadOnlyDictionary<string, string>)x.Packages))); RefreshLibraryRows(); }
+    private async Task LoadRegistry()
+    {
+        var known = await app.Catalog.KnownAsync(config, session?.Projects.Select(x => (IReadOnlyDictionary<string, string>)x.Packages));
+        personalPackageIds = known.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Replace(Registry, known); RefreshLibraryRows();
+    }
     partial void OnProjectFilterChanged(string value) => FilterProjects();
     partial void OnPackageFilterChanged(string value) => RenderWorkspace();
     partial void OnPackageFileChanged(string value)
@@ -172,6 +177,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var fresh = new List<ProjectSnapshot>(); foreach (var project in projects) fresh.Add(await app.Projects.ReadAsync(project.Path));
         var known = await Task.Run(() => app.Catalog.KnownAsync(config, fresh.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)));
         session = new(fresh.ToArray(), config, known); Replace(Registry, known);
+        personalPackageIds = known.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         try { await app.Catalog.RememberAsync(known, preserveSelections: true); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Package library cache", error.Message, error); }
         WorkspaceProfile = string.Join(Environment.NewLine, fresh.Where(x => x.ProfileStatus.Length > 0).Select(x => (fresh.Count > 1 ? x.Name + ": " : "") + x.ProfileStatus));

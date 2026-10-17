@@ -26,6 +26,11 @@ public sealed partial class MainViewModel
     partial void OnBrowsingProjectPackagesChanged(bool value) { OnPropertyChanged(nameof(PresetHeaderVisibility)); OnPropertyChanged(nameof(ProjectCatalogVisibility)); OnPropertyChanged(nameof(PresetChangesVisibility)); RefreshLibraryRows(); }
     public string[] CachedVersions(string id) => Registry.FirstOrDefault(x => x.Id == id)?.Versions ?? [];
     public Task<string[]> LoadVersionsAsync(string id) => versionCache.GetAsync(id);
+    public async Task<bool> ConfirmCloseAsync()
+    {
+        if (!WorkspaceDirty && !PresetDirty) return true;
+        return await ui.ConfirmAsync("Unsaved changes", "Discard pending package changes and close?", "Discard and close");
+    }
     public async Task<bool> NavigateAsync(string page)
     {
         if (page == CurrentPage) return true;

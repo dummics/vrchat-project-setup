@@ -133,7 +133,7 @@ public sealed partial class SemanticVersion : IComparable<SemanticVersion>
         return PreRelease.Length.CompareTo(other.PreRelease.Length);
     }
     public static string[] Sort(IEnumerable<string> versions, bool includePrerelease = true) => versions.Distinct(StringComparer.OrdinalIgnoreCase)
-        .Select(x => { try { return new SemanticVersion(x); } catch (ArgumentException) { return null; } })
+        .Select(x => { try { return new SemanticVersion(x); } catch (Exception error) when (error is ArgumentException or OverflowException) { return null; } })
         .Where(x => x is not null && (includePrerelease || !x.IsPrerelease)).OrderDescending().Select(x => x!.Original).ToArray();
 }
 

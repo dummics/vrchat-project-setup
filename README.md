@@ -4,11 +4,11 @@ Windows companion for repeatable VRChat Unity projects. A native WinUI 3 desktop
 
 ## Install or run portable
 
-Use the standalone `Install-VrcSetup-2.0.0-preview.6-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
+Use the standalone `Install-VrcSetup-2.0.0-preview.8-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
 
 This branch is `feature/winui-desktop`. The main-branch source ZIP contains the earlier PowerShell product. Source from this branch requires the .NET 10 SDK and Windows build tools; source and the distributable package are distinct downloads.
 
-Current source is the preview 7 candidate: offline UnityPackage dependency inspection, an included signature index, observation caching and contextual package suggestions shared with the CLI. [Inspection details](docs/desktop/PACKAGE-INSPECTION.md). Preview 6 stays installed on Dom's PC; the new candidate must not be installed until requested.
+Current source is preview 8: offline UnityPackage dependency inspection, an included avatar-focused signature index, observation caching and contextual package suggestions shared with the CLI. Version/discovery caches stay separate from My Packages. [Inspection details](docs/desktop/PACKAGE-INSPECTION.md) and [research intake](docs/desktop/RECOGNITION-RESEARCH.md). Dom authorized installation after static code review; this revision does not claim a new functional-test run.
 
 ## Features
 

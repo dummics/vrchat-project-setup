@@ -15,6 +15,7 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
     };
     public static string FriendlyName(string id) => FriendlyNames.GetValueOrDefault(id) ?? id;
     private string RegistryFile => Path.Combine(paths.Cache, "known-packages.json");
+    private string VersionFile => Path.Combine(paths.Cache, "package-versions.json");
 
     public async Task<PackageDefinition[]> KnownAsync(AppConfiguration? config = null, IEnumerable<IReadOnlyDictionary<string, string>>? packageSets = null, CancellationToken cancellationToken = default)
     {
@@ -27,6 +28,10 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
                 known[entry.Key] = old with { SelectedVersion = entry.Value };
             }
         foreach (var id in config.FavoritePackages) known.TryAdd(id, new(id, FriendlyName(id), "latest"));
+        var metadata = await ReadVersionCache(cancellationToken);
+        foreach (var id in known.Keys.ToArray())
+            if (metadata.TryGetValue(id, out var cached) && (known[id].UpdatedUtc is null || cached.UpdatedUtc > known[id].UpdatedUtc))
+                known[id] = known[id] with { Versions = cached.Versions, UpdatedUtc = cached.UpdatedUtc };
         return known.Values.OrderBy(x => x.DisplayName).ThenBy(x => x.Id).ToArray();
     }
 
@@ -47,7 +52,7 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
             if (response.ExitCode == 0)
                 foreach (var definition in ParseSearch(response.StdOut)) result[definition.Id] = definition;
         }
-        if (result.Count > 0) await RememberAsync(result.Values, cancellationToken, preserveSelections: true);
+        // Discovery is not an intentional addition to the user's package library.
         return result.Values.OrderBy(x => x.DisplayName).ThenBy(x => x.Id).ToArray();
     }
 
@@ -73,12 +78,26 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
         }
         foreach (var definition in ReadRepositoryPackages().Where(x => x.Id.Equals(packageId, StringComparison.OrdinalIgnoreCase))) versions.UnionWith(definition.Versions);
         var registry = await ReadRegistry(cancellationToken);
+        if (versions.Count == 0)
+        {
+            var metadata = await ReadVersionCache(cancellationToken);
+            if (metadata.TryGetValue(packageId, out var savedVersions)) versions.UnionWith(savedVersions.Versions);
+        }
         if (versions.Count == 0 && registry.TryGetValue(packageId, out var saved)) versions.UnionWith(saved.Versions);
         var ordered = SemanticVersion.Sort(versions);
         if (ordered.Length > 0)
         {
             versionsCache[packageId] = ordered;
-            await RememberAsync([new(packageId, FriendlyName(packageId), SemanticVersion.Sort(ordered, false).FirstOrDefault() ?? ordered[0]) { Versions = ordered, UpdatedUtc = DateTime.UtcNow, SelectedVersion = registry.GetValueOrDefault(packageId)?.SelectedVersion ?? "latest" }], cancellationToken, preserveSelections: true);
+            // Version lookup can be triggered by a recognition suggestion. It must
+            // never turn that suggestion into a My Packages entry.
+            try
+            {
+                using var cacheLock = await AtomicFile.LockAsync(Path.Combine(paths.Cache, "versions.lock"), cancellationToken);
+                var metadata = await ReadVersionCache(cancellationToken);
+                metadata[packageId] = new(packageId, FriendlyName(packageId), ordered[0]) { Versions = ordered, UpdatedUtc = DateTime.UtcNow };
+                await AtomicFile.WriteJsonAsync(VersionFile, metadata.Values.OrderBy(x => x.Id).ToArray(), cancellationToken);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { } // Optional cache; choices remain usable.
         }
         return ordered;
     }
@@ -117,6 +136,11 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
     {
         try { return (await AtomicFile.ReadJsonAsync<PackageDefinition[]>(RegistryFile, cancellationToken) ?? []).ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase); }
         catch (JsonException) { return new(StringComparer.OrdinalIgnoreCase); }
+    }
+    private async Task<Dictionary<string, PackageDefinition>> ReadVersionCache(CancellationToken cancellationToken)
+    {
+        try { return (await AtomicFile.ReadJsonAsync<PackageDefinition[]>(VersionFile, cancellationToken) ?? []).DistinctBy(x => x.Id, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { return new(StringComparer.OrdinalIgnoreCase); }
     }
     private static PackageDefinition[] ReadRepositoryPackages()
     {

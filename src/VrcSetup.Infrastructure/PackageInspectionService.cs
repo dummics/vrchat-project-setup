@@ -107,6 +107,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
             {
                 using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath, token));
                 id = manifest.RootElement.GetProperty("name").GetString()!; ProjectRules.ValidatePackageId(id);
+                if (!DependencyAdvisor.IsAvatarCandidate(id)) continue;
                 version = manifest.RootElement.GetProperty("version").GetString()!;
             }
             catch (Exception error) when (error is IOException or JsonException or KeyNotFoundException or ArgumentException) { continue; }
@@ -189,7 +190,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
     private static bool Valid(PackageSignature value)
     {
         if (value is null || !Guid.TryParseExact(value.Guid, "N", out _) || string.IsNullOrWhiteSpace(value.PackageId) || value.Source is not { Length: < 1024 }) return false;
-        try { ProjectRules.ValidatePackageId(value.PackageId); return true; } catch (ArgumentException) { return false; }
+        try { ProjectRules.ValidatePackageId(value.PackageId); return DependencyAdvisor.IsAvatarCandidate(value.PackageId); } catch (ArgumentException) { return false; }
     }
     private static string? SignatureKind(string file) => new[] { ".cs.meta", ".dll.meta" }.Any(x => file.EndsWith(x, StringComparison.OrdinalIgnoreCase)) ? "script" : new[] { ".shader.meta", ".shadergraph.meta" }.Any(x => file.EndsWith(x, StringComparison.OrdinalIgnoreCase)) ? "shader" : null;
     private static async Task<T?> ReadCache<T>(string file, int maximum, CancellationToken token)

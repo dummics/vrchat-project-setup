@@ -29,6 +29,14 @@ public interface IUnityPackageInspector
 
 public static class DependencyAdvisor
 {
+    // Recognition is avatar-first. Existing world-project creation/management is
+    // unaffected; world-only packages are outside this advisory registry's scope.
+    public static bool IsAvatarCandidate(string id) => !WorldOnly.Contains(id);
+    private static readonly HashSet<string> WorldOnly = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ProjectRules.WorldSdk, "com.vrchat.udonsharp", "com.vrchat.clientsim", "com.cyan.cyantrigger",
+        "dev.architech.protv", "dev.architech.sdk", "at.pimaker.ltcgi", "red.sim.lightvolumes", "dev.onevr.vrworldtoolkit"
+    };
     public static string? SuggestedVersion(DependencySuggestion suggestion)
     {
         if (suggestion.Confidence == DependencyConfidence.Detected) return "latest";
@@ -65,6 +73,7 @@ public static class DependencyAdvisor
         var unresolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void Add(string id, DependencyConfidence confidence, DependencyEvidence proof, string? version = null)
         {
+            if (!IsAvatarCandidate(id)) return;
             if (!evidence.TryGetValue(id, out var list)) evidence[id] = list = [];
             if (list.Count < 12 && !list.Contains(proof)) list.Add(proof);
             if (!confidences.TryGetValue(id, out var old) || confidence < old) confidences[id] = confidence;
@@ -95,7 +104,7 @@ public static class DependencyAdvisor
             }
             foreach (var hint in asset.Hints) Add(hint, DependencyConfidence.Possible, new(asset.Path, "text hint"));
         }
-        foreach (var package in included) confidences[package] = DependencyConfidence.Included;
+        foreach (var package in included.Where(IsAvatarCandidate)) confidences[package] = DependencyConfidence.Included;
         var suggestions = evidence.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase).Select(x => new DependencySuggestion(x.Key, confidences[x.Key], constraints.GetValueOrDefault(x.Key), x.Value.ToArray())).ToArray();
         return new(observation, snapshot.Revision, manyRoots ? "Multiple avatar candidates (choose a smaller package)" : roots.Length == 1 ? roots[0].Path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase) ? "Avatar scene" : "Avatar prefab" : roots.Length > 1 ? "Shared avatar references" : "Whole archive", unresolved.Count, suggestions, cached);
     }
