@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '2.0.0-preview.5',
+    [string]$Version = '2.0.0-preview.6',
     [string]$OutputDirectory,
     [switch]$SkipInstaller
 )

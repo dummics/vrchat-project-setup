@@ -1,6 +1,14 @@
 # VRCSETUP Desktop migration
 
-Status: package-flow candidate, 16 October 2026. Version: **2.0.0-preview.5**, Windows x64. **Do not install yet:** Dom explicitly requested preserving the installed preview 4.
+Status: responsive polish, 17 October 2026. Version: **2.0.0-preview.6**, Windows x64. Dom requested installation, superseding the earlier preview 5 review hold.
+
+## Preview 6 responsive polish
+
+Navigation automatically collapses at narrow widths. Creation fields and preset actions stack when their viewport is below 560 pixels; the chosen filename stays on one ellipsized line. Native verification includes 520 and 760 pixel windows alongside the existing three widths.
+
+The shared creation/package selection dialog uses a taller flat list, per-row version dropdowns, asynchronous search as you type and small content-footer actions. The title is reduced; the separate version-options panel and Search button are removed. Cancel/dismiss returns no edits; Done explicitly accepts the working copy.
+
+Favorite rows notify property changes in place. Library refresh reconciles rows instead of resetting the collection, preserves visible order and defers favorite-filter membership changes until re-entry or a deliberate filter change. Evidence lives under `.work/artifacts/2026-10-17-responsive/`.
 
 ## Preview 5 package workflow
 

@@ -116,14 +116,36 @@ public static class UiSmokeTest
             Require(flow.LibraryPackages.Any(x => x.Id == "com.vrcfury.vrcfury"), "Local library search accepts multiple query words"); flow.LibraryFilter = "";
         }
         var theme = viewModel.Theme;
-        using (var editor = new PackageSetDialog("Creator packages", new() { ["custom.required"] = "1.0.0" }, new() { RequiredPackages = ["custom.required"] }, [],
+        var librarySnapshot = viewModel.LibraryPackages.ToArray();
+        var favoriteRow = librarySnapshot.First();
+        var originalFavorite = favoriteRow.Favorite;
+        var collectionChanges = 0;
+        System.Collections.Specialized.NotifyCollectionChangedEventHandler onCollection = (_, _) => collectionChanges++;
+        viewModel.LibraryPackages.CollectionChanged += onCollection;
+        await viewModel.TogglePackageFavoriteCommand.ExecuteAsync(favoriteRow);
+        Require(favoriteRow.Favorite != originalFavorite && collectionChanges == 0 && librarySnapshot.SequenceEqual(viewModel.LibraryPackages), "Favorite updates in place without resetting or reordering cards");
+        await viewModel.TogglePackageFavoriteCommand.ExecuteAsync(favoriteRow);
+        viewModel.LibraryPackages.CollectionChanged -= onCollection;
+        using (var editor = new PackageSetDialog("Creator packages", new() { ["custom.required"] = "1.0.0" }, new() { RequiredPackages = ["custom.required"] }, viewModel.Registry.ToArray(),
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>())))
         {
             editor.Dialog.XamlRoot = page.XamlRoot;
             var shown = editor.Dialog.ShowAsync(); await Task.Delay(180);
+            editor.Dialog.UpdateLayout();
+            var inlineVersion = Descendants(editor.Dialog).OfType<PackageVersionSelector>().First(x => x.PackageId == "custom.required");
+            Require(inlineVersion.VersionSource is not null, "Shared package editor wires inline version selector");
+            inlineVersion.PickVersion("1.2.3"); await Task.Delay(100);
+            Require(editor.Result()["custom.required"] == "1.2.3", "Shared editor stages version directly from its row");
             await Render(editor.Dialog, Path.Combine(artifacts, "package-editor.png"));
             Require(editor.Result().ContainsKey("custom.required"), "Native preset working copy preserves custom foundation");
+            var buttons = Descendants((DependencyObject)editor.Dialog.Content).OfType<Microsoft.UI.Xaml.Controls.Button>().Where(x => x.Content is string text && text is "Done" or "Cancel").ToArray();
+            Require(buttons.Length == 2 && buttons.All(x => x.ActualWidth < 120), "Shared editor uses compact contextual footer actions");
+            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(520, 800)); await Task.Delay(180); page.UpdateLayout();
+            await Render(editor.Dialog, Path.Combine(artifacts, "package-editor-520.png"));
+            Require(((FrameworkElement)editor.Dialog.Content).ActualWidth <= page.ActualWidth - 48, "Shared editor fits narrow window");
             editor.Dialog.Hide(); await shown;
+            Require(!editor.Accepted, "Closing shared editor discards the staged selection");
+            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800)); await Task.Delay(150);
         }
         var versionPicker = new VersionPickerDialog("gogoloco", ["1.8.6", "1.9.0-beta.1"], "1.8.6");
         Require(versionPicker.Result == "1.8.6" && !versionPicker.Advanced.IsExpanded, "Version picker preserves pinned choice with advanced controls collapsed");
@@ -135,7 +157,8 @@ public static class UiSmokeTest
         Require(versionPicker.Result == "latest", "Automatic UI choice retains shared latest policy");
         versionPicker.Exact.Text = "1.9.0-beta.1";
         Require(versionPicker.Result == "1.9.0-beta.1", "Advanced exact prerelease remains available");
-        foreach (var size in new[] { new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
+        viewModel.PackageFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
+        foreach (var size in new[] { new Windows.Graphics.SizeInt32(520, 800), new Windows.Graphics.SizeInt32(760, 800), new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
         {
             window.AppWindow.Resize(size);
             foreach (var screen in new[] { "Projects", "Workspace", "Catalog", "Create", "Presets", "Settings", "Activity" })
@@ -154,6 +177,12 @@ public static class UiSmokeTest
                     Require(origin.X >= -1 && origin.X + form.ActualWidth <= viewport.ActualWidth + 1, "Form fits viewport: " + screen + " " + size.Width);
                     var global = form.TransformToVisual(page).TransformPoint(new(0, 0));
                     Require(global.X >= 0 && global.X + form.ActualWidth <= page.ActualWidth + 1, "Form fits entire client window: " + screen + " " + size.Width);
+                    if (screen == "Create" && size.Width < 800)
+                    {
+                        var name = (FrameworkElement)((Microsoft.UI.Xaml.Controls.Grid)page.FindName("ProjectFields")).Children[0];
+                        var label = (FrameworkElement)page.FindName("DropFileLabel");
+                        Require(name.ActualWidth > 200 && label.ActualHeight < 40, "Narrow Create keeps usable fields and single-line filename: " + size.Width);
+                    }
                 }
                 await Render(page, Path.Combine(artifacts, screen.ToLowerInvariant() + "-" + size.Width + ".png"));
                 if (screen == "Presets")

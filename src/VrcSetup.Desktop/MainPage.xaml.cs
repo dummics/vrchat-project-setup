@@ -68,7 +68,19 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ConstrainForms()
     {
-        if (CreateView.ActualWidth > 0) CreateForm.Width = Math.Min(760, CreateView.ActualWidth);
+        if (CreateView.ActualWidth > 0)
+        {
+            CreateForm.Width = Math.Min(760, CreateView.ActualWidth);
+            var narrow = CreateForm.Width < 560;
+            ProjectFields.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(210);
+            Grid.SetColumn(PlatformSelector, narrow ? 0 : 1); Grid.SetRow(PlatformSelector, narrow ? 1 : 0);
+            PresetFields.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : GridLength.Auto;
+            Grid.SetColumn(CustomizePackagesButton, narrow ? 0 : 1); Grid.SetRow(CustomizePackagesButton, narrow ? 1 : 0);
+            CustomizePackagesButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+            Grid.SetColumn(ChoosePackageButton, narrow ? 1 : 2); Grid.SetRow(ChoosePackageButton, narrow ? 1 : 0);
+            ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+            Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
+        }
         if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Min(760, SettingsView.ActualWidth);
     }
     private void ProjectsSelected(object sender, SelectionChangedEventArgs args)
@@ -119,7 +131,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async Task<ContentDialogResult> ShowDialog(ContentDialog dialog)
     {
         await dialogGate.WaitAsync();
-        try { dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = RequestedTheme; dialog.PrimaryButtonStyle = (Style)Resources["ActionButton"]; return await dialog.ShowAsync(); }
+        try { dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = RequestedTheme; dialog.PrimaryButtonStyle ??= (Style)Resources["ActionButton"]; return await dialog.ShowAsync(); }
         finally { dialogGate.Release(); }
     }
     public async Task<bool> ConfirmAsync(string title, string content, string action) => await ShowDialog(new()
@@ -187,6 +199,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions)
     {
         using var editor = new PackageSetDialog(title, packages, config, known, search, versions);
-        return await ShowDialog(editor.Dialog) == ContentDialogResult.Primary ? editor.Result() : null;
+        await ShowDialog(editor.Dialog);
+        return editor.Accepted ? editor.Result() : null;
     }
 }

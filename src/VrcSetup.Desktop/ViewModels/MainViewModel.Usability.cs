@@ -14,6 +14,7 @@ public sealed partial class MainViewModel
     private bool presetSwitching;
     public ObservableCollection<UiPackageRow> PresetPackages { get; } = [];
     public ObservableCollection<UiPackageRow> LibraryPackages { get; } = [];
+    private HashSet<string>? libraryFavoriteSnapshot;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetLabel)), NotifyPropertyChangedFor(nameof(IsCustomPreset)), NotifyPropertyChangedFor(nameof(PresetSaveContext))] public partial string EditingPreset { get; set; } = DefaultPresetKey;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetChangesVisibility))] public partial bool PresetDirty { get; set; }
     [ObservableProperty] public partial string LibraryFilter { get; set; } = "";
@@ -41,8 +42,12 @@ public sealed partial class MainViewModel
     partial void OnDeveloperModeChanged(bool value) { OnPropertyChanged(nameof(DeveloperVisibility)); }
     partial void OnProjectNameChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
     partial void OnProjectsRootChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
-    partial void OnLibraryFilterChanged(string value) { onlineMatches.Clear(); RefreshLibraryRows(); _ = SearchLibraryAsync(value ?? ""); }
-    partial void OnFavoritesOnlyChanged(bool value) => RefreshLibraryRows();
+    partial void OnLibraryFilterChanged(string value) { libraryFavoriteSnapshot = null; onlineMatches.Clear(); RefreshLibraryRows(); _ = SearchLibraryAsync(value ?? ""); }
+    partial void OnFavoritesOnlyChanged(bool value) { libraryFavoriteSnapshot = null; RefreshLibraryRows(); }
+    partial void OnCurrentPageChanged(string value)
+    {
+        if (value is "Presets" or "Catalog") { libraryFavoriteSnapshot = null; LibraryPackages.Clear(); RefreshLibraryRows(); }
+    }
     partial void OnEditingPresetChanged(string oldValue, string newValue)
     {
         if (presetSwitching) return;
@@ -71,9 +76,19 @@ public sealed partial class MainViewModel
     {
         browserIncluded = session?.Rows().Where(x => x.Included).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var tokens = (LibraryFilter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        Replace(LibraryPackages, Registry.Where(x =>
-        (!FavoritesOnly || config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase)) && (onlineMatches.Contains(x.Id) || tokens.All(token => (x.Id + " " + x.DisplayName).Contains(token, StringComparison.OrdinalIgnoreCase))))
-        .Select(x => MakeRow(x.Id, x.SelectedVersion)).OrderByDescending(x => x.Favorite).ThenBy(x => x.Name));
+        libraryFavoriteSnapshot ??= config.FavoritePackages.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var desired = Registry.Where(x =>
+        (!FavoritesOnly || libraryFavoriteSnapshot.Contains(x.Id)) && (onlineMatches.Contains(x.Id) || tokens.All(token => (x.Id + " " + x.DisplayName).Contains(token, StringComparison.OrdinalIgnoreCase))))
+        .Select(x => MakeRow(x.Id, x.SelectedVersion)).OrderByDescending(x => libraryFavoriteSnapshot.Contains(x.Id)).ThenBy(x => x.Name).ToArray();
+        var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var index = LibraryPackages.Count - 1; index >= 0; index--) if (!ids.Contains(LibraryPackages[index].Id)) LibraryPackages.RemoveAt(index);
+        foreach (var next in desired)
+        {
+            var existing = LibraryPackages.FirstOrDefault(x => x.Id.Equals(next.Id, StringComparison.OrdinalIgnoreCase));
+            if (existing is null) LibraryPackages.Add(next);
+            else if (existing.Name != next.Name || existing.Version != next.Version || existing.Required != next.Required || existing.Included != next.Included || existing.ProjectContext != next.ProjectContext) LibraryPackages[LibraryPackages.IndexOf(existing)] = next;
+            else existing.Favorite = next.Favorite;
+        }
     }
     private void UpdateProjectState()
     {
@@ -134,7 +149,9 @@ public sealed partial class MainViewModel
     {
         if (row is null) return;
         if (!config.FavoritePackages.Remove(row.Id)) config.FavoritePackages.Add(row.Id);
-        await app.Configuration.SaveAsync(config); RenderPreset(); RefreshLibraryRows();
+        await app.Configuration.SaveAsync(config);
+        var favorite = config.FavoritePackages.Contains(row.Id, StringComparer.OrdinalIgnoreCase);
+        foreach (var visible in LibraryPackages.Concat(PresetPackages).Where(x => x.Id.Equals(row.Id, StringComparison.OrdinalIgnoreCase))) visible.Favorite = favorite;
     });
     [RelayCommand] private void OpenDiagnostics()
     { Directory.CreateDirectory(app.Paths.Logs); OpenPath(app.Paths.Logs); }
@@ -150,8 +167,25 @@ public sealed partial class MainViewModel
     });
 }
 
-public sealed record UiPackageRow(string Id, string Name, string Version, bool Required, bool Favorite, bool Included, bool ProjectContext = false)
+public sealed class UiPackageRow(string id, string name, string version, bool required, bool favorite, bool included, bool projectContext = false) : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
+    public string Id { get; } = id;
+    public string Name { get; } = name;
+    public string Version { get; } = version;
+    public bool Required { get; } = required;
+    public bool Included { get; } = included;
+    public bool ProjectContext { get; } = projectContext;
+    private bool favoriteValue = favorite;
+    public bool Favorite
+    {
+        get => favoriteValue;
+        set
+        {
+            if (!SetProperty(ref favoriteValue, value)) return;
+            OnPropertyChanged(nameof(FavoriteAction)); OnPropertyChanged(nameof(FavoriteVisibility));
+            OnPropertyChanged(nameof(StarGlyph)); OnPropertyChanged(nameof(StarBrush));
+        }
+    }
     public bool CanAdd => !Included;
     public Visibility AddVisibility => Included ? Visibility.Collapsed : Visibility.Visible;
     public Visibility IncludedVisibility => Included ? Visibility.Visible : Visibility.Collapsed;
