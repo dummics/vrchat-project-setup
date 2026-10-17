@@ -172,14 +172,14 @@ public static class UiSmokeTest
             var choiceList = Descendants(editor.Dialog).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => x.Items.OfType<PackageSetDialog.PackageChoiceRow>().Any());
             var stableChoices = choiceList.Items.OfType<PackageSetDialog.PackageChoiceRow>().ToArray();
             var choiceSource = choiceList.ItemsSource;
-            var optional = stableChoices.FirstOrDefault(x => !x.Required);
-            if (optional is not null)
+            var optionalChoice = stableChoices.FirstOrDefault(x => !x.Required);
+            if (optionalChoice is not null)
             {
-                var included = choiceList.SelectedItems.Contains(optional);
-                if (included) choiceList.SelectedItems.Remove(optional); else choiceList.SelectedItems.Add(optional);
+                var included = choiceList.SelectedItems.Contains(optionalChoice);
+                if (included) choiceList.SelectedItems.Remove(optionalChoice); else choiceList.SelectedItems.Add(optionalChoice);
                 Require(ReferenceEquals(choiceSource, choiceList.ItemsSource) && stableChoices.SequenceEqual(choiceList.Items.OfType<PackageSetDialog.PackageChoiceRow>()), "Package toggle preserves source, row instances and display order");
-                Require(editor.Result().ContainsKey(optional.Id) != included, "Stable package row still stages the toggle");
-                if (included) choiceList.SelectedItems.Add(optional); else choiceList.SelectedItems.Remove(optional);
+                Require(editor.Result().ContainsKey(optionalChoice.Id) != included, "Stable package row still stages the toggle");
+                if (included) choiceList.SelectedItems.Add(optionalChoice); else choiceList.SelectedItems.Remove(optionalChoice);
             }
             inlineVersion.PickVersion("1.2.3"); await Task.Delay(100);
             Require(editor.Result()["custom.required"] == "1.2.3", "Shared editor stages version directly from its row");
