@@ -108,6 +108,13 @@ public sealed class PackageInspectionTests : IDisposable
     {
         Assert.Null(DependencyAdvisor.SuggestedVersion(new("test.package", DependencyConfidence.Declared, "999999999999999999999.0.0", [])));
     }
+    [Theory] [InlineData("model.fbx")] [InlineData("image.hdr")]
+    public async Task IntentionallySkippedMediaDoesNotPretendEligibleTextWasTruncated(string name)
+    {
+        var file = Archive(($"{A}/asset", new string('x', 1000)), ($"{A}/pathname", "Assets/" + name));
+        var report = await Service().InspectAsync(file, new() { EntryTextBytes = 100 });
+        Assert.True(report.Observation.ArchiveComplete); Assert.True(report.Observation.TextComplete); Assert.Empty(report.Observation.Limitations);
+    }
     [Fact] public void ExcessAvatarCandidatesAreConservativeAndMatchingIsCancellable()
     {
         var assets = Enumerable.Range(1, 9).Select(i => new InspectedAsset(i.ToString("x32"), $"Assets/Variant{i}.prefab", [new(B, "script")], [], false)).ToArray();

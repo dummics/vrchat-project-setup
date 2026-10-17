@@ -85,7 +85,7 @@ public sealed partial class UnityPackageInspector : IUnityPackageInspector
         info.Refresh();
         if (info.Length != length || info.LastWriteTimeUtc.Ticks != modified) throw new IOException("Package changed while it was being inspected. Select it again.");
         foreach (var asset in assets.Values)
-            if (new[] { ".png", ".jpg", ".jpeg", ".tga", ".dds", ".psd", ".wav", ".ogg", ".mp3", ".dll", ".ttf", ".otf" }.Any(x => asset.Path.EndsWith(x, StringComparison.OrdinalIgnoreCase))) asset.Partial = false;
+            if (new[] { ".png", ".jpg", ".jpeg", ".tga", ".dds", ".psd", ".hdr", ".exr", ".fbx", ".blend", ".obj", ".mp4", ".wav", ".ogg", ".mp3", ".dll", ".ttf", ".otf" }.Any(x => asset.Path.EndsWith(x, StringComparison.OrdinalIgnoreCase))) asset.Partial = false;
         if (assets.Values.Any(x => x.Partial)) limitations.Add("Some asset text exceeded the analysis budget");
         foreach (var asset in assets.Values.Where(x => x.Path.EndsWith("/package.json", StringComparison.OrdinalIgnoreCase) && x.Manifest is null))
         { asset.Partial = true; limitations.Add("Some package manifests could not be interpreted"); }

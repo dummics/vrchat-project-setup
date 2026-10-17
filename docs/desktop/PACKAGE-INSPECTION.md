@@ -26,7 +26,7 @@ JSON contains the archive observation, coverage flags/limitations, index revisio
 
 ## Detection and safeguards
 
-GZipStream/TarReader traverse the archive sequentially. Asset/path/meta entries are associated by GUID independently of member order. Bounded text parsing observes serialized script/shader/asset references and embedded package manifests. Binary assets are not imported or decoded. Gzip bytes still need decompression when skipping their contents.
+GZipStream/TarReader traverse the archive sequentially. Asset/path/meta entries are associated by GUID independently of member order. Bounded text parsing observes serialized script/shader/asset references and embedded package manifests. Binary/model/media assets are not imported or decoded. Their intentional exclusion does not mark eligible Unity text as truncated: TextComplete refers to supported text analysis, not every byte or importer feature. Gzip bytes still need decompression when skipping their contents.
 
 Internal and known built-in GUIDs do not become external requirements. Exact external script/shader matches are stronger than generic asset matches or namespace hints. Avatar-prefab/scene candidates scope graph traversal; multiple candidates require a package to occur in all candidate graphs before promoting its typed references. More than eight candidates conservatively downgrade inferred requirements instead of multiplying graph walks. Matching itself also observes cancellation. Examples/Editor/Samples remain lower confidence. This is a candidate graph, not complete Unity object/override resolution.
 

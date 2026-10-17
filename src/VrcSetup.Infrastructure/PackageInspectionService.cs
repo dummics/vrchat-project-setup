@@ -28,7 +28,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
         return await Task.Run(async () =>
         {
             var info = new FileInfo(file); if (!info.Exists) throw new IOException("UnityPackage not found.");
-            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.ToUpperInvariant() + ":" + info.Length + ":" + info.LastWriteTimeUtc.Ticks + ":v1:" + JsonSerializer.Serialize(options))));
+            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.ToUpperInvariant() + ":" + info.Length + ":" + info.LastWriteTimeUtc.Ticks + ":v2:" + JsonSerializer.Serialize(options))));
             SharedJob job;
             while (true)
             {
