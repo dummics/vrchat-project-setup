@@ -1,6 +1,6 @@
 # VRCSETUP Desktop migration
 
-Status: responsive polish, 17 October 2026. Version: **2.0.0-preview.6**, Windows x64. Dom requested installation, superseding the earlier preview 5 review hold.
+Status: **2.0.0-preview.6 installed and verified**, 17 October 2026, Windows x64. Dom requested installation, superseding the earlier preview 5 review hold. The installer exited successfully; all 45 projects remain visible, the configuration hash is unchanged and the separate legacy alias remains available.
 
 ## Preview 6 responsive polish
 
