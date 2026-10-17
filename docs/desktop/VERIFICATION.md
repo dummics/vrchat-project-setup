@@ -2,9 +2,11 @@
 
 ## Preview 11 verification boundary
 
+Installed implementation 003cd7d: installer exit 0, all 759 installed file hashes and release EXE/ZIP checksums verified, configuration hash unchanged, legacy launcher preserved. Release publication reports zero compiler diagnostics. No runtime/GUI/import execution; acceptance is pending with Dom.
+
 Static review covers stable package row reconciliation and selection restoration, read-only editor fallback, current UI settings snapshot, inline preparation/failure feedback and a compact creation-only confirmation. Native assertion source now checks toggle/version identity and order preservation; no suite, GUI automation or Unity import is run. Release compilation/publishing and subsequent owner-authorized installation are recorded in `.work/artifacts/2026-10-17-preview11-import-review/`. Runtime acceptance remains with Dom.
 
-Build: 2.0.0-preview.10 installed, Windows x64, implementation a5f0c40. Subsequent owner-authorized installation: exit 0, 759 installed files match their hashes, config unchanged and legacy launcher present. No app/import run; Dom owns runtime acceptance. No clean Windows VM or human interactive acceptance is claimed.
+Historical preview 10 installation: Windows x64, implementation a5f0c40; exit 0, 759 files verified, config unchanged and legacy launcher present. Superseded by preview 11. No clean Windows VM or human interactive acceptance is claimed.
 
 ## Preview 10 verification boundary
 

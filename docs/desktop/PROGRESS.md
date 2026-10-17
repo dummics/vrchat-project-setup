@@ -1,12 +1,14 @@
 # VRCSETUP Desktop migration
 
-## Preview 11 candidate
+## Preview 11 installed
+
+Installed on Dom's request: implementation 003cd7d, installer exit 0, all 759 installed hashes verified, configuration unchanged and legacy launcher preserved. Release publication completed without compiler diagnostics after correcting a fixture-variable collision. No application/import or automated GUI test was started. Owner performs runtime acceptance.
 
 Package selection uses stable observable rows and frozen ordering throughout the dialog session, including version edits/search results. Review and import shows immediate preparation feedback and inline failures. The local diagnostic log recorded repeated Unity-editor validation failures even though the saved editor executable now exists; the exact old in-memory value is not recorded, so this does not prove why it differed. Planning now uses visible editor/root fields and can resolve a unique installed Hub editor if the chosen executable is unavailable. No configuration is silently saved. Creation confirmation is a brief name/platform/preset/package-count recap; acceptance queues imports and leaves the same page ready for another file. Existing-project detailed reviews are unchanged.
 
 Verification boundary: static review, Release build/publish and installed-file hashes; no app launch, native automation or actual import. Native regression-check source covers stable selection/version row instances, but is not executed. Evidence: `.work/artifacts/2026-10-17-preview11-import-review/`.
 
-Status: **2.0.0-preview.10 installed**, 17 October 2026, Windows x64, on Dom's explicit request. Installer exit 0; all 759 installed payload hashes match, configuration hash unchanged and legacy launcher preserved. Implementation a5f0c40. Dom owns acceptance testing; no actual import, app launch or desktop automation was performed. Evidence: `.work/artifacts/2026-10-17-unified-imports/installed-verification.json`.
+Previous installation: **2.0.0-preview.10**, implementation a5f0c40, superseded by preview 11. Its installation evidence remains `.work/artifacts/2026-10-17-unified-imports/installed-verification.json`.
 
 ## Preview 10 unified import page
 
