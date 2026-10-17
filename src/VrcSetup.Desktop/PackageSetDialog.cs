@@ -71,10 +71,9 @@ public sealed class PackageSetDialog : IDisposable
         Dialog.Opened += (_, _) => { ResizeDialog(); Dialog.XamlRoot.Changed += RootChanged; };
         Dialog.Closed += (_, _) => Dialog.XamlRoot.Changed -= RootChanged;
         Dialog.Closed += (_, _) => { searching?.Cancel(); cancellation.Cancel(); };
-        list.ContainerContentChanging += (_, args) =>
-        {
-            if (!args.InRecycleQueue) args.RegisterUpdateCallback((_, updated) => WireSelectors(updated.ItemContainer));
-        };
+        // Templates may materialize after the container-content callback, especially
+        // in self-contained builds. Wire the realized visual tree after layout.
+        list.LayoutUpdated += (_, _) => WireSelectors(list);
         list.SelectionChanged += (_, args) =>
         {
             if (rendering) return;
@@ -128,8 +127,11 @@ public sealed class PackageSetDialog : IDisposable
     {
         if (parent is PackageVersionSelector selector)
         {
-            selector.VersionSource = versionCache.GetAsync;
-            selector.VersionPicked -= VersionPicked; selector.VersionPicked += VersionPicked;
+            if (selector.VersionSource is null)
+            {
+                selector.VersionSource = versionCache.GetAsync;
+                selector.VersionPicked += VersionPicked;
+            }
         }
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++) WireSelectors(VisualTreeHelper.GetChild(parent, index));
     }
