@@ -18,6 +18,8 @@ Narrow windows use compact navigation and vertically stacked creation fields. Th
 
 ## Portable
 
+Preview 9 adds direct Open project/modification dates and the [multi-import queue](IMPORT-QUEUE.md): reviewed multi-file creation, one/two workers, per-project logs/steps/cancel, explicit recovery and safe analysis-cache clearing. It is installed on Dom's PC. Automated checks passed; Dom took over real import testing before completion, so no completed GIGGLES/Lulla import acceptance is claimed.
+
 Preview 8 includes offline UnityPackage inspection and avatar-focused package suggestions. Dom authorized upgrading preview 6 after code review, compilation and payload-integrity verification, without direct functional tests. Version lookups and search results do not automatically become personal packages. `vrcsetup inspect <file> --json` and `--deep` use the same local analyzer as Create; neither starts Unity or installs dependencies. New candidate signatures from the supplied research await source verification. See [inspection behavior](PACKAGE-INSPECTION.md).
 
 Extract VrcSetup-<version>-win-x64.zip, then run VRChat Project Setup.bat or app/desktop/VrcSetup.Desktop.exe. The portable marker keeps settings under data/ in the extracted folder. Use bin/vrcsetup.cmd for the terminal.

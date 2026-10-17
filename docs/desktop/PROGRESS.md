@@ -1,12 +1,12 @@
 # VRCSETUP Desktop migration
 
-Status: **2.0.0-preview.9 candidate**, 17 October 2026, Windows x64. Dom authorized installing this revision and real import tests using the Desktop GIGGLES and Lulla PC/Quest packages. This supersedes the earlier no-direct-tests constraint for the requested checks.
+Status: **2.0.0-preview.9 installed**, 17 October 2026, Windows x64. Dom stopped the real-import tests after returning to the PC and will perform acceptance himself. No further import test is authorized by that earlier request.
 
 ## Preview 9 projects and multiple imports
 
 Projects now has direct Open project, relative modification time, responsive rows and package management without Unity version/kind columns. The package sheet follows the supplied Creator Companion references while retaining batch Apply/Revert. The new [Imports queue](IMPORT-QUEUE.md) shares the core pipeline with CLI: multi-file review, one/two workers, per-project steps/log/cancel, persistent history, explicit reviewed recovery and bounded analysis-cache clearing. Existing source files/personal presets are not changed by recognition.
 
-Initial verification: 104 .NET tests and 132 native WinUI checks pass. Native rendering covers five widths, direct project actions/date and the new Imports page, without mouse/keyboard injection. Installation and real four-file import results will be recorded with final verification. Evidence: `.work/artifacts/2026-10-17-projects-import-queue/`.
+Verification: 104 .NET tests and 132 native WinUI checks pass; the installed executable also passes all 132 native checks. Native rendering covers five widths, direct project actions/date and the new Imports page, without mouse/keyboard injection. Installer exit0; all 759 installed payload files match their hashes, config preserved. Implemented build `03212f5`. The four requested files were planned as new destinations and started with two workers. At Dom's stop, only GIGGLES PC/Quest had been created and reached preparation/package work; Lulla PC/Quest remained queued. Verified owned CLI process 41776 was stopped; original archives and partial project directories are preserved. Next GUI initialization marks old active records Interrupted for explicit recovery. No four-import completion claim. Evidence: `.work/artifacts/2026-10-17-projects-import-queue/`.
 
 ## Preview 8 reviewed installation
 

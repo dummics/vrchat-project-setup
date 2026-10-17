@@ -4,11 +4,11 @@ Windows companion for repeatable VRChat Unity projects. A native WinUI 3 desktop
 
 ## Install or run portable
 
-Use the standalone `Install-VrcSetup-2.0.0-preview.8-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
+Use the standalone `Install-VrcSetup-2.0.0-preview.9-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
 
 This branch is `feature/winui-desktop`. The main-branch source ZIP contains the earlier PowerShell product. Source from this branch requires the .NET 10 SDK and Windows build tools; source and the distributable package are distinct downloads.
 
-Current source is the preview 9 candidate: direct project opening and modification dates, a cleaner package sheet, and a durable [multiple-import queue](docs/desktop/IMPORT-QUEUE.md) with per-project logs/cancel/recovery and one/two workers. Offline inspection and version/discovery caches remain separate from My Packages. [Inspection details](docs/desktop/PACKAGE-INSPECTION.md) and [research intake](docs/desktop/RECOGNITION-RESEARCH.md). Dom has authorized installation and targeted real imports of the Desktop GIGGLES/Lulla packages.
+Current source is preview 9, installed on Dom's PC: direct project opening and modification dates, a cleaner package sheet, and a durable [multiple-import queue](docs/desktop/IMPORT-QUEUE.md) with per-project logs/cancel/recovery and one/two workers. Offline inspection and version/discovery caches remain separate from My Packages. [Inspection details](docs/desktop/PACKAGE-INSPECTION.md) and [research intake](docs/desktop/RECOGNITION-RESEARCH.md). Automated checks pass; Dom stopped the requested real-import run to take over testing. The two created GIGGLES projects remain unfinished; Lulla was not started. No full four-project import success is claimed.
 
 ## Features
 
