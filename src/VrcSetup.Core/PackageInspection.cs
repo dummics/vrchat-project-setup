@@ -36,18 +36,21 @@ public static class DependencyAdvisor
         try { _ = new SemanticVersion(suggestion.VersionConstraint); return suggestion.VersionConstraint; }
         catch (Exception error) when (error is ArgumentException or OverflowException) { return null; } // A range must not be silently converted to latest.
     }
-    public static PackageInspectionReport Match(ArchiveObservation observation, SignatureSnapshot snapshot, bool cached = false)
+    public static PackageInspectionReport Match(ArchiveObservation observation, SignatureSnapshot snapshot, bool cached = false, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var byGuid = snapshot.Signatures.GroupBy(x => x.Guid, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.ToArray(), StringComparer.OrdinalIgnoreCase);
         var internalIds = observation.Assets.Select(x => x.Guid).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var assets = observation.Assets.ToDictionary(x => x.Guid, StringComparer.OrdinalIgnoreCase);
         var included = observation.Assets.Where(x => x.Manifest is not null).Select(x => x.Manifest!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roots = observation.Assets.Where(x => (x.Path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase) || x.Path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)) && !Optional(x.Path) &&
-            x.References.Any(r => r.Kind == "script" && byGuid.GetValueOrDefault(r.Guid)?.Any(s => s.PackageId == ProjectRules.AvatarSdk) == true)).ToArray();
+            x.References.Any(r => r.Kind == "script" && byGuid.GetValueOrDefault(r.Guid)?.Any(s => s.PackageId == ProjectRules.AvatarSdk) == true)).Take(9).ToArray();
+        var manyRoots = roots.Length > 8;
+        if (manyRoots) roots = []; // Avoid O(roots * graph) work and unsupported certainty.
         HashSet<string> Reach(InspectedAsset root)
         {
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase); var stack = new Stack<string>(); stack.Push(root.Guid);
-            while (stack.TryPop(out var id)) if (visited.Add(id) && assets.TryGetValue(id, out var node)) foreach (var edge in node.References) if (internalIds.Contains(edge.Guid)) stack.Push(edge.Guid);
+            while (stack.TryPop(out var id)) { token.ThrowIfCancellationRequested(); if (visited.Add(id) && assets.TryGetValue(id, out var node)) foreach (var edge in node.References) if (internalIds.Contains(edge.Guid)) stack.Push(edge.Guid); }
             return visited;
         }
         var reachable = roots.Select(Reach).ToArray();
@@ -70,6 +73,7 @@ public static class DependencyAdvisor
         // The same GUID can belong to several packages; never pick one arbitrarily.
         foreach (var asset in observation.Assets)
         {
+            token.ThrowIfCancellationRequested();
             if (asset.Manifest is { } manifest)
             {
                 Add(manifest.Name, DependencyConfidence.Included, new(asset.Path, "manifest"), manifest.Version);
@@ -85,7 +89,7 @@ public static class DependencyAdvisor
                 var pertinent = !Optional(asset.Path) && (reachable.Length == 0 ? new[] { ".prefab", ".unity", ".mat", ".asset" }.Any(x => asset.Path.EndsWith(x, StringComparison.OrdinalIgnoreCase)) : reachable.Any(x => x.Contains(asset.Guid)));
                 foreach (var owner in owners)
                 {
-                    var confidence = observation.ArchiveComplete && pertinent && owners.Length == 1 && (reachable.Length < 2 || common.Contains(owner)) && reference.Kind is "script" or "shader" ? DependencyConfidence.Detected : DependencyConfidence.Possible;
+                    var confidence = !manyRoots && observation.ArchiveComplete && pertinent && owners.Length == 1 && (reachable.Length < 2 || common.Contains(owner)) && reference.Kind is "script" or "shader" ? DependencyConfidence.Detected : DependencyConfidence.Possible;
                     Add(owner, confidence, new(asset.Path, owners.Length > 1 ? "ambiguous GUID" : reference.Kind, reference.Guid));
                 }
             }
@@ -93,7 +97,7 @@ public static class DependencyAdvisor
         }
         foreach (var package in included) confidences[package] = DependencyConfidence.Included;
         var suggestions = evidence.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase).Select(x => new DependencySuggestion(x.Key, confidences[x.Key], constraints.GetValueOrDefault(x.Key), x.Value.ToArray())).ToArray();
-        return new(observation, snapshot.Revision, roots.Length == 1 ? roots[0].Path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase) ? "Avatar scene" : "Avatar prefab" : roots.Length > 1 ? "Shared avatar references" : "Whole archive", unresolved.Count, suggestions, cached);
+        return new(observation, snapshot.Revision, manyRoots ? "Multiple avatar candidates (choose a smaller package)" : roots.Length == 1 ? roots[0].Path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase) ? "Avatar scene" : "Avatar prefab" : roots.Length > 1 ? "Shared avatar references" : "Whole archive", unresolved.Count, suggestions, cached);
     }
     private static bool Optional(string path) => new[] { "/Samples/", "/Samples~/", "/Examples/", "/Demo/", "/Editor/" }.Any(x => path.Contains(x, StringComparison.OrdinalIgnoreCase));
     private static bool BuiltIn(string guid) => guid.StartsWith("0000000000000000", StringComparison.OrdinalIgnoreCase);

@@ -68,7 +68,12 @@ public sealed partial class UnityPackageInspector : IUnityPackageInspector
                     asset.References.Add(new(referenced, typed.GetValueOrDefault(referenced) ?? "asset"));
                 }
                 foreach (var hint in Hints) if (data.Contains(hint.Token, StringComparison.OrdinalIgnoreCase)) asset.Hints.Add(hint.Id);
-                if (kind == "asset" && data.TrimStart().StartsWith('{')) asset.Manifest = ParseManifest(data);
+                if (kind == "asset" && data.TrimStart().StartsWith('{'))
+                {
+                    asset.Manifest = ParseManifest(data);
+                    references += asset.Manifest?.Dependencies.Count ?? 0;
+                    if (references > options.MaxReferences) throw new InspectionLimitException("Reference limit reached");
+                }
             }
             var tail = new byte[16384];
             while (await budget.ReadAsync(tail, token) != 0) { }

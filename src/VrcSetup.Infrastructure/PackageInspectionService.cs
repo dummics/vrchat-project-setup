@@ -66,7 +66,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
             var cached = await ReadCache<ArchiveObservation>(cacheFile, 10 * 1024 * 1024, token);
             var stamp = new FileInfo(file);
             if (Usable(cached) && cached!.Length == stamp.Length && cached.ModifiedTicks == stamp.LastWriteTimeUtc.Ticks)
-                return DependencyAdvisor.Match(cached, snapshot, true);
+                return DependencyAdvisor.Match(cached, snapshot, true, token);
             var observation = await (reader ?? new UnityPackageInspector()).ReadAsync(file, options, token);
             if (observation.ArchiveComplete)
             {
@@ -86,7 +86,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
             if (observation.ArchiveComplete)
                 try { await AtomicFile.WriteJsonAsync(cacheFile, observation, token); TrimCache(cacheFile); }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
-            return DependencyAdvisor.Match(observation, snapshot);
+            return DependencyAdvisor.Match(observation, snapshot, token: token);
         }
         finally { work.Release(); }
     }

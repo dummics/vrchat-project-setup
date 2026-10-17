@@ -108,6 +108,16 @@ public sealed class PackageInspectionTests : IDisposable
     {
         Assert.Null(DependencyAdvisor.SuggestedVersion(new("test.package", DependencyConfidence.Declared, "999999999999999999999.0.0", [])));
     }
+    [Fact] public void ExcessAvatarCandidatesAreConservativeAndMatchingIsCancellable()
+    {
+        var assets = Enumerable.Range(1, 9).Select(i => new InspectedAsset(i.ToString("x32"), $"Assets/Variant{i}.prefab", [new(B, "script")], [], false)).ToArray();
+        var observation = new ArchiveObservation(1, 0, 0, true, true, [], assets, 0);
+        var signatures = new SignatureSnapshot("test", [new(B, ProjectRules.AvatarSdk, "1.0.0", "script", "test")]);
+        var report = DependencyAdvisor.Match(observation, signatures);
+        Assert.StartsWith("Multiple avatar candidates", report.Scope); Assert.Equal(DependencyConfidence.Possible, report.Suggestions.Single().Confidence);
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        Assert.Throws<OperationCanceledException>(() => DependencyAdvisor.Match(observation, signatures, token: cancelled.Token));
+    }
     [Fact] public async Task SceneRootsAndDifferentAvatarVariantsKeepCommonPackageRequirements()
     {
         var sdk = "44444444444444444444444444444444";

@@ -4,7 +4,7 @@ Build: 2.0.0-preview.7 candidate, Windows x64. Verified on Dom's Windows machine
 
 ## Preview 7 offline inspection
 
-The .NET suite passes 96 tests. New generated-archive cases cover member ordering, no extraction, internal references, sample downgrading, duplicate GUID owners, manifests/ranges, budget exhaustion, invalid gzip, changed files, corrupt caches, included-package learning, scene/variant scoping, consumer cancellation and oversized semantic-version numbers. A cache-rematching test denies reading the original archive while matching a newly learned signature.
+The .NET suite passes 97 tests. New generated-archive cases cover member ordering, no extraction, internal references, sample downgrading, duplicate GUID owners, manifests/ranges, budget exhaustion, invalid gzip, changed files, corrupt caches, included-package learning, scene/variant scoping, excess-root limits, matching/consumer cancellation and oversized semantic-version numbers. A cache-rematching test denies reading the original archive while matching a newly learned signature.
 
 The expanded native run passes 112 checks, including seed publication, a usable dispatcher during a deliberately blocked inspection, stale-result rejection, detected-package staging, pin/SDK-kind preservation and no implicit range-to-latest conversion. The shared dialog initially exposed an undeclared XAML namespace and a layout-update loop while attaching evidence tooltips; the template declaration and per-row evidence update guard were corrected. Native test-mode unhandled exceptions now also produce an artifact instead of silently losing the diagnostic.
 
