@@ -40,7 +40,7 @@ public sealed class PackageVersionSelector : DropDownButton
         UpdateCaption();
     }
     private static void Changed(DependencyObject value, DependencyPropertyChangedEventArgs args) => ((PackageVersionSelector)value).UpdateCaption();
-    private void UpdateCaption() => Content = string.IsNullOrWhiteSpace(DisplayVersion) ? Value == "latest" ? "Latest" : Value : DisplayVersion;
+    private void UpdateCaption() => Content = string.IsNullOrWhiteSpace(DisplayVersion) ? Value is "latest" or "Not installed" ? "Latest" : Value : DisplayVersion;
     internal void PickVersion(string value)
     { if (!rendering) { VersionPicked?.Invoke(this, value); Flyout.Hide(); } }
     private void Render()
