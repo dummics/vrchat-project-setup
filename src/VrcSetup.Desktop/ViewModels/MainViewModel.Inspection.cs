@@ -8,6 +8,8 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     private CancellationTokenSource? inspectionRequest;
+    partial void OnCreationInspectionChanged(PackageInspectionReport? value) => RefreshCreationPackages();
+    partial void OnIsInspectingPackageChanged(bool value) => OnPropertyChanged(nameof(CreationPackageSummary));
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanInspectDeeper))] public partial PackageInspectionReport? CreationInspection { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanInspectDeeper))] public partial bool IsInspectingPackage { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(InspectionVisibility))] public partial string InspectionStatus { get; set; } = "";

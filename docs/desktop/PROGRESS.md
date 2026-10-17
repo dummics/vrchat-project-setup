@@ -1,5 +1,11 @@
 # VRCSETUP Desktop migration
 
+## Preview 13 candidate — not installed
+
+Compact import fields and preset controls, one merged preset/detected package preview, stable suggestion rows and draft-only Add/Review actions. Clear completed now hides successful rows while retaining durable Activity history; optional auto-hide defaults off. Activity separates Imports/Operations with expandable details and individual logs, contextual project checks/resume/missing-asset reimport and associated-backup restore. Missing source selection requires confirmation and keeps recorded recovery ownership. Global recovery pickers are removed. Explorer root actions added to Imports/Projects; analysis cache clearing moved to Settings.
+
+31 isolated fixture tests pass (queue/history persistence, recognition/pins, recovery/source classification, shared logs and missing-asset preservation). Release build/publication passed without compiler diagnostics; 759 payload hashes and installer/archive SHA-256 checks verified. Final candidate is in `final-release/`; earlier packaging output is intermediate. No installer execution, real import, application launch, desktop/TUI automation or interaction with the owner's ongoing imports. Evidence: `.work/artifacts/2026-10-17-preview13-history-preview/`.
+
 ## Preview 12 installed
 
 Installed implementation ae6ab80 on 17 October 2026: installer exit 0, 759 installed hashes and release checksums verified, settings unchanged and legacy launcher preserved. Nine focused fixture tests pass, including seven simultaneous jobs and shared-log reading. Release publication has zero compiler diagnostics. No GUI/terminal input injection or interactive visual acceptance was performed.

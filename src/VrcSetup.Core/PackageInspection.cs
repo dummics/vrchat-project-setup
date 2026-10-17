@@ -29,6 +29,18 @@ public interface IUnityPackageInspector
 
 public static class DependencyAdvisor
 {
+    public static PackageSelectionPreview[] CombineSelection(IReadOnlyDictionary<string, string> selected, PackageInspectionReport? inspection)
+    {
+        var hints = (inspection?.Suggestions ?? []).GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
+        var result = selected.Select(x => new PackageSelectionPreview(x.Key, x.Value, true, hints.GetValueOrDefault(x.Key))).ToList();
+        foreach (var hint in hints.Values)
+        {
+            if (selected.Keys.Contains(hint.Id, StringComparer.OrdinalIgnoreCase) || !IsAvatarCandidate(hint.Id) || hint.Confidence is not (DependencyConfidence.Detected or DependencyConfidence.Declared)) continue;
+            if (hint.Id == ProjectRules.AvatarSdk && selected.Keys.Contains(ProjectRules.WorldSdk, StringComparer.OrdinalIgnoreCase)) continue;
+            result.Add(new(hint.Id, SuggestedVersion(hint) ?? hint.VersionConstraint ?? "Choose version", false, hint));
+        }
+        return result.ToArray();
+    }
     // Recognition is avatar-first. Existing world-project creation/management is
     // unaffected; world-only packages are outside this advisory registry's scope.
     public static bool IsAvatarCandidate(string id) => !WorldOnly.Contains(id);

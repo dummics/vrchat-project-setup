@@ -38,7 +38,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial UiImportDraft? SelectedImportDraft { get; set; }
     private bool switchingImportDraft;
     public Visibility DraftListVisibility => ImportDrafts.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
-    private void NotifyDrafts() { OnPropertyChanged(nameof(DraftListVisibility)); OnPropertyChanged(nameof(PackageFileLabel)); }
+    private void NotifyDrafts() { OnPropertyChanged(nameof(DraftListVisibility)); OnPropertyChanged(nameof(PackageFileLabel)); RefreshCreationPackages(); }
     partial void OnSelectedImportDraftChanged(UiImportDraft? value)
     {
         if (switchingImportDraft || value is null) return;
@@ -74,7 +74,8 @@ public sealed partial class MainViewModel
         context.Post(_ =>
         {
             Interlocked.Exchange(ref importUpdateQueued, 0);
-            var jobs = app.Imports.Snapshot().OrderByDescending(x => x.Active).ToArray(); var ids = jobs.Select(x => x.Id).ToHashSet();
+            var snapshot = app.Imports.Snapshot();
+            var jobs = snapshot.Where(x => !x.HiddenFromImports && !(AutoHideCompletedImports && x.State is ("Completed" or "Recovered"))).OrderByDescending(x => x.Active).ToArray(); var ids = jobs.Select(x => x.Id).ToHashSet();
             for (var index = ImportJobs.Count - 1; index >= 0; index--) if (!ids.Contains(ImportJobs[index].Id)) ImportJobs.RemoveAt(index);
             foreach (var job in jobs)
             {
@@ -88,6 +89,8 @@ public sealed partial class MainViewModel
             }
             OnPropertyChanged(nameof(HasActiveImports)); OnPropertyChanged(nameof(ImportsIdle)); OnPropertyChanged(nameof(ImportsEmptyVisibility));
             OnPropertyChanged(nameof(ResourceSummary));
+            OnPropertyChanged(nameof(CanClearCompletedImports));
+            if (CurrentPage == "Activity") ReconcileHistory(snapshot);
             var resource = app.Imports.Resources;
             if (resource is not null && !ReferenceEquals(resource, lastResource))
             {
@@ -148,7 +151,7 @@ public sealed partial class MainViewModel
         foreach (var job in candidates)
         {
             ImportDestination destination;
-            try { destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, job.Source.UnityPackagePath, lifetime.Token)); }
+            try { destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, job.Plan.Projects[0].RecoveryOriginalSource ?? job.Source.UnityPackagePath, lifetime.Token)); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { continue; }
             if (destination.Kind is not (ImportDestinationKind.Recoverable or ImportDestinationKind.Partial)) continue;
             var choice = await ui.PromptRecoveryAsync(job.Name, destination.Kind == ImportDestinationKind.Recoverable);
@@ -169,11 +172,7 @@ public sealed partial class MainViewModel
     public Task FinishImportsAsync() => app.Imports.DisposeAsync().AsTask();
     public void OpenImportLog(UiImportRow row)
     { if (File.Exists(row.Job.LogFile)) OpenPath(row.Job.LogFile); else OpenLogsCommand.Execute(null); }
-    public async Task RecoverImportAsync(UiImportRow row) => await Guard(async () =>
-    {
-        var plan = await Task.Run(() => app.Imports.RecoveryPlanAsync(row.Id, config.Copy(), lifetime.Token));
-        if (await ui.ReviewAsync(plan)) await app.Imports.EnqueueAsync(plan, RequestedParallelism, row.Job.Source, lifetime.Token);
-    });
+    public Task RecoverImportAsync(UiImportRow row) => RepairHistoryImportAsync(new(row.Job));
     public async Task RefreshImportLogAsync(UiImportRow row, bool force = false)
     {
         if (row.LoadingLog || !row.DetailsOpen) return;

@@ -78,17 +78,38 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             var narrow = CreateForm.Width < 560;
             Grid.SetRow(ImportResourceSummary, narrow ? 1 : 0); Grid.SetColumn(ImportResourceSummary, narrow ? 0 : 1);
             Grid.SetColumnSpan(ImportResourceSummary, narrow ? 3 : 1);
-            ProjectFields.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(210);
-            Grid.SetColumn(PlatformSelector, narrow ? 0 : 1); Grid.SetRow(PlatformSelector, narrow ? 1 : 0);
-            PresetFields.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : GridLength.Auto;
-            Grid.SetColumn(CustomizePackagesButton, narrow ? 0 : 1); Grid.SetRow(CustomizePackagesButton, narrow ? 1 : 0);
-            CustomizePackagesButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+            ProjectFields.Width = Math.Min(620, CreateForm.Width);
+            var stackFields = CreateForm.Width < 440;
+            ProjectFields.ColumnDefinitions[1].Width = stackFields ? new GridLength(0) : new GridLength(160);
+            Grid.SetColumn(PlatformSelector, stackFields ? 0 : 1); Grid.SetRow(PlatformSelector, stackFields ? 1 : 0);
+            var stackReview = CreateForm.Width < 720;
+            PackageSetup.ColumnDefinitions[1].Width = stackReview ? new GridLength(0) : GridLength.Auto;
+            Grid.SetColumn(ReviewAction, stackReview ? 0 : 1); Grid.SetRow(ReviewAction, stackReview ? 2 : 0);
+            ReviewAction.Width = Math.Min(260, CreateForm.Width);
+            var stackPreset = CreateForm.Width < 340;
+            PresetFields.ColumnDefinitions[0].Width = new GridLength(Math.Min(220, stackPreset ? CreateForm.Width : Math.Max(120, CreateForm.Width - 120)));
+            PresetFields.ColumnDefinitions[1].Width = stackPreset ? new GridLength(0) : GridLength.Auto;
+            Grid.SetColumn(CustomizePackagesButton, stackPreset ? 0 : 1); Grid.SetRow(CustomizePackagesButton, stackPreset ? 1 : 0);
+            CustomizePackagesButton.HorizontalAlignment = HorizontalAlignment.Left;
+            if (CreationPackageList.ItemsPanelRoot is ItemsWrapGrid items)
+                items.ItemWidth = Math.Max(1, (CreateForm.Width - 16) / (CreateForm.Width >= 720 ? 2 : 1));
             Grid.SetColumn(ChoosePackageButton, narrow ? 1 : 2); Grid.SetRow(ChoosePackageButton, narrow ? 1 : 0);
             ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
         }
         if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Min(760, SettingsView.ActualWidth);
     }
+    private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
+    private async void AddCreationSuggestionClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiCreationPackage row) await ViewModel.AddCreationSuggestionAsync(row); }
+    private async void HistoryLogClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.OpenHistoryLogAsync(row); }
+    private async void HistoryCheckClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.CheckHistoryProjectAsync(row); }
+    private async void HistoryRepairClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.RepairHistoryImportAsync(row); }
+    private async void HistoryRestoreClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.RestoreHistoryBackupAsync(row); }
     private void ProjectsSelected(object sender, SelectionChangedEventArgs args)
     {
         if (ViewModel is null) return;

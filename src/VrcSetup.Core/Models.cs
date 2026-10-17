@@ -53,6 +53,7 @@ public sealed class AppConfiguration
     public string ProjectLibrarySort { get; set; } = "recent";
     public string Theme { get; set; } = "System";
     public bool ManualImportPath { get; set; }
+    public bool AutoHideCompletedImports { get; set; }
     public DiagnosticSettings Diagnostics { get; set; } = new();
     [JsonIgnore] public string? Revision { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalSettings { get; set; }
@@ -129,6 +130,7 @@ public sealed record OperationEvent(DateTime Timestamp, string Phase, string Mes
 public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null);
 public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOutcome[] Results, string[] NotProcessed, string? ReportFile = null)
 {
+    public OperationPlan? Plan { get; init; }
     public bool Success => NotProcessed.Length == 0 && Results.Length > 0 && Results.All(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings or OperationStatus.Unchanged);
     public bool Cancelled => NotProcessed.Length > 0 || Results.Any(x => x.Status == OperationStatus.Cancelled);
 }
@@ -145,6 +147,7 @@ public sealed record ProjectPlan
     public IReadOnlyDictionary<string, string>? PresetDefinition { get; init; }
     public CreationRequest? Creation { get; init; }
     public CreationRequest? RecoverySource { get; init; }
+    public string? RecoveryOriginalSource { get; init; }
     public bool PreparationComplete { get; init; }
     public string[] ExtraImports { get; init; } = [];
     public bool NeedsEasyLoginRepository { get; init; }

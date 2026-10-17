@@ -6,6 +6,26 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task ClearCompletedHidesRowsButRetainsHistoryPlanAndLogAfterRestart()
+    {
+        var app = App; var plan = Plan("Complete", "Failed", "Active");
+        var log = Path.Combine(app.Paths.Logs, "kept.log"); Directory.CreateDirectory(app.Paths.Logs); await File.WriteAllTextAsync(log, "evidence");
+        var jobs = plan.Projects.Select((p, i) => new ImportJob("job" + i, new("op" + i, plan.CreatedUtc, [p]), p.Creation!,
+            new[] { "Completed", "Failed", "Running" }[i], "Import", 50, "message", log)).ToArray();
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), jobs);
+        await using (var queue = new ImportQueue(app))
+        {
+            await queue.InitializeAsync(); await queue.ClearCompletedAsync();
+            Assert.Equal(3, queue.Snapshot().Length);
+            Assert.True(queue.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
+            Assert.All(queue.Snapshot().Where(x => x.Id != "job0"), x => Assert.False(x.HiddenFromImports));
+        }
+        await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
+        var kept = reopened.Snapshot().Single(x => x.Id == "job0");
+        Assert.True(kept.HiddenFromImports); Assert.Equal(jobs[0].Plan.Id, kept.Plan.Id);
+        Assert.Equal(jobs[0].Source.UnityPackagePath, kept.Source.UnityPackagePath); Assert.Equal(jobs[0].Source.TargetPath, kept.Source.TargetPath);
+        Assert.Equal(jobs[0].Source.PublishingPlatforms, kept.Source.PublishingPlatforms); Assert.Equal("evidence", await File.ReadAllTextAsync(kept.LogFile));
+    }
     [Fact] public async Task UnrestrictedSchedulingStartsSevenJobsAndRecordsTimes()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); var started = 0;
@@ -81,6 +101,22 @@ public sealed class ImportQueueTests : IDisposable
         await queue.InitializeAsync(); Assert.Equal(0, executed);
         Assert.Equal("Interrupted", queue.Snapshot().Single().State);
         Assert.True(queue.Snapshot().Single().Recoverable);
+    }
+    [Fact] public async Task RecoveryReconciliationKeepsExplicitSourceOwnershipWhenArchiveWasRelocated()
+    {
+        var app = App; var plan = Plan("Relocated", "Unrelated");
+        var original = Path.Combine(root, "original.unitypackage");
+        var jobs = plan.Projects.Select((project, i) =>
+        {
+            Directory.CreateDirectory(project.Path);
+            AtomicFile.WriteJsonAsync(Path.Combine(project.Path, ".vrcsetup", "state.json"), new SetupState { Completed = true, UnityPackagePath = i == 0 ? original : Path.Combine(root, "another.unitypackage") }).GetAwaiter().GetResult();
+            var reviewed = project with { RecoveryOriginalSource = original };
+            return new ImportJob("recovery" + i, new("plan" + i, plan.CreatedUtc, [reviewed]), project.Creation!, "Interrupted", "Import", 50, "", "");
+        }).ToArray();
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), jobs);
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        Assert.Equal("Recovered", queue.Snapshot().Single(x => x.Id == "recovery0").State);
+        Assert.Equal("Interrupted", queue.Snapshot().Single(x => x.Id == "recovery1").State);
     }
     [Fact] public async Task ClearAnalysisCachePreservesKnowledgeAndHistory()
     {

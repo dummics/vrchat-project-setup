@@ -3,7 +3,7 @@ using VrcSetup.Core;
 namespace VrcSetup.Infrastructure;
 
 public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest Source, string State, string Step, int Progress, string Message, string LogFile,
-    DateTime? StartedAt = null, DateTime? FinishedAt = null)
+    DateTime? StartedAt = null, DateTime? FinishedAt = null, bool HiddenFromImports = false)
 {
     public string Name => Source.Name;
     public string ProjectPath => Source.TargetPath;
@@ -98,7 +98,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                         try
                         {
                             var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(job.ProjectPath, ".vrcsetup", "state.json"), token);
-                            if (marker?.Completed == true && !string.IsNullOrWhiteSpace(marker.UnityPackagePath) && ProjectRules.NormalizePath(marker.UnityPackagePath).Equals(ProjectRules.NormalizePath(job.Source.UnityPackagePath), StringComparison.OrdinalIgnoreCase))
+                            if (marker?.Completed == true && !string.IsNullOrWhiteSpace(marker.UnityPackagePath) && ProjectRules.NormalizePath(marker.UnityPackagePath).Equals(ProjectRules.NormalizePath(job.Plan.Projects[0].RecoveryOriginalSource ?? job.Source.UnityPackagePath), StringComparison.OrdinalIgnoreCase))
                                 job = job with { State = "Recovered", Step = "Completed", Progress = 100, FinishedAt = marker.CompletedAt, Message = "Project recovery verified." };
                         }
                         catch (Exception error) when (error is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException) { app.Diagnostics.Write("Import state", error.Message); }
@@ -224,7 +224,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                 creation: source, extraImports: imports, cancellationToken: token);
         else
         {
-            planned = await app.PlanResumeAsync(source, project.DesiredPolicy, configuration, project.PresetName, imports, token);
+            planned = await app.PlanResumeAsync(source, project.DesiredPolicy, configuration, project.PresetName, imports, token, project.RecoveryOriginalSource);
         }
         return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [planned]);
     }
@@ -232,7 +232,13 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
     public async Task ClearCompletedAsync(CancellationToken token = default)
     {
         await InitializeAsync(token); await journalGate.WaitAsync(token);
-        try { lock (sync) jobs.RemoveAll(x => x.State is "Completed" or "Recovered"); await SaveAsync(token); }
+        try
+        {
+            lock (sync)
+                for (var index = 0; index < jobs.Count; index++)
+                    if (jobs[index].State is "Completed" or "Recovered") jobs[index] = jobs[index] with { HiddenFromImports = true };
+            await SaveAsync(token);
+        }
         finally { journalGate.Release(); }
         Publish();
     }

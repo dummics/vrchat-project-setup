@@ -100,6 +100,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
         ManualImportPath = config.ManualImportPath;
+        AutoHideCompletedImports = config.AutoHideCompletedImports;
         NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
         RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ProjectSort = config.ProjectLibrarySort;
         DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
@@ -125,7 +126,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var known = await app.Catalog.KnownAsync(config, session?.Projects.Select(x => (IReadOnlyDictionary<string, string>)x.Packages));
         personalPackageIds = known.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Replace(Registry, known); RefreshLibraryRows();
+        Replace(Registry, known); RefreshLibraryRows(); RefreshCreationPackages();
     }
     partial void OnProjectFilterChanged(string value) => FilterProjects();
     partial void OnPackageFilterChanged(string value) => RenderWorkspace();
@@ -140,6 +141,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(PackageFileLabel));
         creationOverrides = null;
         _ = InspectCreationPackageAsync(value);
+        RefreshCreationPackages();
         if (string.IsNullOrWhiteSpace(value)) return;
         ProjectName = ProjectRules.SuggestName(value, config); BuildTarget = ProjectRules.SuggestBuildTarget(value);
         PublishAndroid = BuildTarget == "Android"; PublishWindows = !PublishAndroid;
@@ -148,15 +150,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         creationOverrides = null;
         foreach (var draft in ImportDrafts) draft.Packages = null;
+        RefreshCreationPackages();
     }
     partial void OnSelectedRecipeChanged(string value)
     {
         foreach (var draft in ImportDrafts) draft.Packages = null;
-        if (string.IsNullOrWhiteSpace(value) || !config.CreationRecipes.TryGetValue(value, out var recipe)) { creationOverrides = null; return; }
+        if (string.IsNullOrWhiteSpace(value) || !config.CreationRecipes.TryGetValue(value, out var recipe)) { creationOverrides = null; RefreshCreationPackages(); return; }
         SelectedPreset = string.IsNullOrWhiteSpace(recipe.Preset) || !config.PackagePresets.ContainsKey(recipe.Preset) ? "My default packages" : recipe.Preset;
         creationOverrides = recipe.Packages.Count > 0 ? new(recipe.Packages) : null;
         if (SelectedImportDraft is { } selected) selected.Packages = creationOverrides is null ? null : new(creationOverrides);
         BuildTarget = recipe.BuildTarget; PublishWindows = recipe.PublishingPlatforms.Contains("StandaloneWindows64"); PublishAndroid = recipe.PublishingPlatforms.Contains("Android"); PublishIos = recipe.PublishingPlatforms.Contains("iOS");
+        RefreshCreationPackages();
     }
     private void FilterProjects() { Replace(Projects, allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase))); UpdateProjectState(); }
     private void RenderWorkspace()
@@ -267,7 +271,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var working = new Dictionary<string, string>(creationOverrides ?? (SelectedPreset == "My default packages" ? config.VpmPackages : config.PackagePresets[SelectedPreset]));
         if (await ui.EditPackagesAsync("Packages for this project", working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync, CreationInspection) is { } edited)
-        { creationOverrides = edited; if (SelectedImportDraft is { } draft) draft.Packages = new(edited); }
+        { creationOverrides = edited; if (SelectedImportDraft is { } draft) draft.Packages = new(edited); RefreshCreationPackages(); }
     });
     private Dictionary<string, string>? creationOverrides;
     [RelayCommand] private async Task CreateProject()
@@ -383,6 +387,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task SaveSettings() => await Guard(async () =>
     {
         config.ManualImportPath = ManualImportPath;
+        config.AutoHideCompletedImports = AutoHideCompletedImports;
         if (!string.IsNullOrWhiteSpace(UnityEditorPath)) UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
         var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var pattern in patterns) _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
@@ -427,39 +432,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (PresetDirty && !await ui.ConfirmAsync("Unsaved preset", "Discard changes before importing settings?", "Discard")) return;
         if (await ui.PickFileAsync(".json") is { } file) { await app.Configuration.ImportAsync(file); await ReloadConfigurationAsync(); }
-    });
-    [RelayCommand] private async Task RecoverProject() => await Guard(async () =>
-    {
-        var candidates = allProjects.Where(x => x.Incomplete).ToArray();
-        var choice = await ui.ChooseAsync("Incomplete project", candidates.Select(x => x.Name + " · " + x.Path).ToArray());
-        var project = candidates.FirstOrDefault(x => x.Name + " · " + x.Path == choice); if (project is null) return;
-        var action = await ui.ChooseAsync("Recovery", ["Inspect packages / retry", "Reimport original UnityPackage", "Delete incomplete project", "Close a blocking Unity editor", "Open folder"]);
-        if (action == "Open folder") OpenPath(project.Path);
-        if (action == "Close a blocking Unity editor")
-        {
-            var processes = ProjectWorkspace.GetUnityProcesses(project.Path);
-            var selected = await ui.ChooseAsync("Unity process", processes.Select(x => "PID " + x.Pid + " · " + project.Name).ToArray());
-            var process = processes.FirstOrDefault(x => "PID " + x.Pid + " · " + project.Name == selected);
-            if (process.Pid > 0 && await ui.ConfirmAsync("Close Unity editor", "Force close PID " + process.Pid + " for " + project.Path + "? Unsaved work may be lost.", "Close Unity")) await app.Projects.CloseUnityAsync(project.Path, process.Pid, true);
-        }
-        if (action == "Inspect packages / retry") await OpenProjectsAsync([project]);
-        if (action == "Reimport original UnityPackage")
-        {
-            var state = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(project.Path, ".vrcsetup", "state.json"));
-            if (state is null || !File.Exists(state.UnityPackagePath)) throw new IOException("The original UnityPackage is unavailable; choose it manually in Additional imports.");
-            await OpenProjectsAsync([project]); session!.ExtraImports = [state.UnityPackagePath];
-            Status = "Original import staged. Review changes before retrying.";
-        }
-        if (action == "Delete incomplete project" && await ui.ConfirmAsync("Delete incomplete project", project.Path + "\nAll contents will be deleted.", "Delete")) { await app.Projects.CleanupAsync(project.Path, config.UnityProjectsRoot, true); await RefreshProjectsCore(); }
-    });
-    [RelayCommand] private async Task RestoreBackup() => await Guard(async () =>
-    {
-        var project = await ui.PickFolderAsync(); if (project is null) return;
-        var file = await ui.PickFileAsync(".json"); if (file is null) return;
-        var backup = await AtomicFile.ReadJsonAsync<BackupRecord>(file) ?? throw new IOException("Backup record not found.");
-        if (!await ui.ConfirmAsync("Restore backup", "Replace the current project state with this backup?\n" + project, "Restore")) return;
-        using var lease = await app.Projects.AcquireAsync(project, CancellationToken.None);
-        if (!await app.Projects.RestoreAsync(project, backup, new SynchronizationProgress<OperationEvent>(context, AppendActivity), CancellationToken.None)) throw new IOException("Restore could not complete; inspect the logs.");
     });
     [RelayCommand] private void OpenLogs() { Directory.CreateDirectory(app.Paths.Logs); OpenPath(app.Paths.Logs); }
     [RelayCommand] private void OpenLastLog() { if (File.Exists(LastLog)) OpenPath(LastLog); }

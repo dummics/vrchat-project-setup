@@ -10,7 +10,7 @@ Unity Editor and its selected build modules, VRChat Creator Companion and the VP
 
 The application is a community utility, independent of VRChat Inc. Unsigned test builds may show Windows reputation prompts. Verify SHA256SUMS.txt; do not disable Windows security settings to run a test build.
 
-Preview 4 keeps the original core/TUI while polishing the desktop. Packages uses a centered preset selector with Preset packages and My packages tabs; package/preset menus hold secondary actions, and save controls appear for pending edits. Automatic version selection means `latest`; Advanced contains preview and exact-version controls. Activity is in the navigation footer, with restore and unfinished-project actions in its menu.
+Packages uses a centered preset selector with Preset packages and My packages tabs; package/preset menus hold secondary actions, and save controls appear for pending edits. Preview 13 moves recovery actions into each Activity entry, with Imports/Operations history and individual logs. The candidate is prepared without installing while Dom tests the installed preview 12.
 
 Preview 6 includes the preview 5 package workflow: My packages and project Add package share an in-page local/online browser. Version choices are row dropdowns with a beta filter; Latest retains the shared `latest` policy. Project changes remain staged until Apply, with Back/Revert and confirmation before leaving a pending draft.
 

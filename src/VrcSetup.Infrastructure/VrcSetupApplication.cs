@@ -55,7 +55,7 @@ public sealed class VrcSetupApplication
             }
         }
         var reportFile = Path.Combine(Paths.Logs, "operation-" + plan.Id + ".json");
-        report = report with { Results = report.Results.Select(x => x with { LogFile = log.Path }).ToArray(), ReportFile = reportFile };
+        report = report with { Results = report.Results.Select(x => x with { LogFile = log.Path }).ToArray(), ReportFile = reportFile, Plan = plan };
         await AtomicFile.WriteJsonAsync(reportFile, report, CancellationToken.None);
         return report;
     }
@@ -94,9 +94,11 @@ public sealed class VrcSetupApplication
         return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [project]);
     }
     public async Task<ProjectPlan> PlanResumeAsync(CreationRequest source, IReadOnlyDictionary<string, string> packages, AppConfiguration config, string? preset,
-        IEnumerable<string> imports, CancellationToken token = default)
+        IEnumerable<string> imports, CancellationToken token = default, string? recordedSource = null)
     {
-        var state = await new ImportDestinationInspector(Projects).InspectAsync(source.TargetPath, source.UnityPackagePath, token);
+        // A replacement archive is allowed only after the caller explicitly selected it.
+        // Validate ownership against the recorded source, while fingerprinting the selected file.
+        var state = await new ImportDestinationInspector(Projects).InspectAsync(source.TargetPath, recordedSource ?? source.UnityPackagePath, token);
         if (state.Kind != ImportDestinationKind.Recoverable && !state.CanImportMissing) throw new IOException(state.Message);
         var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(source.TargetPath, ".vrcsetup", "state.json"), token);
         var current = await Projects.ReadAsync(source.TargetPath, token);
@@ -106,7 +108,7 @@ public sealed class VrcSetupApplication
         var missingImports = new[] { source.UnityPackagePath }.Concat(imports).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var plan = await Planner.PlanAsync(source.TargetPath, preserved, config, exact: false, preset: preset,
             extraImports: missingImports, cancellationToken: token);
-        return plan with { UnityEditorPath = source.UnityEditorPath, RecoverySource = source,
+        return plan with { UnityEditorPath = source.UnityEditorPath, RecoverySource = source, RecoveryOriginalSource = recordedSource,
             PreparationComplete = marker?.Steps.GetValueOrDefault("nunit") == true && marker.Steps.GetValueOrDefault("vpm") && plan.Changes.All(x => x.Kind == ChangeKind.Keep) };
     }
 }

@@ -50,6 +50,7 @@ public sealed partial class MainViewModel
     partial void OnFavoritesOnlyChanged(bool value) { libraryFavoriteSnapshot = null; RefreshLibraryRows(); }
     partial void OnCurrentPageChanged(string value)
     {
+        if (value == "Activity") _ = RefreshSavedHistoryAsync();
         if (value is "Presets" or "Catalog") { libraryFavoriteSnapshot = null; LibraryPackages.Clear(); RefreshLibraryRows(); }
     }
     partial void OnEditingPresetChanged(string oldValue, string newValue)
