@@ -125,6 +125,21 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         ValidateEditor(editor);
         var imports = (plan.Creation is null ? plan.ExtraImports : new[] { plan.Creation.UnityPackagePath }.Concat(plan.Creation.ExtraImports).Concat(plan.ExtraImports)).Select(x => ProjectRules.NormalizePath(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         foreach (var file in imports) if (!File.Exists(file)) throw new IOException("UnityPackage not found: " + file);
+        var temporary = new List<string>();
+        try
+        {
+        if (plan.RecoverySource is not null)
+        {
+            var missing = new List<string>();
+            var folder = Path.Combine(plan.Path, ".vrcsetup", "recovery-imports"); Directory.CreateDirectory(folder);
+            foreach (var original in imports)
+            {
+                var filtered = Path.Combine(folder, "missing-" + Guid.NewGuid().ToString("N") + ".unitypackage"); temporary.Add(filtered);
+                if (await MissingAssetArchive.CreateAsync(original, plan.Path, filtered, cancellationToken)) missing.Add(filtered);
+            }
+            imports = missing.ToArray();
+            if (imports.Length == 0) { await SettleAsync(plan, progress, cancellationToken); return; }
+        }
         var editorFolder = Path.Combine(plan.Path, "Assets", "Editor"); Directory.CreateDirectory(editorFolder);
         var bridgeDestination = Path.Combine(editorFolder, "VrcSetupPostImport.cs");
         if (File.Exists(bridgeDestination) && AtomicFile.Hash(bridgeDestination) != AtomicFile.Hash(paths.BridgePath))
@@ -139,10 +154,12 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         if (plan.Creation is not null)
             await AtomicFile.WriteJsonAsync(Path.Combine(stateDirectory, "platforms.json"), new { targets = plan.Creation.PublishingPlatforms, pending = true }, cancellationToken);
         var arguments = new List<string> { "-projectPath", plan.Path, "-executeMethod", "VrcSetupPostImport.RunImport", "-vrcsetupImportPlan", importPlan, "-batchmode" };
-        if (plan.Creation is not null) arguments.AddRange(["-buildTarget", plan.Creation.BuildTarget]);
+        if ((plan.Creation ?? plan.RecoverySource) is { } importSource) arguments.AddRange(["-buildTarget", importSource.BuildTarget]);
         var log = NewUnityLog("import"); arguments.AddRange(["-logFile", log]);
         var result = await runner.RunAsync(editor, arguments, progress: progress, phase: "Unity import", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(45), logFile: log);
-        VerifyUnityLog(result, log);
+        await VerifyUnityLogAsync(result, log, cancellationToken);
+        }
+        finally { foreach (var file in temporary) if (File.Exists(file)) File.Delete(file); }
     }
     public async Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
@@ -150,13 +167,13 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         ValidateEditor(editor);
         var log = NewUnityLog("settle");
         var arguments = new List<string> { "-projectPath", plan.Path, "-executeMethod", "VrcSetupPostImport.Run", "-batchmode", "-logFile", log };
-        if (plan.Creation is not null) arguments.AddRange(["-buildTarget", plan.Creation.BuildTarget]);
+        if ((plan.Creation ?? plan.RecoverySource) is { } source) arguments.AddRange(["-buildTarget", source.BuildTarget]);
         var result = await runner.RunAsync(editor, arguments, progress: progress, phase: "Unity settle", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(15), logFile: log);
-        VerifyUnityLog(result, log);
+        await VerifyUnityLogAsync(result, log, cancellationToken);
     }
-    private static void VerifyUnityLog(ToolResult result, string log)
+    private static async Task VerifyUnityLogAsync(ToolResult result, string log, CancellationToken token)
     {
-        var output = File.Exists(log) ? File.ReadAllText(log) : "";
+        var output = File.Exists(log) ? await SharedLog.ReadAsync(log, token) : "";
         if (result.ExitCode != 0 || !output.Contains("[vrc-setup] Post-import settle complete", StringComparison.Ordinal) || Regex.IsMatch(output, @"(?im)(^.*error CS\d+|Script compilation failed|Import failed:|Import cancelled:|project remains incomplete|Fatal Error|Crash!!!)"))
             throw new IOException("Unity import or compilation did not complete. Project remains incomplete. Log: " + log);
     }

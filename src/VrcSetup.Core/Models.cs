@@ -52,6 +52,7 @@ public sealed class AppConfiguration
     public string LastUnityPackagePath { get; set; } = "";
     public string ProjectLibrarySort { get; set; } = "recent";
     public string Theme { get; set; } = "System";
+    public bool ManualImportPath { get; set; }
     public DiagnosticSettings Diagnostics { get; set; } = new();
     [JsonIgnore] public string? Revision { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalSettings { get; set; }
@@ -143,12 +144,14 @@ public sealed record ProjectPlan
     public string? PresetName { get; init; }
     public IReadOnlyDictionary<string, string>? PresetDefinition { get; init; }
     public CreationRequest? Creation { get; init; }
+    public CreationRequest? RecoverySource { get; init; }
+    public bool PreparationComplete { get; init; }
     public string[] ExtraImports { get; init; } = [];
     public bool NeedsEasyLoginRepository { get; init; }
     public string[] RequiredPackages { get; init; } = [];
     public string UnityEditorPath { get; init; } = "";
     public IReadOnlyDictionary<string, string> ImportFingerprints { get; init; } = new Dictionary<string, string>();
-    public bool HasChanges => Creation is not null || ExtraImports.Length > 0 || Changes.Any(x => x.Kind != ChangeKind.Keep);
+    public bool HasChanges => Creation is not null || RecoverySource is not null || ExtraImports.Length > 0 || Changes.Any(x => x.Kind != ChangeKind.Keep);
 }
 public sealed record OperationPlan(string Id, DateTime CreatedUtc, ProjectPlan[] Projects);
 

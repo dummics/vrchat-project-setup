@@ -19,15 +19,15 @@ public sealed partial class MainViewModel
     public Visibility ImportPreparingVisibility => IsPreparingImport ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportErrorVisibility => ImportError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportSettingsVisibility => ImportError.Contains("Settings", StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility ResourceSummaryVisibility => HasActiveImports ? Visibility.Visible : Visibility.Collapsed;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ManualImportPathVisibility))] public partial bool ManualImportPath { get; set; }
+    public Visibility ManualImportPathVisibility => ManualImportPath ? Visibility.Visible : Visibility.Collapsed;
     public string ResourceSummary
     {
         get
         {
             var resource = app.Imports.Resources;
-            var running = ImportJobs.Count(x => x.Job.State is "Running" or "Cancelling"); var waiting = ImportJobs.Count(x => x.Job.State == "Queued");
             var usage = resource is null ? "Checking resources…" : $"RAM {resource.TotalGiB - resource.AvailableGiB:F1} / {resource.TotalGiB:F0} GB · CPU {(resource.CpuPercent is { } cpu ? cpu.ToString("F0") + "%" : "…")}";
-            return usage + $" · {running} running · {waiting} queued";
+            return usage;
         }
     }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(MemoryWarningVisibility))] public partial string MemoryWarning { get; set; } = "";
@@ -88,7 +88,6 @@ public sealed partial class MainViewModel
             }
             OnPropertyChanged(nameof(HasActiveImports)); OnPropertyChanged(nameof(ImportsIdle)); OnPropertyChanged(nameof(ImportsEmptyVisibility));
             OnPropertyChanged(nameof(ResourceSummary));
-            OnPropertyChanged(nameof(ResourceSummaryVisibility));
             var resource = app.Imports.Resources;
             if (resource is not null && !ReferenceEquals(resource, lastResource))
             {
@@ -141,6 +140,31 @@ public sealed partial class MainViewModel
         NotifyDrafts();
     }
     public void CancelImport(UiImportRow row) => app.Imports.Cancel(row.Id);
+    private async Task PromptInterruptedImportAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ProjectsRoot)) return;
+        var candidates = app.Imports.Snapshot().Where(x => x.Recoverable)
+            .OrderByDescending(x => File.GetLastWriteTimeUtc(Path.Combine(x.ProjectPath, ".vrcsetup", "state.json"))).ToArray();
+        foreach (var job in candidates)
+        {
+            ImportDestination destination;
+            try { destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, job.Source.UnityPackagePath, lifetime.Token)); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { continue; }
+            if (destination.Kind is not (ImportDestinationKind.Recoverable or ImportDestinationKind.Partial)) continue;
+            var choice = await ui.PromptRecoveryAsync(job.Name, destination.Kind == ImportDestinationKind.Recoverable);
+            if (choice == "Resume") { CurrentPage = "Create"; await RecoverImportAsync(new(job)); }
+            else if (choice == "Copy")
+            {
+                CurrentPage = "Create"; StageImportFiles([job.Source.UnityPackagePath]);
+                var name = job.Name + " (copy)"; var index = 2;
+                while (Directory.Exists(Path.Combine(ProjectsRoot, name))) name = job.Name + " (copy " + index++ + ")";
+                ProjectName = name; BuildTarget = job.Source.BuildTarget;
+                creationOverrides = new(job.Plan.Projects[0].DesiredPolicy);
+                if (SelectedImportDraft is { } draft) draft.Packages = new(creationOverrides);
+            }
+            return; // One contextual prompt per launch, never one modal per record.
+        }
+    }
     public void CancelAllImports() => app.Imports.CancelAll();
     public Task FinishImportsAsync() => app.Imports.DisposeAsync().AsTask();
     public void OpenImportLog(UiImportRow row)
@@ -152,7 +176,7 @@ public sealed partial class MainViewModel
     });
     public async Task RefreshImportLogAsync(UiImportRow row, bool force = false)
     {
-        if (row.LoadingLog || !row.DetailsOpen || !row.LiveLog && !force) return;
+        if (row.LoadingLog || !row.DetailsOpen) return;
         row.LoadingLog = true;
         try
         {
@@ -175,24 +199,37 @@ public sealed partial class MainViewModel
 public sealed class UiImportRow(ImportJob job) : ObservableObject
 {
     private bool detailsOpen;
-    private bool liveLog = true;
     private string logText = "";
     public bool DetailsOpen { get => detailsOpen; set => SetProperty(ref detailsOpen, value); }
-    public bool LiveLog { get => liveLog; set => SetProperty(ref liveLog, value); }
     public string LogText { get => logText; set => SetProperty(ref logText, value); }
     public bool LoadingLog { get; set; }
     public string LogStamp { get; set; } = "";
     public ImportJob Job { get; private set; } = job;
     public string Id => Job.Id;
     public string Name => Job.Name;
+    public string Elapsed
+    {
+        get
+        {
+            if (Job.StartedAt is not { } start || !Job.Active && Job.FinishedAt is null) return "—";
+            var elapsed = (Job.FinishedAt ?? DateTime.UtcNow) - start;
+            if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+            return elapsed.TotalHours >= 1 ? $"{(int)elapsed.TotalHours}:{elapsed.Minutes:00}:{elapsed.Seconds:00}" : $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
+        }
+    }
     public string Path => Job.ProjectPath;
-    public string Step => Job.State == "Running" ? Job.Step : Job.State;
+    public string Step => Job.State == "Running" ? Job.Step switch
+    {
+        "Create" => "Creating project", "Prepare" => "Preparing project", "Packages" => "Adding packages",
+        "Import" => Job.Plan.Projects[0].RecoverySource is null ? "Importing assets" : "Reimporting assets",
+        "Validate" => "Checking project", "Finish" => "Finishing", "Starting" => "Starting…", _ => Job.Step
+    } : Job.State == "Queued" ? "Starting…" : Job.State;
     public string Message => Job.Message.Length > 240 ? Job.Message[..240] + "…" : Job.Message;
     public int Progress => Job.Progress;
     public bool CanCancel => Job.Active && Job.State != "Cancelling";
     public Visibility CancelVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
-    public void Update(ImportJob value) { if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }
+    public void Update(ImportJob value) { OnPropertyChanged(nameof(Elapsed)); if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }
 }
 
 public sealed class UiImportDraft(string file, string name, string platform) : ObservableObject

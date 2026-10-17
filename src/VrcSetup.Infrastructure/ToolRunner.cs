@@ -35,6 +35,8 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null)
                 linked.Token.ThrowIfCancellationRequested();
                 if (logFile is not null && File.Exists(logFile))
                 {
+                    try
+                    {
                     var info = new FileInfo(logFile);
                     if (info.LastWriteTimeUtc != lastLogWrite || info.Length != logPosition)
                     {
@@ -47,6 +49,8 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null)
                         logPosition = stream.Position;
                         foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries)) Emit(line.TrimEnd('\r'));
                     }
+                    }
+                    catch (IOException) { /* Log sharing is transient; keep the child running and retry. */ }
                 }
                 await Task.Delay(250, linked.Token);
             }
@@ -55,12 +59,20 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null)
             // Include the end of a Unity log written immediately before the process exited.
             if (logFile is not null && File.Exists(logFile))
             {
+                for (var attempt = 0; ; attempt++)
+                {
+                try
+                {
                 using var stream = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 if (stream.Length < logPosition) logPosition = 0;
                 stream.Seek(logPosition, SeekOrigin.Begin);
                 using var reader = new StreamReader(stream);
                 var text = await reader.ReadToEndAsync(linked.Token);
                 foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries)) Emit(line.TrimEnd('\r'));
+                break;
+                }
+                catch (IOException) when (attempt < 15) { await Task.Delay(200, linked.Token); }
+                }
             }
             diagnostics?.Write(phase, "Exit " + process.ExitCode + " after " + (DateTime.UtcNow - startTime).TotalSeconds.ToString("F1") + "s");
             return new(process.ExitCode, stdout.ToString(), stderr.ToString());

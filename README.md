@@ -4,11 +4,11 @@ Windows companion for repeatable VRChat Unity projects. A native WinUI 3 desktop
 
 ## Install or run portable
 
-Use the standalone `Install-VrcSetup-2.0.0-preview.11-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
+Use the standalone `Install-VrcSetup-2.0.0-preview.12-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md).
 
 This branch is `feature/winui-desktop`. The main-branch source ZIP contains the earlier PowerShell product. Source from this branch requires the .NET 10 SDK and Windows build tools; source and the distributable package are distinct downloads.
 
-Current source is preview 11: package toggles/version edits preserve rows and ordering while the shared dialog is open. Import review gives immediate preparation/error feedback and a compact recap, then returns to the same [import page](docs/desktop/IMPORT-QUEUE.md) for further parallel imports. A single installed Unity editor can be detected if the selected executable is unavailable. GUI/core/CLI and the separate legacy terminal launcher remain available. Offline inspection and discovery caches stay separate from My Packages. Dom owns runtime acceptance; compilation and file integrity do not establish a completed Unity import.
+Current source is preview 12: [state-aware recovery](docs/desktop/IMPORT-QUEUE.md), missing-asset imports that preserve existing files/versions, compatible log readers, per-import timers and fixed resource status. The simple import page supports parallel jobs, a short recap and expandable console; manual paths are optional in Settings. The terminal import restores boxed input/progress views on the same shared engine. Package toggles/version edits retain stable rows. Offline inspection and discovery caches stay separate from My Packages. Lulla Quest recovery completed and was validated; broader UI/TUI acceptance remains with Dom.
 
 ## Features
 

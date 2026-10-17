@@ -86,7 +86,27 @@ public sealed class VrcSetupApplication
         var imports = ExtraImports(config, package).Concat(recipe?.ExtraImports ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var targetPath = Path.Combine(ProjectRules.NormalizePath(config.UnityProjectsRoot), name);
         var request = new CreationRequest(package, name, targetPath, config.UnityEditorPath, buildTarget, publishingPlatforms, imports);
+        var destination = await new ImportDestinationInspector(Projects).InspectAsync(targetPath, package, cancellationToken);
+        if (destination.Kind == ImportDestinationKind.Recoverable || destination.CanImportMissing)
+            return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [await PlanResumeAsync(request, selected, config, preset, imports, cancellationToken)]);
+        if (destination.Kind != ImportDestinationKind.New) throw new IOException(destination.Message);
         var project = await Planner.PlanAsync(targetPath, selected, config, exact: true, preset: preset ?? "My default packages", creation: request, cancellationToken: cancellationToken);
         return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [project]);
+    }
+    public async Task<ProjectPlan> PlanResumeAsync(CreationRequest source, IReadOnlyDictionary<string, string> packages, AppConfiguration config, string? preset,
+        IEnumerable<string> imports, CancellationToken token = default)
+    {
+        var state = await new ImportDestinationInspector(Projects).InspectAsync(source.TargetPath, source.UnityPackagePath, token);
+        if (state.Kind != ImportDestinationKind.Recoverable && !state.CanImportMissing) throw new IOException(state.Message);
+        var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(source.TargetPath, ".vrcsetup", "state.json"), token);
+        var current = await Projects.ReadAsync(source.TargetPath, token);
+        var preserved = new Dictionary<string, string>(packages);
+        foreach (var entry in packages)
+            if ((current.InstalledVersions.GetValueOrDefault(entry.Key) ?? current.LockedPackages.GetValueOrDefault(entry.Key)) is { Length: > 0 } installed) preserved[entry.Key] = installed;
+        var missingImports = new[] { source.UnityPackagePath }.Concat(imports).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var plan = await Planner.PlanAsync(source.TargetPath, preserved, config, exact: false, preset: preset,
+            extraImports: missingImports, cancellationToken: token);
+        return plan with { UnityEditorPath = source.UnityEditorPath, RecoverySource = source,
+            PreparationComplete = marker?.Steps.GetValueOrDefault("nunit") == true && marker.Steps.GetValueOrDefault("vpm") && plan.Changes.All(x => x.Kind == ChangeKind.Keep) };
     }
 }

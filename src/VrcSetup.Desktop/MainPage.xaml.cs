@@ -76,6 +76,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             ImportQueueSection.Width = CreateLayout.Width;
             ImportQueueList.MaxHeight = ViewModel.ImportJobs.Any(x => x.DetailsOpen) ? Math.Min(520, Math.Max(260, CreateView.ActualHeight - 140)) : 220;
             var narrow = CreateForm.Width < 560;
+            Grid.SetRow(ImportResourceSummary, narrow ? 1 : 0); Grid.SetColumn(ImportResourceSummary, narrow ? 0 : 1);
+            Grid.SetColumnSpan(ImportResourceSummary, narrow ? 3 : 1);
             ProjectFields.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(210);
             Grid.SetColumn(PlatformSelector, narrow ? 0 : 1); Grid.SetRow(PlatformSelector, narrow ? 1 : 0);
             PresetFields.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : GridLength.Auto;
@@ -226,16 +228,17 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     public async Task<bool> ReviewAsync(OperationPlan plan)
     {
-        if (plan.Projects.Length > 0 && plan.Projects.All(x => x.Creation is not null))
+        if (plan.Projects.Length > 0 && plan.Projects.All(x => x.Creation is not null || x.RecoverySource is not null))
         {
             var recap = new StackPanel { Spacing = 14, MaxWidth = 440 };
             foreach (var project in plan.Projects)
             {
-                var platform = project.Creation!.BuildTarget switch { "Android" => "Android / Quest", "iOS" => "iOS", _ => "Windows" };
+                var platform = (project.Creation ?? project.RecoverySource)!.BuildTarget switch { "Android" => "Android / Quest", "iOS" => "iOS", _ => "Windows" };
                 var preset = project.PresetName is null or "My default packages" ? "Default" : project.PresetName;
                 var row = new StackPanel { Spacing = 4 };
                 row.Children.Add(new TextBlock { Text = project.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-                row.Children.Add(new TextBlock { Text = $"{platform} · {preset} · {project.DesiredPolicy.Count} packages", Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
+                row.Children.Add(new TextBlock { Text = (project.RecoverySource is null ? "" : "Resume · ") + $"{platform} · {preset} · {project.DesiredPolicy.Count} packages", Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
+                if (project.RecoverySource is not null) row.Children.Add(new TextBlock { Text = "Existing files preserved; backup before reimport.", Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
                 ToolTipService.SetToolTip(row, project.Path); recap.Children.Add(row);
             }
             return await ShowDialog(new() { Title = plan.Projects.Length == 1 ? "Import project" : $"Import {plan.Projects.Length} projects", Content = new ScrollViewer { Content = recap, MaxHeight = 360 }, PrimaryButtonText = "Import", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Primary }) == ContentDialogResult.Primary;
@@ -259,6 +262,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (plan.Projects.Any(x => x.Creation is not null) && ViewModel.InspectionReviewNote.Length > 0) stack.Children.Add(new TextBlock { Text = ViewModel.InspectionReviewNote, TextWrapping = TextWrapping.Wrap });
         var dialog = new ContentDialog { Title = "Review changes", Content = new ScrollViewer { Content = stack, MaxHeight = 430 }, PrimaryButtonText = plan.Projects.Any(x => x.Creation is not null) ? "Create project" : "Apply changes", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Close };
         return await ShowDialog(dialog) == ContentDialogResult.Primary;
+    }
+    public async Task<string?> PromptRecoveryAsync(string name, bool canResume)
+    {
+        var result = await ShowDialog(new() { Title = name, Content = canResume ? "This import is unfinished. Resume missing steps, or prepare a new copy." : "Unity project creation was interrupted. Prepare a new copy while keeping the partial folder.", PrimaryButtonText = canResume ? "Resume" : "New copy", SecondaryButtonText = canResume ? "New copy" : "", CloseButtonText = "Later", DefaultButton = ContentDialogButton.Close });
+        return result == ContentDialogResult.Primary ? canResume ? "Resume" : "Copy" : result == ContentDialogResult.Secondary ? "Copy" : null;
     }
     public async Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
         Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null)

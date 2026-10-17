@@ -1,5 +1,11 @@
 # VRCSETUP Desktop migration
 
+## Preview 12 candidate
+
+State-aware resume/missing-asset import, shared log-reader fix, startup recovery prompt, import timers, fixed header resource status and simplified controls/manual-input settings are implemented. TUI import context/progress boxes are restored without changing its shared core. No UI automation or terminal input injection was used.
+
+Dom's Lulla Quest recovery succeeded: operation 209100be64ad4bd69eeb961a16670c5a, 18:30:25–18:30:46 UTC, backup preserved, no package additions/updates/removals, no UnityPackage reimport, final Unity settle/validation successful, Completed marker verified. GIGGLES NSFW independently finished at 18:27:29 UTC and was not interrupted. Its older namesake folder remains preserved/incomplete. Original Lulla timings: create ~7 s, VPM ~65 s, Unity import/compile ~283 s. No equivalent historical CLI baseline exists; no UI-vs-CLI performance ratio is claimed. Evidence: `.work/artifacts/2026-10-17-preview12-project-state/`.
+
 ## Preview 11 installed
 
 Installed on Dom's request: implementation 003cd7d, installer exit 0, all 759 installed hashes verified, configuration unchanged and legacy launcher preserved. Release publication completed without compiler diagnostics after correcting a fixture-variable collision. No application/import or automated GUI test was started. Owner performs runtime acceptance.

@@ -140,7 +140,23 @@ public static class TerminalClient
 
     private static async Task Create(VrcSetupApplication app, AppConfiguration config, CancellationToken token)
     {
-        var package = ProjectRules.NormalizePath(Ask("UnityPackage file (paste or drag and drop)"));
+        AnsiConsole.Clear();
+        AnsiConsole.Write(new Panel(new Markup("[#75D7F7]Paste or drop a .unitypackage, then press Enter.[/]\n[grey]Leave blank to go back.[/]"))
+            { Header = new PanelHeader(" Import avatar or asset "), Border = BoxBorder.Double, BorderStyle = new Style(new Color(103, 232, 165)), Padding = new Padding(1, 1) });
+        string package;
+        while (true)
+        {
+            var input = AnsiConsole.Prompt(new TextPrompt<string>("[#75D7F7]UnityPackage file[/]:").AllowEmpty()).Trim();
+            if (input.Length == 0) return;
+            if (input.StartsWith("& ", StringComparison.Ordinal)) input = input[2..].Trim();
+            try
+            {
+                package = ProjectRules.NormalizePath(input.Trim('\'', '"'));
+                if (!package.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase) || !File.Exists(package)) throw new IOException("Choose an existing .unitypackage file.");
+                break;
+            }
+            catch (Exception error) when (error is IOException or ArgumentException) { AnsiConsole.MarkupLine("[red]" + Escape(error.Message) + "[/]"); }
+        }
         var name = ProjectRules.SuggestName(package, config); var preset = "My default packages"; string? recipe = null;
         var target = ProjectRules.SuggestBuildTarget(package); var platforms = new[] { target }; Dictionary<string, string>? packages = null;
         while (true)
@@ -175,6 +191,7 @@ public static class TerminalClient
         var progress = new InlineProgress<OperationEvent>(incoming.Enqueue);
         var operation = app.ApplyAsync(plan, progress, cancel.Token);
         var scroll = 0; var follow = true;
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
         await AnsiConsole.Live(new Panel("Starting…")).AutoClear(true).StartAsync(async live =>
         {
             do
@@ -204,7 +221,12 @@ public static class TerminalClient
                     return $"[{color}]{Escape("[" + value.Phase + "] " + value.Message)}[/]";
                 });
                 var text = string.Join(Environment.NewLine, messages);
-                live.UpdateTarget(new Panel(new Markup((text.Length == 0 ? "Starting…" : text) + "\n[grey]PgUp/PgDn scroll · End follow · Q/Esc cancel[/]")) { Header = new PanelHeader(" Activity ") });
+                var stage = lines.LastOrDefault()?.Phase ?? "Starting";
+                var summary = new Panel(new Markup("[bold #75D7F7]" + Escape(string.Join(", ", plan.Projects.Select(x => x.Name))) + "[/]\n[#67E8A5]" + Escape(stage) + "[/]  [grey]" + elapsed.Elapsed.ToString(@"hh\:mm\:ss") + "[/]"))
+                    { Header = new PanelHeader(" Import "), Border = BoxBorder.Double, BorderStyle = new Style(new Color(103, 232, 165)) };
+                var console = new Panel(new Markup((text.Length == 0 ? "Starting…" : text) + "\n[grey]PgUp/PgDn scroll · End follow · Q/Esc cancel[/]"))
+                    { Header = new PanelHeader(" Console "), Border = BoxBorder.Rounded, BorderStyle = new Style(new Color(76, 106, 122)) };
+                live.UpdateTarget(new Rows(summary, console));
                 if (!operation.IsCompleted) await Task.Delay(150);
             } while (!operation.IsCompleted || !incoming.IsEmpty);
         });

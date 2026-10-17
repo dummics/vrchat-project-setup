@@ -2,7 +2,8 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest Source, string State, string Step, int Progress, string Message, string LogFile)
+public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest Source, string State, string Step, int Progress, string Message, string LogFile,
+    DateTime? StartedAt = null, DateTime? FinishedAt = null)
 {
     public string Name => Source.Name;
     public string ProjectPath => Source.TargetPath;
@@ -89,7 +90,21 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                 var saved = await AtomicFile.ReadJsonAsync<ImportJob[]>(Journal, token) ?? [];
                 if (saved.Any(x => x is null || x.Plan?.Projects.Length != 1 || x.Source is null) || saved.Select(x => x.Id).Distinct().Count() != saved.Length)
                     throw new IOException("Import history is invalid; the original file was preserved.");
-                lock (sync) jobs.AddRange(saved.Select(x => x.Active ? x with { State = "Interrupted", Step = "Interrupted", Message = "Review recovery before continuing." } : x));
+                foreach (var entry in saved)
+                {
+                    var job = entry.Active ? entry with { State = "Interrupted", Step = "Interrupted", Message = "Review recovery before continuing." } : entry;
+                    if (job.Recoverable)
+                    {
+                        try
+                        {
+                            var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(job.ProjectPath, ".vrcsetup", "state.json"), token);
+                            if (marker?.Completed == true && !string.IsNullOrWhiteSpace(marker.UnityPackagePath) && ProjectRules.NormalizePath(marker.UnityPackagePath).Equals(ProjectRules.NormalizePath(job.Source.UnityPackagePath), StringComparison.OrdinalIgnoreCase))
+                                job = job with { State = "Recovered", Step = "Completed", Progress = 100, FinishedAt = marker.CompletedAt, Message = "Project recovery verified." };
+                        }
+                        catch (Exception error) when (error is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException) { app.Diagnostics.Write("Import state", error.Message); }
+                    }
+                    lock (sync) jobs.Add(job);
+                }
                 await SaveAsync(token); initialized = true;
                 resourceWorker = Task.Run(MonitorResourcesAsync);
             }
@@ -107,7 +122,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
             throw new ArgumentException("Each import needs a distinct project destination.");
         var pending = reviewed.Projects.Select(project =>
         {
-            var source = project.Creation ?? (reviewed.Projects.Length == 1 ? recoverySource : null) ?? throw new ArgumentException("Import source missing.");
+            var source = project.Creation ?? project.RecoverySource ?? (reviewed.Projects.Length == 1 ? recoverySource : null) ?? throw new ArgumentException("Import source missing.");
             if (!ProjectRules.NormalizePath(project.Path).Equals(ProjectRules.NormalizePath(source.TargetPath), StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Import source and project do not match.");
             var id = Guid.NewGuid().ToString("N");
             return new ImportJob(id, new(id, DateTime.UtcNow, [project]), source, "Queued", "Waiting", 0, "", "");
@@ -155,7 +170,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         try
         {
             await ClaimAsync(item.Id, cancellation.Token); acquired = true; cancellation.Token.ThrowIfCancellationRequested();
-            Update(item.Id, x => x with { State = "Running", Step = "Starting", Message = "" });
+            Update(item.Id, x => x with { State = "Running", Step = "Starting", Message = "", StartedAt = DateTime.UtcNow });
             await PersistAsync();
             var progress = new InlineProgress(value => Update(item.Id, x => x with
             { Step = Phase(value.Phase), Progress = Math.Max(x.Progress, Percent(value.Phase)), Message = value.Message,
@@ -209,14 +224,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                 creation: source, extraImports: imports, cancellationToken: token);
         else
         {
-            var state = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(project.Path, ".vrcsetup", "state.json"), token);
-            if (state is null || state.Completed || !ProjectRules.NormalizePath(state.UnityPackagePath).Equals(ProjectRules.NormalizePath(source.UnityPackagePath), StringComparison.OrdinalIgnoreCase))
-                throw new IOException("Recovery refused: this folder is not the unfinished import. Open its log or manage the project manually.");
-            if (!Directory.Exists(Path.Combine(project.Path, "Assets")) || !File.Exists(Path.Combine(project.Path, "Packages", "manifest.json")))
-                throw new IOException("Unity project creation was interrupted before initialization. Preserve this folder and choose a new project name in Create.");
-            planned = await app.Planner.PlanAsync(project.Path, project.DesiredPolicy, configuration, exact: true, preset: project.PresetName,
-                extraImports: imports.Append(source.UnityPackagePath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), cancellationToken: token);
-            planned = planned with { UnityEditorPath = source.UnityEditorPath };
+            planned = await app.PlanResumeAsync(source, project.DesiredPolicy, configuration, project.PresetName, imports, token);
         }
         return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [planned]);
     }
@@ -224,7 +232,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
     public async Task ClearCompletedAsync(CancellationToken token = default)
     {
         await InitializeAsync(token); await journalGate.WaitAsync(token);
-        try { lock (sync) jobs.RemoveAll(x => x.State == "Completed"); await SaveAsync(token); }
+        try { lock (sync) jobs.RemoveAll(x => x.State is "Completed" or "Recovered"); await SaveAsync(token); }
         finally { journalGate.Release(); }
         Publish();
     }
@@ -236,7 +244,9 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
             var index = jobs.FindIndex(x => x.Id == id);
             if (index >= 0)
             {
-                var previous = jobs[index]; var next = change(previous); jobs[index] = next;
+                var previous = jobs[index]; var next = change(previous);
+                if (previous.Active && !next.Active) next = next with { FinishedAt = DateTime.UtcNow };
+                jobs[index] = next;
                 var now = Environment.TickCount64;
                 publish = previous.State != next.State || previous.Step != next.Step || now - lastPublication.GetValueOrDefault(id) >= 200;
                 if (publish) lastPublication[id] = now;
@@ -288,7 +298,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         }, token);
     }
     private static string Phase(string phase) => phase switch
-    { "Creating" or "Unity create" => "Create", "Prepare" or "Repository" => "Prepare", "Packages" or "VPM" or "Repair" => "Packages", "Import" or "Unity import" => "Import", "Post-import validation" => "Validate", "Completed" => "Finish", _ => phase };
+    { "Creating" or "Unity create" => "Create", "Prepare" or "Repository" => "Prepare", "Packages" or "VPM" or "Repair" => "Packages", "Import" or "Unity import" => "Import", "Post-import validation" or "Unity settle" => "Validate", "Completed" => "Finish", _ => phase };
     private static int Percent(string phase) => Phase(phase) switch
     { "Create" => 10, "Backup" or "Prepare" => 20, "Packages" => 35, "Import" => 55, "Validate" => 85, "Finish" => 95, _ => 0 };
     private sealed class InlineProgress(Action<OperationEvent> report) : IProgress<OperationEvent>

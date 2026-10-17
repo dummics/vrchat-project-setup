@@ -6,6 +6,19 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task UnrestrictedSchedulingStartsSevenJobsAndRecordsTimes()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); var started = 0;
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            Interlocked.Increment(ref started); await release.Task.WaitAsync(token); return Completed(plan);
+        });
+        await queue.EnqueueAsync(Plan(Enumerable.Range(1, 7).Select(x => "Avatar" + x).ToArray()), int.MaxValue);
+        await WaitUntil(() => Volatile.Read(ref started) == 7);
+        Assert.All(queue.Snapshot(), x => Assert.NotNull(x.StartedAt));
+        release.SetResult(); await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.All(queue.Snapshot(), x => Assert.NotNull(x.FinishedAt));
+    }
     private readonly string root = Path.Combine(Path.GetTempPath(), "VrcSetup.Queue.Tests", Guid.NewGuid().ToString("N"));
     private VrcSetupApplication App => new(Path.Combine(root, "home"));
     private OperationPlan Plan(params string[] names) => new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, names.Select(name =>

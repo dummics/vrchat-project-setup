@@ -63,6 +63,9 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 phase = "Backup";
                 backup = await workspace.BackupAsync(project, cancellationToken);
                 Emit(phase, $"Backup: {backup.Directory}");
+                mutated = true;
+                if (!(project.RecoverySource is not null && project.PreparationComplete))
+                {
                 await workspace.SetStepAsync(project.Path, "vpm", false, cancellationToken);
                 phase = "Prepare";
                 mutated = true;
@@ -79,6 +82,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 var resolve = await driver.ResolveAsync(project.Path, progress, cancellationToken);
                 if (ProjectRules.ToolFailed(resolve)) throw new IOException("VPM resolve failed. " + resolve.Output);
+                }
                 await VerifyPackages(project, progress, cancellationToken);
                 await workspace.SetStepAsync(project.Path, "vpm", true, cancellationToken);
 
@@ -94,6 +98,11 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 else
                 {
+                    if (project.RecoverySource is not null)
+                    {
+                        phase = "Post-import validation";
+                        await driver.SettleAsync(project, progress, cancellationToken);
+                    }
                     await workspace.SetStepAsync(project.Path, "importMain", true, cancellationToken);
                     await workspace.SetStepAsync(project.Path, "importExtras", true, cancellationToken);
                 }
