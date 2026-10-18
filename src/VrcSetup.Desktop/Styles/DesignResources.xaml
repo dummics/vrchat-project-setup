@@ -5,6 +5,7 @@
             <Color x:Key="AppSidebarColor">#282A2D</Color>
             <SolidColorBrush x:Key="AppCanvasBrush" Color="#25272A"/>
             <SolidColorBrush x:Key="AppSurfaceBrush" Color="#303338"/>
+            <SolidColorBrush x:Key="AppCatalogBrush" Color="#212427"/><SolidColorBrush x:Key="AppCatalogCardBrush" Color="#2A2D31"/><SolidColorBrush x:Key="AppSubtleStrokeBrush" Color="#3B4046"/>
             <SolidColorBrush x:Key="AppControlBrush" Color="#373B41"/>
             <SolidColorBrush x:Key="AppTextBrush" Color="#ECEDEF"/>
             <SolidColorBrush x:Key="AppSecondaryBrush" Color="#ADB2B9"/>
@@ -17,6 +18,7 @@
             <Color x:Key="AppSidebarColor">#EEF0F3</Color>
             <SolidColorBrush x:Key="AppCanvasBrush" Color="#F7F8FA"/>
             <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FFFFFF"/>
+            <SolidColorBrush x:Key="AppCatalogBrush" Color="#EEF1F4"/><SolidColorBrush x:Key="AppCatalogCardBrush" Color="#F8F9FB"/><SolidColorBrush x:Key="AppSubtleStrokeBrush" Color="#DCE1E6"/>
             <SolidColorBrush x:Key="AppControlBrush" Color="#EEF0F3"/>
             <SolidColorBrush x:Key="AppTextBrush" Color="#20252B"/>
             <SolidColorBrush x:Key="AppSecondaryBrush" Color="#59636E"/>
@@ -29,6 +31,7 @@
             <StaticResource x:Key="AppSidebarColor" ResourceKey="SystemColorWindowColor"/>
             <SolidColorBrush x:Key="AppCanvasBrush" Color="{ThemeResource SystemColorWindowColor}"/>
             <SolidColorBrush x:Key="AppSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+            <SolidColorBrush x:Key="AppCatalogBrush" Color="{ThemeResource SystemColorWindowColor}"/><SolidColorBrush x:Key="AppCatalogCardBrush" Color="{ThemeResource SystemColorWindowColor}"/><SolidColorBrush x:Key="AppSubtleStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
             <SolidColorBrush x:Key="AppControlBrush" Color="{ThemeResource SystemColorButtonFaceColor}"/>
             <SolidColorBrush x:Key="AppTextBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
             <SolidColorBrush x:Key="AppSecondaryBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>

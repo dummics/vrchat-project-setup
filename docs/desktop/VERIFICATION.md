@@ -1,5 +1,11 @@
 # Desktop migration verification
 
+## Package hierarchy and motion
+
+The preset editor uses a text carousel with previous/next actions and a clickable choice list. Included packages occupy the primary table; the addable catalogue uses quieter bounded cards or rows. Whole-row height budgets and a reserved scrollbar gutter keep actions inside the available width. Information expands as one clipped, animated footer surface, with a popup fallback when space is insufficient. Motion respects the system animation preference. Tooltips wait for 2.5 seconds of stationary hover, including compact navigation and repeated hovers.
+
+Release compilation reports zero warnings/errors. Native WinUI fixture checks exercise the carousel buttons, stable version rows, tooltip delay/reshow, intermediate expansion heights, footer navigation and action bounds at 720, 900, 1024, 1180 and 1920 pixels. Dark/light screenshots and a separate Italian startup/render check are recorded under `.work/artifacts/2026-10-18-package-polish/`. These checks use isolated data and the actual WinUI renderer; no owner installation or Unity project is changed.
+
 ## Preview 12 verification
 
 Installed implementation ae6ab80: installer exit 0, all 759 installed file hashes match, EXE/ZIP checksums verified, config unchanged, legacy command preserved. Nine targeted fixture checks pass on the final source. Release GUI/CLI/installer publishing reports zero compiler diagnostics. Positive missing-asset archive generation is verified with synthetic fixtures; the real Lulla recovery required no new asset import and validated Unity settle/completion instead.

@@ -19,6 +19,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private readonly TaskCompletionSource initializedCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Task Initialized => initializedCompletion.Task;
     public MainViewModel ViewModel { get; }
+    internal DelayedToolTips ToolTips { get; }
     public bool SuppressDialogs { get; set; }
     public void CloseApplication() => window.Close();
     public Task<bool> InstallApplicationUpdateAsync(string installer, string result) => ((MainWindow)window).InstallUpdateAsync(installer, result);
@@ -27,12 +28,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         this.window = window;
         InitializeComponent(); ViewModel = new(app, this); DataContext = ViewModel;
+        ToolTips = new(this);
         SizeChanged += (_, _) => ConstrainContent();
         Navigation.DisplayModeChanged += (_, _) => ConstrainContent();
         Navigation.RegisterPropertyChangedCallback(NavigationView.IsPaneOpenProperty, (_, _) => ConstrainContent());
         CreateView.SizeChanged += (_, _) => ConstrainForms(); SettingsView.SizeChanged += (_, _) => ConstrainForms();
         CreateForm.SizeChanged += (_, _) => ConstrainForms();
         ProjectsView.SizeChanged += (_, _) => ConstrainForms();
+        PresetEditor.SizeChanged += (_, _) => ConstrainForms();
         ViewModel.PropertyChanged += (_, eventArgs) =>
         {
             if (eventArgs.PropertyName == nameof(ViewModel.CurrentPage)) ShowPage(ViewModel.CurrentPage);
@@ -41,6 +44,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (eventArgs.PropertyName == nameof(ViewModel.CreationPackageSummary)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.ImportJobsVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.PresetCatalogVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
+            if (eventArgs.PropertyName == nameof(ViewModel.EditingPreset)) DispatcherQueue.TryEnqueue(AnimatePresetSelection);
+            if (eventArgs.PropertyName == nameof(ViewModel.LibraryIsList)) DispatcherQueue.TryEnqueue(ConstrainForms);
         };
         Loaded += async (_, _) =>
         {
@@ -63,6 +68,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         CatalogView.Visibility = page == "Catalog" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
+        ActivityNavigationMarker.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsNavigationMarker.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
         try { Navigation.SelectedItem = Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page)); }
         finally { syncingNavigation = false; }
@@ -73,6 +80,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if ((args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() is { } tag)
         {
             if (tag == "About") { ToggleInformation(); return; }
+            if (tag == "InfoGroup") return;
             if (tag.StartsWith("Info:", StringComparison.Ordinal))
             {
                 if (tag == "Info:Releases") ViewModel.OpenReleasesCommand.Execute(null);
@@ -94,6 +102,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private async void ImportSettingsClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Settings");
     private async void ActivityClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Activity");
+    private async void SettingsClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Settings");
     private void ConstrainContent()
     {
         var expanded = ActualWidth >= 900;
@@ -103,6 +112,9 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         var pane = Navigation.DisplayMode == NavigationViewDisplayMode.Expanded && Navigation.IsPaneOpen
             ? Navigation.OpenPaneLength : Navigation.CompactPaneLength;
         PageContent.MaxWidth = Math.Max(1, ActualWidth - pane);
+        InformationLabel.Visibility = Navigation.IsPaneOpen && Navigation.DisplayMode == NavigationViewDisplayMode.Expanded ? Visibility.Visible : Visibility.Collapsed;
+        ActivityNavigationLabel.Visibility = InformationLabel.Visibility;
+        SettingsNavigationLabel.Visibility = InformationLabel.Visibility;
         if (informationExpanded && !CanExpandInformationInline()) SetInformationExpanded(false);
         ConstrainForms();
     }
@@ -111,28 +123,27 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (CanExpandInformationInline()) SetInformationExpanded(!informationExpanded);
         else { SetInformationExpanded(false); Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(InformationItem); }
     }
+    private void InformationClicked(object sender, RoutedEventArgs args) => ToggleInformation();
     private bool CanExpandInformationInline()
     {
         if (!Navigation.IsPaneOpen || Navigation.DisplayMode != NavigationViewDisplayMode.Expanded) return false;
-        var informationRows = new[] { InfoReleases, InfoBug, InfoContact, InfoLogs };
         var menus = Navigation.MenuItems.OfType<FrameworkElement>().Sum(x => x.ActualHeight);
-        var footer = Navigation.FooterMenuItems.OfType<FrameworkElement>().Where(x => !informationRows.Contains(x)).Sum(x => x.ActualHeight);
-        var extra = informationRows.Length * Math.Max(32, InformationItem.ActualHeight);
+        var footer = ActivityNavigationItem.ActualHeight + SettingsNavigationItem.ActualHeight + InformationItem.ActualHeight + 16;
+        var extra = 4 * Math.Max(36, InformationItem.ActualHeight) + 14;
         return Navigation.ActualHeight >= menus + footer + extra + 96;
     }
     private void SetInformationExpanded(bool expanded)
     {
         informationExpanded = expanded;
-        foreach (var item in new[] { InfoReleases, InfoBug, InfoContact, InfoLogs })
-        {
-            item.Transitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection { new Microsoft.UI.Xaml.Media.Animation.EntranceThemeTransition { FromVerticalOffset = 12, IsStaggeringEnabled = false } };
-            item.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-        }
+        AnimateInformation(expanded);
     }
     private void ConstrainForms()
     {
-        PresetPackageList.MaxHeight = ViewModel.PresetCatalogVisibility == Visibility.Visible
-            ? Math.Clamp(PageContent.ActualHeight * 0.36, 140, 280) : Math.Max(140, PageContent.ActualHeight - 150);
+        var presetHeight = PresetEditor.ActualHeight > 0 ? PresetEditor.ActualHeight : PageContent.ActualHeight;
+        if (PresetEditor.ActualWidth > 0) PresetSelector.Width = Math.Clamp(PresetEditor.ActualWidth * .3, 180, 320);
+        var catalogSpace = ViewModel.PresetCatalogVisibility == Visibility.Visible ? ViewModel.LibraryIsList ? 140 : 168 : 0;
+        var listBudget = presetHeight - PresetCarousel.ActualHeight - 8 - PresetSearchToolbar.ActualHeight - 42 - 48 - catalogSpace;
+        PresetPackageList.MaxHeight = Math.Max(56, Math.Floor(Math.Min(480, listBudget) / 56) * 56);
         var stackProjectHeader = ProjectsView.ActualWidth < 560;
         Grid.SetRow(ProjectHeaderActions, stackProjectHeader ? 1 : 0);
         Grid.SetColumn(ProjectHeaderActions, stackProjectHeader ? 0 : 1);

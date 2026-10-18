@@ -30,7 +30,9 @@ public static class UiSmokeTest
         config.UnityEditorPath = Path.Combine(artifacts, "saved-editor", "Unity.exe");
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
         config.CreationRecipes["PC template"] = new() { Preset = "creator pc", Packages = packages }; await application.Configuration.SaveAsync(config);
-        await application.Catalog.RememberAsync([new("com.llealloo.audiolink", "AudioLink", "latest"), new("nadena.dev.modular-avatar", "Modular Avatar", "latest")]);
+        await application.Catalog.RememberAsync([new("com.llealloo.audiolink", "AudioLink", "latest"), new("nadena.dev.modular-avatar", "Modular Avatar", "latest"),
+            new("com.nanochip.avatarlimbscaling", "Avatar Limb Scaling", "latest"), new("vrchat.blackstartx.gesture-manager", "Gesture Manager", "latest"),
+            new("jp.lilxyzw.liltoon", "lilToon", "latest"), new("com.example.package-with-a-long-technical-identifier", "A package with a longer display name", "latest")]);
         return application;
     }
     public static async Task RunAsync(MainWindow window, string artifacts)
@@ -65,7 +67,7 @@ public static class UiSmokeTest
         Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 2, "Diagnostics tab is absent in normal mode");
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
         viewModel.CurrentPage = "Presets"; await Task.Delay(100); page.UpdateLayout();
-        Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == "My default packages", "Preset selector has a visible selection after binding");
+        Require(((Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("PresetWheelTitle")).Text == "Default", "Preset wheel has a visible selection after binding");
         Require(viewModel.ApplicationProgressVisibility == Visibility.Collapsed, "Idle application progress is hidden");
         Require(!((Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails")).IsExpanded, "Creation packages start as a compact summary");
         viewModel.IsInspectingPackage = true;
@@ -81,18 +83,40 @@ public static class UiSmokeTest
         var retryCache = new AsyncVersionCache((_, _) => Task.FromResult(Interlocked.Increment(ref retries) == 1 ? Array.Empty<string>() : new[] { "1.0.0" }));
         Require((await retryCache.GetAsync("retry.package")).Length == 0 && (await retryCache.GetAsync("retry.package")).Length == 1, "Empty version responses can retry after recovery");
         var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)page.FindName("Navigation");
-        Require(navigation.FooterMenuItems.OfType<Microsoft.UI.Xaml.Controls.NavigationViewItem>().Any(x => x.Tag?.ToString() == "Activity"), "Activity is in the navigation footer");
+        Require(page.FindName("ActivityNavigationItem") is Microsoft.UI.Xaml.Controls.Button, "Activity is in the navigation footer");
+        foreach (var footerPage in new[] { "Activity", "Settings" })
+        {
+            var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer((Microsoft.UI.Xaml.Controls.Button)page.FindName(footerPage + "NavigationItem"));
+            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            await Task.Delay(200);
+            Require(viewModel.CurrentPage == footerPage && ((FrameworkElement)page.FindName(footerPage + "NavigationMarker")).Visibility == Visibility.Visible, "Footer button navigates and marks the active page: " + footerPage);
+        }
+        viewModel.CurrentPage = "Presets";
         var information = (FrameworkElement)page.FindName("InformationItem");
         var informationMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.GetAttachedFlyout(information);
         informationMenu.ShowAt(information); await Task.Delay(100);
         Require(informationMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().All(x => x.Command is not null), "Information opens a contextual popup with bound support commands"); informationMenu.Hide();
         window.AppWindow.Resize(new(1180, 800)); navigation.IsPaneOpen = true; await Task.Delay(250);
-        page.ToggleInformation(); await Task.Delay(250);
-        Require(((FrameworkElement)page.FindName("InfoLogs")).Visibility == Visibility.Visible, "Information expands upward inline when the sidebar has room");
+        var informationHeights = new List<double>(); page.ToggleInformation();
+        for (var i = 0; i < 6; i++) { await Task.Delay(40); informationHeights.Add(((FrameworkElement)page.FindName("InformationSurface")).ActualHeight); }
+        Require(informationHeights.Zip(informationHeights.Skip(1), (a, b) => b >= a - 1).All(x => x), "Information expansion grows continuously without item-by-item jumps");
+        if (new Windows.UI.ViewManagement.UISettings().AnimationsEnabled)
+            Require(informationHeights.Any(x => x > 0 && x < informationHeights[^1] - 1), "Information expansion has intermediate animation frames");
+        await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "information-motion.json"), informationHeights);
+        Require(((FrameworkElement)page.FindName("InformationPanel")).Visibility == Visibility.Visible && ((FrameworkElement)page.FindName("InformationSurface")).ActualHeight > 100, "Information expands upward as one surface when the sidebar has room");
         await Render(page, Path.Combine(artifacts, "information-inline.png"));
-        window.AppWindow.Resize(new(720, 620)); await Task.Delay(250);
-        Require(((FrameworkElement)page.FindName("InfoLogs")).Visibility == Visibility.Collapsed, "Short or compact sidebar collapses inline information before clipping");
+        window.AppWindow.Resize(new(720, 620)); await Task.Delay(450);
+        Require(((FrameworkElement)page.FindName("InformationPanel")).Visibility == Visibility.Collapsed, "Short or compact sidebar collapses inline information before clipping");
         page.ToggleInformation(); await Task.Delay(100); await Render(page, Path.Combine(artifacts, "information-popup.png")); informationMenu.Hide();
+        await Task.Delay(200);
+        var tooltipOwner = Descendants(navigation).OfType<FrameworkElement>().FirstOrDefault(x => x.IsLoaded && x.ActualWidth > 0 && x.Visibility == Visibility.Visible && x is not Microsoft.UI.Xaml.Controls.Control { IsEnabled: false } && page.ToolTips.HasContent(x));
+        Require(tooltipOwner is not null, "Built-in compact navigation tooltips are adopted by the app hover delay");
+        page.ToolTips.Observe(tooltipOwner, new(1, 1)); await Task.Delay(1000);
+        Require(!page.ToolTips.IsOpen, "Navigation tooltip stays hidden during a brief hover");
+        await Task.Delay(1700); Require(page.ToolTips.IsOpen, "Navigation tooltip opens only after a 2.5-second hold");
+        page.ToolTips.Dismiss(); Require(!page.ToolTips.IsOpen, "Navigation tooltip closes immediately when hover ends");
+        page.ToolTips.Observe(tooltipOwner, new(1, 1)); await Task.Delay(400);
+        Require(!page.ToolTips.IsOpen, "A second hover still waits instead of using native instant reshow"); page.ToolTips.Dismiss();
         window.AppWindow.Resize(new(1180, 800)); await Task.Delay(250);
         var freshProject = new NewProjectDialog(viewModel, (Microsoft.UI.Xaml.DataTemplate)page.Resources["PresetChoice"]);
         freshProject.Name.Text = "Fresh project"; freshProject.Dialog.XamlRoot = page.XamlRoot;
@@ -103,7 +127,12 @@ public static class UiSmokeTest
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
         var currentPreset = viewModel.EditingPreset;
-        viewModel.NextPresetCommand.Execute(null); viewModel.PreviousPresetCommand.Execute(null);
+        var arrowButtons = Descendants((DependencyObject)page.FindName("PresetCarousel")).OfType<Microsoft.UI.Xaml.Controls.Button>().Where(x => x.Content is Microsoft.UI.Xaml.Controls.FontIcon).ToArray();
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(arrowButtons[1]).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        await Task.Delay(300);
+        Require(viewModel.EditingPreset != currentPreset, "Preset next arrow changes the selection through the native button");
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(arrowButtons[0]).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        await Task.Delay(300);
         Require(viewModel.EditingPreset == currentPreset, "Preset arrows cycle and wrap without losing the selected preset");
         var stablePresetRows = viewModel.PresetPackages.ToArray();
         viewModel.StagePresetVersion("gogoloco", "1.8.7");
@@ -283,7 +312,7 @@ public static class UiSmokeTest
                 if (screen == "Catalog") viewModel.OpenProjectCatalogCommand.Execute(null);
                 else { if (viewModel.BrowsingProjectPackages) viewModel.BackToProjectCommand.Execute(null); viewModel.CurrentPage = screen; }
                 if (screen == "Activity") viewModel.AppendActivity(new(DateTime.UtcNow, "Verified", "Native renderer / shared viewmodel verification"));
-                await Task.Delay(180);
+                await Task.Delay(350);
                 page.UpdateLayout();
                 Require(page.ActualWidth > 0 && page.ActualHeight > 0, "Layout measured: " + screen + " " + size.Width);
                 Require(navigation.DisplayMode != Microsoft.UI.Xaml.Controls.NavigationViewDisplayMode.Minimal, "Sidebar remains available: " + size.Width);
@@ -364,6 +393,26 @@ public static class UiSmokeTest
                     var editorBounds = (FrameworkElement)page.FindName("PresetEditor");
                     var editorRight = editorBounds.TransformToVisual(page).TransformPoint(new(editorBounds.ActualWidth, 0)).X;
                     Require(Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<PackageActionIcon>().All(x => x.TransformToVisual(page).TransformPoint(new(x.ActualWidth, 0)).X <= editorRight + 1), "Preset minus icons fit without right-edge clipping: " + size.Width);
+                    foreach (var button in Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<Microsoft.UI.Xaml.Controls.Button>().Where(x => x.Content is PackageActionIcon))
+                    {
+                        var icon = (FrameworkElement)button.Content; var point = icon.TransformToVisual(button).TransformPoint(new(0, 0));
+                        Require(point.X >= 0 && point.Y >= 0 && point.X + icon.ActualWidth <= button.ActualWidth && point.Y + icon.ActualHeight <= button.ActualHeight, "Preset icon fits inside its own button padding: " + size.Width);
+                    }
+                    if (size.Width is 900 or 1180 or 1920)
+                    {
+                        await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null); await Task.Delay(250); page.UpdateLayout();
+                        await Render(page, Path.Combine(artifacts, "presets-list-" + size.Width + ".png"));
+                        await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null); await Task.Delay(250); page.UpdateLayout();
+                    }
+                    if (size.Width == 1180)
+                    {
+                        var wheel = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetSelector"); wheel.Flyout.ShowAt(wheel); await Task.Delay(500);
+                        var choices = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("PresetChoices");
+                        Require(choices.ActualHeight >= 36 && choices.Items.Count == viewModel.Presets.Count, "Preset wheel opens the complete choice list");
+                        var presenter = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(choices) as FrameworkElement ?? choices;
+                        await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "preset-wheel-bounds.json"), new { choices.ActualWidth, choices.ActualHeight, DesiredHeight = choices.DesiredSize.Height, ParentWidth = presenter.ActualWidth, ParentHeight = presenter.ActualHeight, Items = choices.Items.Select(x => { var row = (FrameworkElement)choices.ContainerFromItem(x); return new { Name = x.ToString(), row.ActualHeight, Top = row.TransformToVisual(choices).TransformPoint(new(0, 0)).Y }; }).ToArray() });
+                        await Render(presenter, Path.Combine(artifacts, "preset-wheel-choices.png")); wheel.Flyout.Hide();
+                    }
                     if (size.Width == 1180)
                     {
                         var remove = Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => x.DataContext is VrcSetup_Desktop.ViewModels.UiPackageRow { Required: true } && x.Content is PackageActionIcon);
@@ -458,6 +507,7 @@ public static class UiSmokeTest
         viewModel.Theme = "Light"; viewModel.CurrentPage = "Settings"; await Task.Delay(150);
         await Render(page, Path.Combine(artifacts, "settings-light.png"));
         viewModel.CurrentPage = "Workspace"; await Task.Delay(150); await Render(page, Path.Combine(artifacts, "workspace-light.png"));
+        viewModel.CurrentPage = "Presets"; await Task.Delay(350); await Render(page, Path.Combine(artifacts, "presets-light.png"));
         viewModel.Theme = theme;
         saved = await viewModel.Application.Configuration.LoadAsync(); var availableRoot = saved.UnityProjectsRoot;
         saved.UnityProjectsRoot = Path.Combine(artifacts, "offline-drive"); await viewModel.Application.Configuration.SaveAsync(saved);
