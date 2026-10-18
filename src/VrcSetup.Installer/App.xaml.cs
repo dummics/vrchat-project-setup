@@ -131,7 +131,7 @@ public partial class App : Application
                     try
                     {
                         if (!process.HasExited && process.MainModule?.FileName is { } executable && executable.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                            throw new IOException("Close VRChat Project Setup and its terminal commands before installing. Running imports are preserved.");
+                            throw new IOException("Close VRC Project Setup and its terminal commands before installing. Running imports are preserved.");
                     }
                     catch (InvalidOperationException) { /* Process exited during inspection. */ }
                 }
@@ -149,22 +149,23 @@ public sealed class InstallerWindow : Window
     public InstallerWindow()
     {
         Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/AppMark.png"));
-        Title = "Install VRChat Project Setup"; Width = 600; Height = 420; MinWidth = 520; MinHeight = 380;
+        Title = "VRC Project Setup · " + UiText.Text("Setup"); Width = 600; MinWidth = 520; MinHeight = 340; SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var panel = new StackPanel { Margin = new Thickness(28) };
-        panel.Children.Add(new TextBlock { Text = "VRChat Project Setup", FontSize = 28, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 24) });
-        panel.Children.Add(new TextBlock { Text = "Install folder", Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(new TextBlock { Text = "VRC Project Setup", FontSize = 28, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 24) });
+        panel.Children.Add(new TextBlock { Text = UiText.Text("Install folder"), Margin = new Thickness(0, 0, 0, 8) });
         target = new TextBox { Text = InstallationManager.DefaultRoot, Margin = new Thickness(0, 0, 0, 14) }; panel.Children.Add(target);
-        panel.Children.Add(new TextBlock { Text = "GUI and command-line tool. Installed for your Windows user; Unity projects are preserved.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 18) });
-        progress = new ProgressBar { IsIndeterminate = false, Height = 5, Margin = new Thickness(0, 0, 0, 12) }; panel.Children.Add(progress);
-        status = new TextBlock { Text = "Ready", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 20) }; panel.Children.Add(status);
+        progress = new ProgressBar { IsIndeterminate = false, Height = 12, Margin = new Thickness(0, 0, 0, 12) }; panel.Children.Add(progress);
+        status = new TextBlock { Text = UiText.Text("Ready"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 20) }; panel.Children.Add(status);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        install = new Button { Content = "Install", Padding = new Thickness(20, 9, 20, 9), Margin = new Thickness(0, 0, 10, 0) };
-        launch = new Button { Content = "Open VRCSETUP", Padding = new Thickness(20, 9, 20, 9), IsEnabled = false };
+        install = new Button { Content = UiText.Text("Install"), Padding = new Thickness(20, 9, 20, 9), Margin = new Thickness(0, 0, 10, 0) };
+        void UpdateInstallAction() => install.Content = UiText.Text(File.Exists(Path.Combine(target.Text, ".vrcsetup-install.json")) ? "Update" : "Install");
+        target.TextChanged += (_, _) => UpdateInstallAction(); UpdateInstallAction();
+        launch = new Button { Content = UiText.Text("Open"), Padding = new Thickness(20, 9, 20, 9), IsEnabled = false };
         install.Click += async (_, _) =>
         {
-            install.IsEnabled = false; target.IsEnabled = false; progress.IsIndeterminate = true; status.Text = "Verifying and installing…";
-            try { var record = await App.Install(ProjectRules.NormalizePath(target.Text)); installedRoot = record.Root; status.Text = "Installed. Opening the app…"; launch.IsEnabled = true; Process.Start(new ProcessStartInfo(Path.Combine(installedRoot, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() }); Close(); }
+            install.IsEnabled = false; target.IsEnabled = false; progress.IsIndeterminate = true; status.Text = UiText.Text("Verifying and installing…");
+            try { var record = await App.Install(ProjectRules.NormalizePath(target.Text), progress: new Progress<string>(message => status.Text = UiText.Text(message))); installedRoot = record.Root; status.Text = UiText.Text("Installed. Opening the app…"); launch.IsEnabled = true; Process.Start(new ProcessStartInfo(Path.Combine(installedRoot, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() }); Close(); }
             catch (Exception error) { status.Text = error.Message; install.IsEnabled = true; target.IsEnabled = true; }
             finally { progress.IsIndeterminate = false; }
         };

@@ -107,16 +107,24 @@ public sealed class InstallationManager(AppPaths paths)
             dynamic shell = Activator.CreateInstance(shellType)!;
             try
             {
-                Shortcut("VRChat Project Setup", Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe"), "");
-                Shortcut("Repair VRChat Project Setup", Path.Combine(target, "app", "cli", "vrcsetup.exe"), "repair --root \"" + target + "\"");
-                Shortcut("Uninstall VRChat Project Setup", Path.Combine(target, "app", "cli", "vrcsetup.exe"), "uninstall --root \"" + target + "\"");
+                Shortcut("VRC Project Setup", Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe"), "");
+                Shortcut("Repair VRC Project Setup", Path.Combine(target, "app", "cli", "vrcsetup.exe"), "repair --root \"" + target + "\"");
+                Shortcut("Uninstall VRC Project Setup", Path.Combine(target, "app", "cli", "vrcsetup.exe"), "uninstall --root \"" + target + "\"");
+                // Migrate only generated links pointing at this installation.
+                foreach (var oldName in new[] { "VRChat Project Setup", "Repair VRChat Project Setup", "Uninstall VRChat Project Setup" })
+                {
+                    var oldPath = Path.Combine(shortcuts, oldName + ".lnk"); if (!File.Exists(oldPath)) continue;
+                    dynamic oldLink = shell.CreateShortcut(oldPath);
+                    try { string executable = oldLink.TargetPath; if (executable.StartsWith(target.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) File.Delete(oldPath); }
+                    finally { Marshal.FinalReleaseComObject(oldLink); }
+                }
                 void Shortcut(string name, string executable, string arguments)
                 {
                     dynamic shortcut = shell.CreateShortcut(Path.Combine(shortcuts, name + ".lnk"));
                     try
                     {
                         shortcut.TargetPath = executable; shortcut.Arguments = arguments; shortcut.WorkingDirectory = target;
-                        shortcut.IconLocation = name == "VRChat Project Setup" ? Path.Combine(target, "app", "desktop", "Assets", "AppIcon.ico") + ",0" : executable;
+                        shortcut.IconLocation = name == "VRC Project Setup" ? Path.Combine(target, "app", "desktop", "Assets", "AppIcon.ico") + ",0" : executable;
                         shortcut.Save();
                     }
                     finally { Marshal.FinalReleaseComObject(shortcut); }
@@ -156,7 +164,7 @@ public sealed class InstallationManager(AppPaths paths)
             dynamic shell = Activator.CreateInstance(shellType)!;
             try
             {
-                foreach (var name in new[] { "VRChat Project Setup", "Repair VRChat Project Setup", "Uninstall VRChat Project Setup" })
+                foreach (var name in new[] { "VRC Project Setup", "Repair VRC Project Setup", "Uninstall VRC Project Setup", "VRChat Project Setup", "Repair VRChat Project Setup", "Uninstall VRChat Project Setup" })
                 {
                     var link = Path.Combine(shortcuts, name + ".lnk"); if (!File.Exists(link)) continue;
                     dynamic shortcut = shell.CreateShortcut(link);

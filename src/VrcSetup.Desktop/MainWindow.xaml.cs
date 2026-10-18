@@ -11,9 +11,9 @@ public sealed partial class MainWindow : Window
     {
         application ??= new VrcSetupApplication();
         VrcSetup.Core.UiText.LoadPreference(application.Paths.ConfigFile);
-        InitializeComponent(); Title = "VRChat Project Setup";
+        InitializeComponent(); Title = "VRC Project Setup";
         ExtendsContentIntoTitleBar = true; SetTitleBar(AppTitleBar);
-        AppTitleBar.Title = "VRChat Project Setup";
+        AppTitleBar.Title = "VRC Project Setup";
         var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
         AppWindow.SetIcon(iconPath);
         AppWindow.SetTaskbarIcon(iconPath);

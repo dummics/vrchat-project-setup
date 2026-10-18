@@ -31,8 +31,17 @@ try {
     $cli = Join-Path $program 'app\cli\vrcsetup.exe'
     & $cli config set --home $dataRoot --theme Dark
     Assert-Test ($LASTEXITCODE -eq 0) 'Bundled CLI runs without SDK'
+    $menuFolder = Join-Path $env:VRCSETUP_START_MENU_ROOT 'VRChat Project Setup'
+    $newLink = Join-Path $menuFolder 'VRC Project Setup.lnk'
+    Assert-Test (Test-Path -LiteralPath $newLink) 'Start menu uses VRC Project Setup branding'
+    $shell = New-Object -ComObject WScript.Shell
+    $legacyLink = Join-Path $menuFolder 'VRChat Project Setup.lnk'
+    $shortcut = $shell.CreateShortcut($legacyLink)
+    $shortcut.TargetPath = Join-Path $program 'app\desktop\VrcSetup.Desktop.exe'
+    $shortcut.Save()
     $configHash = (Get-FileHash -LiteralPath (Join-Path $dataRoot 'config.json')).Hash
     Invoke-Installer 'upgrade' @()
+    Assert-Test ((Test-Path -LiteralPath $newLink) -and -not (Test-Path -LiteralPath $legacyLink)) 'Upgrade replaces owned legacy shortcut without duplicates'
     Assert-Test ((Get-FileHash -LiteralPath (Join-Path $dataRoot 'config.json')).Hash -eq $configHash) 'Upgrade preserves user settings'
     $record = Get-Content -LiteralPath (Join-Path $program '.vrcsetup-install.json') -Raw | ConvertFrom-Json
     Assert-Test (Test-Path -LiteralPath $record.PreviousInstall) 'Upgrade retains previous program for rollback'

@@ -14,7 +14,7 @@ internal sealed class UpdateProgressWindow : Window
     private bool canClose;
     public UpdateProgressWindow()
     {
-        Title = "VRCSETUP · " + UiText.Text("Updating"); Width = 400; Height = 136;
+        Title = "VRC Project Setup · " + UiText.Text("Updating"); Width = 400; Height = 136;
         ResizeMode = ResizeMode.NoResize; WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = new SolidColorBrush(Color.FromRgb(40, 42, 45)); Foreground = Brushes.WhiteSmoke;
         panel.Background = Background; progress.Foreground = new SolidColorBrush(Color.FromRgb(80, 205, 187));

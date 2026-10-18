@@ -271,5 +271,9 @@
   "{0} packages": "{0} pacchetti",
   "{0} changes · {1}/{2} projects completed": "{0} modifiche · {1}/{2} progetti completati",
   "Searching packages…": "Ricerca pacchetti…",
-  "Project operation": "Operazione sul progetto"
+  "Project operation": "Operazione sul progetto",
+  "Setup": "Installazione",
+  "Install": "Installa",
+  "Install folder": "Cartella di installazione",
+  "Verifying and installing…": "Verifica e installazione…"
 }

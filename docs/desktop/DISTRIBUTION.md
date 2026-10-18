@@ -1,14 +1,14 @@
-# VRChat Project Setup for Windows
+# VRC Project Setup for Windows
 
 The Windows app and vrcsetup command use the same C#/.NET 10 engine.
 
 ## Install
 
-Run Install-VrcSetup-<version>-win-x64.exe. It is self-contained: no .NET SDK or Visual Studio is required. Install for the current user, then open **VRChat Project Setup** from Windows Search.
+Run Install-VrcSetup-<version>-win-x64.exe. This single executable installs a new copy or updates an existing installation, preserves settings and opens **VRC Project Setup** automatically. It is self-contained: no .NET SDK or Visual Studio is required. The technical filename and installation/data paths remain compatible with existing clients.
 
-Public beta installer: [0.2.0-beta.5](https://github.com/dummics/vrchat-project-setup/releases/tag/v0.2.0-beta.5), Windows x64. The installer is currently unsigned, so Windows may show a publisher/reputation prompt on a browser download. SHA-256 is available alongside it. Public download and the app's full update/restart path have been verified in an isolated installation; avatar import acceptance on other PCs remains beta testing.
+Download the Windows installer from [GitHub Releases](https://github.com/dummics/vrchat-project-setup/releases), including prereleases while beta testing. The installer is currently unsigned, so Windows may show a publisher/reputation prompt on a browser download. SHA-256 is available alongside it. Public download and the app's full update/restart path are verified in isolated installations; avatar import acceptance on other PCs remains beta testing.
 
-Current numbering is **0.2.0-beta.5**. The earlier 2.0 previews were development builds, not a stable 2.0 release. Installing the beta over a preview preserves user settings, projects and a previous-program backup. The saved editor is retained; the app searches Unity Hub metadata/custom paths, default installations and Windows installed-program records for the pinned Unity 2022.3.22f1, checking executable product metadata. Settings offers Find editor, Choose file and the official Unity installation guide; imports and Open project can configure the editor before executing. A manual editor choice is saved immediately. Installed copies remember their data home across independent launches.
+Version numbering supports `x.y.z-beta.n`, RCs and final `x.y.z` releases. The earlier 2.0 previews were development builds. Installing over an existing copy preserves user settings, projects and a previous-program backup. The saved editor is retained; the app searches Unity Hub metadata/custom paths, default installations and Windows installed-program records for the pinned Unity 2022.3.22f1. A manual editor choice is saved immediately. Installed copies remember their data home across independent launches.
 
 ## Updates and sharing
 
@@ -16,9 +16,9 @@ Give friends the self-contained installer, or a published asset from [GitHub Rel
 
 When a newer complete release is available, choose **Install update and restart**. A compact updater window shows the installation phase and result, then reopens the app automatically. It also tries to reopen the preserved app if installation fails. The app downloads the installer from this repository, verifies its SHA-256 against that release's `SHA256SUMS.txt`, waits for imports and pending edits to finish, closes normally, installs and reopens. It never kills Unity or a running import. The installer refuses replacement while another installed GUI/CLI process remains active and preserves the previous installation. Portable copies link to Releases instead of replacing their own folder. Offline/rate-limit failures are non-blocking; manual retries stay in the status bar.
 
-Maintainers use [the release command](RELEASING.md). An explicit version tag validates the single source version, runs fixture/native UI checks, builds installer+ZIP+checksums and an optional differential installer, verifies full/differential installation in isolated copies, then publishes. Alpha/beta/rc versions are prereleases; final `x.y.z` releases are supported. A manual run defaults to a draft unless Publish is selected. Drafts and incomplete releases are ignored by clients. Existing release tags/assets are never overwritten. Ordinary source commits do not publish updates.
+Maintainers use [the release command](RELEASING.md). An explicit version tag validates the single source version, runs fixture/native UI checks, builds the unified installer, portable ZIP and checksums, verifies update/restart from an older release in an isolated copy, then publishes. A manual run defaults to a draft unless Publish is selected. Drafts and incomplete releases are ignored by clients. Existing release tags/assets are never overwritten. Ordinary source commits do not publish updates.
 
-From beta.7, compatible installed copies automatically prefer the smaller differential installer. It contains changed files and reuses unchanged files only from the exact base version after hash validation. The reconstructed installation is fully verified and uses the same staging/backup/restart path as a full update. Missing/modified bases, skipped versions or failed differential downloads use the full installer. A retry after an installer failure also uses the full installer. Beta.6 and older clients still download the full installer for the transition. No additional runtime installation is required.
+From beta.11, releases provide one full EXE for installation and updates, plus an optional portable ZIP. Existing clients use the full installer when no differential asset is present; users do not need an intermediate upgrade. Historical differential releases remain supported. No additional runtime installation is required.
 
 `docs/site/index.html` is a dependency-free download page using the same public Releases API, with fallback links when GitHub is unavailable. Enable GitHub Pages with the GitHub Actions source, then run `download-page.yml` after the workflows are integrated into the default branch. No Pages deployment or public beta publication is implied by a local build. The feature branch remains separate until owner-approved integration.
 
@@ -42,7 +42,7 @@ The [multi-import workspace](IMPORT-QUEUE.md) supports parallel imports without 
 
 Preview 8 includes offline UnityPackage inspection and avatar-focused package suggestions. Dom authorized upgrading preview 6 after code review, compilation and payload-integrity verification, without direct functional tests. Version lookups and search results do not automatically become personal packages. `vrcsetup inspect <file> --json` and `--deep` use the same local analyzer as Create; neither starts Unity or installs dependencies. New candidate signatures from the supplied research await source verification. See [inspection behavior](PACKAGE-INSPECTION.md).
 
-Extract VrcSetup-<version>-win-x64.zip, then run VRChat Project Setup.bat or app/desktop/VrcSetup.Desktop.exe. The portable marker keeps settings under data/ in the extracted folder. Use bin/vrcsetup.cmd for the terminal.
+Extract VrcSetup-<version>-win-x64.zip, then run VRC Project Setup.bat or app/desktop/VrcSetup.Desktop.exe. The portable marker keeps settings under data/ in the extracted folder. Use bin/vrcsetup.cmd for the terminal.
 
 ## CLI
 

@@ -22,20 +22,17 @@ GitHub Actions owns build, tests and asset publication. Beta/RC/alpha releases a
 
 ```powershell
 ./scripts/Publish-Windows.ps1 -OutputDirectory .work/artifacts/my-release
-# Optional, checksum-verified portable archive of the exact earlier base:
-./scripts/Publish-Windows.ps1 -OutputDirectory .work/artifacts/my-delta-release `
-  -BaseArchive C:/path/to/VrcSetup-0.2.0-beta.6-win-x64.zip
 ```
 
-Use a fresh output directory. The build emits the complete portable ZIP, self-contained installer, optional `Update-VrcSetup-<target>-from-<base>-win-x64.exe`, `SHA256SUMS.txt` and local `release-build.json` with measured byte sizes. Published binaries omit debug symbols; development builds retain them. The desktop references only its WinUI, windowing and text components, excluding unused AI/ML/Search/Widgets packages without deleting arbitrary runtime files. All required runtimes remain bundled.
+Use a fresh output directory. The build emits one self-contained Windows installer, an optional-use portable ZIP, `SHA256SUMS.txt` and local `release-build.json` with measured byte sizes. The same EXE installs or updates VRC Project Setup. Its technical filename remains `Install-VrcSetup-<version>-win-x64.exe` for compatibility with installed clients. Published binaries omit debug symbols; development builds retain them. The desktop excludes unused AI/ML/Search/Widgets packages. All required runtimes remain bundled.
 
-CI automatically downloads the newest complete older release and verifies its archive checksum to build one differential installer. Skipping that base version uses the full installer. New runtime/dependency files travel in the differential package automatically; unchanged files are identified by path and SHA-256. It is a file-level differential, not a binary patch format.
+CI downloads the newest complete older portable release and verifies its checksum to test the unified installer through the previous app's updater. New releases publish exactly one EXE. Historical differential releases remain readable by existing clients, but separate differential installers are no longer produced.
 
 ## Verification and recovery
 
 - Fixture tests cover exact-base selection, modified local files, bad downloads, checksum/cache behavior, reconstruction and invalid reuse metadata.
 - Native UI checks run against the published self-contained desktop.
-- With a previous release available, CI tests both the full GUI update/restart and direct differential installation/restart in isolated copies, preserving settings and checking every installed hash. No real Unity projects are changed.
+- With a previous release available, CI tests the unified GUI update/restart in an isolated copy, preserving settings and checking every installed hash. No real Unity projects are changed.
 - The previous installation is retained. A failed update reopens it where possible, and the next retry uses the full installer. User data remains outside program replacement.
 
 Evidence on 18 October 2026: 144 fixture tests, 190 native UI checks; isolated beta.6→beta.7 full update/restart in 21.3s and differential install/restart in 11s. The direct differential test does not claim a real-network GUI download. Local sizes: full installer 186,134,215 bytes versus beta.6's 214,811,948; portable 115,568,791 versus 144,249,503; differential 72,058,567 bytes. CI output may differ slightly by SDK patch/build environment. Artifacts: `.work/artifacts/2026-10-18-lean-release/`.

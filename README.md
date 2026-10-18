@@ -1,4 +1,4 @@
-# VRChat Project Setup
+# VRC Project Setup
 
 Windows companion for repeatable VRChat Unity projects. A native WinUI 3 desktop app and a Spectre.Console CLI/TUI share one C# / .NET 10 engine.
 
