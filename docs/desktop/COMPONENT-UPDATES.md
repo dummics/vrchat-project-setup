@@ -16,7 +16,7 @@ First installation still transfers the required app/runtime content. The small i
 
 ## Hosting and a future VPS
 
-GitHub Releases is the initial static asset host. Components use plain HTTPS GET and no GitHub API, token or server process. Upload every module and checksum before making a release discoverable. Keep release assets immutable: corrections need a new version.
+GitHub Releases is the initial static asset host. Components use plain HTTPS GET and no GitHub API, token or server process. CI uploads every module and checksum into a draft, checks the asset count, and only then publishes it. Manual workflow runs keep the verified draft unless publication was selected. Keep release assets immutable: corrections need a new version.
 
 `Publish-Windows.ps1 -AssetBaseUri https://downloads.example.com/v<version>/` pins a different component directory in the bootstrapper. Upload the generated hash-named ZIPs to that exact directory before publishing its EXE. No app installer logic changes and no user-facing host field are required.
 

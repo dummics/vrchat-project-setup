@@ -60,6 +60,13 @@ public sealed class ComponentDeliveryTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new ComponentDelivery(client).PrepareAsync(fixture.Manifest, fixture.Stage(), fixture.Cache, fixture.Installed, token: cancel.Token));
         Assert.False(Directory.Exists(fixture.Installed)); Assert.Empty(Directory.GetFiles(fixture.Cache, "*.zip"));
     }
+    [Fact] public async Task ConnectionLostAfterWritingBytesCleansThePartialDownload()
+    {
+        using var fixture = new Fixture();
+        using var client = new HttpClient(new Handler(request => new(HttpStatusCode.OK) { Content = new StreamContent(new BrokenStream(fixture.Assets[Path.GetFileName(request.RequestUri!.LocalPath)])) }));
+        await Assert.ThrowsAsync<IOException>(() => new ComponentDelivery(client).PrepareAsync(fixture.Manifest, fixture.Stage(), fixture.Cache, fixture.Installed));
+        Assert.Empty(Directory.GetFiles(fixture.Cache, "*.partial-*")); Assert.Empty(Directory.GetFiles(fixture.Cache, "*.zip")); Assert.False(Directory.Exists(fixture.Installed));
+    }
     [Fact] public async Task TransientNetworkFailureRetriesTheSameImmutableComponent()
     {
         using var fixture = new Fixture(); var requests = 0;
@@ -128,4 +135,12 @@ public sealed class ComponentDeliveryTests
     }
     private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => Task.FromResult(response(request)); }
+    private sealed class BrokenStream(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (Position > 0) throw new IOException("Connection lost mid-stream.");
+            return base.ReadAsync(buffer[..Math.Min(16, buffer.Length)], cancellationToken);
+        }
+    }
 }
