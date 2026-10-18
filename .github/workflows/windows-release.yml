@@ -11,8 +11,17 @@ on:
         required: false
         default: false
         type: boolean
+      verify_only:
+        description: Build and run all checks without creating a release
+        default: false
+        type: boolean
   push:
-    tags: ['v[0-9]*']
+    branches: [main, feature/winui-desktop]
+    paths:
+      - Directory.Build.props
+      - .github/workflows/windows-release.yml
+      - scripts/Publish-Windows.ps1
+      - scripts/Publish-Components.ps1
 permissions:
   contents: write
 concurrency:
@@ -21,23 +30,49 @@ concurrency:
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      RELEASE_COMMIT: ${{ startsWith(github.event.head_commit.message, 'chore(release): ') }}
+      NUGET_PACKAGES: ${{ github.workspace }}/.work/cache/nuget
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Detect compatible preinstalled SDK
+        id: sdk
+        shell: pwsh
+        run: |
+          $version = & dotnet --version 2>$null
+          $available = $LASTEXITCODE -eq 0 -and $version -match '^10\.0\.\d+$'
+          "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($available) { "Using preinstalled SDK $version (global.json rollForward applies)." }
       - uses: actions/setup-dotnet@v5
+        if: steps.sdk.outputs.available != 'true'
         with:
           dotnet-version: '10.0.x'
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-windows-x64-v1-${{ hashFiles('global.json', '**/*.csproj', '**/NuGet.Config', '**/nuget.config', 'Directory.Packages.props') }}
+          restore-keys: nuget-windows-x64-v1-
       - name: Validate version
         shell: pwsh
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          VERIFY_ONLY: ${{ inputs.verify_only }}
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { $env:REQUESTED_VERSION }
+          $sourceVersion = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
+          $version = if ($env:GITHUB_EVENT_NAME -eq 'push') { $sourceVersion } else { $env:REQUESTED_VERSION }
           . ./scripts/ReleaseVersion.ps1
           $version = (Get-ReleaseVersion $version).Text
-          $sourceVersion = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
           if ($sourceVersion -ne $version) { throw 'Release version must match Directory.Build.props. Use scripts/Release.ps1.' }
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:RELEASE_COMMIT -eq 'true') {
+            $tag = & git ls-remote --tags https://github.com/dummics/vrchat-project-setup.git "refs/tags/v$version"
+            if ($LASTEXITCODE -ne 0 -or -not $tag -or ($tag -split '\s+')[0] -ne $env:GITHUB_SHA) { throw 'Atomic release tag must match this exact source commit.' }
+          }
           "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
       - name: Fixture tests
         shell: pwsh
@@ -93,12 +128,24 @@ jobs:
           }
           $result = Get-Content (Join-Path $artifacts 'ui-smoke.json') -Raw | ConvertFrom-Json
           if ($process.ExitCode -ne 0 -or -not $result.Passed) { throw 'Native UI verification failed.' }
+      - name: Build timing summary
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path release/release-build.json) {
+            $build = Get-Content release/release-build.json -Raw | ConvertFrom-Json
+            "## Build timings (seconds)" >> $env:GITHUB_STEP_SUMMARY
+            $build.StageSeconds.psobject.Properties | ForEach-Object { "- $($_.Name): $($_.Value)" >> $env:GITHUB_STEP_SUMMARY }
+            "- Total packaging: $($build.TotalSeconds)" >> $env:GITHUB_STEP_SUMMARY
+          }
       - name: Preserve native UI verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-ui-verification
-          path: ${{ runner.temp }}/vrcsetup-ui
+          path: |
+            ${{ runner.temp }}/vrcsetup-ui
+            release/release-build.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Verify install, repair and shortcut migration
@@ -130,6 +177,7 @@ jobs:
           $full = Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe"
           ./scripts/Test-ApplicationUpdate.ps1 -BasePayload $basis -UpdateInstaller $full -OutputDirectory (Join-Path $env:RUNNER_TEMP 'update-full') -ComponentsDirectory (Join-Path $pwd release)
       - name: Create release
+        if: inputs.verify_only != true && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(release): '))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
