@@ -27,17 +27,24 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         SizeChanged += (_, _) => ConstrainContent();
         Navigation.DisplayModeChanged += (_, _) => ConstrainContent();
         CreateView.SizeChanged += (_, _) => ConstrainForms(); SettingsView.SizeChanged += (_, _) => ConstrainForms();
+        ProjectsView.SizeChanged += (_, _) => ConstrainForms();
         ViewModel.PropertyChanged += (_, eventArgs) =>
         {
             if (eventArgs.PropertyName == nameof(ViewModel.CurrentPage)) ShowPage(ViewModel.CurrentPage);
+            if (eventArgs.PropertyName == nameof(ViewModel.DeveloperMode)) SyncDiagnosticsTab();
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
         };
         Loaded += async (_, _) =>
         {
             if (initialized) return; initialized = true;
-            try { await ViewModel.InitializeAsync(); ShowPage(ViewModel.CurrentPage); initializedCompletion.TrySetResult(); }
+            try { await ViewModel.InitializeAsync(); SyncDiagnosticsTab(); ShowPage(ViewModel.CurrentPage); initializedCompletion.TrySetResult(); }
             catch (Exception error) { initializedCompletion.TrySetException(error); }
         };
+    }
+    private void SyncDiagnosticsTab()
+    {
+        if (ViewModel.DeveloperMode && !ActivityTabs.Items.Contains(DiagnosticsTab)) ActivityTabs.Items.Add(DiagnosticsTab);
+        else if (!ViewModel.DeveloperMode && ActivityTabs.Items.Contains(DiagnosticsTab)) ActivityTabs.Items.Remove(DiagnosticsTab);
     }
     private void ShowPage(string page)
     {
@@ -69,6 +76,10 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ConstrainForms()
     {
+        var stackProjectHeader = ProjectsView.ActualWidth < 560;
+        Grid.SetRow(ProjectHeaderActions, stackProjectHeader ? 1 : 0);
+        Grid.SetColumn(ProjectHeaderActions, stackProjectHeader ? 0 : 1);
+        Grid.SetColumnSpan(ProjectHeaderActions, stackProjectHeader ? 3 : 2);
         if (CreateView.ActualWidth > 0)
         {
             CreateLayout.Width = Math.Min(880, CreateView.ActualWidth);
@@ -150,13 +161,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void PresetRemoveClicked(object sender, RoutedEventArgs args) => ViewModel.RemovePresetPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
     private void LibraryAddClicked(object sender, RoutedEventArgs args) => ViewModel.AddLibraryPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
     private async void PackageStarClicked(object sender, RoutedEventArgs args) => await ViewModel.TogglePackageFavoriteCommand.ExecuteAsync((sender as FrameworkElement)?.DataContext as UiPackageRow);
-    private void PackageDragLeave(object sender, DragEventArgs args) => PackageDropZone.BorderThickness = new Thickness(2);
+    private void PackageDragLeave(object sender, DragEventArgs args) => PackageDropZone.BorderThickness = new Thickness(1);
     private void PackageDragOver(object sender, DragEventArgs args)
     { if (args.DataView.Contains(StandardDataFormats.StorageItems)) { args.AcceptedOperation = DataPackageOperation.Copy; PackageDropZone.BorderThickness = new Thickness(3); args.DragUIOverride.Caption = "Import UnityPackage"; args.DragUIOverride.IsCaptionVisible = true; } }
     private async void PackageDropped(object sender, DragEventArgs args)
     {
         args.Handled = true;
-        PackageDropZone.BorderThickness = new Thickness(2);
+        PackageDropZone.BorderThickness = new Thickness(1);
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var items = await args.DataView.GetStorageItemsAsync();
         var files = items.Where(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)).ToArray();

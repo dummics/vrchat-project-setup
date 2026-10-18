@@ -1,6 +1,12 @@
 # VRCSETUP Desktop migration
 
-## Next candidate — batch editor, not installed
+## Preview 14 — visual polish and batch editor
+
+Installed 18 October 2026: installer exit 0, all 759 installed hashes verified, configuration/import journal/legacy launcher hashes unchanged, previous installation preserved. 35 focused fixture tests and 142 native UI checks pass. Installed-binary smoke verification uses a separate fixture home. Final publication is `final-release/`; earlier release folders are intermediate.
+
+Shared theme resources define neutral canvas/surfaces, a teal accent, visible selection strokes and consistent compact buttons/fields. Primary actions retain emphasis; per-project Open remains neutral. Projects uses the native modern selection template with rounded rows and a header that stacks on narrow windows. Package versions remain inline, preset headers are smaller, My packages keeps responsive compact cards, and the import drop area gives more space to the package list. Settings uses flat path fields and aligned switches; Activity puts outcomes first, groups planned transitions and keeps paths in a disclosure. Diagnostics is removed from normal-mode tabs. Skipped batches read Not applied; mixed outcomes read Partially applied, with planned counts distinct from completed projects.
+
+Verification uses isolated fixture homes and the real WinUI dispatcher/renderer; no owner project is imported or modified. Native screenshots cover seven views at 520, 760, 1024, 1180 and 1366 pixels, the shared package dialog/version picker, selected project rows, light/dark themes and a fixture-only Apply overlay. Source and release evidence: `.work/artifacts/2026-10-18-preview14-polish/`. The overlay render does not claim that a live VPM update was executed.
 
 Batch management hides Open project and rejects its launch command unless exactly one project is managed. Project selection has consistent rounded rows and an explicit selected-count action. Leaving a pending project editor requires confirmation and keeps the draft; reopening the same target set reuses it. Changing target sets requires explicit discard. Successful Apply reloads fresh metadata. Revert remains the explicit discard action.
 
@@ -8,7 +14,7 @@ Review groups each identical package transition once for its exact target set; d
 
 Apply has a blocking dimmed overlay from preparation through execution/recovery, showing current project, ordinal and phase. Navigation and normal window close are blocked; Cancel requests cancellation and waits for the executor's recovery before releasing the UI. Planning/execution run off the UI thread. An initial busy-project check blocks the batch with explicit project names; executor preflight remains authoritative if Unity opens afterward. Failures/skips are surfaced rather than only recorded in Activity.
 
-Read-only diagnosis: reports `4ad1879563b04ad5bbb451b30490454f` (21:38 local) and `26a3230fa7e54e6eacd5880b0af59360` (21:40 local), 17 October, reported Skipped/Open in Unity. All four target editors were then confirmed running; sampled Lulla lockfiles were exclusively held. No real project update was attempted by Codex. 24 focused fixture tests pass and Release desktop build has zero diagnostics. Native UI regression-check source was updated but not executed. No installation or interaction with the owner's editors. Evidence: `.work/artifacts/2026-10-17-batch-edit-polish/`.
+Read-only diagnosis: reports `4ad1879563b04ad5bbb451b30490454f` (21:38 local) and `26a3230fa7e54e6eacd5880b0af59360` (21:40 local), 17 October, reported Skipped/Open in Unity. All four target editors were then confirmed running; sampled Lulla lockfiles were exclusively held. No real project update was attempted by Codex. Original candidate evidence: `.work/artifacts/2026-10-17-batch-edit-polish/`; runtime checks and installation are covered by the preview 14 verification above.
 
 ## Preview 13 installed
 

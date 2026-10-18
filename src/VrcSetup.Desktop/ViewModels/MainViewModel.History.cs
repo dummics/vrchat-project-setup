@@ -161,13 +161,18 @@ public sealed class UiHistoryEntry : ObservableObject
     public DateTime Timestamp => job?.Plan.CreatedUtc ?? report!.CompletedUtc;
     public string Date => Timestamp.ToLocalTime().ToString("g");
     public string Name => job?.Name ?? (report!.Results.Length == 1 ? report.Results[0].Project : $"{report.Results.Length} projects");
-    public string State => job?.State is { } state ? state == "Queued" ? "Starting…" : state : report!.Success ? "Completed" : report.Cancelled ? "Cancelled" : "Failed";
+    public string State => job?.State is { } state ? state == "Queued" ? "Starting…" : state
+        : report!.Success ? "Completed" : report.Cancelled ? "Cancelled"
+        : report.Results.Length > 0 && report.Results.All(x => x.Status == OperationStatus.Skipped) ? "Not applied"
+        : report.Results.Any(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings) ? "Partially applied" : "Failed";
     public string Summary => IsImport ? string.Join(" · ", new[] { Platform, Projects.FirstOrDefault()?.PresetName is null or "My default packages" ? "Default" : Projects[0].PresetName, $"{Projects.Sum(x => x.DesiredPolicy.Count)} packages" })
-        : Projects.Length == 0 ? "Project operation" : $"{Projects.SelectMany(x => x.Changes).Count(x => x.Kind != ChangeKind.Keep)} package changes";
+        : Projects.Length == 0 ? "Project operation" : $"{Projects.SelectMany(x => x.Changes).Count(x => x.Kind != ChangeKind.Keep)} planned changes · {report!.Results.Count(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings or OperationStatus.Unchanged)}/{Projects.Length} projects completed";
     private string Platform => (job?.Source.BuildTarget ?? Projects.Select(x => x.Creation ?? x.RecoverySource).FirstOrDefault(x => x is not null)?.BuildTarget) switch { "Android" => "Android / Quest", "iOS" => "iOS", "StandaloneWindows64" => "Windows", _ => "" };
     public string Paths => string.Join(Environment.NewLine, job is not null ? new[] { job.ProjectPath, job.Source.UnityPackagePath } : report!.Results.Select(x => x.Path));
     public string Packages => !IsImport ? "" : string.Join(Environment.NewLine, Projects.SelectMany(x => x.Changes).Where(x => x.Kind != ChangeKind.Remove).DistinctBy(x => x.Id).Select(x => PackageCatalog.FriendlyName(x.Id) + "  " + (x.ResolvedVersion ?? x.RequestedVersion)));
-    public string Changes => IsImport ? "" : string.Join(Environment.NewLine, Projects.SelectMany(x => x.Changes).Where(x => x.Kind != ChangeKind.Keep).Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"));
+    public string Changes => IsImport || report?.Plan is not { } plan ? "" : string.Join(Environment.NewLine + Environment.NewLine,
+        PackageReview.Group(plan).Select(group => (group.Projects.Length == Projects.Length ? "All projects" : string.Join(", ", group.Projects.Select(x => x.Name))) + Environment.NewLine
+            + string.Join(Environment.NewLine, group.Changes.Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"))));
     public string Result => job?.Message ?? string.Join(Environment.NewLine, report!.Results.Where(x => x.Message.Length > 0).Select(x => x.Project + ": " + x.Message));
     public string LogFile => job?.LogFile ?? report!.Results.Select(x => x.LogFile).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "";
     public bool HasLog => LogFile.Length > 0;

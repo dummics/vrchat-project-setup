@@ -24,6 +24,9 @@ public sealed class PackageVersionSelector : DropDownButton
     private long request;
     public PackageVersionSelector()
     {
+        MinWidth = 104; MinHeight = 32; Padding = new Thickness(10, 4, 10, 4);
+        Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        BorderThickness = new Thickness(0); HorizontalContentAlignment = HorizontalAlignment.Left;
         var panel = new StackPanel { Spacing = 8 }; panel.Children.Add(betas); panel.Children.Add(choices); panel.Children.Add(status);
         var flyout = new Flyout { Content = panel }; Flyout = flyout;
         flyout.Opening += async (_, _) =>

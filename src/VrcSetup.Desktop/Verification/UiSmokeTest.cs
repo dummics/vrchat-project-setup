@@ -35,6 +35,11 @@ public static class UiSmokeTest
         var page = window.Page; await page.Initialized;
         var viewModel = page.ViewModel; var checks = new List<string>();
         Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
+        var skipped = new OperationReport("fixture-skipped", DateTime.UtcNow, [new("Fixture", "fixture", OperationStatus.Skipped, "Open in Unity")], []);
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(skipped).State == "Not applied", "Skipped projects are not labelled failed");
+        var partial = skipped with { Results = [new("Done", "done", OperationStatus.Completed, ""), new("Skipped", "skip", OperationStatus.Skipped, "Open in Unity")] };
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(partial).State == "Partially applied", "Mixed batch outcomes remain explicit");
+        Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 2, "Diagnostics tab is absent in normal mode");
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == "My default packages", "Preset selector has a visible selection after binding");
         Require(viewModel.WorkVisibility == Visibility.Collapsed, "Idle footer actions are hidden");
@@ -276,7 +281,34 @@ public static class UiSmokeTest
             }
         }
         viewModel.Theme = "Dark"; viewModel.CurrentPage = "Workspace"; await Task.Delay(180);
-        await Render(page, Path.Combine(artifacts, "workspace-dark.png")); viewModel.Theme = theme;
+        await Render(page, Path.Combine(artifacts, "workspace-dark.png"));
+        foreach (var size in new[] { new Windows.Graphics.SizeInt32(520, 800), new Windows.Graphics.SizeInt32(1180, 800) })
+        {
+            window.AppWindow.Resize(size); viewModel.CurrentPage = "Projects"; await Task.Delay(150);
+            var projectList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("ProjectList");
+            projectList.SelectedItems.Add(viewModel.Projects[0]); await Task.Delay(100);
+            Require(viewModel.SelectedProjects.Count == 1, "Project checkbox selection updates managed targets: " + size.Width);
+            await Render(page, Path.Combine(artifacts, "projects-selected-" + size.Width + ".png")); projectList.SelectedItems.Clear();
+            viewModel.CurrentPage = "Workspace"; viewModel.ApplyProject = "Fixture project · no operation running";
+            viewModel.ApplyPosition = "Project 1 of 4"; viewModel.ApplyPhase = "Updating packages";
+            viewModel.CanCancelApply = true; viewModel.IsApplyingPackages = true; await Task.Delay(150);
+            Require(!navigation.IsEnabled && viewModel.ApplyOverlayVisibility == Visibility.Visible, "Apply state blocks navigation: " + size.Width);
+            await Render(page, Path.Combine(artifacts, "apply-overlay-fixture-" + size.Width + ".png"));
+            viewModel.CancelApplyCommand.Execute(null);
+            Require(!viewModel.CanCancelApply && viewModel.ApplyPhase.Contains("recovery"), "Cancel keeps blocking state until worker recovery: " + size.Width);
+            viewModel.IsApplyingPackages = false;
+        }
+        await AtomicFile.WriteJsonAsync(Path.Combine(viewModel.Application.Paths.Logs, "operation-fixture-partial.json"), partial);
+        viewModel.CurrentPage = "Activity"; await viewModel.RefreshSavedHistoryAsync(); await Task.Delay(200);
+        var historyEntry = viewModel.OperationHistory.Single(x => x.Id == partial.Id); historyEntry.Expanded = true;
+        var activityTabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs"); activityTabs.SelectedIndex = 1;
+        await Task.Delay(550); page.UpdateLayout(); await Render(page, Path.Combine(artifacts, "activity-outcome-fixture.png"));
+        viewModel.DeveloperMode = true; Require(activityTabs.Items.Count == 3, "Developer mode adds diagnostics tab");
+        viewModel.DeveloperMode = false; Require(activityTabs.Items.Count == 2, "Disabling developer mode removes diagnostics header");
+        viewModel.Theme = "Light"; viewModel.CurrentPage = "Settings"; await Task.Delay(150);
+        await Render(page, Path.Combine(artifacts, "settings-light.png"));
+        viewModel.CurrentPage = "Workspace"; await Task.Delay(150); await Render(page, Path.Combine(artifacts, "workspace-light.png"));
+        viewModel.Theme = theme;
         saved = await viewModel.Application.Configuration.LoadAsync(); var availableRoot = saved.UnityProjectsRoot;
         saved.UnityProjectsRoot = Path.Combine(artifacts, "offline-drive"); await viewModel.Application.Configuration.SaveAsync(saved);
         await viewModel.ReloadConfigurationAsync(); viewModel.ProjectFilter = "does not exist"; viewModel.ProjectFilter = "";

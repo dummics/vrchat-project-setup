@@ -85,7 +85,7 @@ public sealed class PackageSetDialog : IDisposable
             """);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
         var cancel = new Button { Content = "Cancel", MinHeight = 32, Padding = new Thickness(14, 5, 14, 5) };
-        var done = new Button { Content = "Done", MinHeight = 32, Padding = new Thickness(14, 5, 14, 5), Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
+        var done = new Button { Content = "Done", MinHeight = 32, Padding = new Thickness(14, 5, 14, 5), Style = (Style)Application.Current.Resources["AppPrimaryButton"] };
         cancel.Click += (_, _) => Dialog.Hide();
         done.Click += (_, _) => { Accepted = true; Dialog.Hide(); };
         actions.Children.Add(cancel); actions.Children.Add(done); panel.Children.Add(actions);

@@ -1,0 +1,73 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Default">
+            <Color x:Key="AppSelectionStrokeColor">#9DA6AF</Color>
+            <Color x:Key="AppSidebarColor">#191B1E</Color>
+            <SolidColorBrush x:Key="AppCanvasBrush" Color="#202225"/>
+            <SolidColorBrush x:Key="AppSurfaceBrush" Color="#292C30"/>
+            <SolidColorBrush x:Key="AppControlBrush" Color="#30343A"/>
+            <SolidColorBrush x:Key="AppTextBrush" Color="#ECEDEF"/>
+            <SolidColorBrush x:Key="AppSecondaryBrush" Color="#ADB2B9"/>
+            <SolidColorBrush x:Key="AppAccentTextBrush" Color="#50CDBB"/>
+            <SolidColorBrush x:Key="AppStrokeBrush" Color="#42474E"/>
+            <SolidColorBrush x:Key="AppSelectionStrokeBrush" Color="#9DA6AF"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+            <Color x:Key="AppSelectionStrokeColor">#626D78</Color>
+            <Color x:Key="AppSidebarColor">#EEF0F3</Color>
+            <SolidColorBrush x:Key="AppCanvasBrush" Color="#F7F8FA"/>
+            <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FFFFFF"/>
+            <SolidColorBrush x:Key="AppControlBrush" Color="#EEF0F3"/>
+            <SolidColorBrush x:Key="AppTextBrush" Color="#20252B"/>
+            <SolidColorBrush x:Key="AppSecondaryBrush" Color="#59636E"/>
+            <SolidColorBrush x:Key="AppAccentTextBrush" Color="#167568"/>
+            <SolidColorBrush x:Key="AppStrokeBrush" Color="#CFD4DA"/>
+            <SolidColorBrush x:Key="AppSelectionStrokeBrush" Color="#626D78"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <StaticResource x:Key="AppSelectionStrokeColor" ResourceKey="SystemColorWindowTextColor"/>
+            <StaticResource x:Key="AppSidebarColor" ResourceKey="SystemColorWindowColor"/>
+            <SolidColorBrush x:Key="AppCanvasBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+            <SolidColorBrush x:Key="AppSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+            <SolidColorBrush x:Key="AppControlBrush" Color="{ThemeResource SystemColorButtonFaceColor}"/>
+            <SolidColorBrush x:Key="AppTextBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="AppSecondaryBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="AppAccentTextBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="AppStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="AppSelectionStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+    <Color x:Key="SystemAccentColor">#50CDBB</Color>
+    <Color x:Key="SystemAccentColorLight1">#70D8C9</Color>
+    <Color x:Key="SystemAccentColorLight2">#9AE4DA</Color>
+    <Color x:Key="SystemAccentColorLight3">#C8F1EB</Color>
+    <Color x:Key="SystemAccentColorDark1">#319B8E</Color>
+    <Color x:Key="SystemAccentColorDark2">#25786E</Color>
+    <Color x:Key="SystemAccentColorDark3">#1A554E</Color>
+    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#50CDBB"/>
+    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#70D8C9"/>
+    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#319B8E"/>
+    <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#102B29"/>
+    <SolidColorBrush x:Key="AccentButtonForeground" Color="#102B29"/>
+    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#102B29"/>
+    <SolidColorBrush x:Key="ListViewItemCheckBoxBrush" Color="Transparent"/>
+    <SolidColorBrush x:Key="ListViewItemCheckBoxBorderBrush" Color="{ThemeResource AppSelectionStrokeColor}"/>
+    <SolidColorBrush x:Key="ListViewItemCheckBoxPointerOverBorderBrush" Color="{ThemeResource AppSelectionStrokeColor}"/>
+    <SolidColorBrush x:Key="ListViewItemCheckBoxPressedBorderBrush" Color="{ThemeResource AppSelectionStrokeColor}"/>
+    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="{ThemeResource AppSidebarColor}"/>
+    <SolidColorBrush x:Key="ListViewItemCheckBoxPointerOverBrush" Color="#1850CDBB"/>
+    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#1850CDBB"/>
+    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#2850CDBB"/>
+    <x:Double x:Key="PivotHeaderItemFontSize">16</x:Double>
+    <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent"/>
+    <SolidColorBrush x:Key="ExpanderContentBackground" Color="Transparent"/>
+    <Style TargetType="Button"><Setter Property="MinHeight" Value="34"/><Setter Property="Padding" Value="12,6"/><Setter Property="CornerRadius" Value="6"/></Style>
+    <Style TargetType="TextBox"><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/></Style>
+    <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style>
+    <Style TargetType="ToggleSwitch"><Setter Property="OnContent" Value=""/><Setter Property="OffContent" Value=""/><Setter Property="MinWidth" Value="44"/><Setter Property="Width" Value="44"/></Style>
+    <Style x:Key="AppPrimaryButton" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}"><Setter Property="Padding" Value="14,7"/><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/></Style>
+    <Style x:Key="AppSecondaryButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}"><Setter Property="Padding" Value="12,6"/><Setter Property="MinHeight" Value="34"/><Setter Property="CornerRadius" Value="6"/></Style>
+    <Style x:Key="ContentDialogCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource AppSecondaryButton}"/>
+    <Style x:Key="ContentDialogSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AppSecondaryButton}"/>
+    <Style x:Key="ContentDialogPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AppPrimaryButton}"/>
+</ResourceDictionary>
