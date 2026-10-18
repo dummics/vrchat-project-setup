@@ -22,9 +22,9 @@ Inspect `result.json` (`Passed: true`), `handoff.json`, `home/updates/last-resul
 
 ## Actual online update
 
-### Installed-shortcut regression (beta.4)
+### Installed-shortcut regression (beta.5)
 
-The owner's beta.3 update failure was reproduced by starting the beta.1 base from its own install directory. The old installer inherited that current directory and failed at MoveDirectory, exactly as in the owner receipt. The harness now always sets base WorkingDirectory to install, rather than the repository. Beta.4 independently relocates the installer to Temp, also fixing handoff from older clients; its own GUI explicitly launches the installer from data home. Keep this entry-point condition in future update tests. Normal updates show a compact progress/result window and reopen automatically. Diagnostic fixture updates suppress the window, preserve logs and use the same installer operations.
+The owner's beta.3 update failure was reproduced by starting the beta.1 base from its own install directory. The old installer inherited that current directory and failed at MoveDirectory, exactly as in the owner receipt. The harness now always sets base WorkingDirectory to install, rather than the repository. Beta.5 independently relocates the installer to Temp, also fixing handoff from older clients; its own GUI explicitly launches the installer from data home. Keep this entry-point condition in future update tests. Normal updates show a compact progress/result window and reopen automatically. Diagnostic fixture updates suppress the window, preserve logs and use the same installer operations.
 
 **Verified beta.1 → public beta.3 on 18 October 2026:** `-UseRealNetwork` completed in 27.4 seconds, including public feed discovery, GitHub asset redirects, 205 MiB installer download, SHA-256, real installer replacement and candidate relaunch. `RealNetworkUsed` and `RealInstallerUsed` are true. All payload hashes, complete settings hash, previous installation and no-repeat behavior passed. A subsequent independent installed CLI launch recovered the same data home, saved editor path, Dark theme and hide-completed preference. Owner config/journal/program marker/legacy launcher hashes were unchanged. Evidence: `.work/artifacts/2026-10-18-editor-release/online-run/`.
 

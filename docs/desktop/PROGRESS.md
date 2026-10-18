@@ -1,6 +1,6 @@
 # VRCSETUP Desktop migration
 
-## Beta.4 update recovery, adaptive shell and localization
+## Beta.5 update recovery, adaptive shell and localization
 
 The failed beta.3 updater was reproduced: starting the base app from its installed directory makes the updater inherit that directory; Windows then refuses the directory rename. The GUI now starts the updater from data home, and the installer independently moves its current directory to Temp before waiting/installing, covering older clients. Update installs show a compact phase/progress window, reopen automatically on success, and attempt to reopen the preserved app on failure. The footer exposes short clickable failure status with technical details in a dialog/logs. The harness now starts the base from its install directory, matching the real shortcut.
 

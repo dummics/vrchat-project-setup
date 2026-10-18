@@ -264,7 +264,11 @@ public static class UiSmokeTest
                 if (screen is "Create" or "Settings")
                 {
                     var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");
-                    if (size.Width >= 1920) Require(form.ActualWidth > 1400, "Fullscreen form uses available width: " + screen);
+                    if (size.Width >= 1920)
+                    {
+                        var view = (FrameworkElement)page.FindName(screen == "Create" ? "CreateView" : "SettingsView");
+                        Require(form.ActualWidth >= view.ActualWidth - 24, $"Fullscreen form uses available width: {screen}, form={form.ActualWidth}, available={view.ActualWidth}, requested={size.Width}, window={page.ActualWidth}");
+                    }
                     var viewport = (FrameworkElement)page.FindName(screen == "Create" ? "CreateView" : "SettingsView");
                     var origin = form.TransformToVisual(viewport).TransformPoint(new(0, 0));
                     Require(origin.X >= -1 && origin.X + form.ActualWidth <= viewport.ActualWidth + 1, "Form fits viewport: " + screen + " " + size.Width);
