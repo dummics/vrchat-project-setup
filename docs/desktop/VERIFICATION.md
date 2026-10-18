@@ -2,7 +2,7 @@
 
 ## Package hierarchy and motion
 
-The preset editor uses a text carousel with previous/next actions and a clickable choice list. Included packages occupy the primary table; the addable catalogue uses quieter bounded cards or rows. Whole-row height budgets and a reserved scrollbar gutter keep actions inside the available width. Information expands as one clipped, animated footer surface, with a popup fallback when space is insufficient. Motion respects the system animation preference. Tooltips wait for 2.5 seconds of stationary hover, including compact navigation and repeated hovers.
+The preset editor uses a text carousel with previous/next actions and a clickable choice list. Included packages use individually bordered rows on the page background; the addable catalogue uses quieter bounded cards or rows below a larger gap and a single divider. Neither section has an enclosing box. Whole-row height budgets and a reserved scrollbar gutter keep actions inside the available width. Information expands as one clipped, animated footer surface, with a popup fallback when space is insufficient. Motion respects the system animation preference. Tooltips wait for 2.5 seconds of stationary hover, including compact navigation and repeated hovers.
 
 Release compilation reports zero warnings/errors. Native WinUI fixture checks exercise the carousel buttons, stable version rows, tooltip delay/reshow, intermediate expansion heights, footer navigation and action bounds at 720, 900, 1024, 1180 and 1920 pixels. Dark/light screenshots and a separate Italian startup/render check are recorded under `.work/artifacts/2026-10-18-package-polish/`. These checks use isolated data and the actual WinUI renderer; no owner installation or Unity project is changed.
 
