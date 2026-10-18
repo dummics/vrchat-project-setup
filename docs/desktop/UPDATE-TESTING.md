@@ -26,7 +26,9 @@ The local test verifies the complete installer/restart pipeline, with HTTP trans
 
 For a real beta.1 → beta.2 check, publish the newer complete GitHub release with its installer and `SHA256SUMS.txt`, then use the installed app's version menu → Check for updates → Install update and restart. Finish imports and save/revert pending package edits first. The current beta remains installed until that action; publishing a test candidate does not itself replace local programs.
 
-The release workflow creates a reviewable draft and the Pages workflow is separate. Neither was invoked during local verification. On 18 October the local GitHub CLI reported no authenticated hosts; the exposed GitHub connector used the assistant identity and did not offer release creation/upload. Owner authentication/publication remains the next online step; no credentials were changed or extracted.
+The release workflow creates a reviewable draft and the Pages workflow is separate. On 18 October, HTTPS Git tag pushes triggered the release workflow without changing local credentials. The first run failed because PowerShell split the native smoke-test path into separate arguments; direct `ProcessStartInfo.ArgumentList` fixed the launch. The beta.2 run passed all 126 fixture tests and 146 native UI checks, then successfully created a draft prerelease with the installer, portable ZIP and checksum file. [Successful workflow](https://github.com/dummics/vrchat-project-setup/actions/runs/39089138768). The draft is visible to an owner with release access; the assistant connector cannot retrieve it. Creation/upload success is evidenced by the workflow, rather than an independent asset download.
+
+The owner installation remains beta.1, ready for the live update trial. Review and publish the beta.2 draft before checking for updates; drafts are deliberately ignored by the app. No public release or Pages deployment was performed. The live GitHub download/redirect path remains to be tested.
 
 ## Verified run, 18 October 2026
 
