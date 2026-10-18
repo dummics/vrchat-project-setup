@@ -1,53 +1,54 @@
 # VRC Project Setup
 
-Windows companion for repeatable VRChat Unity projects. A native WinUI 3 desktop app and a Spectre.Console CLI/TUI share one C# / .NET 10 engine.
+A Windows app for creating VRChat Unity projects, importing `.unitypackage` files and managing packages across your projects.
 
-## Install or run portable
+**Windows x64 · Currently in beta**
 
-Use the standalone `Install-VrcSetup-0.2.0-beta.1-win-x64.exe` tester package. It includes the application runtimes, installs per user without elevation, creates Start-menu shortcuts and the `vrcsetup` command. The portable ZIP includes the same GUI and CLI; extract it before use. See [distribution instructions](docs/desktop/DISTRIBUTION.md). GitHub Releases hosts updates without a dedicated server; the app version menu provides checks, one-click installation/restart and a prefilled bug report. Public release and optional Pages deployment are separate from local builds.
+## Download and install
 
-This branch is `feature/winui-desktop`. The main-branch source ZIP contains the earlier PowerShell product. Source from this branch requires the .NET 10 SDK and Windows build tools; source and the distributable package are distinct downloads.
+**[Download for Windows](https://github.com/dummics/vrchat-project-setup/releases)**
 
-Current source is 0.2 beta, superseding the development-only 2.0 preview numbering. It includes the coherent neutral/teal UI, compact responsive package views, guarded batch editing with grouped review and progress, and [state-aware parallel imports](docs/desktop/IMPORT-QUEUE.md). The terminal workflow shares the same engine. Recognition caches stay separate from My Packages. Native rendering and isolated fixture checks cover core/UI contracts; real avatar import acceptance remains with the owner.
+1. Open the newest release, including prereleases while the app is in beta.
+2. Download `Install-VrcSetup-<version>-win-x64.exe` and run it.
+3. Follow setup. The app opens automatically when installation finishes.
 
-## Features
+The same small EXE installs a new copy or updates an existing one. It downloads and verifies the required components; you do not need to download the hash-named ZIPs or `components.json` yourself. No .NET SDK is needed to run the app.
 
-- Project library with search, sorting, metadata recovery and bulk selection.
-- Creation from UnityPackages with an automatic editable name, one desktop platform choice, creator presets and optional reusable templates. CLI retains advanced platform controls.
-- Preset editing with a clear selected preset, staged changes, local package library, favorite stars and asynchronous version refresh.
-- A shared package workspace: stage multiple additions, pins, latest updates and removals, then review per-project changes before saving.
-- Linked VRChat SDK versions, required-package protection, exact prereleases, favorites and package registry.
-- Overlay or exact preset application, package selection from another project, individual bulk targets and undo.
-- Unity import/compile verification, Easy Login migration, manifest/asset backup, recovery, cancellation, logs and JSON reports.
-- Legacy configuration migration, atomic revisions, project/process locks and stale-plan protection.
+Internet is required for components that are not already available locally. The optional portable ZIP is available on the same release page. Builds are currently unsigned, so Windows may show a publisher warning.
 
-Unity with the necessary build modules, Creator Companion repositories and the VPM CLI are external prerequisites. VPM requires its compatible .NET runtime. The app reports missing requirements; it does not install Unity or change personal projects implicitly.
+## Get started
 
-## CLI
+1. In **Settings**, choose your Unity Editor and projects folder. The app can search for Unity **2022.3.22f1**.
+2. Create an empty project, add an existing project, or drop a `.unitypackage` into **Import projects**.
+3. Choose a preset, review the packages and start the import.
 
-`vrcsetup` without arguments opens the terminal UI. `vrcsetup gui` opens the Windows app. Use `vrcsetup help` for all commands and flags; legacy PowerShell flag spellings remain accepted.
+Unity with the required platform modules, VRChat Creator Companion and the VPM CLI are separate prerequisites. See [setup details](docs/desktop/DISTRIBUTION.md).
 
-The C# TUI restores the original Import / My projects flow, colored panels, searchable project selection and keyboard package workspace. Dom's original PowerShell version is also preserved locally as `vrcsetup-legacy` during GUI acceptance; it remains independent of v2 upgrades.
+## What it does
 
-```powershell
-vrcsetup projects --json
-vrcsetup packages list 'F:\UNITY PROJECTS\Avatar'
-vrcsetup packages add 'F:\UNITY PROJECTS\Avatar' gogoloco@latest --dry-run
-vrcsetup create 'F:\Downloads\Avatar.unitypackage' --name 'Avatar PC' --preset 'Creator PC' --dry-run
-vrcsetup repair
-vrcsetup uninstall
-```
+- Browse projects and manage packages individually or in batches.
+- Create presets, choose package versions and keep favorites.
+- Review changes before applying them, with progress and logs.
+- Track imports and recover incomplete projects through Activity.
+- Use the desktop app or the included terminal interface.
 
-Exit codes: 0 success, 1 failure or skipped projects, 2 cancellation/confirmation declined. Dry runs show plans without applying project changes; catalog/config caches may initialize.
+## Updates and support
 
-## Develop and verify
+Check for updates from the version menu at the bottom of the app. Updates preserve your settings, reuse unchanged components and reopen the app automatically.
+
+To report a problem, use **Information → Report a bug** or [open a GitHub issue](https://github.com/dummics/vrchat-project-setup/issues). Include your app version, what you tried and what happened. Remove personal information before sharing logs or screenshots.
+
+This is an independent community tool, not an official VRChat product.
+
+## For developers
+
+The native WinUI desktop app and CLI/TUI share a C# / .NET 10 engine. The current app source is on **`feature/winui-desktop`**; `main` still contains the earlier PowerShell version. Download a release to use the app; GitHub's source ZIP is not an installer.
 
 ```powershell
 dotnet run --project src/VrcSetup.Cli -- help
-powershell -NoProfile -File tests/Run-Tests.ps1 -BuildDesktop
-powershell -NoProfile -File scripts/Publish-Windows.ps1
+dotnet test tests/VrcSetup.Core.Tests -c Release
 ```
 
-The root BAT launchers are source entrypoints. The published package has launchers targeting its bundled executables. The old PowerShell implementation is retired on this branch and remains available in Git history and stable main.
+Installed CLI: `vrcsetup` opens the terminal UI, `vrcsetup gui` opens the desktop app, and `vrcsetup help` lists commands.
 
-See [architecture and approved plan](docs/desktop/IMPLEMENTATION-PLAN.md), [verification and parity](docs/desktop/VERIFICATION.md), and [migration status](docs/desktop/PROGRESS.md). The Unity bridge is compiled by Unity and does not depend on .NET 10.
+See [building and publishing](docs/desktop/RELEASING.md), [component updates and hosting](docs/desktop/COMPONENT-UPDATES.md), and [verification](docs/desktop/VERIFICATION.md).
