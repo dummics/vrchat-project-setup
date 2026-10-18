@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 
 namespace VrcSetup_Desktop.ViewModels;
@@ -18,12 +19,12 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial string UpdateStatus { get; set; } = "";
     [ObservableProperty] public partial bool UpdateFailed { get; set; }
     private string updateDetails = "";
-    public string UpdateSummary => UpdateFailed ? "Update failed" : IsDownloadingUpdate ? UpdateStatus : IsUpdateReady ? "Ready for next launch" : UpdateStatus.StartsWith("Finish") ? "Finish current work before updating" : UpdateStatus.StartsWith("No published") ? "Up to date" : UpdateStatus.StartsWith("Checking") ? "Checking for updates…" : "";
+    public string UpdateSummary => UpdateFailed ? "Update failed" : IsDownloadingUpdate ? UpdateStatus : IsUpdateReady ? "Ready for next launch" : UpdateStatus.StartsWith("Update checks are temporarily paused") ? UpdateStatus : UpdateStatus.StartsWith("Finish") ? "Finish current work before updating" : UpdateStatus.StartsWith("No published") ? "Up to date" : UpdateStatus.StartsWith("Checking") ? "Checking for updates…" : "";
     partial void OnIsUpdateReadyChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); NotifyApplicationStatus(); }
     public Microsoft.UI.Xaml.Visibility UpdateSummaryVisibility => UpdateSummary.Length == 0 ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
     partial void OnUpdateStatusChanged(string value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); }
     partial void OnUpdateFailedChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); }
-    [RelayCommand] private Task ShowUpdateDetails() => ui.ShowUpdateInfoAsync(updateDetails.Length > 0 ? updateDetails : UpdateStatus);
+    [RelayCommand] private Task ShowUpdateDetails() => ui.ShowUpdateInfoAsync(UiText.Text(updateDetails.Length > 0 ? updateDetails : UpdateStatus));
     [RelayCommand] private async Task UpdateAction()
     { if (HasApplicationUpdate) await InstallApplicationUpdate(); else await CheckApplicationUpdatesAsync(true); }
     [RelayCommand] private void ContactSupport() => OpenPath("mailto:contact@dummics.com?subject=VRChat%20Project%20Setup");
@@ -41,17 +42,25 @@ public sealed partial class MainViewModel
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); timeout.CancelAfter(TimeSpan.FromSeconds(12));
             using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
             client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
-            availableUpdate = await new ApplicationUpdates(client).CheckAsync(AppVersion, IncludeBetaUpdates, timeout.Token);
+            availableUpdate = await new ApplicationUpdates(client, cacheDirectory: Path.Combine(app.Paths.Home, "updates")).CheckAsync(AppVersion, IncludeBetaUpdates, timeout.Token);
+            UpdateFailed = false; updateDetails = "";
             HasApplicationUpdate = availableUpdate is not null;
             UpdateStatus = HasApplicationUpdate ? "Version " + availableUpdate!.Version + " is available" : manual ? "No published update available" : "";
             succeeded = true;
         }
+        catch (UpdateCheckDeferredException error)
+        {
+            UpdateFailed = false;
+            UpdateStatus = "Update checks are temporarily paused. Please try again later.";
+            updateDetails = UpdateStatus;
+            app.Diagnostics.Write("Updates", "Next check after " + error.RetryAt.ToString("O"));
+        }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException or IOException)
-        { if (manual) { updateDetails = error.ToString(); UpdateFailed = true; UpdateStatus = "Could not check updates."; } app.Diagnostics.Write("Updates", error.Message); }
+        { if (manual) { updateDetails = "Could not check updates. Please try again later."; UpdateFailed = true; UpdateStatus = "Could not check updates."; } app.Diagnostics.Write("Updates", error.Message); }
         finally
         {
             IsCheckingUpdate = false;
-            if (!manual) await ReadPreviousUpdateResultAsync();
+            if (!manual && !UpdateStatus.StartsWith("Update checks are temporarily paused")) await ReadPreviousUpdateResultAsync();
         }
         return succeeded;
     }
@@ -64,7 +73,7 @@ public sealed partial class MainViewModel
                     {
                         using var result = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(path, lifetime.Token));
                         if (result.RootElement.TryGetProperty("Success", out var success) && success.ValueKind == System.Text.Json.JsonValueKind.False)
-                        { UpdateFailed = true; updateDetails = result.RootElement.TryGetProperty("Error", out var detail) ? detail.GetString() ?? "Update failed" : "Update failed"; UpdateStatus = "Update failed"; }
+                        { UpdateFailed = true; updateDetails = "Could not install the update. Your current installation is unchanged. Please try again later."; UpdateStatus = "Update failed"; }
                     }
                 }
                 catch (Exception error) when (error is IOException or System.Text.Json.JsonException or OperationCanceledException or UnauthorizedAccessException)
@@ -96,7 +105,7 @@ public sealed partial class MainViewModel
                 UpdateStatus = "Update is ready. Finish current work before restarting.";
         }
         catch (Exception error) when (error is IOException or HttpRequestException or OperationCanceledException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
-        { UpdateFailed = true; updateDetails = error.ToString(); UpdateStatus = "Update failed"; app.Diagnostics.Write("Updates", error.Message, error); }
+        { UpdateFailed = true; updateDetails = "Could not download the update. Please try again later. Your current installation is unchanged."; UpdateStatus = "Update failed"; app.Diagnostics.Write("Updates", error.Message, error); }
         finally { IsDownloadingUpdate = false; }
     }
     [RelayCommand] private void ReportBug() => OpenPath(ApplicationUpdates.BugReportUrl);

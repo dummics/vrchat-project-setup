@@ -5,7 +5,7 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, ConfigurationStore configuration) : IPackageCatalog
+public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, ConfigurationStore configuration, string? repositoryDirectory = null) : IPackageCatalog
 {
     private readonly ConcurrentDictionary<string, string[]> versionsCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, string> FriendlyNames = new(StringComparer.OrdinalIgnoreCase)
@@ -58,7 +58,9 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
             var response = await runner.RunAsync(paths.VrcGetPath, new[] { "search" }.Concat(tokens), cancellationToken: cancellationToken);
             if (response.ExitCode != 0 && result.Count == 0) throw new IOException("Package search failed: " + response.Output);
             if (response.ExitCode == 0)
-                foreach (var definition in ParseSearch(response.StdOut)) result[definition.Id] = definition;
+                foreach (var definition in ParseSearch(response.StdOut))
+                    result[definition.Id] = definition.DisplayName.Equals(definition.Id, StringComparison.OrdinalIgnoreCase) && result.TryGetValue(definition.Id, out var named)
+                        ? definition with { DisplayName = named.DisplayName } : definition;
         }
         // Search metadata is a bounded local index, not a saved user selection.
         try { await RememberAsync(result.Values, cancellationToken, preserveSelections: true); }
@@ -127,6 +129,7 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
             var old = known.GetValueOrDefault(item.Id);
             known[item.Id] = item with
             {
+                DisplayName = item.DisplayName.Equals(item.Id, StringComparison.OrdinalIgnoreCase) && old is not null ? old.DisplayName : item.DisplayName,
                 SelectedVersion = preserveSelections && old is not null ? old.SelectedVersion : item.SelectedVersion,
                 Versions = item.Versions.Length > 0 ? item.Versions : old?.Versions ?? [], UpdatedUtc = item.UpdatedUtc ?? DateTime.UtcNow
             };
@@ -166,9 +169,9 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
         try { return (await AtomicFile.ReadJsonAsync<PackageDefinition[]>(VersionFile, cancellationToken) ?? []).DistinctBy(x => x.Id, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { return new(StringComparer.OrdinalIgnoreCase); }
     }
-    private static PackageDefinition[] ReadRepositoryPackages()
+    private PackageDefinition[] ReadRepositoryPackages()
     {
-        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VRChatCreatorCompanion", "Repos");
+        var directory = repositoryDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VRChatCreatorCompanion", "Repos");
         if (!Directory.Exists(directory)) return [];
         var results = new Dictionary<string, PackageDefinition>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
@@ -177,7 +180,9 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
             {
                 using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 using var document = JsonDocument.Parse(stream);
-                if (!document.RootElement.TryGetProperty("packages", out var packages)) continue;
+                var root = document.RootElement;
+                if (root.TryGetProperty("repo", out var repository)) root = repository;
+                if (!root.TryGetProperty("packages", out var packages)) continue;
                 foreach (var package in packages.EnumerateObject())
                 {
                     if (!package.Value.TryGetProperty("versions", out var versions)) continue;

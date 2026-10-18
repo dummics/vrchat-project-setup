@@ -11,10 +11,23 @@ namespace VrcSetup_Desktop.Verification;
 // Runs the real WinUI dispatcher and renderer without mouse/keyboard injection.
 public static class UiSmokeTest
 {
+    private static int updateRequests;
+    private sealed class RateLimitedUpdateHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Interlocked.Increment(ref updateRequests);
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(5));
+            return Task.FromResult(response);
+        }
+    }
     public static async Task<VrcSetupApplication> PrepareAsync(string artifacts)
     {
         artifacts = ProjectRules.NormalizePath(artifacts); Directory.CreateDirectory(artifacts);
-        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery"]);
+        updateRequests = 0;
+        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery"])
+        { UpdateHttpClientFactory = () => new HttpClient(new RateLimitedUpdateHandler()) };
         var project = Path.Combine(artifacts, "projects", "Creator [PC] & café");
         Directory.CreateDirectory(Path.Combine(project, "Assets")); Directory.CreateDirectory(Path.Combine(project, "ProjectSettings"));
         Dictionary<string, string> packages = new() { [ProjectRules.BaseSdk] = "3.10.5", [ProjectRules.AvatarSdk] = "3.10.5", [ProjectRules.Resolver] = "0.1.29", ["gogoloco"] = "1.8.6" };
@@ -60,6 +73,11 @@ public static class UiSmokeTest
         viewModel.UpdateFailed = true; viewModel.UpdateStatus = new string('x', 400);
         Require(viewModel.UpdateSummary == "Update failed", "Technical update errors stay compact in the footer");
         viewModel.UpdateFailed = false; viewModel.UpdateStatus = "";
+        await viewModel.CheckApplicationUpdatesCommand.ExecuteAsync(null);
+        await viewModel.CheckApplicationUpdatesCommand.ExecuteAsync(null);
+        Require(!viewModel.UpdateFailed && viewModel.UpdateSummary.Contains("temporarily paused") && updateRequests == 1,
+            "Manual update rate limits show a quiet pause and repeated checks do not hit the server");
+        viewModel.UpdateStatus = "";
         var skipped = new OperationReport("fixture-skipped", DateTime.UtcNow, [new("Fixture", "fixture", OperationStatus.Skipped, "Open in Unity")], []);
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(skipped).State == "Not applied", "Skipped projects are not labelled failed");
         var partial = skipped with { Results = [new("Done", "done", OperationStatus.Completed, ""), new("Skipped", "skip", OperationStatus.Skipped, "Open in Unity")] };
@@ -138,6 +156,14 @@ public static class UiSmokeTest
         viewModel.StagePresetVersion("gogoloco", "1.8.7");
         Require(stablePresetRows.SequenceEqual(viewModel.PresetPackages) && viewModel.PresetPackages.First(x => x.Id == "gogoloco").Version == "1.8.7", "Changing one preset version preserves every row instance");
         viewModel.DiscardPresetChangesCommand.Execute(null);
+        var originalVersion = viewModel.PresetPackages.First(x => x.Id == "gogoloco").Version;
+        viewModel.StagePresetVersion("gogoloco", "1.8.7");
+        viewModel.StagePresetVersion("gogoloco", originalVersion);
+        Require(!viewModel.PresetDirty, "Restoring the saved package version clears preset changes");
+        var roundTripPackage = viewModel.LibraryPackages.First(x => !x.Required);
+        viewModel.AddLibraryPackageCommand.Execute(roundTripPackage);
+        viewModel.RemovePresetPackageCommand.Execute(viewModel.PresetPackages.First(x => x.Id == roundTripPackage.Id));
+        Require(!viewModel.PresetDirty, "Adding then removing a package restores a clean preset");
         Require(viewModel.LibraryPackages.All(x => !x.Included && !viewModel.PresetPackages.Any(p => p.Id == x.Id)), "Preset catalogue excludes every already included package");
         var original = await viewModel.Application.Projects.ReadAsync(viewModel.Projects[0].Path);
         var optional = viewModel.PresetPackages.First(x => x.Id == "gogoloco");

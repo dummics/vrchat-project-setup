@@ -73,7 +73,7 @@ public sealed partial class MainViewModel
         if (IsBusy) return;
         var snapshot = new ProjectSnapshot { Path = Path.GetFullPath("preset"), Name = PresetLabel, Packages = new(presetWorking) };
         var edit = new PackageEditSession([snapshot], config, Registry.ToArray()); edit.SetVersion(id, version);
-        presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); PresetDirty = true; RenderPreset(); RefreshLibraryRows();
+        presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); RenderPreset(); RefreshLibraryRows();
     }
     private void NotifyWorkspaceChanges()
     { OnPropertyChanged(nameof(WorkspaceFriendlySummary)); OnPropertyChanged(nameof(WorkspaceFriendlyNames)); OnPropertyChanged(nameof(LibraryPendingVisibility)); OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); }

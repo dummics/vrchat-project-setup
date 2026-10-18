@@ -9,7 +9,7 @@ namespace VrcSetup.Infrastructure;
 public sealed record ApplicationRelease(string Version, Uri Installer, Uri Checksums, Uri Page, Uri? DeltaInstaller = null, string? BaseVersion = null, Uri? Components = null);
 
 // GitHub hosts the feed, installer and checksums. No credentials or local data are sent.
-public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSource? source = null)
+public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSource? source = null, string? cacheDirectory = null)
 {
     private ApplicationUpdateSource Source => source ?? ApplicationUpdateSource.Default;
     public const string Repository = "https://github.com/dummics/vrchat-project-setup";
@@ -21,11 +21,8 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
     public async Task<ApplicationRelease?> CheckAsync(string installed, bool includeBeta, CancellationToken token = default)
     {
         using var request = Request(Source.Feed.AbsoluteUri);
-        using var response = await client.SendAsync(request, token);
-        if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        response.EnsureSuccessStatusCode();
-        var json = await response.Content.ReadAsStringAsync(token);
-        return SelectRelease(json, installed, includeBeta, Source);
+        var json = await UpdateFeed.ReadAsync(client, request, cacheDirectory, token);
+        return json is null ? null : SelectRelease(json, installed, includeBeta, Source);
     }
 
     public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta, ApplicationUpdateSource? source = null)

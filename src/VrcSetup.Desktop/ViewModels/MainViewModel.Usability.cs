@@ -11,6 +11,7 @@ public sealed partial class MainViewModel
 {
     private const string DefaultPresetKey = "My default packages";
     private Dictionary<string, string> presetWorking = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> presetBaseline = new(StringComparer.OrdinalIgnoreCase);
     private bool presetSwitching;
     public ObservableCollection<UiPackageRow> PresetPackages { get; } = [];
     public ObservableCollection<UiPackageRow> LibraryPackages { get; } = [];
@@ -79,12 +80,14 @@ public sealed partial class MainViewModel
     {
         presetWorking = new(EditingPreset == DefaultPresetKey ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(EditingPreset) ?? []);
         foreach (var id in ProjectRules.Foundation(presetWorking, config)) presetWorking.TryAdd(id, "latest");
-        PresetDirty = false; RenderPreset(); RefreshLibraryRows();
+        presetBaseline = new(presetWorking, StringComparer.OrdinalIgnoreCase);
+        RenderPreset(); RefreshLibraryRows();
     }
     private UiPackageRow MakeRow(string id, string version, bool required = false) => new(id,
         Registry.FirstOrDefault(x => x.Id == id)?.DisplayName is { Length: > 0 } name && !name.Equals(id, StringComparison.OrdinalIgnoreCase) ? name : VrcSetup.Infrastructure.PackageCatalog.FriendlyName(id), version, required, config.FavoritePackages.Contains(id, StringComparer.OrdinalIgnoreCase), BrowsingProjectPackages ? browserIncluded.Contains(id) : presetWorking.ContainsKey(id), BrowsingProjectPackages);
     private void RenderPreset()
     {
+        PresetDirty = presetWorking.Count != presetBaseline.Count || presetWorking.Any(x => !presetBaseline.TryGetValue(x.Key, out var version) || version != x.Value);
         var required = ProjectRules.Foundation(presetWorking, config);
         var tokens = (LibraryFilter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var desired = presetWorking.Select(x => MakeRow(x.Key, x.Value, required.Contains(x.Key)))
@@ -163,7 +166,7 @@ public sealed partial class MainViewModel
         if (name == DefaultPresetKey) config.VpmPackages = new(saved); else config.PackagePresets[name] = new(saved);
         await PersistConfigurationAsync();
         await app.Catalog.RememberAsync(Registry.Where(x => saved.ContainsKey(x.Id)), lifetime.Token, preserveSelections: true);
-        if (EditingPreset == name && saved.Count == presetWorking.Count && saved.All(x => presetWorking.GetValueOrDefault(x.Key) == x.Value)) PresetDirty = false;
+        if (EditingPreset == name) { presetBaseline = new(saved, StringComparer.OrdinalIgnoreCase); RenderPreset(); }
         await LoadRegistry(); ShowSavedFeedback("Preset saved"); Status = (name == DefaultPresetKey ? "Default" : name) + " saved";
     });
     [RelayCommand] private void DiscardPresetChanges() => LoadEditingPreset();
@@ -173,18 +176,18 @@ public sealed partial class MainViewModel
         var version = await ui.VersionAsync(row.Id, await app.Catalog.GetVersionsAsync(row.Id), row.Version); if (version is null) return;
         var snapshot = new ProjectSnapshot { Path = Path.GetFullPath("preset"), Name = PresetLabel, Packages = new(presetWorking) };
         var edit = new PackageEditSession([snapshot], config, Registry.ToArray()); edit.SetVersion(row.Id, version);
-        presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); PresetDirty = true; RenderPreset();
+        presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); RenderPreset();
     });
     [RelayCommand] private void RemovePresetPackage(UiPackageRow? row)
     {
         if (row is null || ProjectRules.Foundation(presetWorking, config).Contains(row.Id)) return;
-        presetWorking.Remove(row.Id); PresetDirty = true; RenderPreset(); RefreshLibraryRows();
+        presetWorking.Remove(row.Id); RenderPreset(); RefreshLibraryRows();
     }
     [RelayCommand] private void AddLibraryPackage(UiPackageRow? row)
     {
         if (row is null || IsBusy) return;
         if (BrowsingProjectPackages) { session?.AddDefinitions(Registry); if (session is not null && (row.Included || session.Removed.Contains(row.Id))) ToggleWorkspacePackage(session.Rows().First(x => x.Id == row.Id)); else StageWorkspaceVersion(row.Id, "latest"); }
-        else if (!presetWorking.ContainsKey(row.Id)) { presetWorking[row.Id] = "latest"; PresetDirty = true; RenderPreset(); RefreshLibraryRows(); }
+        else if (!presetWorking.ContainsKey(row.Id)) { presetWorking[row.Id] = "latest"; RenderPreset(); RefreshLibraryRows(); }
     }
     [RelayCommand] private async Task TogglePackageFavorite(UiPackageRow? row) => await Guard(async () =>
     {

@@ -2,6 +2,8 @@
 
 The Windows app and vrcsetup command use the same C#/.NET 10 engine.
 
+Update checks share a local feed cache for ten minutes, including manual checks. Later requests revalidate with the server's ETag when available. GitHub rate limits pause checks until `Retry-After` or an exhausted quota's reset time; secondary limits without a deadline pause for five minutes. The pause survives app restarts. No local server or GitHub credentials are required; diagnostic exceptions stay in logs, while the app shows a short localized message.
+
 ## Install
 
 Run Install-VrcSetup-<version>-win-x64.exe. This small online installer downloads verified components, installs or updates **VRC Project Setup**, preserves settings and opens the app automatically. Internet is required for uncached components; no .NET SDK or Visual Studio is required. The technical filename and installation/data paths remain compatible with existing clients. Download only the EXE; hash-named ZIPs and components.json are technical assets fetched automatically.

@@ -1,4 +1,8 @@
 {
+  "Update checks are temporarily paused. Please try again later.": "Controllo aggiornamenti in pausa. Riproveremo più tardi.",
+  "Could not check updates. Please try again later.": "Non è stato possibile controllare gli aggiornamenti. Riprova più tardi.",
+  "Could not download the update. Please try again later. Your current installation is unchanged.": "Non è stato possibile scaricare l’aggiornamento. Riprova più tardi. La versione installata non è stata modificata.",
+  "Could not install the update. Your current installation is unchanged. Please try again later.": "Non è stato possibile installare l’aggiornamento. La versione installata non è stata modificata. Riprova più tardi.",
   "Projects": "Progetti",
   "Import projects": "Importa progetti",
   "Packages": "Pacchetti",
