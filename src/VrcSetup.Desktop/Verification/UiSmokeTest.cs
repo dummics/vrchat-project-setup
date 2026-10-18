@@ -14,7 +14,7 @@ public static class UiSmokeTest
     public static async Task<VrcSetupApplication> PrepareAsync(string artifacts)
     {
         artifacts = ProjectRules.NormalizePath(artifacts); Directory.CreateDirectory(artifacts);
-        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh"]);
+        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh", "--no-update-check"]);
         var project = Path.Combine(artifacts, "projects", "Creator [PC] & café");
         Directory.CreateDirectory(Path.Combine(project, "Assets")); Directory.CreateDirectory(Path.Combine(project, "ProjectSettings"));
         Dictionary<string, string> packages = new() { [ProjectRules.BaseSdk] = "3.10.5", [ProjectRules.AvatarSdk] = "3.10.5", [ProjectRules.Resolver] = "0.1.29", ["gogoloco"] = "1.8.6" };
@@ -35,6 +35,10 @@ public static class UiSmokeTest
         var page = window.Page; await page.Initialized;
         var viewModel = page.ViewModel; var checks = new List<string>();
         Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
+        Require(new SemanticVersion(viewModel.AppVersion).Major == 0 && ((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Content?.ToString() == viewModel.AppVersion, "Beta version is visible in the persistent version menu");
+        var updateMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Flyout;
+        updateMenu.ShowAt((FrameworkElement)page.FindName("ApplicationVersionButton")); await Task.Delay(80);
+        Require(updateMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().All(x => x.Command is not null), "Version menu commands bind for updates, releases and bug reports"); updateMenu.Hide();
         var skipped = new OperationReport("fixture-skipped", DateTime.UtcNow, [new("Fixture", "fixture", OperationStatus.Skipped, "Open in Unity")], []);
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(skipped).State == "Not applied", "Skipped projects are not labelled failed");
         var partial = skipped with { Results = [new("Done", "done", OperationStatus.Completed, ""), new("Skipped", "skip", OperationStatus.Skipped, "Open in Unity")] };
@@ -293,6 +297,7 @@ public static class UiSmokeTest
             viewModel.ApplyPosition = "Project 1 of 4"; viewModel.ApplyPhase = "Updating packages";
             viewModel.CanCancelApply = true; viewModel.IsApplyingPackages = true; await Task.Delay(150);
             Require(!navigation.IsEnabled && viewModel.ApplyOverlayVisibility == Visibility.Visible, "Apply state blocks navigation: " + size.Width);
+            Require(!((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).IsEnabled, "Updates are blocked during sensitive package operations: " + size.Width);
             await Render(page, Path.Combine(artifacts, "apply-overlay-fixture-" + size.Width + ".png"));
             viewModel.CancelApplyCommand.Execute(null);
             Require(!viewModel.CanCancelApply && viewModel.ApplyPhase.Contains("recovery"), "Cancel keeps blocking state until worker recovery: " + size.Width);

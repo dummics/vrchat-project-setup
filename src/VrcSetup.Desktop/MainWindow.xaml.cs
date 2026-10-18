@@ -20,7 +20,7 @@ public sealed partial class MainWindow : Window
             if (closingConfirmed) { page.ViewModel.Dispose(); return; }
             // Closing is synchronous at the native boundary; cancel before awaiting.
             args.Cancel = true;
-            if (page.ViewModel.IsApplyingPackages) return;
+            if (page.ViewModel.IsApplyingPackages || page.ViewModel.IsInstallingUpdate) return;
             if (closePromptPending) return;
             closePromptPending = true;
             try
@@ -39,5 +39,20 @@ public sealed partial class MainWindow : Window
             }
             finally { closePromptPending = false; }
         };
+    }
+    public async Task<bool> InstallUpdateAsync(string installer, string result)
+    {
+        var vm = Page.ViewModel;
+        if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty) return false;
+        vm.IsInstallingUpdate = true;
+        try
+        {
+            var start = new System.Diagnostics.ProcessStartInfo(installer) { UseShellExecute = false, CreateNoWindow = true };
+            foreach (var argument in new[] { "--silent", "--wait-for-pid", Environment.ProcessId.ToString(), "--root", vm.Application.Paths.PayloadRoot, "--home", vm.Application.Paths.Home, "--result", result, "--launch" }) start.ArgumentList.Add(argument);
+            _ = System.Diagnostics.Process.Start(start) ?? throw new IOException("Could not start the updater.");
+            await vm.FinishImportsAsync();
+            closingConfirmed = true; Close(); return true;
+        }
+        catch { vm.IsInstallingUpdate = false; throw; }
     }
 }

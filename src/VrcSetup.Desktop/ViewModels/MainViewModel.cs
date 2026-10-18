@@ -21,6 +21,7 @@ public interface IDesktopInteraction
     Task ShowErrorAsync(string message);
     Task<string?> PromptRecoveryAsync(string name, bool canResume) => Task.FromResult<string?>(null);
     void CloseApplication();
+    Task<bool> InstallApplicationUpdateAsync(string installer, string result) => Task.FromResult(false);
     Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
         Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null);
 }
@@ -95,12 +96,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (config.Diagnostics.Verbose && app.Configuration.ImportedFrom is { } imported) AppendActivity(new(DateTime.UtcNow, "Migration", "Settings imported: " + imported));
         });
         if (ErrorMessage.Length == 0) await PromptInterruptedImportAsync();
+        if (CheckUpdatesOnStartup && app.AllowBackgroundUpdateChecks) _ = CheckApplicationUpdatesAsync(false);
     }
     private void LoadSettings()
     {
         UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
         ManualImportPath = config.ManualImportPath;
         AutoHideCompletedImports = config.AutoHideCompletedImports;
+        CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates;
         NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
         RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ProjectSort = config.ProjectLibrarySort;
         DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
@@ -403,6 +406,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         config.ManualImportPath = ManualImportPath;
         config.AutoHideCompletedImports = AutoHideCompletedImports;
+        config.CheckUpdatesOnStartup = CheckUpdatesOnStartup; config.IncludeBetaUpdates = IncludeBetaUpdates;
         if (!string.IsNullOrWhiteSpace(UnityEditorPath)) UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
         var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var pattern in patterns) _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));

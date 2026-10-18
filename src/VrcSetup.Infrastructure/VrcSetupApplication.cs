@@ -18,6 +18,7 @@ public sealed class VrcSetupApplication
     public UnityProjectDriver Unity { get; }
     private readonly string[] diagnosticFlags;
     public bool AllowBackgroundCatalogRefresh => !diagnosticFlags.Contains("--no-catalog-refresh");
+    public bool AllowBackgroundUpdateChecks => !diagnosticFlags.Contains("--no-update-check");
     public VrcSetupApplication(string? home = null, string[]? diagnosticFlags = null, IUnityPackageInspector? packageInspector = null)
     {
         this.diagnosticFlags = diagnosticFlags ?? [];

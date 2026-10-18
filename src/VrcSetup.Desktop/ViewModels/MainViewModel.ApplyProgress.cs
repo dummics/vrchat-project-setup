@@ -14,7 +14,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial string ApplyPosition { get; set; } = "";
     [ObservableProperty] public partial bool CanCancelApply { get; set; }
     public Visibility ApplyOverlayVisibility => IsApplyingPackages ? Visibility.Visible : Visibility.Collapsed;
-    public bool MainInteractionEnabled => !IsApplyingPackages;
+    public bool MainInteractionEnabled => !IsApplyingPackages && !IsInstallingUpdate;
     private ProjectPlan[] applyingProjects = [];
     [RelayCommand] private void CancelApply()
     {

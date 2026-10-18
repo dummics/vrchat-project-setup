@@ -22,10 +22,19 @@ public partial class App : Application
             {
                 var target = Option("--root") ?? InstallationManager.DefaultRoot;
                 var home = Option("--home");
+                if (Option("--wait-for-pid") is { } processId)
+                {
+                    if (!int.TryParse(processId, out var pid) || pid <= 0 || pid == Environment.ProcessId) throw new IOException("Invalid application process.");
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                    try { using var previous = Process.GetProcessById(pid); await previous.WaitForExitAsync(timeout.Token); }
+                    catch (ArgumentException) { /* Already closed. Never terminate a running app. */ }
+                }
                 if (arguments.Contains("--uninstall")) await new InstallationManager(new AppPaths(home)).UninstallAsync(target, arguments.Contains("--yes"));
                 else if (arguments.Contains("--repair")) await new InstallationManager(new AppPaths(home)).RepairAsync(target);
                 else await Install(target, home);
                 if (Option("--result") is { } result) await AtomicFile.WriteJsonAsync(result, new { Success = true, Root = target });
+                if (arguments.Contains("--launch") && !arguments.Contains("--uninstall"))
+                    Process.Start(new ProcessStartInfo(Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = true });
                 Shutdown(0);
             }
             catch (Exception error)
@@ -39,6 +48,7 @@ public partial class App : Application
     }
     internal static async Task<InstallationRecord> Install(string destination, string? home = null)
     {
+        EnsureApplicationClosed(destination);
         var extraction = Path.Combine(Path.GetTempPath(), "VrcSetup-install-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(extraction);
         try
@@ -58,6 +68,21 @@ public partial class App : Application
             return await new InstallationManager(paths).InstallAsync(destination);
         }
         finally { if (Directory.Exists(extraction)) Directory.Delete(extraction, true); }
+    }
+    private static void EnsureApplicationClosed(string destination)
+    {
+        var root = ProjectRules.NormalizePath(destination) + Path.DirectorySeparatorChar;
+        foreach (var name in new[] { "VrcSetup.Desktop", "vrcsetup" })
+            foreach (var process in Process.GetProcessesByName(name))
+                using (process)
+                {
+                    try
+                    {
+                        if (!process.HasExited && process.MainModule?.FileName is { } executable && executable.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                            throw new IOException("Close VRChat Project Setup and its terminal commands before installing. Running imports are preserved.");
+                    }
+                    catch (InvalidOperationException) { /* Process exited during inspection. */ }
+                }
     }
 }
 

@@ -1,0 +1,58 @@
+name: Windows release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, for example 0.2.0-beta.1
+        required: true
+        type: string
+  push:
+    tags: ['v0.*']
+permissions:
+  contents: write
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Validate version
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { $env:REQUESTED_VERSION }
+          if ($version -notmatch '^0\.[0-9]+\.[0-9]+(?:-(?:beta|rc)\.[0-9]+)?$') { throw 'Use a 0.x.y beta, rc or stable version.' }
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Fixture tests
+        shell: pwsh
+        run: dotnet test tests/VrcSetup.Core.Tests/VrcSetup.Core.Tests.csproj -c Release --nologo
+      - name: Build self-contained installer and portable archive
+        shell: pwsh
+        run: ./scripts/Publish-Windows.ps1 -Version $env:RELEASE_VERSION -OutputDirectory release
+      - name: Native UI smoke verification
+        shell: pwsh
+        run: |
+          $exe = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64/app/desktop/VrcSetup.Desktop.exe"
+          $process = Start-Process $exe -ArgumentList @('--smoke-test', '"' + (Join-Path $env:RUNNER_TEMP 'vrcsetup-ui') + '"') -PassThru
+          if (-not $process.WaitForExit(180000)) { throw 'Native UI verification timed out.' }
+          $result = Get-Content (Join-Path $env:RUNNER_TEMP 'vrcsetup-ui/ui-smoke.json') -Raw | ConvertFrom-Json
+          if ($process.ExitCode -ne 0 -or -not $result.Passed) { throw 'Native UI verification failed.' }
+      - name: Create reviewable draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v$env:RELEASE_VERSION"
+          $assets = @("release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe", "release/VrcSetup-$env:RELEASE_VERSION-win-x64.zip", 'release/SHA256SUMS.txt')
+          $arguments = @('release','create',$tag,'--target',$env:GITHUB_SHA,'--draft','--title',"VRChat Project Setup $env:RELEASE_VERSION",'--generate-notes')
+          if ($env:RELEASE_VERSION.Contains('-')) { $arguments += '--prerelease' }
+          & gh @arguments @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release failed. Existing releases are never overwritten.' }

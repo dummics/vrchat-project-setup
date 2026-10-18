@@ -20,6 +20,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     public MainViewModel ViewModel { get; }
     public bool SuppressDialogs { get; set; }
     public void CloseApplication() => window.Close();
+    public Task<bool> InstallApplicationUpdateAsync(string installer, string result) => ((MainWindow)window).InstallUpdateAsync(installer, result);
     public MainPage(Window window, VrcSetupApplication app)
     {
         this.window = window;

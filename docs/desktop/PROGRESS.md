@@ -1,5 +1,13 @@
 # VRCSETUP Desktop migration
 
+## 0.2.0-beta.1 — distribution and local installation
+
+The owner renamed the development series from 2.0 previews to 0.2 beta. Installed over preview 14 on 18 October 2026: installer exit 0, 759 installed hashes verified, settings/import journal/legacy launcher unchanged, previous program preserved. An isolated installed-app instance verified both the active-process replacement guard (exit 1 without replacing the program) and the update helper's wait-for-exit path (preview 14 remained installed while the fixture process was running; beta installed after it closed). No real Unity import or package mutation was performed.
+
+Persistent version menu, quiet asynchronous startup checks against public GitHub Releases, optional beta inclusion, verified streamed installer download, safe idle restart/update and prefilled GitHub bug reporting are implemented. Offline errors stay non-blocking; a failed helper result is visible on next startup. Portable builds link to Releases. No Git client, token or dedicated server is required by clients.
+
+126 core/CLI fixture tests pass; native UI suite has 146 checks covering seven pages/responsive layouts and the version menu. Desktop/installer builds have zero diagnostics. Feed selection, legacy numbering, draft/incomplete releases, source restriction and checksum failure paths use deterministic HTTP fixtures. Download page verified wide and 390px, with real empty-feed fallback and a clearly isolated release fixture. YAML parses locally. GitHub Actions release workflow creates drafts; Pages workflow/site are prepared. No public beta, tag or Pages deployment has been published and remote Actions has not been run. The feature branch remains separate from main. Evidence: `.work/artifacts/2026-10-18-beta1-distribution/`, final payload in `final-release/`.
+
 ## Preview 14 — visual polish and batch editor
 
 Installed 18 October 2026: installer exit 0, all 759 installed hashes verified, configuration/import journal/legacy launcher hashes unchanged, previous installation preserved. 35 focused fixture tests and 142 native UI checks pass. Installed-binary smoke verification uses a separate fixture home. Final publication is `final-release/`; earlier release folders are intermediate.

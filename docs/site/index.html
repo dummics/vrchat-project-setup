@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Import and manage VRChat Unity projects with presets, package management and parallel imports.">
+  <link rel="icon" href="data:,">
+  <title>VRChat Project Setup — Download</title>
+  <style>
+    :root{color-scheme:dark;font:16px/1.6 system-ui,sans-serif;background:#202225;color:#ecedef}*{box-sizing:border-box}body{margin:0}main{max-width:760px;margin:10vh auto;padding:24px}header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:64px}header strong{font-size:15px}a{color:#70d8c9;text-underline-offset:4px}header a,footer a{font-size:14px}h1{font-size:clamp(32px,6vw,48px);line-height:1.15;letter-spacing:-.03em;font-weight:650;margin:0 0 20px}p{color:#adb2b9;max-width:600px}.actions{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:32px 0 8px}.download{background:#50cdbb;color:#102b29;border-radius:7px;text-decoration:none;padding:11px 20px;font-weight:600}.download:focus-visible,a:focus-visible{outline:2px solid #ecedef;outline-offset:5px}#status{font-size:13px;min-height:24px}section{border-top:1px solid #42474e;margin-top:40px;padding-top:24px}h2{font-size:18px;font-weight:600}ul{color:#adb2b9;padding-left:20px}li{margin:8px 0}footer{display:flex;gap:24px;flex-wrap:wrap;margin-top:40px}small{display:block;color:#adb2b9;font-size:12px;margin-top:24px}@media(max-width:560px){main{margin:24px auto}header{margin-bottom:40px}header strong{max-width:180px}}
+  </style>
+</head>
+<body><main>
+  <header><strong>VRChat Project Setup</strong><a href="https://github.com/dummics/vrchat-project-setup">GitHub</a></header>
+  <h1>Your avatars.<br>Ready to work on.</h1>
+  <p>Import UnityPackages, keep your package presets and manage several VRChat projects together. A compact Windows app with a terminal workflow alongside it.</p>
+  <div class="actions"><a class="download" id="download" href="https://github.com/dummics/vrchat-project-setup/releases">Windows download</a><a href="https://github.com/dummics/vrchat-project-setup/releases">All releases</a></div>
+  <p id="status" role="status">Windows 10/11 · x64 · beta</p>
+  <section><h2>Getting started</h2><ul><li>Run the installer and open VRChat Project Setup from Windows Search.</li><li>Choose your Unity Editor and projects folder. Keep Unity Hub, the required build modules and VRChat Creator Companion installed.</li><li>Drop an avatar package, review the preset and import. Existing projects stay under your control.</li></ul><p>The app checks GitHub for updates. When one is available, install it from the version menu after finishing your work.</p></section>
+  <footer><a id="portable" href="https://github.com/dummics/vrchat-project-setup/releases">Portable ZIP</a><a href="https://github.com/dummics/vrchat-project-setup/issues/new?template=bug_report.yml">Report a bug</a><a href="https://github.com/dummics/vrchat-project-setup/blob/feature/winui-desktop/docs/desktop/DISTRIBUTION.md">Installation help</a></footer>
+  <small>Community software, independent of VRChat Inc. No VRChat credentials are requested. Updates and downloads are hosted on GitHub.</small>
+</main><script>
+  const repository='https://github.com/dummics/vrchat-project-setup';
+  const assetPrefix=repository+'/releases/download/';
+  const allowed=url=>{try{const value=new URL(url);return value.protocol==='https:'&&value.href.startsWith(assetPrefix)&&!value.username&&!value.password&&!value.port}catch{return false}};
+  const parts=tag=>/^v?(0)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?$/.exec(tag);
+  const rank=tag=>{const match=parts(tag);return [Number(match[2]),Number(match[3]),match[4]==='beta'?0:match[4]==='rc'?1:2,Number(match[5]||0)]};
+  const compare=(a,b)=>{const left=rank(a.tag_name),right=rank(b.tag_name);for(let i=0;i<left.length;i++){if(left[i]!==right[i])return right[i]-left[i]}return 0};
+  async function load(){
+    try{
+      const response=await fetch('https://api.github.com/repos/dummics/vrchat-project-setup/releases?per_page=100',{signal:AbortSignal.timeout(10000)});
+      if(!response.ok)throw new Error('Releases unavailable');
+      const releases=(await response.json()).filter(item=>!item.draft&&parts(item.tag_name)).sort(compare);
+      for(const release of releases){
+        const version=release.tag_name.replace(/^v/,'');
+        const installer=release.assets.find(asset=>asset.name===`Install-VrcSetup-${version}-win-x64.exe`&&allowed(asset.browser_download_url));
+        const checksum=release.assets.find(asset=>asset.name==='SHA256SUMS.txt'&&allowed(asset.browser_download_url));
+        if(!installer||!checksum)continue;
+        document.getElementById('download').href=installer.browser_download_url;
+        document.getElementById('download').textContent='Download for Windows';
+        document.getElementById('status').textContent=`${version} · Windows x64 · Settings preserved when updating`;
+        const portable=release.assets.find(asset=>asset.name===`VrcSetup-${version}-win-x64.zip`&&allowed(asset.browser_download_url));
+        if(portable)document.getElementById('portable').href=portable.browser_download_url;
+        return;
+      }
+      document.getElementById('status').textContent='The first public beta is being prepared. See GitHub Releases for availability.';
+    }catch{document.getElementById('status').textContent='Open GitHub Releases to see available downloads.'}
+  }
+  load();
+</script></body></html>

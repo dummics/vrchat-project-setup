@@ -6,6 +6,20 @@ The Windows app and vrcsetup command use the same C#/.NET 10 engine.
 
 Run Install-VrcSetup-<version>-win-x64.exe. It is self-contained: no .NET SDK or Visual Studio is required. Install for the current user, then open **VRChat Project Setup** from Windows Search.
 
+Current numbering is **0.2.0-beta.1**. The earlier 2.0 previews were development builds, not a stable 2.0 release. Installing the beta over a preview preserves user settings, projects and a previous-program backup.
+
+## Updates and sharing
+
+Give friends the self-contained installer, or a published asset from [GitHub Releases](https://github.com/dummics/vrchat-project-setup/releases). Clients need neither Git nor a GitHub token. No VPS is used. The version menu at the bottom of the app offers update checks, release downloads and Report a bug. Startup checks are asynchronous and quiet; Settings → Updates controls startup checks and beta inclusion.
+
+When a newer complete release is available, choose **Install update and restart**. The app downloads the installer from this repository, verifies its SHA-256 against that release's `SHA256SUMS.txt`, waits for imports and pending edits to finish, closes normally, installs and reopens. It never kills Unity or a running import. The installer refuses replacement while another installed GUI/CLI process remains active and preserves the previous installation. Portable copies link to Releases instead of replacing their own folder. Offline/rate-limit failures are non-blocking; manual retries stay in the status bar.
+
+The repository includes `.github/workflows/windows-release.yml`: an owner-triggered run or `v0.*` tag validates the version, runs fixture tests/native UI checks, builds installer+ZIP+checksums and creates a **draft** release. Review and publish that draft to expose it to clients. Drafts and releases without installer/checksums are ignored. Existing releases are never overwritten. All release binaries derive their version from the requested release version; use `0.x.y-beta.n`, `0.x.y-rc.n` or `0.x.y`.
+
+`docs/site/index.html` is a dependency-free download page using the same public Releases API, with fallback links when GitHub is unavailable. Enable GitHub Pages with the GitHub Actions source, then run `download-page.yml` after the workflows are integrated into the default branch. No Pages deployment or public beta publication is implied by a local build. The feature branch remains separate until owner-approved integration.
+
+Report a bug opens a new repository issue with the app version and report prompts prefilled, even before the feature branch is integrated. The user reviews and submits it on GitHub; no issue, screenshot or log is sent automatically. A structured web form template becomes active when integrated into the default branch. Sources: [GitHub release API](https://docs.github.com/en/rest/releases/releases), [issue form fields](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema), [GitHub Pages workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+
 Unity Editor and its selected build modules, VRChat Creator Companion and the VPM CLI remain content-creation prerequisites. VPM has its own runtime requirements; the app checks tool failures and never treats an incomplete import as ready. No VRChat login is requested by VRCSETUP.
 
 The application is a community utility, independent of VRChat Inc. Unsigned test builds may show Windows reputation prompts. Verify SHA256SUMS.txt; do not disable Windows security settings to run a test build.
@@ -18,7 +32,7 @@ Narrow windows use compact navigation and vertically stacked creation fields. Th
 
 ## Portable
 
-Preview 9 adds direct Open project/modification dates and the [multi-import queue](IMPORT-QUEUE.md): reviewed multi-file creation, one/two workers, per-project logs/steps/cancel, explicit recovery and safe analysis-cache clearing. It is installed on Dom's PC. Automated checks passed; Dom took over real import testing before completion, so no completed GIGGLES/Lulla import acceptance is claimed.
+The [multi-import workspace](IMPORT-QUEUE.md) supports parallel imports without a fixed user-facing worker limit, per-project progress/cancel, logs and explicit recovery. Resource warnings stay inline. Analysis cache maintenance is in Settings.
 
 Preview 8 includes offline UnityPackage inspection and avatar-focused package suggestions. Dom authorized upgrading preview 6 after code review, compilation and payload-integrity verification, without direct functional tests. Version lookups and search results do not automatically become personal packages. `vrcsetup inspect <file> --json` and `--deep` use the same local analyzer as Create; neither starts Unity or installs dependencies. New candidate signatures from the supplied research await source verification. See [inspection behavior](PACKAGE-INSPECTION.md).
 
@@ -38,7 +52,7 @@ On Dom's PC, `vrcsetup-legacy` opens the preserved original PowerShell tool whil
 
 Settings → Developer tools enables development controls, verbose diagnostics and tool-output tracing; Save settings persists these choices. CLI and `vrcsetup gui` also accept `--developer`, `--verbose`, `--trace-tools` and `--no-catalog-refresh` for that run. Errors are always recorded in `%LOCALAPPDATA%\VrcSetup\logs\diagnostics-yyyyMMdd.jsonl`. Trace output may contain local paths; inspect it before sharing.
 
-Activity shows operations. Additional unfinished-project and restore controls appear in developer mode. The CLI retains `recovery` commands and its interactive Activity and recovery menu. Presets use local known packages and favorites immediately; stale version lists refresh asynchronously when the preset page opens. Search contacts repositories only when requested.
+Activity separates imports and operations. Check, resume/reimport and associated-backup restore belong to each relevant history entry. The CLI retains `recovery` commands and its interactive Activity menu. Presets use local known packages and favorites immediately; stale version lists refresh asynchronously when the preset page opens. Search contacts repositories only when requested.
 
 ## Data and recovery
 

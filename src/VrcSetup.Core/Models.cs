@@ -54,6 +54,8 @@ public sealed class AppConfiguration
     public string Theme { get; set; } = "System";
     public bool ManualImportPath { get; set; }
     public bool AutoHideCompletedImports { get; set; }
+    public bool CheckUpdatesOnStartup { get; set; } = true;
+    public bool IncludeBetaUpdates { get; set; } = true;
     public DiagnosticSettings Diagnostics { get; set; } = new();
     [JsonIgnore] public string? Revision { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalSettings { get; set; }
