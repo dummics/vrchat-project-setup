@@ -22,13 +22,17 @@ Inspect `result.json` (`Passed: true`), `handoff.json`, `home/updates/last-resul
 
 ## Actual online update
 
+**Verified beta.1 → public beta.3 on 18 October 2026:** `-UseRealNetwork` completed in 27.4 seconds, including public feed discovery, GitHub asset redirects, 205 MiB installer download, SHA-256, real installer replacement and candidate relaunch. `RealNetworkUsed` and `RealInstallerUsed` are true. All payload hashes, complete settings hash, previous installation and no-repeat behavior passed. A subsequent independent installed CLI launch recovered the same data home, saved editor path, Dark theme and hide-completed preference. Owner config/journal/program marker/legacy launcher hashes were unchanged. Evidence: `.work/artifacts/2026-10-18-editor-release/online-run/`.
+
+Public prerelease: https://github.com/dummics/vrchat-project-setup/releases/tag/v0.2.0-beta.3 . Source 4523821; successful workflow 39121554963. Local verification: 130 fixture tests and 150 native UI checks, including the installed pinned editor on Dom's PC. CI also passed fixture/native checks before publication; discovery checks requiring an installed editor are conditional there. No real Unity project imports/package mutations were used for this distribution test. Owner's active app remains beta.1 until the normal update command is selected.
+
 The beta.3 test entry point also supports `-UseRealNetwork -TimeoutSeconds 600`. Build a base payload from beta.3 source with version beta.1, provide the published beta.3 installer as `-UpdateInstaller`, and use a fresh output directory. In this mode the app uses its normal HTTP client, public GitHub feed, redirects and asset download; the supplied installer only defines the expected version/checksum fixture. No transport is substituted. Successful evidence must explicitly report `RealNetworkUsed: true`. The isolated app/installer still cannot alter owner data or shortcuts.
 
 The fixture includes a saved editor path on an unavailable drive plus appearance/import preferences. Its complete configuration hash must survive replacement and candidate startup. Native UI checks separately verify that a found editor is persisted immediately and survives reload. Normal installed copies record their data home in the installation marker, and installer relaunch passes the same home to the new process.
 
 From beta.3 onward, tag pushes publish releases after all checks pass; manual runs remain drafts by default. Beta/rc tags remain prereleases. Earlier beta.2 draft evidence below is historical.
 
-The local test verifies the complete installer/restart pipeline, with HTTP transport supplied by files. It does **not** verify GitHub's live download/redirect path or publishing permissions.
+Without `-UseRealNetwork`, the local test verifies the complete installer/restart pipeline with HTTP transport supplied by files. That mode does **not** verify GitHub's live download/redirect path or publishing permissions.
 
 For a real beta.1 → beta.2 check, publish the newer complete GitHub release with its installer and `SHA256SUMS.txt`, then use the installed app's version menu → Check for updates → Install update and restart. Finish imports and save/revert pending package edits first. The current beta remains installed until that action; publishing a test candidate does not itself replace local programs.
 

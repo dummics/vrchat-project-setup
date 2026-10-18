@@ -6,6 +6,8 @@ The Windows app and vrcsetup command use the same C#/.NET 10 engine.
 
 Run Install-VrcSetup-<version>-win-x64.exe. It is self-contained: no .NET SDK or Visual Studio is required. Install for the current user, then open **VRChat Project Setup** from Windows Search.
 
+Public beta installer: [0.2.0-beta.3](https://github.com/dummics/vrchat-project-setup/releases/tag/v0.2.0-beta.3), Windows x64. The installer is currently unsigned, so Windows may show a publisher/reputation prompt on a browser download. SHA-256 is available alongside it. Public download and the app's full update/restart path have been verified in an isolated installation; avatar import acceptance on other PCs remains beta testing.
+
 Current numbering is **0.2.0-beta.3**. The earlier 2.0 previews were development builds, not a stable 2.0 release. Installing the beta over a preview preserves user settings, projects and a previous-program backup. The saved editor is retained; the app searches Unity Hub metadata/custom paths, default installations and Windows installed-program records for the pinned Unity 2022.3.22f1, checking executable product metadata. Settings offers Find editor, Choose file and the official Unity installation guide; imports and Open project can configure the editor before executing. A manual editor choice is saved immediately. Installed copies remember their data home across independent launches.
 
 ## Updates and sharing
