@@ -30,6 +30,7 @@ public static class UiSmokeTest
         config.UnityEditorPath = Path.Combine(artifacts, "saved-editor", "Unity.exe");
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
         config.CreationRecipes["PC template"] = new() { Preset = "creator pc", Packages = packages }; await application.Configuration.SaveAsync(config);
+        await application.Catalog.RememberAsync([new("com.llealloo.audiolink", "AudioLink", "latest"), new("nadena.dev.modular-avatar", "Modular Avatar", "latest")]);
         return application;
     }
     public static async Task RunAsync(MainWindow window, string artifacts)
@@ -63,7 +64,7 @@ public static class UiSmokeTest
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(partial).State == "Partially applied", "Mixed batch outcomes remain explicit");
         Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 2, "Diagnostics tab is absent in normal mode");
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
-        viewModel.CurrentPage = "Presets"; viewModel.PackageTabIndex = 0; await Task.Delay(100); page.UpdateLayout();
+        viewModel.CurrentPage = "Presets"; await Task.Delay(100); page.UpdateLayout();
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == "My default packages", "Preset selector has a visible selection after binding");
         Require(viewModel.ApplicationProgressVisibility == Visibility.Collapsed, "Idle application progress is hidden");
         Require(!((Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails")).IsExpanded, "Creation packages start as a compact summary");
@@ -85,6 +86,19 @@ public static class UiSmokeTest
         var informationMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.GetAttachedFlyout(information);
         informationMenu.ShowAt(information); await Task.Delay(100);
         Require(informationMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().All(x => x.Command is not null), "Information opens a contextual popup with bound support commands"); informationMenu.Hide();
+        window.AppWindow.Resize(new(1180, 800)); navigation.IsPaneOpen = true; await Task.Delay(250);
+        page.ToggleInformation(); await Task.Delay(250);
+        Require(((FrameworkElement)page.FindName("InfoLogs")).Visibility == Visibility.Visible, "Information expands upward inline when the sidebar has room");
+        await Render(page, Path.Combine(artifacts, "information-inline.png"));
+        window.AppWindow.Resize(new(720, 620)); await Task.Delay(250);
+        Require(((FrameworkElement)page.FindName("InfoLogs")).Visibility == Visibility.Collapsed, "Short or compact sidebar collapses inline information before clipping");
+        page.ToggleInformation(); await Task.Delay(100); await Render(page, Path.Combine(artifacts, "information-popup.png")); informationMenu.Hide();
+        window.AppWindow.Resize(new(1180, 800)); await Task.Delay(250);
+        var freshProject = new NewProjectDialog(viewModel, (Microsoft.UI.Xaml.DataTemplate)page.Resources["PresetChoice"]);
+        freshProject.Name.Text = "Fresh project"; freshProject.Dialog.XamlRoot = page.XamlRoot;
+        var newProjectShown = freshProject.Dialog.ShowAsync(); await Task.Delay(350);
+        Require(freshProject.Preset.SelectedItem?.ToString() == viewModel.EditingPreset && freshProject.Platform.SelectedValue?.ToString() == "StandaloneWindows64", "Empty project dialog selects preset and platform without a UnityPackage field");
+        await Render(freshProject.Dialog, Path.Combine(artifacts, "new-project.png")); freshProject.Dialog.Hide(); await newProjectShown;
         viewModel.SelectedRecipe = null!; viewModel.SelectedRecipe = "No recipe";
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
@@ -95,7 +109,7 @@ public static class UiSmokeTest
         viewModel.StagePresetVersion("gogoloco", "1.8.7");
         Require(stablePresetRows.SequenceEqual(viewModel.PresetPackages) && viewModel.PresetPackages.First(x => x.Id == "gogoloco").Version == "1.8.7", "Changing one preset version preserves every row instance");
         viewModel.DiscardPresetChangesCommand.Execute(null);
-        Require(viewModel.LibraryPackages.All(x => x.Included == viewModel.PresetPackages.Any(p => p.Id == x.Id)), "Library cards reflect the selected preset");
+        Require(viewModel.LibraryPackages.All(x => !x.Included && !viewModel.PresetPackages.Any(p => p.Id == x.Id)), "Preset catalogue excludes every already included package");
         var original = await viewModel.Application.Projects.ReadAsync(viewModel.Projects[0].Path);
         var optional = viewModel.PresetPackages.First(x => x.Id == "gogoloco");
         viewModel.RemovePresetPackageCommand.Execute(optional);
@@ -110,6 +124,7 @@ public static class UiSmokeTest
         Require((await viewModel.Application.Configuration.LoadAsync()).FavoritePackages.Contains("gogoloco") != favorite, "Package star persists the favorite choice");
         viewModel.AddLibraryPackageCommand.Execute(viewModel.LibraryPackages.First(x => x.Id == "gogoloco"));
         Require(viewModel.PresetDirty && viewModel.PresetPackages.Any(x => x.Id == "gogoloco"), "Saved library package is added without a repository search");
+        Require(!viewModel.LibraryPackages.Any(x => x.Id == "gogoloco"), "Adding a package moves it into the preset without a duplicate catalogue card");
         viewModel.DiscardPresetChangesCommand.Execute(null); viewModel.EditingPreset = "My default packages";
         saved = await viewModel.Application.Configuration.LoadAsync();
         saved.PackagePresets["Creator PC"]["gogoloco"] = "1.8.6";
@@ -164,7 +179,7 @@ public static class UiSmokeTest
             flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco")); flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco"));
             Require(!flow.WorkspaceDirty, "Undoing a removal restores the original version policy without a new change");
             flow.LibraryFilter = "vrc fury";
-            Require(flow.LibraryPackages.Any(x => x.Id == "com.vrcfury.vrcfury"), "Local library search accepts multiple query words"); flow.LibraryFilter = "";
+            Require(flow.LibraryPackages.Concat(flow.PresetPackages).Any(x => x.Id == "com.vrcfury.vrcfury"), "Unified package search finds multi-word matches in the correct section"); flow.LibraryFilter = "";
         }
         Require((await new VrcSetupApplication(Path.Combine(artifacts, "seed-check-home")).Inspection.LoadIndexAsync()).Signatures.Length > 1000, "Published bundle includes the offline dependency signature seed");
         var inspectionFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
@@ -202,6 +217,7 @@ public static class UiSmokeTest
             Require(!suggested.Accepted, "Detected selection stays staged until the user accepts");
         }
         var theme = viewModel.Theme;
+        viewModel.RemovePresetPackageCommand.Execute(viewModel.PresetPackages.First(x => x.Id == "gogoloco"));
         var librarySnapshot = viewModel.LibraryPackages.ToArray();
         var favoriteRow = librarySnapshot.First();
         var originalFavorite = favoriteRow.Favorite;
@@ -212,6 +228,7 @@ public static class UiSmokeTest
         Require(favoriteRow.Favorite != originalFavorite && collectionChanges == 0 && librarySnapshot.SequenceEqual(viewModel.LibraryPackages), "Favorite updates in place without resetting or reordering cards");
         await viewModel.TogglePackageFavoriteCommand.ExecuteAsync(favoriteRow);
         viewModel.LibraryPackages.CollectionChanged -= onCollection;
+        viewModel.DiscardPresetChangesCommand.Execute(null);
         using (var editor = new PackageSetDialog("Creator packages", new() { ["custom.required"] = "1.0.0" }, new() { RequiredPackages = ["custom.required"] }, viewModel.Registry.ToArray(),
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>())))
         {
@@ -265,16 +282,28 @@ public static class UiSmokeTest
             {
                 if (screen == "Catalog") viewModel.OpenProjectCatalogCommand.Execute(null);
                 else { if (viewModel.BrowsingProjectPackages) viewModel.BackToProjectCommand.Execute(null); viewModel.CurrentPage = screen; }
-                if (screen == "Presets") viewModel.PackageTabIndex = 0;
                 if (screen == "Activity") viewModel.AppendActivity(new(DateTime.UtcNow, "Verified", "Native renderer / shared viewmodel verification"));
                 await Task.Delay(180);
                 page.UpdateLayout();
                 Require(page.ActualWidth > 0 && page.ActualHeight > 0, "Layout measured: " + screen + " " + size.Width);
                 Require(navigation.DisplayMode != Microsoft.UI.Xaml.Controls.NavigationViewDisplayMode.Minimal, "Sidebar remains available: " + size.Width);
+                var actionLists = screen switch
+                {
+                    "Projects" => new[] { (Microsoft.UI.Xaml.Controls.ListViewBase)page.FindName("ProjectList") },
+                    "Workspace" => new[] { (Microsoft.UI.Xaml.Controls.ListViewBase)page.FindName("WorkspacePackages") },
+                    "Presets" => new[] { (Microsoft.UI.Xaml.Controls.ListViewBase)page.FindName("PresetPackageList") },
+                    _ => []
+                };
+                foreach (var list in actionLists)
+                {
+                    var right = list.TransformToVisual(page).TransformPoint(new(list.ActualWidth - list.Padding.Right, 0)).X;
+                    var buttons = Descendants(list).OfType<Microsoft.UI.Xaml.Controls.Button>().Where(x => x.Visibility == Visibility.Visible && x.ActualWidth > 0).ToArray();
+                    Require(list.Padding.Right >= 24 && buttons.All(x => x.TransformToVisual(page).TransformPoint(new(x.ActualWidth, 0)).X <= right + 2), "Trailing actions stay inside the scrollbar gutter: " + screen + " " + size.Width);
+                }
                 if (screen == "Projects")
                 {
                     var projects = (FrameworkElement)page.FindName("ProjectList");
-                    var open = Descendants(projects).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => x.Content as string == "Open project");
+                    var open = Descendants(projects).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => x.Content as string == "Open");
                     var origin = open.TransformToVisual(page).TransformPoint(new(0, 0));
                     Require(origin.X >= 0 && origin.X + open.ActualWidth <= page.ActualWidth + 1, "Direct project action fits client: " + size.Width);
                     Require(Descendants(projects).OfType<FrameworkElement>().Any(x => x.Name == "ProjectModified"), "Project last-modified field is materialized: " + size.Width);
@@ -302,6 +331,16 @@ public static class UiSmokeTest
                     }
                 }
                 await Render(page, Path.Combine(artifacts, screen.ToLowerInvariant() + "-" + size.Width + ".png"));
+                if (screen == "Settings" && size.Width is 1180 or 1920)
+                {
+                    navigation.IsPaneOpen = false; await Task.Delay(450); page.UpdateLayout();
+                    var content = (FrameworkElement)page.FindName("PageContent");
+                    var origin = content.TransformToVisual(page).TransformPoint(new(0, 0));
+                    Require(Math.Abs(origin.X - navigation.CompactPaneLength) <= 2 && Math.Abs(origin.X + content.ActualWidth - page.ActualWidth) <= 2,
+                        "Collapsing the sidebar fills the released width without side bands: " + size.Width);
+                    await Render(page, Path.Combine(artifacts, "settings-sidebar-collapsed-" + size.Width + ".png"));
+                    navigation.IsPaneOpen = true; await Task.Delay(250);
+                }
                 if (screen == "Create" && size.Width is 720 or 1180)
                 {
                     var details = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails");
@@ -321,14 +360,16 @@ public static class UiSmokeTest
                 if (screen == "Presets")
                 {
                     var carousel = (FrameworkElement)page.FindName("PresetCarousel");
-                    var tabStrip = (FrameworkElement)page.FindName("PackageTabs");
-                    Require(carousel.TransformToVisual(page).TransformPoint(new(0, 0)).Y > tabStrip.TransformToVisual(page).TransformPoint(new(0, 0)).Y + 24, "Preset selector belongs below the tabs: " + size.Width);
+                    Require(carousel.ActualWidth > 0 && page.FindName("PackageTabs") is null, "Preset editor is one unified page without duplicate tabs: " + size.Width);
+                    var editorBounds = (FrameworkElement)page.FindName("PresetEditor");
+                    var editorRight = editorBounds.TransformToVisual(page).TransformPoint(new(editorBounds.ActualWidth, 0)).X;
+                    Require(Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<PackageActionIcon>().All(x => x.TransformToVisual(page).TransformPoint(new(x.ActualWidth, 0)).X <= editorRight + 1), "Preset minus icons fit without right-edge clipping: " + size.Width);
                     if (size.Width == 1180)
                     {
-                        var options = Descendants(page).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(x) == "Package options");
-                        var menu = (Microsoft.UI.Xaml.Controls.MenuFlyout)options.Flyout; menu.ShowAt(options); await Task.Delay(120);
-                        Require(menu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Last().DataContext is VrcSetup_Desktop.ViewModels.UiPackageRow { Required: true } && !menu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Last().IsEnabled, "Package menu inherits row context and protects required packages");
-                        await Render(page, Path.Combine(artifacts, "preset-menu.png")); menu.Hide();
+                        var remove = Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => x.DataContext is VrcSetup_Desktop.ViewModels.UiPackageRow { Required: true } && x.Content is PackageActionIcon);
+                        Require(!remove.IsEnabled, "Direct preset minus protects required packages");
+                        var optionalRemove = Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => x.IsEnabled && x.Content is PackageActionIcon);
+                        await Render((FrameworkElement)optionalRemove.Content, Path.Combine(artifacts, "minus-icon.png"));
                         var selector = Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<PackageVersionSelector>().First();
                         var uiThread = Environment.CurrentManagedThreadId; var worker = uiThread; var calls = 0;
                         var release = new TaskCompletionSource<string[]>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -346,11 +387,10 @@ public static class UiSmokeTest
                         Require(viewModel.PresetDirty, "Version dropdown stages a preset pin without a dialog");
                         viewModel.DiscardPresetChangesCommand.Execute(null);
                     }
-                    var tabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("PackageTabs"); tabs.SelectedIndex = 1; await Task.Delay(180);
-                    await Render(page, Path.Combine(artifacts, "my-packages-" + size.Width + ".png"));
+                    await Render(page, Path.Combine(artifacts, "unified-packages-" + size.Width + ".png"));
                     await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null); await Task.Delay(120);
-                    await Render(page, Path.Combine(artifacts, "my-packages-list-" + size.Width + ".png"));
-                    await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null); tabs.SelectedIndex = 0;
+                    await Render(page, Path.Combine(artifacts, "unified-packages-list-" + size.Width + ".png"));
+                    await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null);
                 }
             }
         }
@@ -361,6 +401,18 @@ public static class UiSmokeTest
             new ImportJob("visual-" + index, new OperationPlan("visual", DateTime.UtcNow, []),
                 new CreationRequest("fixture.unitypackage", name, Path.Combine(artifacts, name), "", "StandaloneWindows64", [], []),
                 "Running", "Packages", 35 + index * 20, "", "", DateTime.UtcNow.AddMinutes(-2)))).ToArray();
+        viewModel.CurrentPage = "Activity";
+        var historyList = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => ReferenceEquals(x.ItemsSource, viewModel.ImportHistory));
+        var emptyHistory = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().First(x => x.Text == "No import history yet");
+        emptyHistory.Visibility = Visibility.Collapsed;
+        historyList.ItemsSource = fixtureJobs.Select(x => new VrcSetup_Desktop.ViewModels.UiHistoryEntry(x.Job)).ToArray();
+        foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(1180, 800) })
+        {
+            window.AppWindow.Resize(size); await Task.Delay(450); page.UpdateLayout();
+            await Render(page, Path.Combine(artifacts, "activity-fixture-" + size.Width + ".png"));
+        }
+        historyList.ItemsSource = viewModel.ImportHistory; viewModel.CurrentPage = "Create";
+        emptyHistory.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportHistoryEmptyVisibility)) });
         jobList.ItemsSource = fixtureJobs; jobList.Visibility = Visibility.Visible; jobSection.Visibility = Visibility.Visible;
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(1180, 800) })
         {

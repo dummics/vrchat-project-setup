@@ -30,6 +30,8 @@ public sealed partial class MainViewModel
     public string PresetLabel => EditingPreset == DefaultPresetKey ? "Default" : EditingPreset;
     public bool IsCustomPreset => EditingPreset != DefaultPresetKey;
     public bool HasMultiplePresets => Presets.Count > 1;
+    public Visibility PresetCatalogVisibility => LibraryPackages.Count > 0 || CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PresetIncludedVisibility => PresetPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     [RelayCommand] private void PreviousPreset() => CyclePreset(-1);
     [RelayCommand] private void NextPreset() => CyclePreset(1);
     private void CyclePreset(int direction)
@@ -53,8 +55,8 @@ public sealed partial class MainViewModel
     partial void OnBuildTargetChanged(string value)
     { if (!switchingImportDraft && SelectedImportDraft is { } draft) draft.Platform = value; }
     partial void OnProjectsRootChanged(string value) => OnPropertyChanged(nameof(DestinationPreview));
-    partial void OnLibraryFilterChanged(string value) { libraryFavoriteSnapshot = null; onlineMatches.Clear(); RefreshLibraryRows(); _ = SearchLibraryAsync(value ?? ""); }
-    partial void OnFavoritesOnlyChanged(bool value) { libraryFavoriteSnapshot = null; RefreshLibraryRows(); }
+    partial void OnLibraryFilterChanged(string value) { libraryFavoriteSnapshot = null; onlineMatches.Clear(); RefreshLibraryRows(); RenderPreset(); _ = SearchLibraryAsync(value ?? ""); }
+    partial void OnFavoritesOnlyChanged(bool value) { libraryFavoriteSnapshot = null; RefreshLibraryRows(); RenderPreset(); }
     partial void OnCurrentPageChanged(string value)
     {
         if (value == "Activity") _ = RefreshSavedHistoryAsync();
@@ -82,7 +84,10 @@ public sealed partial class MainViewModel
     private void RenderPreset()
     {
         var required = ProjectRules.Foundation(presetWorking, config);
-        var desired = presetWorking.Select(x => MakeRow(x.Key, x.Value, required.Contains(x.Key))).OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : ProjectRules.SdkIds.Contains(x.Id) ? 1 : x.Id == ProjectRules.Resolver ? 2 : x.Required ? 3 : 4).ThenBy(x => x.Name).ToArray();
+        var tokens = (LibraryFilter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var desired = presetWorking.Select(x => MakeRow(x.Key, x.Value, required.Contains(x.Key)))
+            .Where(x => tokens.All(t => (x.Name + " " + x.Id).Contains(t, StringComparison.OrdinalIgnoreCase)) && (!FavoritesOnly || (libraryFavoriteSnapshot ?? config.FavoritePackages.ToHashSet(StringComparer.OrdinalIgnoreCase)).Contains(x.Id)))
+            .OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : ProjectRules.SdkIds.Contains(x.Id) ? 1 : x.Id == ProjectRules.Resolver ? 2 : x.Required ? 3 : 4).ThenBy(x => x.Name).ToArray();
         var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var i = PresetPackages.Count - 1; i >= 0; i--) if (!ids.Contains(PresetPackages[i].Id)) PresetPackages.RemoveAt(i);
         for (var i = 0; i < desired.Length; i++)
@@ -97,13 +102,14 @@ public sealed partial class MainViewModel
                 if (index != i) PresetPackages.Move(index, i);
             }
         }
+        OnPropertyChanged(nameof(PresetIncludedVisibility));
     }
     private void RefreshLibraryRows()
     {
         browserIncluded = session?.Rows().Where(x => x.Included).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var tokens = (LibraryFilter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         libraryFavoriteSnapshot ??= config.FavoritePackages.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var desired = Registry.Where(x => (tokens.Length > 0 || personalPackageIds.Contains(x.Id) ||
+        var desired = Registry.Where(x => (BrowsingProjectPackages || !presetWorking.ContainsKey(x.Id)) && (tokens.Length > 0 || personalPackageIds.Contains(x.Id) ||
             config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase) || presetWorking.ContainsKey(x.Id) ||
             BrowsingProjectPackages && browserIncluded.Contains(x.Id)) &&
         (!FavoritesOnly || libraryFavoriteSnapshot.Contains(x.Id)) && (onlineMatches.Contains(x.Id) || tokens.All(token => (x.Id + " " + x.DisplayName).Contains(token, StringComparison.OrdinalIgnoreCase))))
@@ -117,6 +123,7 @@ public sealed partial class MainViewModel
             else if (existing.Name != next.Name || existing.Version != next.Version || existing.Required != next.Required || existing.Included != next.Included || existing.ProjectContext != next.ProjectContext) LibraryPackages[LibraryPackages.IndexOf(existing)] = next;
             else existing.Favorite = next.Favorite;
         }
+        OnPropertyChanged(nameof(PresetCatalogVisibility));
     }
     private void UpdateProjectState()
     {
@@ -150,6 +157,7 @@ public sealed partial class MainViewModel
         var name = EditingPreset; var saved = new Dictionary<string, string>(presetWorking);
         if (name == DefaultPresetKey) config.VpmPackages = new(saved); else config.PackagePresets[name] = new(saved);
         await PersistConfigurationAsync();
+        await app.Catalog.RememberAsync(Registry.Where(x => saved.ContainsKey(x.Id)), lifetime.Token, preserveSelections: true);
         if (EditingPreset == name && saved.Count == presetWorking.Count && saved.All(x => presetWorking.GetValueOrDefault(x.Key) == x.Value)) PresetDirty = false;
         await LoadRegistry(); ShowSavedFeedback("Preset saved"); Status = (name == DefaultPresetKey ? "Default" : name) + " saved";
     });
@@ -179,6 +187,8 @@ public sealed partial class MainViewModel
         if (!config.FavoritePackages.Remove(row.Id)) config.FavoritePackages.Add(row.Id);
         await PersistConfigurationAsync();
         var favorite = config.FavoritePackages.Contains(row.Id, StringComparer.OrdinalIgnoreCase);
+        if (favorite && Registry.FirstOrDefault(x => x.Id.Equals(row.Id, StringComparison.OrdinalIgnoreCase)) is { } definition)
+            await app.Catalog.RememberAsync([definition], lifetime.Token);
         foreach (var visible in LibraryPackages.Concat(PresetPackages).Where(x => x.Id.Equals(row.Id, StringComparison.OrdinalIgnoreCase))) visible.Favorite = favorite;
     });
     [RelayCommand] private void OpenDiagnostics()
@@ -222,7 +232,7 @@ public sealed class UiPackageRow(string id, string name, string version, bool re
     public Visibility IncludedVisibility => Included ? Visibility.Visible : Visibility.Collapsed;
     public bool CanRemove => !Required;
     public string VersionLabel => Version == "latest" ? "Latest" : Version;
-    public string AddLabel => Included ? "Added" : ProjectContext ? "Add to project" : "Add to preset";
+    public string AddLabel => Included ? "Added" : ProjectContext ? "Add to project" : "Add";
     public string IncludedLabel => ProjectContext ? "✓ In project" : "✓ In preset";
     public string FavoriteAction => Favorite ? "Remove favorite" : "Add to favorites";
     public Visibility FavoriteVisibility => Favorite ? Visibility.Visible : Visibility.Collapsed;

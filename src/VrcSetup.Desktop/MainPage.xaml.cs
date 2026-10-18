@@ -15,6 +15,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private readonly SemaphoreSlim dialogGate = new(1, 1);
     private bool initialized;
     private bool syncingNavigation;
+    private bool informationExpanded;
     private readonly TaskCompletionSource initializedCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Task Initialized => initializedCompletion.Task;
     public MainViewModel ViewModel { get; }
@@ -28,6 +29,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         InitializeComponent(); ViewModel = new(app, this); DataContext = ViewModel;
         SizeChanged += (_, _) => ConstrainContent();
         Navigation.DisplayModeChanged += (_, _) => ConstrainContent();
+        Navigation.RegisterPropertyChangedCallback(NavigationView.IsPaneOpenProperty, (_, _) => ConstrainContent());
         CreateView.SizeChanged += (_, _) => ConstrainForms(); SettingsView.SizeChanged += (_, _) => ConstrainForms();
         CreateForm.SizeChanged += (_, _) => ConstrainForms();
         ProjectsView.SizeChanged += (_, _) => ConstrainForms();
@@ -38,6 +40,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
             if (eventArgs.PropertyName == nameof(ViewModel.CreationPackageSummary)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.ImportJobsVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
+            if (eventArgs.PropertyName == nameof(ViewModel.PresetCatalogVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
         };
         Loaded += async (_, _) =>
         {
@@ -67,12 +70,28 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void NavigationInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
         if (ViewModel is null || syncingNavigation) return;
-        if ((args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() == "About")
-        { Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(args.InvokedItemContainer); ShowPage(ViewModel.CurrentPage); return; }
+        if ((args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() is { } tag)
+        {
+            if (tag == "About") { ToggleInformation(); return; }
+            if (tag.StartsWith("Info:", StringComparison.Ordinal))
+            {
+                if (tag == "Info:Releases") ViewModel.OpenReleasesCommand.Execute(null);
+                else if (tag == "Info:Bug") ViewModel.ReportBugCommand.Execute(null);
+                else if (tag == "Info:Contact") ViewModel.ContactSupportCommand.Execute(null);
+                else if (tag == "Info:Logs") ViewModel.OpenLogsCommand.Execute(null);
+                return;
+            }
+        }
         await ViewModel.NavigateAsync(args.IsSettingsInvoked ? "Settings" : (args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() ?? "Projects");
         ShowPage(ViewModel.CurrentPage);
     }
-    private async void NewProjectClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Create");
+    private async void NewProjectClicked(object sender, RoutedEventArgs args)
+    {
+        if (!ViewModel.EditorReady) { await ViewModel.FindEditorCommand.ExecuteAsync(null); if (!ViewModel.EditorReady) { await ViewModel.NavigateAsync("Settings"); return; } }
+        var create = new NewProjectDialog(ViewModel, (DataTemplate)Resources["PresetChoice"]);
+        if (await ShowDialog(create.Dialog) == ContentDialogResult.Primary)
+            await ViewModel.CreateEmptyProjectAsync(create.Name.Text.Trim(), create.Preset.SelectedItem?.ToString(), create.Platform.SelectedValue?.ToString() ?? "StandaloneWindows64");
+    }
     private async void ImportSettingsClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Settings");
     private async void ActivityClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Activity");
     private void ConstrainContent()
@@ -81,12 +100,39 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         var mode = expanded ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftCompact;
         if (Navigation.PaneDisplayMode != mode) { Navigation.PaneDisplayMode = mode; Navigation.IsPaneOpen = expanded; }
         Navigation.OpenPaneLength = Math.Clamp(ActualWidth * 0.16, 168, 192);
-        var pane = Navigation.DisplayMode == NavigationViewDisplayMode.Expanded ? Navigation.OpenPaneLength : Navigation.CompactPaneLength;
+        var pane = Navigation.DisplayMode == NavigationViewDisplayMode.Expanded && Navigation.IsPaneOpen
+            ? Navigation.OpenPaneLength : Navigation.CompactPaneLength;
         PageContent.MaxWidth = Math.Max(1, ActualWidth - pane);
+        if (informationExpanded && !CanExpandInformationInline()) SetInformationExpanded(false);
         ConstrainForms();
+    }
+    internal void ToggleInformation()
+    {
+        if (CanExpandInformationInline()) SetInformationExpanded(!informationExpanded);
+        else { SetInformationExpanded(false); Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(InformationItem); }
+    }
+    private bool CanExpandInformationInline()
+    {
+        if (!Navigation.IsPaneOpen || Navigation.DisplayMode != NavigationViewDisplayMode.Expanded) return false;
+        var informationRows = new[] { InfoReleases, InfoBug, InfoContact, InfoLogs };
+        var menus = Navigation.MenuItems.OfType<FrameworkElement>().Sum(x => x.ActualHeight);
+        var footer = Navigation.FooterMenuItems.OfType<FrameworkElement>().Where(x => !informationRows.Contains(x)).Sum(x => x.ActualHeight);
+        var extra = informationRows.Length * Math.Max(32, InformationItem.ActualHeight);
+        return Navigation.ActualHeight >= menus + footer + extra + 96;
+    }
+    private void SetInformationExpanded(bool expanded)
+    {
+        informationExpanded = expanded;
+        foreach (var item in new[] { InfoReleases, InfoBug, InfoContact, InfoLogs })
+        {
+            item.Transitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection { new Microsoft.UI.Xaml.Media.Animation.EntranceThemeTransition { FromVerticalOffset = 12, IsStaggeringEnabled = false } };
+            item.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
     private void ConstrainForms()
     {
+        PresetPackageList.MaxHeight = ViewModel.PresetCatalogVisibility == Visibility.Visible
+            ? Math.Clamp(PageContent.ActualHeight * 0.36, 140, 280) : Math.Max(140, PageContent.ActualHeight - 150);
         var stackProjectHeader = ProjectsView.ActualWidth < 560;
         Grid.SetRow(ProjectHeaderActions, stackProjectHeader ? 1 : 0);
         Grid.SetColumn(ProjectHeaderActions, stackProjectHeader ? 0 : 1);
@@ -126,7 +172,10 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             Grid.SetColumn(CustomizePackagesButton, stackPreset ? 0 : 1); Grid.SetRow(CustomizePackagesButton, stackPreset ? 1 : 0);
             CustomizePackagesButton.HorizontalAlignment = HorizontalAlignment.Left;
             if (CreationPackageList.ItemsPanelRoot is ItemsWrapGrid items)
-                items.ItemWidth = Math.Max(1, (CreationPackageList.ActualWidth - 8) / (CreationPackageList.ActualWidth >= 480 ? 2 : 1));
+            {
+                var available = Math.Max(1, CreationPackageList.ActualWidth - CreationPackageList.Padding.Left - CreationPackageList.Padding.Right - 8);
+                items.ItemWidth = available / (available >= 480 ? 2 : 1);
+            }
             Grid.SetColumn(ChoosePackageButton, narrow ? 1 : 2); Grid.SetRow(ChoosePackageButton, narrow ? 1 : 0);
             ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
@@ -176,6 +225,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.OpenHistoryLogAsync(row); }
     private async void HistoryCheckClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.CheckHistoryProjectAsync(row); }
+    private void HistoryHeaderLoaded(object sender, RoutedEventArgs args) => LayoutHistoryHeader(sender);
+    private void HistoryHeaderResized(object sender, SizeChangedEventArgs args) => LayoutHistoryHeader(sender);
+    private static void LayoutHistoryHeader(object sender)
+    {
+        if (sender is not Grid grid || grid.FindName("HistoryDate") is not FrameworkElement date || grid.FindName("HistorySummary") is not FrameworkElement summary) return;
+        var narrow = grid.ActualWidth < 560;
+        Grid.SetRow(date, narrow ? 1 : 0); Grid.SetColumnSpan(summary, narrow ? 2 : 3);
+    }
     private async void HistoryRepairClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.RepairHistoryImportAsync(row); }
     private async void HistoryRestoreClicked(object sender, RoutedEventArgs args)

@@ -263,5 +263,13 @@
   "Next preset": "Preset successivo",
   "Selected preset": "Preset selezionato",
   "Saved": "Salvato",
-  "Preset saved": "Preset salvato"
+  "Preset saved": "Preset salvato",
+  "Open": "Apri",
+  "Create": "Crea",
+  "Included packages": "Pacchetti inclusi",
+  "Add packages": "Aggiungi pacchetti",
+  "{0} packages": "{0} pacchetti",
+  "{0} changes · {1}/{2} projects completed": "{0} modifiche · {1}/{2} progetti completati",
+  "Searching packages…": "Ricerca pacchetti…",
+  "Project operation": "Operazione sul progetto"
 }

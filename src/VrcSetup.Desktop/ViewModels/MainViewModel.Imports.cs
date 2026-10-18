@@ -139,7 +139,7 @@ public sealed partial class MainViewModel
     private async Task PromptInterruptedImportAsync()
     {
         if (string.IsNullOrWhiteSpace(ProjectsRoot)) return;
-        var candidates = app.Imports.Snapshot().Where(x => x.Recoverable)
+        var candidates = app.Imports.Snapshot().Where(x => x.Recoverable && !x.Source.EmptyProject)
             .OrderByDescending(x => File.GetLastWriteTimeUtc(Path.Combine(x.ProjectPath, ".vrcsetup", "state.json"))).ToArray();
         foreach (var job in candidates)
         {
@@ -220,7 +220,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public int Progress => Job.Progress;
     public bool CanCancel => Job.Active && Job.State != "Cancelling";
     public Visibility CancelVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RecoverVisibility => Job.Recoverable && !Job.Source.EmptyProject ? Visibility.Visible : Visibility.Collapsed;
     public void Update(ImportJob value) { OnPropertyChanged(nameof(Elapsed)); if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }
 }
 

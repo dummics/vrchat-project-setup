@@ -1,6 +1,6 @@
 # Application mark
 
-`AppMark.png` is the selected original VP dialogue-panel mark, generated with the built-in image tool on 18 October 2026. The owner requested white, minimal, flat artwork with a dialogue/lettermark identity; no avatar character or VR headset. VP refers to VRChat Projects. It is not an official VRChat, Unity or Creator Companion logo.
+`AppMark.png` is the production 256px PNG frame of the existing multi-resolution VP dialogue-panel icon, originally generated with the built-in image tool on 18 October 2026. The oversized 1254px original remains in Git history; it is not needed at runtime. The owner requested white, minimal, flat artwork with a dialogue/lettermark identity; no avatar character or VR headset. VP refers to VRChat Projects. It is not an official VRChat, Unity or Creator Companion logo.
 
 Final prompt: “One bold minimal white rectangular speech panel/frame with the exact letters VP inside in thick clean geometric sans-serif lettering; small offset lower-right tail, original proportions and softly squared corners, dark #202326 background, crisp flat 2D, no texture, gradient, shadows, person, headset, cube or arrows; centered with generous margin, legible at 24 pixels.”
 

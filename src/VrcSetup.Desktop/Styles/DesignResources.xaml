@@ -61,6 +61,21 @@
     <x:Double x:Key="PivotHeaderItemFontSize">16</x:Double>
     <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent"/>
     <SolidColorBrush x:Key="ExpanderContentBackground" Color="Transparent"/>
+    <!-- Reserve room for overlay scrollbars and constrain horizontal row measurement. -->
+    <Thickness x:Key="AppListScrollGutter">0,0,24,0</Thickness>
+    <Style TargetType="ListView">
+        <Setter Property="Padding" Value="{StaticResource AppListScrollGutter}"/>
+        <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="MinWidth" Value="0"/>
+    </Style>
+    <Style TargetType="GridView">
+        <Setter Property="Padding" Value="{StaticResource AppListScrollGutter}"/>
+        <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="MinWidth" Value="0"/>
+    </Style>
     <Style TargetType="Button"><Setter Property="MinHeight" Value="34"/><Setter Property="Padding" Value="12,6"/><Setter Property="CornerRadius" Value="6"/></Style>
     <Style TargetType="TextBox"><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/></Style>
     <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style>

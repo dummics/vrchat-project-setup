@@ -149,7 +149,7 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             ProjectRules.ValidateName(creation.Name);
             ProjectRules.EnsureContained(config.UnityProjectsRoot, project);
             if (Directory.Exists(project) || File.Exists(project)) throw new IOException("The destination already exists. Choose another name.");
-            if (!File.Exists(creation.UnityPackagePath) || !creation.UnityPackagePath.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)) throw new IOException("UnityPackage not found.");
+            if (creation.EmptyProject ? creation.UnityPackagePath.Length != 0 : !File.Exists(creation.UnityPackagePath) || !creation.UnityPackagePath.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)) throw new IOException("UnityPackage not found.");
             foreach (var target in creation.PublishingPlatforms.Append(creation.BuildTarget))
                 if (!ProjectRules.BuildTargets.Contains(target)) throw new ArgumentException($"Unsupported platform: {target}");
         }
@@ -214,7 +214,7 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             PresetName = preset, PresetDefinition = selected.Count > 0 ? ProjectRules.Freeze(selected) : null, Creation = creation,
             ExtraImports = extraImports ?? [], RequiredPackages = required,
             UnityEditorPath = creation?.UnityEditorPath ?? config.UnityEditorPath,
-            ImportFingerprints = ProjectRules.Freeze((extraImports ?? []).Concat(creation?.ExtraImports ?? []).Concat(creation is null ? [] : new[] { creation.UnityPackagePath }).Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(x => x, ProjectRules.FileIdentity)),
+            ImportFingerprints = ProjectRules.Freeze((extraImports ?? []).Concat(creation?.ExtraImports ?? []).Concat(creation is null || creation.EmptyProject ? [] : new[] { creation.UnityPackagePath }).Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(x => x, ProjectRules.FileIdentity)),
             NeedsEasyLoginRepository = desired.ContainsKey(ProjectRules.EasyLogin)
         };
     }

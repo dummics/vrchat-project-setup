@@ -5,6 +5,18 @@ namespace VrcSetup.Tests;
 
 public sealed class PlannerExecutorTests
 {
+    [Fact] public async Task EmptyProjectHasNoSourceArchiveButKeepsPackagePlanning()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "vrcsetup-empty-" + Guid.NewGuid().ToString("N"));
+        var target = Path.Combine(root, "New project");
+        var request = new CreationRequest("", "New project", target, "Unity.exe", "StandaloneWindows64", ["StandaloneWindows64"], [], EmptyProject: true);
+        var planner = new ProjectPlanner(new MemoryWorkspace(), new FixtureCatalog());
+        var selected = new Dictionary<string, string> { [ProjectRules.BaseSdk] = "latest", [ProjectRules.AvatarSdk] = "latest", [ProjectRules.Resolver] = "latest" };
+        var plan = await planner.PlanAsync(target, selected, new() { UnityProjectsRoot = root }, exact: true, creation: request);
+        Assert.True(plan.Creation!.EmptyProject); Assert.Empty(plan.ImportFingerprints); Assert.Contains(plan.Changes, x => x.Id == ProjectRules.AvatarSdk);
+        await Assert.ThrowsAsync<IOException>(() => planner.PlanAsync(target, selected, new() { UnityProjectsRoot = root }, creation: request with { EmptyProject = false }));
+        Assert.False(Directory.Exists(target));
+    }
     [Fact] public async Task SdkVersionChangeIsLinkedAndResolvedBeforeApply()
     {
         var workspace = new MemoryWorkspace(); var planner = new ProjectPlanner(workspace, new FixtureCatalog());

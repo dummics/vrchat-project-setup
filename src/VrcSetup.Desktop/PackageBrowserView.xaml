@@ -7,7 +7,7 @@
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Grid ColumnSpacing="8" Margin="0,4,0,16">
+        <Grid x:Name="SearchToolbar" ColumnSpacing="8" Margin="0,4,0,16">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <TextBox PlaceholderText="{local:Loc Key='Search local and online packages'}" Text="{Binding LibraryFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="{local:Loc Key='Search packages'}"/>
             <ProgressRing Width="18" Height="18" IsActive="{Binding IsSearchingPackages}" HorizontalAlignment="Right" Margin="0,0,12,0"/>
@@ -22,7 +22,7 @@
                     <Grid><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <StackPanel Spacing="4"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2"/><TextBlock Text="{Binding Id}" FontSize="11" Foreground="{ThemeResource AppSecondaryBrush}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Id}"/></StackPanel>
                         <Grid Grid.Row="1" ColumnSpacing="4"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <Button Content="{Binding AddLabel, Converter={StaticResource Localize}}" Click="LibraryAddClicked" Visibility="{Binding AddVisibility}" Style="{StaticResource AddButton}" HorizontalAlignment="Left"/>
+                            <Button Click="LibraryAddClicked" Visibility="{Binding AddVisibility}" Style="{StaticResource AddButton}" HorizontalAlignment="Left" AutomationProperties.Name="{Binding AddLabel, Converter={StaticResource Localize}}"><StackPanel Orientation="Horizontal" Spacing="7"><local:PackageActionIcon IsAdd="True" Foreground="{ThemeResource AppAccentTextBrush}"/><TextBlock Text="{Binding AddLabel, Converter={StaticResource Localize}}" VerticalAlignment="Center"/></StackPanel></Button>
                             <TextBlock Text="{Binding IncludedLabel, Converter={StaticResource Localize}}" Visibility="{Binding IncludedVisibility}" VerticalAlignment="Center" Foreground="{ThemeResource AppAccentTextBrush}"/>
                             <Button Grid.Column="1" Click="PackageStarClicked" Style="{StaticResource QuietButton}" AutomationProperties.Name="{Binding FavoriteAction}"><FontIcon Glyph="{Binding StarGlyph}" Foreground="{Binding StarBrush}" FontSize="16"/></Button>
                         </Grid>
@@ -35,7 +35,7 @@
                 <Grid Padding="10,10" ColumnSpacing="12" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions>
                     <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Id}" FontSize="11" Foreground="{ThemeResource AppSecondaryBrush}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Id}"/></StackPanel>
-                    <Button Grid.Column="1" Content="{Binding AddLabel, Converter={StaticResource Localize}}" Click="LibraryAddClicked" Visibility="{Binding AddVisibility}" Style="{StaticResource AddButton}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Click="LibraryAddClicked" Visibility="{Binding AddVisibility}" Style="{StaticResource AddButton}" VerticalAlignment="Center" AutomationProperties.Name="{Binding AddLabel, Converter={StaticResource Localize}}"><StackPanel Orientation="Horizontal" Spacing="7"><local:PackageActionIcon IsAdd="True" Foreground="{ThemeResource AppAccentTextBrush}"/><TextBlock Text="{Binding AddLabel, Converter={StaticResource Localize}}" VerticalAlignment="Center"/></StackPanel></Button>
                     <TextBlock Grid.Column="1" Text="{Binding IncludedLabel, Converter={StaticResource Localize}}" Visibility="{Binding IncludedVisibility}" VerticalAlignment="Center" Foreground="{ThemeResource AppAccentTextBrush}"/>
                     <Button Grid.Column="2" Click="PackageStarClicked" Style="{StaticResource QuietButton}" AutomationProperties.Name="{Binding FavoriteAction}"><FontIcon Glyph="{Binding StarGlyph}" Foreground="{Binding StarBrush}" FontSize="16"/></Button>
                 </Grid>

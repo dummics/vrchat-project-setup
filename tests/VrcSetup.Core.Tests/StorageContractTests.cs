@@ -140,6 +140,22 @@ public sealed class StorageContractTests : IDisposable
         var definition = (await app.Catalog.KnownAsync()).Single(x => x.Id == "tool");
         Assert.Equal("1.0.0", definition.SelectedVersion); Assert.Contains("2.0.0", definition.Versions);
     }
+    [Fact] public async Task CatalogIndexIsBoundedButKeepsFavoritesAndPresetMetadata()
+    {
+        var app = App; var config = await app.Configuration.LoadAsync();
+        config.FavoritePackages.Add("favorite"); config.PackagePresets["Keep"] = new() { ["preset-only"] = "latest" };
+        await app.Configuration.SaveAsync(config);
+        var items = Enumerable.Range(0, 600).Select(x => new PackageDefinition("cache." + x, "Cached " + x, "latest") { UpdatedUtc = DateTime.UtcNow }).ToList();
+        items.Add(new("favorite", "Favorite name", "latest") { UpdatedUtc = DateTime.UtcNow.AddDays(-90) });
+        items.Add(new("preset-only", "Preset name", "latest") { UpdatedUtc = DateTime.UtcNow.AddDays(-90) });
+        items.Add(new("expired", "Expired", "latest") { UpdatedUtc = DateTime.UtcNow.AddDays(-90) });
+        await app.Catalog.RememberAsync(items);
+        var cache = await AtomicFile.ReadJsonAsync<PackageDefinition[]>(Path.Combine(app.Paths.Cache, "known-packages.json"));
+        Assert.NotNull(cache); Assert.Equal(514, cache.Length);
+        Assert.Contains(cache, x => x.Id == "favorite" && x.DisplayName == "Favorite name");
+        Assert.Contains(cache, x => x.Id == "preset-only" && x.DisplayName == "Preset name");
+        Assert.DoesNotContain(cache, x => x.Id == "expired");
+    }
     [Fact] public void PathNormalizationKeepsLiteralSpecialCharacters() => Assert.Equal(Project, ProjectRules.NormalizePath("\"" + Project + "\""));
     [Fact] public void DriveRootKeepsItsDirectorySeparator()
     { var drive = Path.GetPathRoot(root)!; Assert.Equal(drive, ProjectRules.NormalizePath(drive)); }

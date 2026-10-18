@@ -140,7 +140,7 @@ public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOu
     public bool Cancelled => NotProcessed.Length > 0 || Results.Any(x => x.Status == OperationStatus.Cancelled);
 }
 
-public sealed record CreationRequest(string UnityPackagePath, string Name, string TargetPath, string UnityEditorPath, string BuildTarget, string[] PublishingPlatforms, string[] ExtraImports);
+public sealed record CreationRequest(string UnityPackagePath, string Name, string TargetPath, string UnityEditorPath, string BuildTarget, string[] PublishingPlatforms, string[] ExtraImports, bool EmptyProject = false);
 public sealed record ProjectPlan
 {
     public required string Path { get; init; }

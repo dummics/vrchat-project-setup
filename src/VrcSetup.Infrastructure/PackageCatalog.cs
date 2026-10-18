@@ -15,7 +15,7 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
     };
     public static string FriendlyName(string id) => FriendlyNames.GetValueOrDefault(id) ?? id switch
     {
-        "com.manonchip.avatarlimbscaling" => "Avatar Limb Scaling", "com.llealloo.audiolink" => "AudioLink",
+        "com.manonchip.avatarlimbscaling" or "com.nanochip.avatarlimbscaling" => "Avatar Limb Scaling", "com.llealloo.audiolink" => "AudioLink",
         "jp.lilxyzw.liltoon" => "lilToon", "vrchat.blackstartx.gesture-manager" => "Gesture Manager", _ => id
     };
     private string RegistryFile => Path.Combine(paths.Cache, "known-packages.json");
@@ -60,7 +60,9 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
             if (response.ExitCode == 0)
                 foreach (var definition in ParseSearch(response.StdOut)) result[definition.Id] = definition;
         }
-        // Discovery is not an intentional addition to the user's package library.
+        // Search metadata is a bounded local index, not a saved user selection.
+        try { await RememberAsync(result.Values, cancellationToken, preserveSelections: true); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { /* Optional search index must not hide usable results. */ }
         return result.Values.OrderBy(x => x.DisplayName).ThenBy(x => x.Id).ToArray();
     }
 
@@ -103,7 +105,13 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
                 using var cacheLock = await AtomicFile.LockAsync(Path.Combine(paths.Cache, "versions.lock"), cancellationToken);
                 var metadata = await ReadVersionCache(cancellationToken);
                 metadata[packageId] = new(packageId, FriendlyName(packageId), ordered[0]) { Versions = ordered, UpdatedUtc = DateTime.UtcNow };
-                await AtomicFile.WriteJsonAsync(VersionFile, metadata.Values.OrderBy(x => x.Id).ToArray(), cancellationToken);
+                var config = await configuration.LoadAsync(cancellationToken);
+                await AtomicFile.WriteJsonAsync(VersionFile, BoundCache(metadata.Values, config), cancellationToken);
+                if (versionsCache.Count > 512)
+                {
+                    var pinned = ProtectedIds(config);
+                    foreach (var key in versionsCache.Keys.Where(x => !pinned.Contains(x)).Take(versionsCache.Count - 512)) versionsCache.TryRemove(key, out _);
+                }
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { } // Optional cache; choices remain usable.
         }
@@ -120,10 +128,18 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
             known[item.Id] = item with
             {
                 SelectedVersion = preserveSelections && old is not null ? old.SelectedVersion : item.SelectedVersion,
-                Versions = item.Versions.Length > 0 ? item.Versions : old?.Versions ?? [], UpdatedUtc = item.UpdatedUtc ?? old?.UpdatedUtc
+                Versions = item.Versions.Length > 0 ? item.Versions : old?.Versions ?? [], UpdatedUtc = item.UpdatedUtc ?? DateTime.UtcNow
             };
         }
-        await AtomicFile.WriteJsonAsync(RegistryFile, known.Values.OrderBy(x => x.Id).ToArray(), cancellationToken);
+        await AtomicFile.WriteJsonAsync(RegistryFile, BoundCache(known.Values, await configuration.LoadAsync(cancellationToken)), cancellationToken);
+    }
+    private static HashSet<string> ProtectedIds(AppConfiguration config) => config.FavoritePackages.Concat(config.VpmPackages.Keys)
+        .Concat(config.PackagePresets.Values.SelectMany(x => x.Keys)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private static PackageDefinition[] BoundCache(IEnumerable<PackageDefinition> definitions, AppConfiguration config)
+    {
+        var pinned = ProtectedIds(config); var values = definitions.DistinctBy(x => x.Id, StringComparer.OrdinalIgnoreCase).ToArray();
+        return values.Where(x => pinned.Contains(x.Id)).Concat(values.Where(x => !pinned.Contains(x.Id) && x.UpdatedUtc >= DateTime.UtcNow.AddDays(-30))
+            .OrderByDescending(x => x.UpdatedUtc).ThenBy(x => x.Id).Take(512)).OrderBy(x => x.Id).ToArray();
     }
     public async Task RefreshAsync(IEnumerable<PackageDefinition> definitions, IProgress<OperationEvent>? progress = null, CancellationToken cancellationToken = default)
     {

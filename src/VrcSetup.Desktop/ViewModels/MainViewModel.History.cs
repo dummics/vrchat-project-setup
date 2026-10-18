@@ -148,7 +148,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public string ProjectPath => job?.ProjectPath ?? (report?.Results.Length == 1 ? report.Results[0].Path : "");
     public string BackupFile => report?.Results.FirstOrDefault(x => x.Path.Equals(ProjectPath, StringComparison.OrdinalIgnoreCase))?.BackupPath is { Length: > 0 } folder ? Path.Combine(folder, "backup.json") : "";
     public Visibility RestoreVisibility => !Checking && job?.Active != true && File.Exists(BackupFile) ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility ImportActionsVisibility => job is { Active: false } ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ImportActionsVisibility => job is { Active: false, Source.EmptyProject: false } ? Visibility.Visible : Visibility.Collapsed;
     public string RepairLabel => job?.Recoverable == true ? "Resume import" : "Reimport missing";
     private string health = "";
     public string Health { get => health; set { if (SetProperty(ref health, value)) OnPropertyChanged(nameof(HealthVisibility)); } }
@@ -166,8 +166,8 @@ public sealed class UiHistoryEntry : ObservableObject
         : report!.Success ? "Completed" : report.Cancelled ? "Cancelled"
         : report.Results.Length > 0 && report.Results.All(x => x.Status == OperationStatus.Skipped) ? "Not applied"
         : report.Results.Any(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings) ? "Partially applied" : "Failed";
-    public string Summary => IsImport ? string.Join(" · ", new[] { Platform, Projects.FirstOrDefault()?.PresetName is null or "My default packages" ? "Default" : Projects[0].PresetName, $"{Projects.Sum(x => x.DesiredPolicy.Count)} packages" })
-        : Projects.Length == 0 ? "Project operation" : $"{Projects.SelectMany(x => x.Changes).Count(x => x.Kind != ChangeKind.Keep)} planned changes · {report!.Results.Count(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings or OperationStatus.Unchanged)}/{Projects.Length} projects completed";
+    public string Summary => IsImport ? string.Join(" · ", new[] { Platform, Projects.FirstOrDefault()?.PresetName is null or "My default packages" ? UiText.Text("Default") : Projects[0].PresetName, string.Format(UiText.Text("{0} packages"), Projects.Sum(x => x.DesiredPolicy.Count)) })
+        : Projects.Length == 0 ? UiText.Text("Project operation") : string.Format(UiText.Text("{0} changes · {1}/{2} projects completed"), Projects.SelectMany(x => x.Changes).Count(x => x.Kind != ChangeKind.Keep), report!.Results.Count(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings or OperationStatus.Unchanged), Projects.Length);
     private string Platform => (job?.Source.BuildTarget ?? Projects.Select(x => x.Creation ?? x.RecoverySource).FirstOrDefault(x => x is not null)?.BuildTarget) switch { "Android" => "Android / Quest", "iOS" => "iOS", "StandaloneWindows64" => "Windows", _ => "" };
     public string Paths => string.Join(Environment.NewLine, job is not null ? new[] { job.ProjectPath, job.Source.UnityPackagePath } : report!.Results.Select(x => x.Path));
     public string Packages => !IsImport ? "" : string.Join(Environment.NewLine, Projects.SelectMany(x => x.Changes).Where(x => x.Kind != ChangeKind.Remove).DistinctBy(x => x.Id).Select(x => PackageCatalog.FriendlyName(x.Id) + "  " + (x.ResolvedVersion ?? x.RequestedVersion)));

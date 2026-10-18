@@ -20,7 +20,7 @@ public sealed partial class MainViewModel
         try { await Task.Delay(TimeSpan.FromSeconds(4), lifetime.Token); if (sequence == noticeSequence) ApplicationNotice = ""; }
         catch (OperationCanceledException) { }
     }
-    public bool ApplicationWorking => IsApplyingPackages || IsBusy || IsRefreshing || IsInspectingPackage || IsPreparingImport
+    public bool ApplicationWorking => IsApplyingPackages || IsBusy || IsRefreshing || IsInspectingPackage || IsPreparingImport || IsSearchingPackages
         || HasActiveImports || IsDownloadingUpdate || IsInstallingUpdate || IsCheckingUpdate;
     public bool ApplicationProgressIndeterminate => !IsDownloadingUpdate;
     public Visibility ApplicationProgressVisibility => ApplicationWorking ? Visibility.Visible : Visibility.Collapsed;
@@ -44,6 +44,7 @@ public sealed partial class MainViewModel
                 parts.Add(count == 1 ? UiText.Text("1 import in progress") : string.Format(UiText.Text("{0} imports in progress"), count));
             }
             if (IsInspectingPackage) parts.Add(UiText.Text("Checking packages…"));
+            if (IsSearchingPackages) parts.Add(UiText.Text("Searching packages…"));
             if (MemoryWarning.Length > 0) parts.Add(UiText.Text(app.Imports.Resources?.MemoryHigh == true ? "Memory nearly full" : "CPU busy"));
             if (parts.Count == 0 && (IsBusy || IsRefreshing)) parts.Add(UiText.Text("Working…"));
             if (ApplicationNotice.Length > 0 && !IsBusy && !IsApplyingPackages && !IsDownloadingUpdate && !IsInstallingUpdate) parts.Insert(0, ApplicationNotice);
@@ -54,7 +55,7 @@ public sealed partial class MainViewModel
     {
         PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName is nameof(IsBusy) or nameof(IsRefreshing) or nameof(IsInspectingPackage) or nameof(IsPreparingImport)
+            if (args.PropertyName is nameof(IsBusy) or nameof(IsRefreshing) or nameof(IsInspectingPackage) or nameof(IsPreparingImport) or nameof(IsSearchingPackages)
                 or nameof(IsApplyingPackages) or nameof(HasActiveImports) or nameof(IsDownloadingUpdate) or nameof(UpdateDownloadPercent)
                 or nameof(IsInstallingUpdate) or nameof(UpdateFailed) or nameof(UpdateStatus) or nameof(IsCheckingUpdate) or nameof(MemoryWarning) or nameof(ApplicationNotice))
                 NotifyApplicationStatus();

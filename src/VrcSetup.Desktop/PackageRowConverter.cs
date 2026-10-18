@@ -10,6 +10,7 @@ public sealed class PackageRowConverter : IValueConverter
         return parameter?.ToString() switch
         {
             "CanRemove" => !row.Required,
+            "IsAdd" => !row.Included,
             "Glyph" => row.Included ? "−" : "+",
             "Action" => UiText.Text(row.Required ? "Required package" : row.Included ? "Remove package" : "Keep package"),
             "PendingVisibility" => row.Action.StartsWith("Will be") ? Visibility.Visible : Visibility.Collapsed,

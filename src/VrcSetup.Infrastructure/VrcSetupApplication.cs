@@ -44,7 +44,7 @@ public sealed class VrcSetupApplication
         foreach (var result in report.Results.Where(x => rememberCreation && (x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings)))
         {
             var creation = plan.Projects.First(x => x.Path == result.Path).Creation;
-            if (creation is null) continue;
+            if (creation is null || creation.EmptyProject) continue;
             try
             {
                 var config = await Configuration.LoadAsync(CancellationToken.None);
@@ -70,6 +70,19 @@ public sealed class VrcSetupApplication
         var folder = ProjectRules.NormalizePath(config.UnityPackagesFolder, Paths.SourceRoot ?? Paths.PayloadRoot);
         if (!Directory.Exists(folder)) throw new IOException("Extra imports folder does not exist: " + folder);
         return Directory.EnumerateFiles(folder, "*.unitypackage").Order(StringComparer.OrdinalIgnoreCase).Where(x => main is null || !ProjectRules.NormalizePath(x).Equals(ProjectRules.NormalizePath(main), StringComparison.OrdinalIgnoreCase)).ToArray();
+    }
+    public async Task<OperationPlan> PlanEmptyProjectAsync(string name, AppConfiguration config, string? preset = null, string buildTarget = "StandaloneWindows64", CancellationToken cancellationToken = default)
+    {
+        ProjectRules.ValidateName(name);
+        if (string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) throw new IOException("Choose the projects folder in Settings first.");
+        UnityProjectDriver.ValidateEditor(config.UnityEditorPath);
+        if (!ProjectRules.BuildTargets.Contains(buildTarget)) throw new ArgumentException("Unsupported platform.");
+        if (!UnityProjectDriver.HasBuildSupport(config.UnityEditorPath, buildTarget)) throw new IOException("Unity build support is missing for " + buildTarget);
+        var selected = preset is null ? new Dictionary<string, string>(config.VpmPackages) : new(config.PackagePresets.GetValueOrDefault(preset) ?? throw new ArgumentException("Preset not found."));
+        var target = Path.Combine(ProjectRules.NormalizePath(config.UnityProjectsRoot), name);
+        var request = new CreationRequest("", name, target, config.UnityEditorPath, buildTarget, [buildTarget], [], EmptyProject: true);
+        var project = await Planner.PlanAsync(target, selected, config, exact: true, preset: preset ?? "My default packages", creation: request, cancellationToken: cancellationToken);
+        return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [project]);
     }
     public async Task<OperationPlan> PlanCreationAsync(string package, AppConfiguration config, string? name = null, string? preset = null,
         IReadOnlyDictionary<string, string>? packages = null, string? buildTarget = null, string[]? publishingPlatforms = null, string? recipeName = null, CancellationToken cancellationToken = default)

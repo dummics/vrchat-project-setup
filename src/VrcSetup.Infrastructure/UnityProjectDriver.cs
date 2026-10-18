@@ -123,7 +123,7 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         if (workspace.IsBusy(plan.Path)) throw new IOException("The project is open in Unity. Close it before importing.");
         var editor = plan.UnityEditorPath;
         ValidateEditor(editor);
-        var imports = (plan.Creation is null ? plan.ExtraImports : new[] { plan.Creation.UnityPackagePath }.Concat(plan.Creation.ExtraImports).Concat(plan.ExtraImports)).Select(x => ProjectRules.NormalizePath(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var imports = (plan.Creation is null ? plan.ExtraImports : (plan.Creation.EmptyProject ? [] : new[] { plan.Creation.UnityPackagePath }).Concat(plan.Creation.ExtraImports).Concat(plan.ExtraImports)).Select(x => ProjectRules.NormalizePath(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         foreach (var file in imports) if (!File.Exists(file)) throw new IOException("UnityPackage not found: " + file);
         var temporary = new List<string>();
         try

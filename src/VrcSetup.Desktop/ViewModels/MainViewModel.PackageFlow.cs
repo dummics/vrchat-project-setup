@@ -12,19 +12,17 @@ public sealed partial class MainViewModel
     private CancellationTokenSource? packageSearch;
     private bool navigating;
     [ObservableProperty] public partial bool BrowsingProjectPackages { get; set; }
-    [ObservableProperty] public partial int PackageTabIndex { get; set; }
     [ObservableProperty] public partial bool IsSearchingPackages { get; set; }
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(CatalogNoticeVisibility))] public partial string CatalogNotice { get; set; } = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CatalogNoticeVisibility)), NotifyPropertyChangedFor(nameof(PresetCatalogVisibility))] public partial string CatalogNotice { get; set; } = "";
     private HashSet<string> browserIncluded = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> onlineMatches = new(StringComparer.OrdinalIgnoreCase);
     public Visibility CatalogNoticeVisibility => CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility PresetHeaderVisibility => BrowsingProjectPackages ? Visibility.Collapsed : Visibility.Visible;
     public Visibility ProjectCatalogVisibility => BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
     public bool WorkspaceDirty => session?.HasPendingChanges == true;
     public Visibility WorkspaceChangesVisibility => WorkspaceDirty ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SingleProjectLaunchVisibility => session?.Projects.Length == 1 ? Visibility.Visible : Visibility.Collapsed;
     public string WorkspaceChangeContext => session is null ? "" : "Pending changes · " + session.Projects.Length + (session.Projects.Length == 1 ? " project" : " projects");
-    partial void OnBrowsingProjectPackagesChanged(bool value) { OnPropertyChanged(nameof(PresetHeaderVisibility)); OnPropertyChanged(nameof(ProjectCatalogVisibility)); OnPropertyChanged(nameof(PresetChangesVisibility)); RefreshLibraryRows(); OnPropertyChanged(nameof(LibraryPendingVisibility)); }
+    partial void OnBrowsingProjectPackagesChanged(bool value) { OnPropertyChanged(nameof(ProjectCatalogVisibility)); OnPropertyChanged(nameof(PresetChangesVisibility)); RefreshLibraryRows(); OnPropertyChanged(nameof(LibraryPendingVisibility)); }
     public string[] CachedVersions(string id) => Registry.FirstOrDefault(x => x.Id == id)?.Versions ?? [];
     public Task<string[]> LoadVersionsAsync(string id) => versionCache.GetAsync(id);
     public string PackageDisplayName(string id)
@@ -61,8 +59,8 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task BackToProjects() => await NavigateAsync("Projects");
     [RelayCommand] private void BackToProject() { CurrentPage = "Workspace"; BrowsingProjectPackages = false; }
     [RelayCommand] private void OpenProjectCatalog()
-    { if (session is null) return; BrowsingProjectPackages = true; PackageTabIndex = 1; RefreshLibraryRows(); CurrentPage = "Catalog"; }
-    [RelayCommand] private void OpenPresetLibrary() { BrowsingProjectPackages = false; PackageTabIndex = 1; RefreshLibraryRows(); CurrentPage = "Presets"; }
+    { if (session is null) return; BrowsingProjectPackages = true; RefreshLibraryRows(); CurrentPage = "Catalog"; }
+    [RelayCommand] private void OpenPresetLibrary() { BrowsingProjectPackages = false; RefreshLibraryRows(); CurrentPage = "Presets"; }
     public void StageWorkspaceVersion(string id, string version)
     { if (session is null || IsBusy) return; session.SetVersion(id, version); RenderWorkspace(); RefreshLibraryRows(); }
     public void ToggleWorkspacePackage(PackageWorkspaceRow row)
@@ -78,7 +76,7 @@ public sealed partial class MainViewModel
         if (IsBusy) return;
         var snapshot = new ProjectSnapshot { Path = Path.GetFullPath("preset"), Name = PresetLabel, Packages = new(presetWorking) };
         var edit = new PackageEditSession([snapshot], config, Registry.ToArray()); edit.SetVersion(id, version);
-        presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); PresetDirty = true; RenderPreset();
+        presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); PresetDirty = true; RenderPreset(); RefreshLibraryRows();
     }
     private void NotifyWorkspaceChanges()
     { OnPropertyChanged(nameof(WorkspaceFriendlySummary)); OnPropertyChanged(nameof(WorkspaceFriendlyNames)); OnPropertyChanged(nameof(LibraryPendingVisibility)); OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); }
@@ -92,7 +90,7 @@ public sealed partial class MainViewModel
             await Task.Delay(350, token); IsSearchingPackages = true;
             var found = await Task.Run(() => app.Catalog.SearchAsync(query, token), token);
             if (token.IsCancellationRequested || source != packageSearch) return;
-            var merged = Registry.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+            var merged = Registry.Where(x => personalPackageIds.Contains(x.Id) || config.FavoritePackages.Contains(x.Id) || presetWorking.ContainsKey(x.Id) || BrowsingProjectPackages && browserIncluded.Contains(x.Id)).ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
             foreach (var item in found) merged[item.Id] = item;
             onlineMatches = found.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             Replace(Registry, merged.Values);
