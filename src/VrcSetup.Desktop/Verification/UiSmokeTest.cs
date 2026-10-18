@@ -151,6 +151,7 @@ public static class UiSmokeTest
         var favorite = saved.FavoritePackages.Contains("gogoloco");
         await viewModel.TogglePackageFavoriteCommand.ExecuteAsync(viewModel.LibraryPackages.First(x => x.Id == "gogoloco"));
         Require((await viewModel.Application.Configuration.LoadAsync()).FavoritePackages.Contains("gogoloco") != favorite, "Package star persists the favorite choice");
+        Require(viewModel.LibraryPackages.TakeWhile(x => x.Favorite).Count() == viewModel.LibraryPackages.Count(x => x.Favorite), "Changing favorites immediately pins all favorite packages above the other catalog rows");
         viewModel.AddLibraryPackageCommand.Execute(viewModel.LibraryPackages.First(x => x.Id == "gogoloco"));
         Require(viewModel.PresetDirty && viewModel.PresetPackages.Any(x => x.Id == "gogoloco"), "Saved library package is added without a repository search");
         Require(!viewModel.LibraryPackages.Any(x => x.Id == "gogoloco"), "Adding a package moves it into the preset without a duplicate catalogue card");
@@ -192,38 +193,55 @@ public static class UiSmokeTest
         {
             await flow.InitializeAsync(); await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
             flow.StageWorkspaceVersion("gogoloco", "1.8.7");
-            Require(await flow.NavigateAsync("Settings") && !flow.WorkspaceDirty && flow.Packages.Count == 0, "Leaving project management discards pending versions and clears the draft");
+            Require(!await flow.NavigateAsync("Settings") && flow.WorkspaceDirty && flow.CurrentPage == "Workspace", "Declining discard keeps the project, pending versions and current page intact");
             decisions.ConfirmResult = true;
             Require(await flow.NavigateAsync("Projects") && !flow.WorkspaceDirty, "Navigation does not retain a hidden project draft");
             await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
             Require(!flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.6", "Reopening a project reloads the original version policy");
-            await flow.UndoChangesCommand.ExecuteAsync(null); flow.OpenProjectCatalogCommand.Execute(null);
-            Require(flow.CurrentPage == "Catalog" && flow.BrowsingProjectPackages, "Add package opens the shared in-page library");
+await flow.UndoChangesCommand.ExecuteAsync(null);
+            Require(flow.CurrentPage == "Workspace" && flow.BrowsingProjectPackages, "Package catalog stays inside the project management page");
             Require(!flow.LibraryPackages.Any(x => x.Id == "gogoloco" || x.Id == ProjectRules.BaseSdk), "Add catalog excludes packages already included in the project");
             flow.AddLibraryPackageCommand.Execute(flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury"));
-            Require(flow.WorkspaceDirty && !flow.LibraryPackages.Any(x => x.Id == "com.vrcfury.vrcfury") && flow.Packages.Any(x => x.Id == "com.vrcfury.vrcfury" && x.Action == "Will be added"), "Staged additions leave the add catalog and appear in project management");
-            flow.BackToProjectCommand.Execute(null);
+            Require(flow.WorkspaceDirty && flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury").Included && flow.Packages.Any(x => x.Id == "com.vrcfury.vrcfury" && x.Action == "Will be added"), "Staged additions stay visible as Added until Apply");
+            flow.AddLibraryPackageCommand.Execute(flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury"));
+            Require(!flow.WorkspaceDirty && !flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury").Included, "Clicking Added cancels the staged addition in place");
+            flow.AddLibraryPackageCommand.Execute(flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury"));
+
             Require(flow.CurrentPage == "Workspace" && flow.WorkspaceDirty, "Returning from the library keeps the same pending batch");
             await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(!flow.WorkspaceDirty && !flow.Packages.Any(x => x.Id == "com.vrcfury.vrcfury"), "Revert restores the installed project selection");
             flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco")); flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco"));
             Require(!flow.WorkspaceDirty, "Undoing a removal restores the original version policy without a new change");
-            flow.OpenProjectCatalogCommand.Execute(null);
+
             flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco"));
-            var removedPackage = flow.LibraryPackages.First(x => x.Id == "gogoloco");
-            flow.AddLibraryPackageCommand.Execute(removedPackage);
+            Require(!flow.LibraryPackages.Any(x => x.Id == "gogoloco"), "Installed packages stay in the managed section during staged removal");
+            flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco"));
             Require(!flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.6" && !flow.LibraryPackages.Any(x => x.Id == "gogoloco"), "Readding a staged removal restores its original policy and hides it from the add catalog");
             flow.StageWorkspaceVersion("gogoloco", "1.8.7");
             var pendingVersion = flow.Packages.First(x => x.Id == "gogoloco");
             Require((string)new PackageRowConverter().Convert(pendingVersion, typeof(string), "Version", "en") == "1.8.7", "Version selector displays the pending choice instead of the old installed version");
-            flow.BackToProjectCommand.Execute(null);
+
             Require(flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.7", "Returning from Add packages retains the current operation's version selection");
             await flow.NavigateAsync("Settings");
             await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
             Require(!flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.6", "Leaving and reopening clears pending versions and reloads the installed policy");
-            flow.OpenProjectCatalogCommand.Execute(null);
+
             flow.LibraryFilter = "vrc fury";
             Require(flow.LibraryPackages.Concat(flow.PresetPackages).Any(x => x.Id == "com.vrcfury.vrcfury"), "Unified package search finds multi-word matches in the correct section"); flow.LibraryFilter = "";
+            var secondProject = Path.Combine(artifacts, "multi-project-fixture");
+            Directory.CreateDirectory(Path.Combine(secondProject, "Assets")); Directory.CreateDirectory(Path.Combine(secondProject, "ProjectSettings"));
+            await File.WriteAllTextAsync(Path.Combine(secondProject, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
+            var firstProject = flow.Projects[0]; var firstFingerprint = firstProject.Fingerprint;
+            Directory.CreateDirectory(Path.Combine(secondProject, "Packages"));
+            await AtomicFile.WriteJsonAsync(Path.Combine(secondProject, "Packages", "vpm-manifest.json"), new { dependencies = firstProject.Packages, locked = firstProject.Packages });
+            await flow.OpenProjectsAsync([firstProject, await flow.Application.Projects.ReadAsync(secondProject)]);
+            flow.AddLibraryPackageCommand.Execute(flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury"));
+            Require(flow.Packages.First(x => x.Id == "com.vrcfury.vrcfury").TargetCount == 2 && flow.SelectedProjects.Count == 0, "Multi-project edits target the explicit batch without retaining library selections");
+            decisions.ConfirmResult = false;
+            Require(!await flow.NavigateAsync("Presets") && flow.WorkspaceDirty && flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury").Included, "Multi-project discard cancellation preserves the Added state and draft");
+            decisions.ConfirmResult = true;
+            Require(await flow.NavigateAsync("Presets") && !flow.WorkspaceDirty && flow.Packages.Count == 0, "Confirmed multi-project exit clears all staged edits");
+            Require((await flow.Application.Projects.ReadAsync(firstProject.Path)).Fingerprint == firstFingerprint, "Managing and discarding a batch never writes the project");
         }
         Require((await new VrcSetupApplication(Path.Combine(artifacts, "seed-check-home")).Inspection.LoadIndexAsync()).Signatures.Length > 1000, "Published bundle includes the offline dependency signature seed");
         var inspectionFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
@@ -265,11 +283,11 @@ public static class UiSmokeTest
         var librarySnapshot = viewModel.LibraryPackages.ToArray();
         var favoriteRow = librarySnapshot.First();
         var originalFavorite = favoriteRow.Favorite;
-        var collectionChanges = 0;
-        System.Collections.Specialized.NotifyCollectionChangedEventHandler onCollection = (_, _) => collectionChanges++;
+        var collectionReset = false;
+        System.Collections.Specialized.NotifyCollectionChangedEventHandler onCollection = (_, args) => collectionReset |= args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset;
         viewModel.LibraryPackages.CollectionChanged += onCollection;
         await viewModel.TogglePackageFavoriteCommand.ExecuteAsync(favoriteRow);
-        Require(favoriteRow.Favorite != originalFavorite && collectionChanges == 0 && librarySnapshot.SequenceEqual(viewModel.LibraryPackages), "Favorite updates in place without resetting or reordering cards");
+        Require(favoriteRow.Favorite != originalFavorite && !collectionReset && librarySnapshot.All(viewModel.LibraryPackages.Contains) && viewModel.LibraryPackages.TakeWhile(x => x.Favorite).Count() == viewModel.LibraryPackages.Count(x => x.Favorite), "Favorite pinning reorders existing cards without resetting their identity");
         await viewModel.TogglePackageFavoriteCommand.ExecuteAsync(favoriteRow);
         viewModel.LibraryPackages.CollectionChanged -= onCollection;
         viewModel.DiscardPresetChangesCommand.Execute(null);
@@ -322,10 +340,9 @@ public static class UiSmokeTest
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(900, 760), new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1920, 1080) })
         {
             window.AppWindow.Resize(size);
-            foreach (var screen in new[] { "Projects", "Workspace", "Catalog", "Create", "Presets", "Settings", "Activity" })
+            foreach (var screen in new[] { "Projects", "Workspace", "Create", "Presets", "Settings", "Activity" })
             {
-                if (screen == "Catalog") viewModel.OpenProjectCatalogCommand.Execute(null);
-                else { if (viewModel.BrowsingProjectPackages) viewModel.BackToProjectCommand.Execute(null); viewModel.CurrentPage = screen; }
+                viewModel.CurrentPage = screen;
                 if (screen == "Activity") viewModel.AppendActivity(new(DateTime.UtcNow, "Verified", "Native renderer / shared viewmodel verification"));
                 await Task.Delay(350);
                 page.UpdateLayout();
@@ -351,6 +368,44 @@ public static class UiSmokeTest
                     var origin = open.TransformToVisual(page).TransformPoint(new(0, 0));
                     Require(origin.X >= 0 && origin.X + open.ActualWidth <= page.ActualWidth + 1, "Direct project action fits client: " + size.Width);
                     Require(Descendants(projects).OfType<FrameworkElement>().Any(x => x.Name == "ProjectModified"), "Project last-modified field is materialized: " + size.Width);
+                    if (size.Width == 1180)
+                    {
+                        var list = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("ProjectList");
+                        var batch = (Microsoft.UI.Xaml.Controls.Button)page.FindName("ManageSelectionAction");
+                        Require(batch.Visibility == Visibility.Collapsed && Descendants(list).OfType<ProjectSelectionIndicator>().All(x => x.Visibility == Visibility.Collapsed), "Batch action and checkboxes stay out of the way before selection");
+                        var second = viewModel.Projects[0] with { Name = "Second fixture [PC]", Path = Path.Combine(artifacts, "selection-only") };
+                        viewModel.Projects.Add(second); list.SelectedItems.Add(viewModel.Projects[0]);
+                        Require(Descendants(list).OfType<ProjectSelectionIndicator>().Any(x => x.Visibility == Visibility.Visible) && batch.Visibility == Visibility.Collapsed, "First selection reveals checkboxes without a one-project batch action");
+                        list.SelectedItems.Add(second); await Task.Delay(250); page.UpdateLayout();
+                        list.ScrollIntoView(second); await Task.Delay(100); page.UpdateLayout();
+                        Require(list.ContainerFromItem(second) is FrameworkElement { ActualHeight: > 0 }, "Both selected projects have visible native row containers");
+                        var firstRow = (FrameworkElement)list.ContainerFromItem(viewModel.Projects[0]);
+                        var secondRow = (FrameworkElement)list.ContainerFromItem(second);
+                        await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "project-selection-bounds.json"), new { list.ActualHeight, FirstY = firstRow.TransformToVisual(list).TransformPoint(new(0, 0)).Y, FirstHeight = firstRow.ActualHeight, SecondY = secondRow.TransformToVisual(list).TransformPoint(new(0, 0)).Y, SecondHeight = secondRow.ActualHeight });
+                        Require(secondRow.TransformToVisual(list).TransformPoint(new(0, 0)).Y >= firstRow.TransformToVisual(list).TransformPoint(new(0, firstRow.ActualHeight)).Y - 1, "Selected project rows remain separate without overlap");
+                        Require(batch.Visibility == Visibility.Visible && Microsoft.UI.Xaml.Controls.Grid.GetRow(batch) == 0, "Multi-project action lives in the toolbar and covers no list rows");
+                        await Render(page, Path.Combine(artifacts, "projects-multiple-selection.png"));
+                        list.SelectedItems.Clear(); viewModel.Projects.Remove(second);
+                        await viewModel.CycleProjectSortAsync("name"); await viewModel.CycleProjectSortAsync("name"); await viewModel.CycleProjectSortAsync("name");
+                        Require(viewModel.ProjectSort == "default", "Native column sort cycles back to no explicit sort");
+                    }
+                }
+                if (screen == "Workspace" && size.Width == 1180)
+                {
+                    Require(page.FindName("CatalogView") is null && page.FindName("WorkspaceCatalog") is PackageBrowserView, "Project management embeds the catalog without a separate add screen");
+                    Require(viewModel.Packages.Take(3).Select(x => x.Id).SequenceEqual(new[] { ProjectRules.Resolver, ProjectRules.BaseSdk, ProjectRules.AvatarSdk }), "Foundation packages are consecutive before the removable Avatar SDK");
+                    var available = viewModel.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury");
+                    viewModel.AddLibraryPackageCommand.Execute(available);
+                    Require(viewModel.LibraryPackages.First(x => x.Id == available.Id).AddLabel == "Added", "Inline catalog marks the staged addition in place");
+                    var scroll = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("WorkspacePageScroll");
+                    page.UpdateLayout(); await Task.Delay(150);
+                    var addedControl = Descendants((DependencyObject)page.FindName("WorkspaceCatalog")).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => x.DataContext is VrcSetup_Desktop.ViewModels.UiPackageRow row && row.Id == available.Id && x.Content is Microsoft.UI.Xaml.Controls.StackPanel);
+                    Require(Descendants(addedControl).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Any(x => x.Text == UiText.Text("Added")), "Native catalog control renders Added after staging");
+                    var addedTop = addedControl.TransformToVisual(scroll).TransformPoint(new(0, 0)).Y;
+                    scroll.ChangeView(null, Math.Clamp(scroll.VerticalOffset + addedTop - scroll.ViewportHeight * .5, 0, scroll.ScrollableHeight), null, true); await Task.Delay(250);
+                    await Render(page, Path.Combine(artifacts, "workspace-staged-addition.png"));
+                    viewModel.AddLibraryPackageCommand.Execute(viewModel.LibraryPackages.First(x => x.Id == available.Id));
+                    scroll.ChangeView(null, 0, null, true);
                 }
                 if (screen == "Create")
                     Require(((FrameworkElement)page.FindName("ImportQueueSection")).Visibility == Visibility.Collapsed && viewModel.ImportsIdle, "Empty imports reserve no workspace: " + size.Width);
@@ -429,6 +484,13 @@ public static class UiSmokeTest
                     }
                     if (size.Width == 1180)
                     {
+                        var selectorBefore = ((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X;
+                        page.SetPresetActions(true); await Task.Delay(260); page.UpdateLayout();
+                        var strip = (FrameworkElement)page.FindName("PresetActionsClip");
+                        Require(strip.ActualWidth == 96 && Math.Abs(((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X - selectorBefore) < 1, "Inline preset actions expand without shifting the preset title");
+                        await Render(page, Path.Combine(artifacts, "preset-inline-actions.png"));
+                        page.SetPresetActions(false); await Task.Delay(260);
+                        Require(strip.Visibility == Visibility.Collapsed, "Inline preset actions collapse cleanly");
                         var wheel = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetSelector"); wheel.Flyout.ShowAt(wheel); await Task.Delay(500);
                         var choices = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("PresetChoices");
                         Require(choices.ActualHeight >= 36 && choices.Items.Count == viewModel.Presets.Count, "Preset wheel opens the complete choice list");

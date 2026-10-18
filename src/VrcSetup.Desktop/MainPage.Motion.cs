@@ -32,6 +32,14 @@ public sealed partial class MainPage
             var fade = compositor.CreateScalarKeyFrameAnimation(); fade.Duration = move.Duration;
             fade.InsertKeyFrame(0, .3f); fade.InsertKeyFrame(1, 1, easing);
             visual.StartAnimation("Translation", move); visual.StartAnimation("Opacity", fade);
+            if (element == PresetWheelTitle)
+            {
+                visual.CenterPoint = new Vector3((float)PresetWheelTitle.ActualWidth / 2, (float)PresetWheelTitle.ActualHeight / 2, 0);
+                visual.RotationAxis = new Vector3(1, 0, 0);
+                var turn = compositor.CreateScalarKeyFrameAnimation(); turn.Duration = TimeSpan.FromMilliseconds(300);
+                turn.InsertKeyFrame(0, presetDirection * 22); turn.InsertKeyFrame(1, 0, easing);
+                visual.StartAnimation("RotationAngleInDegrees", turn);
+            }
         }
     }
     private void InformationSurfaceResized(object sender, SizeChangedEventArgs args)

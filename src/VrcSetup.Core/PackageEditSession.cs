@@ -41,7 +41,7 @@ public sealed class PackageEditSession
                 displayName = Projects.Select(x => x.PackageDisplayNames.GetValueOrDefault(id)).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x) && !x.Equals(id, StringComparison.OrdinalIgnoreCase)) ?? id;
             return new PackageWorkspaceRow(id, displayName, installed.Length == 1 ? installed[0] : "Mixed", selected, action, IsRequired(id), included, Targets.GetValueOrDefault(id)?.Length ?? Projects.Length);
         }).Where(x => string.IsNullOrWhiteSpace(query) || (x.Id + " " + x.Name).Contains(query, StringComparison.OrdinalIgnoreCase))
-          .OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : x.Id == ProjectRules.AvatarSdk || x.Id == ProjectRules.WorldSdk ? 1 : x.Id == ProjectRules.Resolver ? 2 : x.Required ? 3 : x.Included || Removed.Contains(x.Id) ? 4 : 5).ThenBy(x => x.Name).ToArray();
+          .OrderBy(x => x.Id == ProjectRules.Resolver ? 0 : x.Id == ProjectRules.BaseSdk ? 1 : x.Id == ProjectRules.AvatarSdk || x.Id == ProjectRules.WorldSdk ? 2 : x.Required ? 3 : x.Included || Removed.Contains(x.Id) ? 4 : 5).ThenBy(x => x.Name).ToArray();
     }
     public void SetVersion(string id, string version)
     {

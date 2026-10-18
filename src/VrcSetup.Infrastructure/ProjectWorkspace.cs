@@ -113,7 +113,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             catch (JsonException) { modified = true; }
         }
         return new() { Path = path, Name = Path.GetFileName(path), Kind = kind, UnityVersion = unityVersion, UnityVersionSource = versionSource, PackageMetadataSource = source,
-            Status = status, LastUpdatedUtc = updated, Fingerprint = Fingerprint(path), Packages = direct, LockedPackages = locked, InstalledVersions = installed, PackageDisplayNames = displayNames,
+            Status = status, LastUpdatedUtc = updated, CreatedUtc = Directory.GetCreationTimeUtc(path), Fingerprint = Fingerprint(path), Packages = direct, LockedPackages = locked, InstalledVersions = installed, PackageDisplayNames = displayNames,
             Incomplete = incomplete, PresetName = preset, ProfileModified = modified, PresetChanged = presetChanged, Policy = policy, ConfigurationFingerprint = AtomicFile.Hash(paths.ConfigFile) };
     }
 
@@ -191,7 +191,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             { diagnostics?.Write("Project folder", item.Path, error); }
         }
         await AtomicFile.WriteJsonAsync(cacheFile, result, cancellationToken);
-        return sort == "name" ? result.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToArray() : result.OrderByDescending(x => x.LastUpdatedUtc).ThenBy(x => x.Name).ToArray();
+        return ProjectOrdering.Apply(result.Select(x => x with { CreatedUtc = Directory.GetCreationTimeUtc(x.Path) }), sort);
     }
 
     public bool IsBusy(string path)

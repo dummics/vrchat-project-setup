@@ -106,6 +106,7 @@ public sealed record ProjectSnapshot
     public string UnityVersionSource { get; init; } = "None";
     public string Status { get; init; } = "Ready";
     public DateTime LastUpdatedUtc { get; init; }
+    public DateTime CreatedUtc { get; init; }
     public string Fingerprint { get; init; } = "";
     public Dictionary<string, string> Packages { get; init; } = [];
     public Dictionary<string, string> LockedPackages { get; init; } = [];

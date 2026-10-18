@@ -61,11 +61,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ShowPage(string page)
     {
+        if (page != "Projects") ProjectList.SelectedItems.Clear();
         ProjectsView.Visibility = page == "Projects" ? Visibility.Visible : Visibility.Collapsed;
         CreateView.Visibility = page == "Create" ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceView.Visibility = page == "Workspace" ? Visibility.Visible : Visibility.Collapsed;
         PresetsView.Visibility = page == "Presets" ? Visibility.Visible : Visibility.Collapsed;
-        CatalogView.Visibility = page == "Catalog" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         ActivityNavigationMarker.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
@@ -139,6 +139,12 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ConstrainForms()
     {
+        ProjectSearch.Width = Math.Clamp(ProjectsView.ActualWidth - (ViewModel.SelectedProjects.Count >= 2 ? ManageSelectionAction.ActualWidth + 16 : 0), 140, 320);
+        var stackProjectColumns = ProjectsView.ActualWidth < 640;
+        ProjectColumnHeaders.ColumnDefinitions[1].Width = new GridLength(stackProjectColumns ? 0 : 260);
+        ProjectColumnHeaders.ColumnDefinitions[2].Width = new GridLength(stackProjectColumns ? 0 : 140);
+        Grid.SetRow(ProjectDateSortHeader, stackProjectColumns ? 1 : 0); Grid.SetColumn(ProjectDateSortHeader, stackProjectColumns ? 0 : 1);
+        Grid.SetColumnSpan(ProjectDateSortHeader, stackProjectColumns ? 3 : 1);
         if (PresetEditor.ActualWidth > 0) PresetSelector.Width = Math.Clamp(PresetEditor.ActualWidth * .3, 180, 320);
         var stackProjectHeader = ProjectsView.ActualWidth < 560;
         Grid.SetRow(ProjectHeaderActions, stackProjectHeader ? 1 : 0);
@@ -248,8 +254,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         if (ViewModel is null) return;
         ViewModel.SelectedProjects.Clear(); foreach (var selected in ProjectList.SelectedItems.OfType<ProjectSnapshot>()) ViewModel.SelectedProjects.Add(selected); ViewModel.NotifyProjectSelection();
+        ProjectColumnHeaders.Padding = new Thickness(ViewModel.HasSelectedProjects ? 48 : 18, 0, 42, 0);
+        DispatcherQueue.TryEnqueue(ConstrainForms);
     }
     private void ProjectClicked(object sender, ItemClickEventArgs args) { }
+    private void ManageSelectionResized(object sender, SizeChangedEventArgs args) => ConstrainForms();
     private async void ProjectPackagesClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project); }
     private async void ProjectOpenClicked(object sender, RoutedEventArgs args)
@@ -262,16 +271,22 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         var narrow = grid.ActualWidth < 640;
         if (grid.Tag is bool previous && previous == narrow) return;
         grid.Tag = narrow; grid.ColumnSpacing = narrow ? 0 : 16; grid.RowSpacing = narrow ? 8 : 0;
-        grid.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(130);
-        grid.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : GridLength.Auto;
+        grid.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(260);
+        grid.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : new GridLength(140);
         foreach (var child in grid.Children.OfType<FrameworkElement>())
         {
-            if (child.Name == "ProjectModified") { Grid.SetColumn(child, narrow ? 0 : 1); Grid.SetRow(child, narrow ? 1 : 0); }
+            if (child.Name == "ProjectDates") { Grid.SetColumn(child, narrow ? 0 : 1); Grid.SetRow(child, narrow ? 1 : 0); }
             if (child.Name == "ProjectActions") { Grid.SetColumn(child, narrow ? 0 : 2); Grid.SetRow(child, narrow ? 2 : 0); }
         }
     }
     private async void PackageDoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => await ViewModel.ChooseVersionCommand.ExecuteAsync(null);
-    private async void SortChanged(object sender, SelectionChangedEventArgs args) { if (initializedCompletion.Task.IsCompletedSuccessfully && ViewModel is not null && !ViewModel.IsBusy) await ViewModel.ChangeSortCommand.ExecuteAsync(null); }
+    private async void ProjectSortClicked(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.Tag is not string column || ViewModel.IsBusy) return;
+        var selected = ProjectList.SelectedItems.OfType<ProjectSnapshot>().Select(x => x.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await ViewModel.CycleProjectSortAsync(column);
+        foreach (var project in ViewModel.Projects.Where(x => selected.Contains(x.Path))) ProjectList.SelectedItems.Add(project);
+    }
     private void ErrorClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.DismissErrorCommand.Execute(null);
     private void VersionSelectorLoaded(object sender, RoutedEventArgs args)
     { if (sender is PackageVersionSelector selector) { selector.VersionSource = ViewModel.LoadVersionsAsync; selector.CachedSource = ViewModel.CachedVersions; } }

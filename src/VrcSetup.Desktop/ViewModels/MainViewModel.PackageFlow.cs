@@ -15,6 +15,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial bool IsSearchingPackages { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CatalogNoticeVisibility)), NotifyPropertyChangedFor(nameof(PresetCatalogVisibility))] public partial string CatalogNotice { get; set; } = "";
     private HashSet<string> browserIncluded = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> projectCatalogBaseline = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> onlineMatches = new(StringComparer.OrdinalIgnoreCase);
     public Visibility CatalogNoticeVisibility => CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ProjectCatalogVisibility => BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
@@ -42,25 +43,21 @@ public sealed partial class MainViewModel
         navigating = true;
         try
         {
-            var sameProjectDraft = (page is "Workspace" or "Catalog") && (CurrentPage is "Workspace" or "Catalog");
+            if (WorkspaceDirty && !await ui.ConfirmAsync("Unsaved changes", "Discard pending package changes and leave?", "Discard and leave")) return false;
             if (PresetDirty && page != "Presets")
             {
                 if (!await ui.ConfirmAsync("Unsaved preset", "Discard changes to " + PresetLabel + "?", "Discard and leave")) return false;
             }
             if (PresetDirty && page != "Presets") LoadEditingPreset();
-            if (!sameProjectDraft && session is not null)
+            if (session is not null)
             {
                 session.Reset(); session = null; RenderWorkspace(); RefreshLibraryRows();
             }
-            BrowsingProjectPackages = false; CurrentPage = page; return true;
+            BrowsingProjectPackages = page == "Workspace"; CurrentPage = page; return true;
         }
         finally { navigating = false; }
     }
     [RelayCommand] private async Task BackToProjects() => await NavigateAsync("Projects");
-    [RelayCommand] private void BackToProject() { CurrentPage = "Workspace"; BrowsingProjectPackages = false; }
-    [RelayCommand] private void OpenProjectCatalog()
-    { if (session is null) return; BrowsingProjectPackages = true; RefreshLibraryRows(); CurrentPage = "Catalog"; }
-    [RelayCommand] private void OpenPresetLibrary() { BrowsingProjectPackages = false; RefreshLibraryRows(); CurrentPage = "Presets"; }
     public void StageWorkspaceVersion(string id, string version)
     { if (session is null || IsBusy) return; session.SetVersion(id, version); RenderWorkspace(); RefreshLibraryRows(); }
     public void ToggleWorkspacePackage(PackageWorkspaceRow row)

@@ -90,9 +90,9 @@ public partial class App : Application
                 {
                     var vm = main.Page.ViewModel;
                     if (vm.Projects.Count > 0) await vm.OpenProjectPackagesCommand.ExecuteAsync(vm.Projects[0]);
-                    foreach (var screen in new[] { "Workspace", "Create", "Catalog" })
+                    foreach (var screen in new[] { "Workspace", "Create" })
                     {
-                        if (screen == "Catalog") vm.OpenProjectCatalogCommand.Execute(null); else vm.CurrentPage = screen;
+                        vm.CurrentPage = screen;
                         await Task.Delay(250); main.Page.UpdateLayout();
                         await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, screen.ToLowerInvariant() + ".png"));
                     }

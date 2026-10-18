@@ -77,8 +77,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string[] PlatformChoices => ProjectRules.BuildTargets;
     public PlatformOption[] PlatformOptions => [new("Windows", "StandaloneWindows64"), new("Android / Quest", "Android"), new("iOS", "iOS")];
     public string[] ThemeChoices => ["System", "Light", "Dark"];
-    public string[] SortChoices => ["recent", "name"];
-    [ObservableProperty] public partial string ProjectSort { get; set; } = "recent";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ProjectNameSortLabel)), NotifyPropertyChangedFor(nameof(ProjectModifiedSortLabel)), NotifyPropertyChangedFor(nameof(ProjectCreatedSortLabel))] public partial string ProjectSort { get; set; } = "recent";
     public VrcSetupApplication Application => app;
 
     public MainViewModel(VrcSetupApplication app, IDesktopInteraction interaction)
@@ -140,7 +139,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Replace(Registry, known); RefreshLibraryRows(); RefreshCreationPackages();
     }
     partial void OnProjectFilterChanged(string value) => FilterProjects();
-    partial void OnPackageFilterChanged(string value) => RenderWorkspace();
+    partial void OnPackageFilterChanged(string value) { RenderWorkspace(); if (CurrentPage == "Workspace") LibraryFilter = value; }
     partial void OnPackageFileChanged(string value)
     {
         if (!switchingImportDraft && ImportDrafts.Count > 0 && SelectedImportDraft?.File != value)
@@ -173,7 +172,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         BuildTarget = recipe.BuildTarget; PublishWindows = recipe.PublishingPlatforms.Contains("StandaloneWindows64"); PublishAndroid = recipe.PublishingPlatforms.Contains("Android"); PublishIos = recipe.PublishingPlatforms.Contains("iOS");
         RefreshCreationPackages();
     }
-    private void FilterProjects() { Replace(Projects, allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase))); UpdateProjectState(); }
+    private void FilterProjects() { Replace(Projects, ProjectOrdering.Apply(allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase)), ProjectSort)); UpdateProjectState(); }
     private void RenderWorkspace()
     {
         var selected = SelectedPackage?.Id;
@@ -191,8 +190,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
     [RelayCommand] private async Task ChangeSort()
     {
-        await Guard(async () => { config.ProjectLibrarySort = ProjectSort; await PersistConfigurationAsync(); await RefreshProjectsCore(); });
+        await Guard(async () => { config.ProjectLibrarySort = ProjectSort; await PersistConfigurationAsync(); FilterProjects(); });
     }
+    public async Task CycleProjectSortAsync(string column)
+    { ProjectSort = ProjectOrdering.Cycle(ProjectSort == "recent" ? "modified" : ProjectSort, column); await ChangeSortCommand.ExecuteAsync(null); OnPropertyChanged(nameof(ProjectNameSortLabel)); OnPropertyChanged(nameof(ProjectModifiedSortLabel)); OnPropertyChanged(nameof(ProjectCreatedSortLabel)); }
+    private string SortLabel(string label, string column) => UiText.Text(label) + (ProjectSort == column || column == "modified" && ProjectSort == "recent" ? " ↓" : ProjectSort == column + "-reverse" ? " ↑" : "");
+    public string ProjectNameSortLabel => SortLabel("Name", "name");
+    public string ProjectModifiedSortLabel => SortLabel("Modified", "modified");
+    public string ProjectCreatedSortLabel => SortLabel("Created", "created");
     [RelayCommand] private async Task PickExistingProject()
     {
         var folder = await ui.PickFolderAsync(); if (folder is null) return;
@@ -205,17 +210,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     public async Task OpenProjectsAsync(ProjectSnapshot[] projects, bool reload = false)
     {
-        if (!reload && (CurrentPage is "Workspace" or "Catalog") && session?.MatchesProjects(projects) == true)
-        { BrowsingProjectPackages = false; RenderWorkspace(); CurrentPage = "Workspace"; return; }
+        if (!reload && CurrentPage == "Workspace" && session?.MatchesProjects(projects) == true)
+        { BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace"; return; }
         if (session?.HasPendingChanges == true && !await ui.ConfirmAsync("Pending changes", "Discard staged package changes?", "Discard")) return;
         var fresh = new List<ProjectSnapshot>(); foreach (var project in projects) fresh.Add(await app.Projects.ReadAsync(project.Path));
         var known = await Task.Run(() => app.Catalog.KnownAsync(config, fresh.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)));
         session = new(fresh.ToArray(), config, known); Replace(Registry, known);
+        projectCatalogBaseline = session.Rows().Where(x => x.Included).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         personalPackageIds = known.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         try { await app.Catalog.RememberAsync(known, preserveSelections: true); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Package library cache", error.Message, error); }
         WorkspaceProfile = string.Join(Environment.NewLine, fresh.Where(x => x.ProfileStatus.Length > 0).Select(x => (fresh.Count > 1 ? x.Name + ": " : "") + x.ProfileStatus));
-        WorkspaceTitle = projects.Length == 1 ? projects[0].Name : $"{projects.Length} projects"; PackageFilter = ""; RenderWorkspace(); CurrentPage = "Workspace";
+        SelectedProjects.Clear(); NotifyProjectSelection();
+        WorkspaceTitle = projects.Length == 1 ? projects[0].Name : $"{projects.Length} projects"; PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>
     { if (session is null || SelectedPackage is null) return; ToggleWorkspacePackage(SelectedPackage); await Task.CompletedTask; });
