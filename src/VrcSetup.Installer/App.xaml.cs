@@ -34,7 +34,12 @@ public partial class App : Application
                 else await Install(target, home);
                 if (Option("--result") is { } result) await AtomicFile.WriteJsonAsync(result, new { Success = true, Root = target });
                 if (arguments.Contains("--launch") && !arguments.Contains("--uninstall"))
-                    Process.Start(new ProcessStartInfo(Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = true });
+                {
+                    var launch = new ProcessStartInfo(Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false };
+                    if (Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 } spec)
+                    { launch.ArgumentList.Add("--verify-update-smoke"); launch.ArgumentList.Add(spec); }
+                    Process.Start(launch);
+                }
                 Shutdown(0);
             }
             catch (Exception error)

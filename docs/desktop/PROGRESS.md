@@ -1,5 +1,11 @@
 # VRCSETUP Desktop migration
 
+## Local update pipeline verified
+
+A repeatable `Test-ApplicationUpdate.ps1` now drives the native app through update discovery, streamed SHA-256 download, real installer handoff/wait/replacement and candidate relaunch in an explicitly marked isolated installation. Only HTTP transport is substituted with file-backed GitHub-shaped responses; the production source allowlist remains unchanged. The test routes shortcuts into its fixture and disables user PATH mutation in the child process. Candidate relaunch uses direct process creation so the isolated environment is retained.
+
+The beta.1 → beta.2 run passed in 10.3 seconds: version, all payload hashes, fixture settings, previous installation and no repeated update offer verified. Owner program marker/config/journal/legacy/shortcuts/PATH unchanged. 126 fixture tests and Release build pass. Beta.2 is a local test candidate; publication and the real GitHub transport remain unverified. GitHub CLI is unauthenticated; the exposed assistant connector has no release creation/upload tool. Reproduction and next step: [UPDATE-TESTING.md](UPDATE-TESTING.md). Evidence: `.work/artifacts/2026-10-18-update-e2e/`.
+
 ## 0.2.0-beta.1 — distribution and local installation
 
 The owner renamed the development series from 2.0 previews to 0.2 beta. Installed over preview 14 on 18 October 2026: installer exit 0, 759 installed hashes verified, settings/import journal/legacy launcher unchanged, previous program preserved. An isolated installed-app instance verified both the active-process replacement guard (exit 1 without replacing the program) and the update helper's wait-for-exit path (preview 14 remained installed while the fixture process was running; beta installed after it closed). No real Unity import or package mutation was performed.

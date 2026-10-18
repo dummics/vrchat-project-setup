@@ -18,6 +18,29 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var arguments = Environment.GetCommandLineArgs();
+        var updateTestIndex = Array.IndexOf(arguments, "--update-smoke-test");
+        var updateVerifyIndex = Array.IndexOf(arguments, "--verify-update-smoke");
+        if (updateTestIndex >= 0 || updateVerifyIndex >= 0)
+        {
+            var index = Math.Max(updateTestIndex, updateVerifyIndex);
+            Verification.UpdateSmokeSpec? spec = null;
+            try
+            {
+                if (index + 1 >= arguments.Length) throw new System.IO.IOException("Update test specification required.");
+                spec = await Verification.UpdateSmokeTest.ReadSpecAsync(arguments[index + 1]);
+                var main = new MainWindow(Verification.UpdateSmokeTest.CreateApplication(spec, arguments[index + 1])); window = main;
+                main.AppWindow.Show(false);
+                if (updateVerifyIndex >= 0)
+                { await Verification.UpdateSmokeTest.VerifyAsync(main, spec); main.Close(); Exit(); }
+                else await Verification.UpdateSmokeTest.RunAsync(main, spec);
+            }
+            catch (Exception error)
+            {
+                if (spec is not null) await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(spec.Root, "failure.txt"), error.ToString());
+                Environment.ExitCode = 1; Exit();
+            }
+            return;
+        }
         var smokeIndex = Array.IndexOf(arguments, "--smoke-test");
         var diagnosis = Array.IndexOf(arguments, "--diagnose");
         if (diagnosis >= 0 && diagnosis + 1 < arguments.Length)

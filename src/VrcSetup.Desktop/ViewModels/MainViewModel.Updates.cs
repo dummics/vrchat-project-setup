@@ -25,7 +25,8 @@ public sealed partial class MainViewModel
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); timeout.CancelAfter(TimeSpan.FromSeconds(12));
-            using var client = new HttpClient { MaxResponseContentBufferSize = 2 * 1024 * 1024 };
+            using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
+            client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
             availableUpdate = await new ApplicationUpdates(client).CheckAsync(AppVersion, IncludeBetaUpdates, timeout.Token);
             HasApplicationUpdate = availableUpdate is not null;
             UpdateStatus = HasApplicationUpdate ? "Version " + availableUpdate!.Version + " is available" : manual ? "No published update available" : "";
@@ -62,7 +63,8 @@ public sealed partial class MainViewModel
         IsDownloadingUpdate = true;
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15), MaxResponseContentBufferSize = 2 * 1024 * 1024 };
+            using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
+            client.Timeout = TimeSpan.FromMinutes(15); client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
             var progress = new SynchronizationProgress<int>(context, value => { if (IsDownloadingUpdate) UpdateStatus = "Downloading update · " + value + "%"; });
             var folder = Path.Combine(app.Paths.Home, "updates", availableUpdate.Version);
             var installer = await new ApplicationUpdates(client).DownloadAsync(availableUpdate, folder, progress, lifetime.Token);

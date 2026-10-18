@@ -49,6 +49,14 @@ public sealed partial class MainWindow : Window
         {
             var start = new System.Diagnostics.ProcessStartInfo(installer) { UseShellExecute = false, CreateNoWindow = true };
             foreach (var argument in new[] { "--silent", "--wait-for-pid", Environment.ProcessId.ToString(), "--root", vm.Application.Paths.PayloadRoot, "--home", vm.Application.Paths.Home, "--result", result, "--launch" }) start.ArgumentList.Add(argument);
+            if (vm.Application.UpdateSmokeSpec is { } spec)
+            {
+                var isolated = await Verification.UpdateSmokeTest.ReadSpecAsync(spec);
+                start.Environment["VRCSETUP_UPDATE_SMOKE_SPEC"] = spec;
+                start.Environment["VRCSETUP_HOME"] = vm.Application.Paths.Home;
+                start.Environment["VRCSETUP_SKIP_PATH_UPDATE"] = "1";
+                start.Environment["VRCSETUP_START_MENU_ROOT"] = System.IO.Path.Combine(isolated.Root, "start-menu");
+            }
             _ = System.Diagnostics.Process.Start(start) ?? throw new IOException("Could not start the updater.");
             await vm.FinishImportsAsync();
             closingConfirmed = true; Close(); return true;

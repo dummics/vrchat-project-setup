@@ -16,6 +16,8 @@ public sealed class VrcSetupApplication
     public ProjectPlanner Planner { get; }
     public ProjectExecutor Executor { get; }
     public UnityProjectDriver Unity { get; }
+    public Func<HttpClient>? UpdateHttpClientFactory { get; init; }
+    public string? UpdateSmokeSpec { get; init; }
     private readonly string[] diagnosticFlags;
     public bool AllowBackgroundCatalogRefresh => !diagnosticFlags.Contains("--no-catalog-refresh");
     public bool AllowBackgroundUpdateChecks => !diagnosticFlags.Contains("--no-update-check");
