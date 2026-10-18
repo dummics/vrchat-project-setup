@@ -149,4 +149,5 @@ jobs:
           if ($env:PUBLISH_RELEASE -eq 'true') {
             & gh release edit $tag --draft=false
             if ($LASTEXITCODE -ne 0) { throw 'Publishing failed; verified assets remain in the draft.' }
+            ./scripts/Sync-ReleasePresentation.ps1 -ReadmeBranch main
           }

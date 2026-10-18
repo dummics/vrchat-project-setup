@@ -1,7 +1,8 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$Repository = 'dummics/vrchat-project-setup',
-    [string]$SnapshotPath
+    [string]$SnapshotPath,
+    [string]$ReadmeBranch
 )
 $ErrorActionPreference = 'Stop'
 if ($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid repository.' }
@@ -15,6 +16,15 @@ do {
     $releases += $batch; $page++
 } while ($batch.Count -eq 100)
 if ($SnapshotPath) { $releases | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $SnapshotPath -Encoding utf8 }
+. (Join-Path $PSScriptRoot 'ReleaseVersion.ps1')
+$ranked = foreach ($release in $releases) {
+    if ($release.draft) { continue }
+    try { $key = Get-ReleaseVersion $release.tag_name } catch { continue }
+    [pscustomobject]@{ Release=$release; Version=$key.Text; Core=$key.Core; Rank=$key.Rank; Iteration=$key.Iteration }
+}
+$latest = $ranked | Sort-Object Core,Rank,Iteration -Descending | Select-Object -First 1
+if (-not $latest) { throw 'No numbered public release found.' }
+$latestUrl = $latest.Release.html_url
 $start = '<!-- vrcsetup-download:start -->'; $end = '<!-- vrcsetup-download:end -->'
 foreach ($release in $releases) {
     $match = [regex]::Match($release.tag_name, '^v?(\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?)$')
@@ -26,7 +36,8 @@ foreach ($release in $releases) {
     $badge = '[![Download this version](https://img.shields.io/badge/Download_this_version-Windows_x64-2ea493?style=for-the-badge)](' + $asset.browser_download_url + ')'
     $body = [string]$release.body
     $body = [regex]::Replace($body, '(?s)<!-- vrcsetup-download:start -->.*?<!-- vrcsetup-download:end -->\s*', '')
-    $body = "$start`n$badge`n$end`n`n" + $body.TrimStart()
+    $latestLine = if ($version -ne $latest.Version) { 'Latest version: **[' + $latest.Version + '](' + $latestUrl + ')**' + "`n`n" } else { '' }
+    $body = "$start`n$latestLine$badge`n$end`n`n" + $body.TrimStart()
     if ($release.name -ne $version -or $release.body -ne $body) {
         if ($PSCmdlet.ShouldProcess($release.tag_name, 'Set version-only title and installer download button')) {
             if (-not $env:GH_TOKEN) { throw 'A repository-scoped GH_TOKEN is required for changes. Use the maintenance workflow.' }
@@ -41,4 +52,15 @@ foreach ($release in $releases) {
         $null = Invoke-RestMethod "$base/releases/assets/$($asset.id)" -Method Patch -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($payload))
     }
     [pscustomobject]@{ Version = $version; Installer = $asset.name; DisplayLabel = $label }
+}
+if ($ReadmeBranch) {
+    $readme = Invoke-RestMethod "$base/contents/README.md?ref=$([uri]::EscapeDataString($ReadmeBranch))" -Headers $headers
+    $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($readme.content))
+    $pattern = [regex]::new([regex]::Escape("https://github.com/$Repository/releases") + '(?:/tag/[^\s)]+)?')
+    $updated = $pattern.Replace($text, $latestUrl, 1)
+    if ($text -ne $updated -and $PSCmdlet.ShouldProcess("$ReadmeBranch/README.md", "Point download to $($latest.Version)")) {
+        if (-not $env:GH_TOKEN) { throw 'A repository-scoped GH_TOKEN is required for changes.' }
+        $payload = @{ message='docs(readme): point download to ' + $latest.Version; branch=$ReadmeBranch; sha=$readme.sha; content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($updated)) } | ConvertTo-Json
+        $null = Invoke-RestMethod "$base/contents/README.md" -Method Put -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($payload))
+    }
 }

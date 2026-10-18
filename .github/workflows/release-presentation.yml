@@ -17,7 +17,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/Sync-ReleasePresentation.ps1 -SnapshotPath '${{ runner.temp }}/release-presentation-before.json'
+        run: ./scripts/Sync-ReleasePresentation.ps1 -ReadmeBranch main -SnapshotPath '${{ runner.temp }}/release-presentation-before.json'
       - name: Preserve previous presentation
         if: always()
         uses: actions/upload-artifact@v4
