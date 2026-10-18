@@ -2,14 +2,14 @@
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Default">
             <Color x:Key="AppSelectionStrokeColor">#9DA6AF</Color>
-            <Color x:Key="AppSidebarColor">#191B1E</Color>
-            <SolidColorBrush x:Key="AppCanvasBrush" Color="#202225"/>
-            <SolidColorBrush x:Key="AppSurfaceBrush" Color="#292C30"/>
-            <SolidColorBrush x:Key="AppControlBrush" Color="#30343A"/>
+            <Color x:Key="AppSidebarColor">#282A2D</Color>
+            <SolidColorBrush x:Key="AppCanvasBrush" Color="#25272A"/>
+            <SolidColorBrush x:Key="AppSurfaceBrush" Color="#303338"/>
+            <SolidColorBrush x:Key="AppControlBrush" Color="#373B41"/>
             <SolidColorBrush x:Key="AppTextBrush" Color="#ECEDEF"/>
             <SolidColorBrush x:Key="AppSecondaryBrush" Color="#ADB2B9"/>
             <SolidColorBrush x:Key="AppAccentTextBrush" Color="#50CDBB"/><SolidColorBrush x:Key="AppAccentSubtleBrush" Color="#253C39"/>
-            <SolidColorBrush x:Key="AppStrokeBrush" Color="#42474E"/>
+            <SolidColorBrush x:Key="AppStrokeBrush" Color="#4B5057"/><SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#303338"/><SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="#4B5057"/>
             <SolidColorBrush x:Key="AppSelectionStrokeBrush" Color="#9DA6AF"/>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
@@ -21,7 +21,7 @@
             <SolidColorBrush x:Key="AppTextBrush" Color="#20252B"/>
             <SolidColorBrush x:Key="AppSecondaryBrush" Color="#59636E"/>
             <SolidColorBrush x:Key="AppAccentTextBrush" Color="#167568"/><SolidColorBrush x:Key="AppAccentSubtleBrush" Color="#DDEFEA"/>
-            <SolidColorBrush x:Key="AppStrokeBrush" Color="#CFD4DA"/>
+            <SolidColorBrush x:Key="AppStrokeBrush" Color="#CFD4DA"/><SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#FFFFFF"/><SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="#CFD4DA"/>
             <SolidColorBrush x:Key="AppSelectionStrokeBrush" Color="#626D78"/>
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">

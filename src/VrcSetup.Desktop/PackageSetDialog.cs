@@ -49,7 +49,7 @@ public sealed class PackageSetDialog : IDisposable
             return SemanticVersion.Sort(common ?? []);
         });
         var panel = new StackPanel { Spacing = 12, MinWidth = 280, MaxWidth = 560 };
-        query = new TextBox { PlaceholderText = "Search packages", MinHeight = 34 };
+        query = new TextBox { PlaceholderText = UiText.Text("Search packages"), MinHeight = 34 };
         panel.Children.Add(query);
         notice = new InfoBar { IsOpen = false, IsClosable = true }; panel.Children.Add(notice);
         if (inspection is not null)
@@ -84,8 +84,8 @@ public sealed class PackageSetDialog : IDisposable
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><TextBlock Text="{Binding}" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/></DataTemplate>
             """);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
-        var cancel = new Button { Content = "Cancel", MinHeight = 32, Padding = new Thickness(14, 5, 14, 5) };
-        var done = new Button { Content = "Done", MinHeight = 32, Padding = new Thickness(14, 5, 14, 5), Style = (Style)Application.Current.Resources["AppPrimaryButton"] };
+        var cancel = new Button { Content = UiText.Text("Cancel"), MinHeight = 32, Padding = new Thickness(14, 5, 14, 5) };
+        var done = new Button { Content = UiText.Text("Done"), MinHeight = 32, Padding = new Thickness(14, 5, 14, 5), Style = (Style)Application.Current.Resources["AppPrimaryButton"] };
         cancel.Click += (_, _) => Dialog.Hide();
         done.Click += (_, _) => { Accepted = true; Dialog.Hide(); };
         actions.Children.Add(cancel); actions.Children.Add(done); panel.Children.Add(actions);

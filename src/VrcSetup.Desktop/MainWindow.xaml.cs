@@ -9,11 +9,15 @@ public sealed partial class MainWindow : Window
     private bool closingConfirmed, closePromptPending;
     public MainWindow(VrcSetupApplication? application = null)
     {
+        application ??= new VrcSetupApplication();
+        VrcSetup.Core.UiText.LoadPreference(application.Paths.ConfigFile);
         InitializeComponent(); Title = "VRChat Project Setup";
         ExtendsContentIntoTitleBar = true; SetTitleBar(AppTitleBar);
         AppTitleBar.Title = "VRChat Project Setup";
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+        { presenter.PreferredMinimumWidth = 720; presenter.PreferredMinimumHeight = 580; }
         var page = Page = new MainPage(this, application ?? new VrcSetupApplication()); RootFrame.Content = page;
         AppWindow.Closing += async (_, args) =>
         {
@@ -47,7 +51,7 @@ public sealed partial class MainWindow : Window
         vm.IsInstallingUpdate = true;
         try
         {
-            var start = new System.Diagnostics.ProcessStartInfo(installer) { UseShellExecute = false, CreateNoWindow = true };
+            var start = new System.Diagnostics.ProcessStartInfo(installer) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = vm.Application.Paths.Home };
             foreach (var argument in new[] { "--silent", "--wait-for-pid", Environment.ProcessId.ToString(), "--root", vm.Application.Paths.PayloadRoot, "--home", vm.Application.Paths.Home, "--result", result, "--launch" }) start.ArgumentList.Add(argument);
             if (vm.Application.UpdateSmokeSpec is { } spec)
             {
@@ -62,5 +66,14 @@ public sealed partial class MainWindow : Window
             closingConfirmed = true; Close(); return true;
         }
         catch { vm.IsInstallingUpdate = false; throw; }
+    }
+    public async Task<bool> RestartForLanguageAsync()
+    {
+        var vm = Page.ViewModel;
+        if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty) return false;
+        await vm.FinishImportsAsync();
+        var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, WorkingDirectory = vm.Application.Paths.Home };
+        start.Environment["VRCSETUP_HOME"] = vm.Application.Paths.Home;
+        System.Diagnostics.Process.Start(start); closingConfirmed = true; Close(); return true;
     }
 }

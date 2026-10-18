@@ -16,12 +16,29 @@ public partial class App : Application
         base.OnStartup(e);
         var arguments = e.Args;
         string? Option(string name) { var i = Array.IndexOf(arguments, name); return i >= 0 && i + 1 < arguments.Length ? arguments[i + 1] : null; }
+        UiText.LoadPreference(AppPaths.ForInstallation(Option("--home"), Option("--root") ?? InstallationManager.DefaultRoot).ConfigFile);
+        if (Option("--render-update-progress") is { } render)
+        {
+            Directory.CreateDirectory(render);
+            var preview = new UpdateProgressWindow(); preview.RenderForVerification(Path.Combine(render, "updater-waiting.png"));
+            preview.SetStep("Installing update"); preview.RenderForVerification(Path.Combine(render, "updater-installing.png"));
+            preview.SetStep("Updated. Reopening the app…", true); preview.RenderForVerification(Path.Combine(render, "updater-complete.png"));
+            Shutdown(); return;
+        }
         if (arguments.Contains("--silent"))
         {
+            var target = Option("--root") ?? InstallationManager.DefaultRoot;
+            var home = Option("--home");
+            var diagnostic = Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 };
+            var progressWindow = !diagnostic && (arguments.Contains("--wait-for-pid") || arguments.Contains("--show-progress")) ? new UpdateProgressWindow() : null;
+            progressWindow?.Show();
+            var progress = new Progress<string>(message => progressWindow?.SetStep(message));
             try
             {
-                var target = Option("--root") ?? InstallationManager.DefaultRoot;
-                var home = Option("--home");
+                // An updater launched by the installed shortcut inherits the install
+                // directory. Windows will not rename its current directory, even
+                // after the old GUI exits. This also protects older GUI updaters.
+                Environment.CurrentDirectory = Path.GetTempPath();
                 if (Option("--wait-for-pid") is { } processId)
                 {
                     if (!int.TryParse(processId, out var pid) || pid <= 0 || pid == Environment.ProcessId) throw new IOException("Invalid application process.");
@@ -31,29 +48,40 @@ public partial class App : Application
                 }
                 if (arguments.Contains("--uninstall")) await new InstallationManager(new AppPaths(home)).UninstallAsync(target, arguments.Contains("--yes"));
                 else if (arguments.Contains("--repair")) await new InstallationManager(new AppPaths(home)).RepairAsync(target);
-                else await Install(target, home);
+                else await Install(target, home, progress);
                 if (Option("--result") is { } result) await AtomicFile.WriteJsonAsync(result, new { Success = true, Root = target });
                 if (arguments.Contains("--launch") && !arguments.Contains("--uninstall"))
                 {
-                    var launch = new ProcessStartInfo(Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false };
-                    launch.Environment["VRCSETUP_HOME"] = AppPaths.ForInstallation(home, target).Home;
-                    if (Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 } spec)
-                    { launch.ArgumentList.Add("--verify-update-smoke"); launch.ArgumentList.Add(spec); }
-                    Process.Start(launch);
+                    progressWindow?.SetStep("Updated. Reopening the app…", true);
+                    if (progressWindow is not null) await Task.Delay(900);
+                    LaunchInstalled(target, home, true);
                 }
                 Shutdown(0);
             }
             catch (Exception error)
             {
                 if (Option("--result") is { } result) await AtomicFile.WriteJsonAsync(result, new { Success = false, Error = error.ToString() });
-                Shutdown(1);
+                var reopened = false;
+                if (!diagnostic && arguments.Contains("--launch") && File.Exists(Path.Combine(target, ".vrcsetup-install.json")))
+                    try { LaunchInstalled(target, home, false); reopened = true; } catch (Exception launchError) when (launchError is IOException or System.ComponentModel.Win32Exception) { }
+                if (progressWindow is not null) progressWindow.ShowFailure(reopened, Option("--result"));
+                else Shutdown(1);
             }
             return;
         }
         var window = new InstallerWindow(); MainWindow = window; window.Show();
     }
-    internal static async Task<InstallationRecord> Install(string destination, string? home = null)
+    private static void LaunchInstalled(string target, string? home, bool updated)
     {
+        var launch = new ProcessStartInfo(Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() };
+        launch.Environment["VRCSETUP_HOME"] = AppPaths.ForInstallation(home, target).Home;
+        if (updated && Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 } spec)
+        { launch.ArgumentList.Add("--verify-update-smoke"); launch.ArgumentList.Add(spec); }
+        Process.Start(launch);
+    }
+    internal static async Task<InstallationRecord> Install(string destination, string? home = null, IProgress<string>? progress = null)
+    {
+        Environment.CurrentDirectory = Path.GetTempPath();
         EnsureApplicationClosed(destination);
         var extraction = Path.Combine(Path.GetTempPath(), "VrcSetup-install-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(extraction);
@@ -71,7 +99,7 @@ public partial class App : Application
                 }
             }
             var paths = AppPaths.ForInstallation(home, extraction);
-            return await new InstallationManager(paths).InstallAsync(destination);
+            return await new InstallationManager(paths).InstallAsync(destination, progress: progress);
         }
         finally { if (Directory.Exists(extraction)) Directory.Delete(extraction, true); }
     }
@@ -118,7 +146,7 @@ public sealed class InstallerWindow : Window
         install.Click += async (_, _) =>
         {
             install.IsEnabled = false; target.IsEnabled = false; progress.IsIndeterminate = true; status.Text = "Verifying and installing…";
-            try { var record = await App.Install(ProjectRules.NormalizePath(target.Text)); installedRoot = record.Root; status.Text = "Installed. Find VRChat Project Setup in Windows Search."; launch.IsEnabled = true; }
+            try { var record = await App.Install(ProjectRules.NormalizePath(target.Text)); installedRoot = record.Root; status.Text = "Installed. Opening the app…"; launch.IsEnabled = true; Process.Start(new ProcessStartInfo(Path.Combine(installedRoot, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() }); Close(); }
             catch (Exception error) { status.Text = error.Message; install.IsEnabled = true; target.IsEnabled = true; }
             finally { progress.IsIndeterminate = false; }
         };

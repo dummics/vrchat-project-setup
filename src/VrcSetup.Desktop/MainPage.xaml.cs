@@ -21,6 +21,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     public bool SuppressDialogs { get; set; }
     public void CloseApplication() => window.Close();
     public Task<bool> InstallApplicationUpdateAsync(string installer, string result) => ((MainWindow)window).InstallUpdateAsync(installer, result);
+    public Task<bool> RestartApplicationAsync() => ((MainWindow)window).RestartForLanguageAsync();
     public MainPage(Window window, VrcSetupApplication app)
     {
         this.window = window;
@@ -57,12 +58,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
-        try { Navigation.SelectedItem = page == "Settings" ? Navigation.SettingsItem : Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page)); }
+        try { Navigation.SelectedItem = Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page)); }
         finally { syncingNavigation = false; }
     }
     private async void NavigationInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
         if (ViewModel is null || syncingNavigation) return;
+        if ((args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() == "About")
+        { Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(args.InvokedItemContainer); ShowPage(ViewModel.CurrentPage); return; }
         await ViewModel.NavigateAsync(args.IsSettingsInvoked ? "Settings" : (args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() ?? "Projects");
         ShowPage(ViewModel.CurrentPage);
     }
@@ -71,7 +74,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void ActivityClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Activity");
     private void ConstrainContent()
     {
-        var pane = Navigation.DisplayMode == NavigationViewDisplayMode.Expanded ? Navigation.OpenPaneLength : Navigation.DisplayMode == NavigationViewDisplayMode.Compact ? Navigation.CompactPaneLength : 0;
+        var expanded = ActualWidth >= 900;
+        var mode = expanded ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftCompact;
+        if (Navigation.PaneDisplayMode != mode) { Navigation.PaneDisplayMode = mode; Navigation.IsPaneOpen = expanded; }
+        Navigation.OpenPaneLength = Math.Clamp(ActualWidth * 0.16, 168, 192);
+        var pane = Navigation.DisplayMode == NavigationViewDisplayMode.Expanded ? Navigation.OpenPaneLength : Navigation.CompactPaneLength;
         PageContent.MaxWidth = Math.Max(1, ActualWidth - pane);
         ConstrainForms();
     }
@@ -83,7 +90,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         Grid.SetColumnSpan(ProjectHeaderActions, stackProjectHeader ? 3 : 2);
         if (CreateView.ActualWidth > 0)
         {
-            CreateLayout.Width = Math.Min(880, CreateView.ActualWidth);
+            CreateLayout.Width = CreateView.ActualWidth;
             CreateForm.Width = CreateLayout.Width;
             ImportQueueSection.Width = CreateLayout.Width;
             ImportQueueList.MaxHeight = ViewModel.ImportJobs.Any(x => x.DetailsOpen) ? Math.Min(520, Math.Max(260, CreateView.ActualHeight - 140)) : 220;
@@ -109,7 +116,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
         }
-        if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Min(760, SettingsView.ActualWidth);
+        if (SettingsView.ActualWidth > 0) SettingsForm.Width = SettingsView.ActualWidth;
     }
     private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
     private async void AddCreationSuggestionClicked(object sender, RoutedEventArgs args)
@@ -216,13 +223,20 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async Task<ContentDialogResult> ShowDialog(ContentDialog dialog)
     {
         await dialogGate.WaitAsync();
-        try { dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = RequestedTheme; dialog.PrimaryButtonStyle ??= (Style)Resources["ActionButton"]; return await dialog.ShowAsync(); }
+        try { dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = RequestedTheme; dialog.PrimaryButtonStyle ??= (Style)Resources["ActionButton"]; dialog.CloseButtonStyle ??= (Style)Resources["QuietButton"]; if (dialog.Title is string title) dialog.Title = UiText.Text(title); dialog.PrimaryButtonText = UiText.Text(dialog.PrimaryButtonText); dialog.SecondaryButtonText = UiText.Text(dialog.SecondaryButtonText); dialog.CloseButtonText = UiText.Text(dialog.CloseButtonText); return await dialog.ShowAsync(); }
         finally { dialogGate.Release(); }
     }
     public async Task<bool> ConfirmAsync(string title, string content, string action) => await ShowDialog(new()
-    { Title = title, Content = new TextBlock { Text = content, TextWrapping = TextWrapping.Wrap, MaxWidth = 500 }, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary;
+    { Title = title, Content = new TextBlock { Text = UiText.Text(content), TextWrapping = TextWrapping.Wrap, MaxWidth = 500 }, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary;
     public async Task ShowErrorAsync(string message)
     { if (!SuppressDialogs) await ShowDialog(new() { Title = "Action could not complete", Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 }, CloseButtonText = "Back" }); }
+    public async Task ShowUpdateInfoAsync(string details)
+    {
+        if (SuppressDialogs) return;
+        var result = await ShowDialog(new() { Title = "Update details", Content = new ScrollViewer { MaxHeight = 320, Content = new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, MaxWidth = 520 } }, PrimaryButtonText = "Open logs", SecondaryButtonText = "Report a bug", CloseButtonText = "Close" });
+        if (result == ContentDialogResult.Primary) ViewModel.OpenLogsCommand.Execute(null);
+        else if (result == ContentDialogResult.Secondary) ViewModel.ReportBugCommand.Execute(null);
+    }
     public async Task<string?> TextAsync(string title, string initial = "")
     {
         var field = new TextBox { Text = initial, MinWidth = 360 };
@@ -282,15 +296,15 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         {
             var names = string.Join(", ", group.Projects.Select(x => x.Name));
             var section = new StackPanel { Spacing = 8 };
-            var header = new TextBlock { Text = group.Projects.Length == plan.Projects.Length && plan.Projects.Length > 1 ? $"All {plan.Projects.Length} projects" : names, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+            var header = new TextBlock { Text = group.Projects.Length == plan.Projects.Length && plan.Projects.Length > 1 ? UiText.Text("All projects") + $" ({plan.Projects.Length})" : names, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
             ToolTipService.SetToolTip(header, string.Join(Environment.NewLine, group.Projects.Select(x => x.Path))); section.Children.Add(header);
             foreach (var change in group.Changes)
             {
                 var name = ViewModel.PackageDisplayName(change.Id);
                 var text = change.Kind switch
                 {
-                    ChangeKind.Add => $"Add {name} · {change.ResolvedVersion}",
-                    ChangeKind.Remove => $"Remove {name} · {change.InstalledVersion}",
+                    ChangeKind.Add => $"{UiText.Text("Add")} {name} · {change.ResolvedVersion}",
+                    ChangeKind.Remove => $"{UiText.Text("Remove")} {name} · {change.InstalledVersion}",
                     _ when change.InstalledVersion == change.ResolvedVersion => $"Repair {name} · {change.ResolvedVersion}",
                     _ => $"{name} · {change.InstalledVersion} → {change.ResolvedVersion}"
                 };
@@ -309,7 +323,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         }
         var legacy = plan.Projects.Where(x => x.NeedsEasyLoginRepository && Directory.Exists(Path.Combine(x.Path, "Assets", "EASY LOGIN"))).ToArray();
         if (legacy.Length > 0) stack.Children.Add(new TextBlock { Text = "Legacy Easy Login folder will be checked and backed up before migration: " + string.Join(", ", legacy.Select(x => x.Name)), TextWrapping = TextWrapping.Wrap });
-        stack.Children.Add(new TextBlock { Text = "Projects open in Unity or changed after this review will be skipped. Backups are kept in each project's .vrcsetup folder.", TextWrapping = TextWrapping.Wrap });
         if (plan.Projects.Any(x => x.Creation is not null) && ViewModel.InspectionReviewNote.Length > 0) stack.Children.Add(new TextBlock { Text = ViewModel.InspectionReviewNote, TextWrapping = TextWrapping.Wrap });
         var dialog = new ContentDialog { Title = "Review changes", Content = new ScrollViewer { Content = stack, MaxHeight = 430 }, PrimaryButtonText = plan.Projects.Any(x => x.Creation is not null) ? "Create project" : "Apply changes", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Close };
         return await ShowDialog(dialog) == ContentDialogResult.Primary;

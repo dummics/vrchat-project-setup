@@ -18,6 +18,25 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var arguments = Environment.GetCommandLineArgs();
+        var languageSmoke = Array.IndexOf(arguments, "--smoke-localization");
+        if (languageSmoke >= 0 && languageSmoke + 1 < arguments.Length)
+        {
+            var output = arguments[languageSmoke + 1];
+            try
+            {
+                var app = await Verification.UiSmokeTest.PrepareAsync(output);
+                var config = await app.Configuration.LoadAsync(); config.Language = "it"; await app.Configuration.SaveAsync(config);
+                var main = new MainWindow(app); window = main; main.AppWindow.Show(false); await main.Page.Initialized;
+                var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)main.Page.FindName("Navigation");
+                if ((navigation.MenuItems[0] as Microsoft.UI.Xaml.Controls.NavigationViewItem)?.Content as string != "Progetti") throw new System.IO.IOException("Italian navigation did not load.");
+                foreach (var page in new[] { "Settings", "Create", "Projects", "Presets" })
+                { main.Page.ViewModel.CurrentPage = page; await Task.Delay(100); await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, page.ToLowerInvariant() + "-it.png")); }
+                await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(output, "localization.json"), new { Passed = true, Language = VrcSetup.Core.UiText.CurrentLanguage, NamesPreserved = main.Page.ViewModel.Projects.Any(x => x.Name == "Creator [PC] & café") });
+                main.Close(); Exit();
+            }
+            catch (Exception error) { System.IO.Directory.CreateDirectory(output); await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, "failure.txt"), error.ToString()); Environment.ExitCode = 1; Exit(); }
+            return;
+        }
         var updateTestIndex = Array.IndexOf(arguments, "--update-smoke-test");
         var updateVerifyIndex = Array.IndexOf(arguments, "--verify-update-smoke");
         if (updateTestIndex >= 0 || updateVerifyIndex >= 0)

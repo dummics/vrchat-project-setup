@@ -24,11 +24,14 @@ public sealed partial class MainViewModel
     public Visibility WorkspaceChangesVisibility => WorkspaceDirty ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SingleProjectLaunchVisibility => session?.Projects.Length == 1 ? Visibility.Visible : Visibility.Collapsed;
     public string WorkspaceChangeContext => session is null ? "" : "Pending changes · " + session.Projects.Length + (session.Projects.Length == 1 ? " project" : " projects");
-    partial void OnBrowsingProjectPackagesChanged(bool value) { OnPropertyChanged(nameof(PresetHeaderVisibility)); OnPropertyChanged(nameof(ProjectCatalogVisibility)); OnPropertyChanged(nameof(PresetChangesVisibility)); RefreshLibraryRows(); }
+    partial void OnBrowsingProjectPackagesChanged(bool value) { OnPropertyChanged(nameof(PresetHeaderVisibility)); OnPropertyChanged(nameof(ProjectCatalogVisibility)); OnPropertyChanged(nameof(PresetChangesVisibility)); RefreshLibraryRows(); OnPropertyChanged(nameof(LibraryPendingVisibility)); }
     public string[] CachedVersions(string id) => Registry.FirstOrDefault(x => x.Id == id)?.Versions ?? [];
     public Task<string[]> LoadVersionsAsync(string id) => versionCache.GetAsync(id);
-    public string PackageDisplayName(string id) => Packages.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase))?.Name
-        ?? Registry.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? VrcSetup.Infrastructure.PackageCatalog.FriendlyName(id);
+    public string PackageDisplayName(string id)
+    {
+        var name = Packages.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase))?.Name ?? Registry.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase))?.DisplayName;
+        return string.IsNullOrWhiteSpace(name) || name.Equals(id, StringComparison.OrdinalIgnoreCase) ? VrcSetup.Infrastructure.PackageCatalog.FriendlyName(id) : name;
+    }
     public async Task<bool> ConfirmCloseAsync()
     {
         if (!WorkspaceDirty && !PresetDirty) return true;
@@ -78,7 +81,7 @@ public sealed partial class MainViewModel
         presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); PresetDirty = true; RenderPreset();
     }
     private void NotifyWorkspaceChanges()
-    { OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); }
+    { OnPropertyChanged(nameof(WorkspaceFriendlySummary)); OnPropertyChanged(nameof(WorkspaceFriendlyNames)); OnPropertyChanged(nameof(LibraryPendingVisibility)); OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); }
     private async Task SearchLibraryAsync(string query)
     {
         packageSearch?.Cancel(); var source = packageSearch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); var token = source.Token;

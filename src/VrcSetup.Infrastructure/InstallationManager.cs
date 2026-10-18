@@ -22,7 +22,7 @@ public sealed class InstallationManager(AppPaths paths)
         foreach (var required in new[] { "app/cli/vrcsetup.exe", "app/desktop/VrcSetup.Desktop.exe" })
             if (!File.Exists(Path.Combine(root, required))) throw new IOException("Payload is missing " + required);
     }
-    public async Task<InstallationRecord> InstallAsync(string? destination = null, CancellationToken token = default)
+    public async Task<InstallationRecord> InstallAsync(string? destination = null, CancellationToken token = default, IProgress<string>? progress = null)
     {
         var source = ProjectRules.NormalizePath(paths.PayloadRoot);
         var target = ProjectRules.NormalizePath(destination ?? DefaultRoot);
@@ -32,6 +32,7 @@ public sealed class InstallationManager(AppPaths paths)
         if (target.StartsWith(source + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || source.StartsWith(target + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new IOException("Source and install destination must be separate folders.");
         if (Directory.Exists(target) && !File.Exists(Path.Combine(target, Marker)) && !File.Exists(Path.Combine(target, ".vrcsetup-installed"))) throw new IOException("Refusing to replace an unrecognized destination folder.");
         ProjectRules.EnsureContained(parent, target);
+        progress?.Report("Checking installation");
         await ValidatePayloadAsync(source, token);
         var destinationPaths = paths.AllowLegacyImport && File.Exists(Path.Combine(source, ".vrcsetup-portable")) ? AppPaths.ForInstallation(null, source) : paths;
         var legacy = Path.Combine(target, "setup-scripts", "config", "vrcsetup.json");
@@ -53,7 +54,9 @@ public sealed class InstallationManager(AppPaths paths)
                 ProjectRules.EnsureContained(source, file); ProjectRules.EnsureContained(stage, copy);
                 Directory.CreateDirectory(Path.GetDirectoryName(copy)!); File.Copy(file, copy);
             }
+            progress?.Report("Verifying files");
             await ValidatePayloadAsync(stage, token);
+            progress?.Report("Installing update");
             if (previous is not null) Directory.Move(target, previous);
             try { Directory.Move(stage, target); }
             catch { if (previous is not null && !Directory.Exists(target)) Directory.Move(previous, target); throw; }
@@ -61,6 +64,7 @@ public sealed class InstallationManager(AppPaths paths)
             {
                 var record = new InstallationRecord(manifest.Version, target, DateTime.UtcNow, previous, destinationPaths.Home);
                 await AtomicFile.WriteJsonAsync(Path.Combine(target, Marker), record, token);
+                progress?.Report("Updating shortcuts");
                 await IntegrateAsync(target, token);
                 return record;
             }

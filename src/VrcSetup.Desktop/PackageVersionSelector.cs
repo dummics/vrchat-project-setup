@@ -17,7 +17,7 @@ public sealed class PackageVersionSelector : DropDownButton
     public Func<string, string[]>? CachedSource { get; set; }
     public event EventHandler<string>? VersionPicked;
     private readonly ListView choices = new() { MaxHeight = 260, MinWidth = 220, DisplayMemberPath = nameof(VersionItem.Label), IsItemClickEnabled = true };
-    private readonly CheckBox betas = new() { Content = "Include betas" };
+    private readonly CheckBox betas = new() { Content = UiText.Text("Include betas") };
     private readonly TextBlock status = new() { Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
     private string[] versions = [];
     private bool rendering;
@@ -43,7 +43,7 @@ public sealed class PackageVersionSelector : DropDownButton
         UpdateCaption();
     }
     private static void Changed(DependencyObject value, DependencyPropertyChangedEventArgs args) => ((PackageVersionSelector)value).UpdateCaption();
-    private void UpdateCaption() => Content = string.IsNullOrWhiteSpace(DisplayVersion) ? Value is "latest" or "Not installed" ? "Latest" : Value : DisplayVersion;
+    private void UpdateCaption() => Content = UiText.Text(string.IsNullOrWhiteSpace(DisplayVersion) ? Value is "latest" or "Not installed" ? "Latest" : Value : DisplayVersion);
     internal void PickVersion(string value)
     { if (!rendering) { VersionPicked?.Invoke(this, value); Flyout.Hide(); } }
     private void Render()

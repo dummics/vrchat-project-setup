@@ -43,6 +43,7 @@ $specFile = Join-Path $OutputDirectory 'update-test.json'
 @{Root=$OutputDirectory;Installer=$UpdateInstaller;Version=$targetVersion;SettingsHash=(Get-FileHash -LiteralPath $configFile -Algorithm SHA256).Hash;UseRealNetwork=[bool]$UseRealNetwork} | ConvertTo-Json | Set-Content -LiteralPath $specFile -Encoding utf8
 $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'app/desktop/VrcSetup.Desktop.exe'))
 $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+$start.WorkingDirectory = $install
 $start.ArgumentList.Add('--update-smoke-test'); $start.ArgumentList.Add($specFile)
 $process = [Diagnostics.Process]::Start($start)
 $timer = [Diagnostics.Stopwatch]::StartNew()

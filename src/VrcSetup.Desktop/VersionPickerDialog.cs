@@ -18,14 +18,14 @@ public sealed class VersionPickerDialog
 
     public VersionPickerDialog(string package, string[] versions, string current)
     {
-        Choice = new() { Header = "Version", DisplayMemberPath = nameof(VersionChoice.Label), HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 360, MaxDropDownHeight = 280 };
-        Search = new() { PlaceholderText = "Search versions" };
-        Previews = new() { Content = "Include preview releases", IsChecked = current.Contains('-') && current != "latest" };
-        Exact = new() { Header = "Use an exact version", PlaceholderText = "e.g. 1.2.3" };
+        Choice = new() { Header = UiText.Text("Version"), DisplayMemberPath = nameof(VersionChoice.Label), HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 360, MaxDropDownHeight = 280 };
+        Search = new() { PlaceholderText = UiText.Text("Search versions") };
+        Previews = new() { Content = UiText.Text("Include preview releases"), IsChecked = current.Contains('-') && current != "latest" };
+        Exact = new() { Header = UiText.Text("Use an exact version"), PlaceholderText = "e.g. 1.2.3" };
         var advancedContent = new StackPanel { Spacing = 14 }; advancedContent.Children.Add(Search); advancedContent.Children.Add(Previews); advancedContent.Children.Add(Exact);
-        Advanced = new() { Header = "Advanced", Content = advancedContent, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        Advanced = new() { Header = UiText.Text("Advanced"), Content = advancedContent, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         var content = new StackPanel { Spacing = 20 }; content.Children.Add(Choice); content.Children.Add(Advanced);
-        Dialog = new() { Title = PackageCatalog.FriendlyName(package), Content = content, PrimaryButtonText = "Apply", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
+        Dialog = new() { Title = PackageCatalog.FriendlyName(package), Content = content, PrimaryButtonText = UiText.Text("Apply"), CloseButtonText = UiText.Text("Cancel"), DefaultButton = ContentDialogButton.Primary };
         var selected = current;
         void Refresh()
         {

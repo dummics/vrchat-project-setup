@@ -199,6 +199,7 @@ public sealed class ConfigurationStore(AppPaths paths)
         config.RequiredPackages ??= [ProjectRules.BaseSdk, ProjectRules.AvatarSdk, ProjectRules.Resolver];
         config.FavoritePackages ??= []; config.DefaultPackages ??= [];
         config.ProjectLibrarySort = config.ProjectLibrarySort == "name" ? "name" : "recent";
+        config.Language = config.Language is "it" or "en" ? config.Language : "system";
     }
 }
 

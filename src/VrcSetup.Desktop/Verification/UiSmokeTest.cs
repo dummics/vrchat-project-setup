@@ -26,6 +26,7 @@ public static class UiSmokeTest
         await AtomicFile.WriteJsonAsync(Path.Combine(project, "Packages", "vpm-manifest.json"), new { dependencies = packages, locked = packages });
         await File.WriteAllTextAsync(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
         var config = await application.Configuration.LoadAsync(); config.UnityProjectsRoot = Path.GetDirectoryName(project)!;
+        config.Language = "en";
         config.UnityEditorPath = Path.Combine(artifacts, "saved-editor", "Unity.exe");
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
         config.CreationRecipes["PC template"] = new() { Preset = "creator pc", Packages = packages }; await application.Configuration.SaveAsync(config);
@@ -35,6 +36,9 @@ public static class UiSmokeTest
     {
         var page = window.Page; await page.Initialized;
         var viewModel = page.ViewModel; var checks = new List<string>();
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(400, 240));
+        Require(window.AppWindow.Size.Width >= 720 && window.AppWindow.Size.Height >= 580, "Native window enforces a usable minimum size");
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
         Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
         Require(viewModel.UnityEditorPath == Path.Combine(artifacts, "saved-editor", "Unity.exe"), "Startup preserves a saved editor path even when its drive is unavailable");
         var installedEditor = UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path;
@@ -49,9 +53,10 @@ public static class UiSmokeTest
         Require(viewModel.LibraryIsList && (await viewModel.Application.Configuration.LoadAsync()).PackageLibraryView == "list", "List view is available and persisted");
         await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null);
         Require(new SemanticVersion(viewModel.AppVersion).Major == 0 && ((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Content?.ToString() == viewModel.AppVersion, "Beta version is visible in the persistent version menu");
-        var updateMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Flyout;
-        updateMenu.ShowAt((FrameworkElement)page.FindName("ApplicationVersionButton")); await Task.Delay(80);
-        Require(updateMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().All(x => x.Command is not null), "Version menu commands bind for updates, releases and bug reports"); updateMenu.Hide();
+        Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Command is not null && ((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Flyout is null, "Footer update is a direct action without a menu");
+        viewModel.UpdateFailed = true; viewModel.UpdateStatus = new string('x', 400);
+        Require(viewModel.UpdateSummary == "Update failed", "Technical update errors stay compact in the footer");
+        viewModel.UpdateFailed = false; viewModel.UpdateStatus = "";
         var skipped = new OperationReport("fixture-skipped", DateTime.UtcNow, [new("Fixture", "fixture", OperationStatus.Skipped, "Open in Unity")], []);
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(skipped).State == "Not applied", "Skipped projects are not labelled failed");
         var partial = skipped with { Results = [new("Done", "done", OperationStatus.Completed, ""), new("Skipped", "skip", OperationStatus.Skipped, "Open in Unity")] };
@@ -66,6 +71,10 @@ public static class UiSmokeTest
         Require((await retryCache.GetAsync("retry.package")).Length == 0 && (await retryCache.GetAsync("retry.package")).Length == 1, "Empty version responses can retry after recovery");
         var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)page.FindName("Navigation");
         Require(navigation.FooterMenuItems.OfType<Microsoft.UI.Xaml.Controls.NavigationViewItem>().Any(x => x.Tag?.ToString() == "Activity"), "Activity is in the navigation footer");
+        var information = (FrameworkElement)page.FindName("InformationItem");
+        var informationMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.GetAttachedFlyout(information);
+        informationMenu.ShowAt(information); await Task.Delay(100);
+        Require(informationMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().All(x => x.Command is not null), "Information opens a contextual popup with bound support commands"); informationMenu.Hide();
         viewModel.SelectedRecipe = null!; viewModel.SelectedRecipe = "No recipe";
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
@@ -230,7 +239,7 @@ public static class UiSmokeTest
         versionPicker.Exact.Text = "1.9.0-beta.1";
         Require(versionPicker.Result == "1.9.0-beta.1", "Advanced exact prerelease remains available");
         viewModel.PackageFile = inspectionFile;
-        foreach (var size in new[] { new Windows.Graphics.SizeInt32(520, 800), new Windows.Graphics.SizeInt32(760, 800), new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1366, 768) })
+        foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(900, 760), new Windows.Graphics.SizeInt32(1024, 760), new Windows.Graphics.SizeInt32(1180, 800), new Windows.Graphics.SizeInt32(1920, 1080) })
         {
             window.AppWindow.Resize(size);
             foreach (var screen in new[] { "Projects", "Workspace", "Catalog", "Create", "Presets", "Settings", "Activity" })
@@ -241,6 +250,7 @@ public static class UiSmokeTest
                 await Task.Delay(180);
                 page.UpdateLayout();
                 Require(page.ActualWidth > 0 && page.ActualHeight > 0, "Layout measured: " + screen + " " + size.Width);
+                Require(navigation.DisplayMode != Microsoft.UI.Xaml.Controls.NavigationViewDisplayMode.Minimal, "Sidebar remains available: " + size.Width);
                 if (screen == "Projects")
                 {
                     var projects = (FrameworkElement)page.FindName("ProjectList");
@@ -254,6 +264,7 @@ public static class UiSmokeTest
                 if (screen is "Create" or "Settings")
                 {
                     var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");
+                    if (size.Width >= 1920) Require(form.ActualWidth > 1400, "Fullscreen form uses available width: " + screen);
                     var viewport = (FrameworkElement)page.FindName(screen == "Create" ? "CreateView" : "SettingsView");
                     var origin = form.TransformToVisual(viewport).TransformPoint(new(0, 0));
                     Require(origin.X >= -1 && origin.X + form.ActualWidth <= viewport.ActualWidth + 1, "Form fits viewport: " + screen + " " + size.Width);

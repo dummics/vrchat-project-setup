@@ -1,5 +1,13 @@
 # VRCSETUP Desktop migration
 
+## Beta.4 update recovery, adaptive shell and localization
+
+The failed beta.3 updater was reproduced: starting the base app from its installed directory makes the updater inherit that directory; Windows then refuses the directory rename. The GUI now starts the updater from data home, and the installer independently moves its current directory to Temp before waiting/installing, covering older clients. Update installs show a compact phase/progress window, reopen automatically on success, and attempt to reopen the preserved app on failure. The footer exposes short clickable failure status with technical details in a dialog/logs. The harness now starts the base from its install directory, matching the real shortcut.
+
+Title/sidebar/footer have separate surfaces and stronger dividers. The bounded adaptive sidebar becomes an always-visible icon rail; native minimum is 720×580. Import and Settings use the available width, removing both code and XAML caps. Update available is a direct action. Information is an upward adaptive menu with releases, bug report, contact@dummics.com and logs. Package management and Add package retain a friendly count/name recap; review uses readable names and omits the generic technical skip/backup paragraph. General progress uses a corner popup instead of a full-width bottom strip.
+
+Desktop English/Italian labels default to the system, with a Settings override and guarded Apply language/restart. New installs default to Dark; existing theme choices are preserved. Names, package IDs, versions, paths and provider logs are unchanged. The translation catalog and native Italian smoke entry point are versioned; CLI/TUI localization is outside this desktop pass. Evidence: .work/artifacts/2026-10-18-update-shell/.
+
 ## Beta.3 editor discovery and package library
 
 The saved owner configuration still contained a valid editor path during diagnosis; loss of that file was not reproduced. Editor picking previously changed only the settings draft until Save settings; it now validates pinned executable metadata and persists immediately. Automatic discovery checks Unity Hub binary/custom-location metadata, standard directories and Windows uninstall records off the UI thread. The pinned 2022.3.22f1 is selected rather than the newest Unity. Settings and import setup expose Find/Choose/Install; Open project, import and recovery resolve configuration before executing. Missing saved paths remain intact until a replacement is found/selected.

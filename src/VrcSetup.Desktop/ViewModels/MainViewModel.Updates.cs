@@ -14,8 +14,18 @@ public sealed partial class MainViewModel
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsDownloadingUpdate { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(MainInteractionEnabled))] public partial bool IsInstallingUpdate { get; set; }
     [ObservableProperty] public partial string UpdateStatus { get; set; } = "";
+    [ObservableProperty] public partial bool UpdateFailed { get; set; }
+    private string updateDetails = "";
+    public string UpdateSummary => UpdateFailed ? "Update failed" : IsDownloadingUpdate ? UpdateStatus : UpdateStatus.StartsWith("Finish") ? "Finish current work before updating" : UpdateStatus.StartsWith("No published") ? "Up to date" : UpdateStatus.StartsWith("Checking") ? "Checking for updates…" : "";
+    public Microsoft.UI.Xaml.Visibility UpdateSummaryVisibility => UpdateSummary.Length == 0 ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+    partial void OnUpdateStatusChanged(string value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); }
+    partial void OnUpdateFailedChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); }
+    [RelayCommand] private Task ShowUpdateDetails() => ui.ShowUpdateInfoAsync(updateDetails.Length > 0 ? updateDetails : UpdateStatus);
+    [RelayCommand] private async Task UpdateAction()
+    { if (HasApplicationUpdate) await InstallApplicationUpdate(); else await CheckApplicationUpdatesAsync(true); }
+    [RelayCommand] private void ContactSupport() => OpenPath("mailto:contact@dummics.com?subject=VRChat%20Project%20Setup");
     public string AppVersion => ApplicationUpdates.CurrentVersion;
-    public string UpdateLabel => IsDownloadingUpdate ? "Downloading update…" : HasApplicationUpdate ? AppVersion + " · Update available" : AppVersion;
+    public string UpdateLabel => IsDownloadingUpdate ? "Downloading…" : HasApplicationUpdate ? "Update available" : AppVersion;
     [RelayCommand] private Task CheckApplicationUpdates() => CheckApplicationUpdatesAsync(true);
     internal async Task CheckApplicationUpdatesAsync(bool manual)
     {
@@ -32,7 +42,7 @@ public sealed partial class MainViewModel
             UpdateStatus = HasApplicationUpdate ? "Version " + availableUpdate!.Version + " is available" : manual ? "No published update available" : "";
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException or IOException)
-        { if (manual) UpdateStatus = "Could not check updates. Try again later."; app.Diagnostics.Write("Updates", error.Message); }
+        { if (manual) { updateDetails = error.ToString(); UpdateFailed = true; UpdateStatus = "Could not check updates."; } app.Diagnostics.Write("Updates", error.Message); }
         finally
         {
             checkingUpdate = false;
@@ -45,7 +55,7 @@ public sealed partial class MainViewModel
                     {
                         using var result = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(path, lifetime.Token));
                         if (result.RootElement.TryGetProperty("Success", out var success) && success.ValueKind == System.Text.Json.JsonValueKind.False)
-                            UpdateStatus = "The last update did not finish. Your current version is preserved; retry from the version menu.";
+                        { UpdateFailed = true; updateDetails = result.RootElement.TryGetProperty("Error", out var detail) ? detail.GetString() ?? "Update failed" : "Update failed"; UpdateStatus = "Update failed"; }
                     }
                 }
                 catch (Exception error) when (error is IOException or System.Text.Json.JsonException or OperationCanceledException or UnauthorizedAccessException)
@@ -61,6 +71,7 @@ public sealed partial class MainViewModel
         if (!File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")))
         { UpdateStatus = "Portable copy: download the new version from Releases."; OpenPath(availableUpdate.Page.AbsoluteUri); return; }
         IsDownloadingUpdate = true;
+        UpdateFailed = false; updateDetails = "";
         try
         {
             using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
@@ -75,7 +86,7 @@ public sealed partial class MainViewModel
                 UpdateStatus = "Update is ready. Finish current work before restarting.";
         }
         catch (Exception error) when (error is IOException or HttpRequestException or OperationCanceledException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
-        { UpdateStatus = "Update could not be installed. Your current installation is preserved."; app.Diagnostics.Write("Updates", error.Message, error); }
+        { UpdateFailed = true; updateDetails = error.ToString(); UpdateStatus = "Update failed"; app.Diagnostics.Write("Updates", error.Message, error); }
         finally { IsDownloadingUpdate = false; }
     }
     [RelayCommand] private void ReportBug() => OpenPath(ApplicationUpdates.BugReportUrl);

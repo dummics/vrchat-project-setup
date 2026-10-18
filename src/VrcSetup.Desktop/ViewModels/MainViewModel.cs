@@ -19,6 +19,8 @@ public interface IDesktopInteraction
     Task<string?> VersionAsync(string package, string[] versions, string current);
     Task<string[]?> ChooseProjectsAsync(string title, ProjectSnapshot[] projects, string[] selected);
     Task ShowErrorAsync(string message);
+    Task ShowUpdateInfoAsync(string details) => ShowErrorAsync(details);
+    Task<bool> RestartApplicationAsync() => Task.FromResult(false);
     Task<string?> PromptRecoveryAsync(string name, bool canResume) => Task.FromResult<string?>(null);
     void CloseApplication();
     Task<bool> InstallApplicationUpdateAsync(string installer, string result) => Task.FromResult(false);
@@ -70,7 +72,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial string NamingSuffix { get; set; } = "";
     [ObservableProperty] public partial string NamingPatterns { get; set; } = "";
     [ObservableProperty] public partial bool RememberNames { get; set; } = true;
-    [ObservableProperty] public partial string Theme { get; set; } = "System";
+    [ObservableProperty] public partial string Theme { get; set; } = "Dark";
     [ObservableProperty] public partial string LastLog { get; set; } = "";
     public string[] PlatformChoices => ProjectRules.BuildTargets;
     public PlatformOption[] PlatformOptions => [new("Windows", "StandaloneWindows64"), new("Android / Quest", "Android"), new("iOS", "iOS")];
@@ -107,6 +109,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ManualImportPath = config.ManualImportPath;
         AutoHideCompletedImports = config.AutoHideCompletedImports;
         CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates;
+        SelectedLanguage = config.Language;
         NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
         RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ProjectSort = config.ProjectLibrarySort;
         DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
@@ -410,6 +413,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         config.ManualImportPath = ManualImportPath;
         config.AutoHideCompletedImports = AutoHideCompletedImports;
         config.CheckUpdatesOnStartup = CheckUpdatesOnStartup; config.IncludeBetaUpdates = IncludeBetaUpdates;
+        config.Language = SelectedLanguage;
         if (!string.IsNullOrWhiteSpace(UnityEditorPath)) UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
         var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var pattern in patterns) _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));

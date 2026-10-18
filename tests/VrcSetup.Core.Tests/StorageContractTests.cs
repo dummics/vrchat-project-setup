@@ -69,9 +69,9 @@ public sealed class StorageContractTests : IDisposable
     [Fact] public async Task ConfigurationRevisionPreventsLostUpdates()
     {
         var store = App.Configuration; var first = await store.LoadAsync(); var second = await store.LoadAsync();
-        first.Theme = "Dark"; await store.SaveAsync(first); second.Theme = "Light";
+        first.Theme = "Light"; await store.SaveAsync(first); second.Theme = "Dark";
         await Assert.ThrowsAsync<IOException>(() => store.SaveAsync(second));
-        Assert.Equal("Dark", (await store.LoadAsync()).Theme);
+        Assert.Equal("Light", (await store.LoadAsync()).Theme);
     }
     [Fact] public async Task AtomicConfigurationRoundTripPreservesPinsAndUnknownSettings()
     {

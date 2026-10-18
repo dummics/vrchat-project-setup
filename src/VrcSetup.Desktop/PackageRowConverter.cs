@@ -11,9 +11,9 @@ public sealed class PackageRowConverter : IValueConverter
         {
             "CanRemove" => !row.Required,
             "Glyph" => row.Included ? "−" : "+",
-            "Action" => row.Required ? "Required package" : row.Included ? "Remove package" : "Keep package",
+            "Action" => UiText.Text(row.Required ? "Required package" : row.Included ? "Remove package" : "Keep package"),
             "PendingVisibility" => row.Action.StartsWith("Will be") ? Visibility.Visible : Visibility.Collapsed,
-            _ => row.Action == "Will be removed" ? "Remove on apply" : row.Action.StartsWith("Will be") ? "On apply · " + (row.SelectedVersion == "latest" ? "Latest" : row.SelectedVersion) : ""
+            _ => UiText.Text(row.Action == "Will be removed" ? "Remove on apply" : row.Action.StartsWith("Will be") ? "On apply · " + (row.SelectedVersion == "latest" ? "Latest" : row.SelectedVersion) : "")
         };
     }
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
