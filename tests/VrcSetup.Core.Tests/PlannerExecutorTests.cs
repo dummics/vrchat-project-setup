@@ -24,6 +24,18 @@ public sealed class PlannerExecutorTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string>(), new(), remove: [ProjectRules.BaseSdk]));
         Assert.Equal(0, workspace.Backups);
     }
+    [Fact] public async Task AvatarSdkCanBeReplacedWithWorldSdk()
+    {
+        var workspace = new MemoryWorkspace();
+        var session = new PackageEditSession([workspace.Project], new(), []);
+        session.Toggle(ProjectRules.AvatarSdk);
+        session.SetVersion(ProjectRules.WorldSdk, "3.10.5");
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, session.Selected, new(), remove: session.Removed.ToArray());
+        Assert.DoesNotContain(ProjectRules.AvatarSdk, plan.DesiredPolicy.Keys);
+        Assert.Contains(ProjectRules.WorldSdk, plan.DesiredPolicy.Keys);
+        Assert.Contains(ProjectRules.BaseSdk, plan.RequiredPackages);
+        Assert.DoesNotContain(ProjectRules.WorldSdk, plan.RequiredPackages);
+    }
     [Fact] public async Task ImportedPlanCannotBypassFoundationProtection()
     {
         var workspace = new MemoryWorkspace(); var driver = new MemoryDriver(workspace);

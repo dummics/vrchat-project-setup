@@ -49,7 +49,7 @@ public sealed class PackageEditSession
         if (string.IsNullOrWhiteSpace(version)) throw new ArgumentException("Choose a version or latest.");
         if (ProjectRules.SdkIds.Contains(id))
         {
-            var linked = Projects.SelectMany(x => x.Packages.Keys).Concat(Selected.Keys).Append(ProjectRules.BaseSdk).Append(id).Where(ProjectRules.SdkIds.Contains).Distinct();
+            var linked = Projects.SelectMany(x => x.Packages.Keys).Concat(Selected.Keys).Where(x => !Removed.Contains(x)).Append(ProjectRules.BaseSdk).Append(id).Where(ProjectRules.SdkIds.Contains).Distinct();
             foreach (var sdk in linked) { Selected[sdk] = version; Removed.Remove(sdk); }
         }
         else { Selected[id] = version; Removed.Remove(id); }

@@ -30,7 +30,8 @@ public sealed class RulesTests
     [Fact] public void WorldFoundationDoesNotPromoteAvatarSdk()
     {
         var required = ProjectRules.Foundation(new Dictionary<string, string> { [ProjectRules.WorldSdk] = "3.10.5" }, new());
-        Assert.Contains(ProjectRules.WorldSdk, required); Assert.DoesNotContain(ProjectRules.AvatarSdk, required);
+        Assert.Contains(ProjectRules.BaseSdk, required); Assert.Contains(ProjectRules.Resolver, required);
+        Assert.DoesNotContain(ProjectRules.WorldSdk, required); Assert.DoesNotContain(ProjectRules.AvatarSdk, required);
     }
     [Fact] public void OverlayKeepsCustomAndExactDoesNot()
     {

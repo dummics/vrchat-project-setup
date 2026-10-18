@@ -113,7 +113,12 @@ public sealed class InstallationManager(AppPaths paths)
                 void Shortcut(string name, string executable, string arguments)
                 {
                     dynamic shortcut = shell.CreateShortcut(Path.Combine(shortcuts, name + ".lnk"));
-                    try { shortcut.TargetPath = executable; shortcut.Arguments = arguments; shortcut.WorkingDirectory = target; shortcut.IconLocation = executable; shortcut.Save(); }
+                    try
+                    {
+                        shortcut.TargetPath = executable; shortcut.Arguments = arguments; shortcut.WorkingDirectory = target;
+                        shortcut.IconLocation = name == "VRChat Project Setup" ? Path.Combine(target, "app", "desktop", "Assets", "AppIcon.ico") + ",0" : executable;
+                        shortcut.Save();
+                    }
                     finally { Marshal.FinalReleaseComObject(shortcut); }
                 }
             }

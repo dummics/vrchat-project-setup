@@ -14,7 +14,9 @@ public sealed partial class MainWindow : Window
         InitializeComponent(); Title = "VRChat Project Setup";
         ExtendsContentIntoTitleBar = true; SetTitleBar(AppTitleBar);
         AppTitleBar.Title = "VRChat Project Setup";
-        AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
+        var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        AppWindow.SetIcon(iconPath);
+        AppWindow.SetTaskbarIcon(iconPath);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
         { presenter.PreferredMinimumWidth = 720; presenter.PreferredMinimumHeight = 580; }

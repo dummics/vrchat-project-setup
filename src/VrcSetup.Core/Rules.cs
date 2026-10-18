@@ -57,9 +57,8 @@ public static partial class ProjectRules
 
     public static string[] Foundation(IReadOnlyDictionary<string, string> packages, AppConfiguration config)
     {
+        // Protect shared infrastructure; Avatars and Worlds are selectable workloads.
         var ids = new HashSet<string>(config.RequiredPackages.Where(x => !SdkIds.Contains(x)), StringComparer.OrdinalIgnoreCase) { BaseSdk, Resolver };
-        if (packages.ContainsKey(WorldSdk)) ids.Add(WorldSdk);
-        if (packages.ContainsKey(AvatarSdk) || !packages.ContainsKey(WorldSdk)) ids.Add(AvatarSdk);
         return ids.OrderBy(x => x == BaseSdk ? 0 : x == AvatarSdk || x == WorldSdk ? 1 : x == Resolver ? 2 : 3).ToArray();
     }
     public static Dictionary<string, string> Merge(IReadOnlyDictionary<string, string> current, IReadOnlyDictionary<string, string> selected, bool exact = false)

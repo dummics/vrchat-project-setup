@@ -65,16 +65,17 @@ public sealed class PackageSetDialog : IDisposable
             if (!inspection.Observation.ArchiveComplete || !inspection.Observation.TextComplete) ShowNotice("Analysis is partial. Other packages may still be required.");
             else if (inspection.Suggestions.Any(x => x.Confidence == DependencyConfidence.Included && working.ContainsKey(x.Id))) ShowNotice("This file includes packages also present in your selection. Review before importing.");
         }
-        list = new ListView { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = 480, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        list = new ListView { SelectionMode = ListViewSelectionMode.None, MaxHeight = 480, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         list.ItemsSource = visibleRows;
         list.Resources["ListViewItemBackgroundSelected"] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         list.Resources["ListViewItemBackgroundSelectedPointerOver"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(18, 128, 128, 128));
         list.Resources["ListViewItemBackgroundSelectedPressed"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(28, 128, 128, 128));
         list.ItemTemplate = (DataTemplate)XamlReader.Load("""
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:VrcSetup_Desktop">
-              <Grid Padding="4,6" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
-                <StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="PackageDetail" Text="{Binding Id}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis"/></StackPanel>
-                <local:PackageVersionSelector Grid.Column="1" PackageId="{Binding Id}" Value="{Binding SelectedVersion}" MinHeight="30" Padding="8,4" VerticalAlignment="Center"/>
+              <Grid Padding="4,6" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                <CheckBox x:Name="PackageIncluded" IsChecked="{Binding Included, Mode=OneWay}" IsEnabled="{Binding CanToggle}" AutomationProperties.Name="{Binding Name}" MinWidth="20" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="PackageDetail" Text="{Binding Id}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis"/></StackPanel>
+                <local:PackageVersionSelector Grid.Column="2" PackageId="{Binding Id}" Value="{Binding SelectedVersion}" MinHeight="30" Padding="8,4" VerticalAlignment="Center"/>
               </Grid>
             </DataTemplate>
             """);
@@ -96,22 +97,6 @@ public sealed class PackageSetDialog : IDisposable
         // Templates may materialize after the container-content callback, especially
         // in self-contained builds. Wire the realized visual tree after layout.
         list.LayoutUpdated += (_, _) => WireSelectors(list);
-        list.SelectionChanged += (_, args) =>
-        {
-            if (rendering) return;
-            foreach (var added in args.AddedItems.OfType<PackageChoiceRow>())
-                if (!added.Included)
-                {
-                    if (NeedsExactVersion(added.Id) && added.SelectedVersion is "latest" or "Not installed") ShowNotice("Choose an exact version for " + added.Name + ". Required: " + Advice(added.Id)!.VersionConstraint);
-                    else session.Toggle(added.Id);
-                }
-            foreach (var removed in args.RemovedItems.OfType<PackageChoiceRow>())
-            {
-                if (removed.Required) ShowNotice("The required VRChat foundation stays included.");
-                else if (removed.Included) session.Toggle(removed.Id);
-            }
-            Render();
-        };
         Render();
         query.TextChanged += async (_, _) => await SearchAsync();
     }
@@ -152,12 +137,6 @@ public sealed class PackageSetDialog : IDisposable
                 if (existing is null) visibleRows.Insert(index, new(row));
                 else existing.Update(row);
             }
-            foreach (var item in visibleRows)
-            {
-                var selected = list.SelectedItems.Contains(item);
-                if (item.Included && !selected) list.SelectedItems.Add(item);
-                else if (!item.Included && selected) list.SelectedItems.Remove(item);
-            }
             ResizeDialog();
         }
         finally { rendering = false; }
@@ -171,6 +150,16 @@ public sealed class PackageSetDialog : IDisposable
     }
     private void WireSelectors(DependencyObject parent)
     {
+        if (parent is CheckBox { Name: "PackageIncluded" } toggle && toggle.Tag is null)
+        {
+            toggle.Tag = true;
+            toggle.Click += (_, _) =>
+            {
+                if (toggle.DataContext is not PackageChoiceRow row) return;
+                ToggleChoice(row);
+                toggle.IsChecked = row.Included;
+            };
+        }
         if (parent is TextBlock { Name: "PackageDetail", DataContext: PackageChoiceRow row } detail && detail.Tag as string != row.Id)
         {
             detail.Tag = row.Id;
@@ -196,6 +185,14 @@ public sealed class PackageSetDialog : IDisposable
         if (NeedsExactVersion(selector.PackageId) && value == "latest") { ShowNotice("Choose an exact version. Required: " + Advice(selector.PackageId)!.VersionConstraint); return; }
         session.SetVersion(selector.PackageId, value); Render();
     }
+    internal void ToggleChoice(PackageChoiceRow row)
+    {
+        if (rendering || row.Required) return;
+        if (!row.Included && NeedsExactVersion(row.Id) && row.SelectedVersion is "latest" or "Not installed")
+            ShowNotice("Choose an exact version for " + row.Name + ". Required: " + Advice(row.Id)!.VersionConstraint);
+        else session.Toggle(row.Id);
+        Render();
+    }
     private DependencySuggestion? Advice(string id) => inspection?.Suggestions.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
     private bool NeedsExactVersion(string id) => !originalSelection.Contains(id) && Advice(id) is { Confidence: DependencyConfidence.Declared } advice && DependencyAdvisor.SuggestedVersion(advice) is null;
     private void ShowNotice(string message) { notice.Message = message; notice.IsOpen = true; }
@@ -216,11 +213,14 @@ public sealed class PackageSetDialog : IDisposable
         public string SelectedVersion => current.SelectedVersion;
         public bool Included => current.Included;
         public bool Required => current.Required;
+        public bool CanToggle => !Required;
         public void Update(PackageWorkspaceRow value)
         {
             var previous = current; current = value;
             if (previous.Name != value.Name) OnPropertyChanged(nameof(Name));
             if (previous.SelectedVersion != value.SelectedVersion) OnPropertyChanged(nameof(SelectedVersion));
+            if (previous.Included != value.Included) OnPropertyChanged(nameof(Included));
+            if (previous.Required != value.Required) { OnPropertyChanged(nameof(Required)); OnPropertyChanged(nameof(CanToggle)); }
         }
     }
 }

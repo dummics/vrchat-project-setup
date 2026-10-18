@@ -171,7 +171,7 @@ public static class UiSmokeTest
         var proof = new DependencyEvidence("Assets/Test.prefab", "script");
         var advice = new PackageInspectionReport(new(1, 0, 0, true, true, [], [], 0), "fixture", "Avatar prefab", 0,
             [new("com.vrcfury.vrcfury", DependencyConfidence.Detected, null, [proof]), new("com.poiyomi.toon", DependencyConfidence.Detected, null, [proof]), new(ProjectRules.WorldSdk, DependencyConfidence.Detected, null, [proof]), new("example.range", DependencyConfidence.Declared, ">=2.0.0", [proof])], false);
-        using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0" }, new(), viewModel.Registry.ToArray(),
+        using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0", [ProjectRules.AvatarSdk] = "3.10.5" }, new(), viewModel.Registry.ToArray(),
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>()), advice))
         {
             suggested.Dialog.XamlRoot = page.XamlRoot; var shown = suggested.Dialog.ShowAsync(); await Task.Delay(180); suggested.Dialog.UpdateLayout();
@@ -208,12 +208,13 @@ public static class UiSmokeTest
             var optionalChoice = stableChoices.FirstOrDefault(x => !x.Required);
             if (optionalChoice is not null)
             {
-                var included = choiceList.SelectedItems.Contains(optionalChoice);
-                if (included) choiceList.SelectedItems.Remove(optionalChoice); else choiceList.SelectedItems.Add(optionalChoice);
+                var included = optionalChoice.Included;
+                editor.ToggleChoice(optionalChoice);
                 Require(ReferenceEquals(choiceSource, choiceList.ItemsSource) && stableChoices.SequenceEqual(choiceList.Items.OfType<PackageSetDialog.PackageChoiceRow>()), "Package toggle preserves source, row instances and display order");
                 Require(editor.Result().ContainsKey(optionalChoice.Id) != included, "Stable package row still stages the toggle");
-                if (included) choiceList.SelectedItems.Add(optionalChoice); else choiceList.SelectedItems.Remove(optionalChoice);
+                editor.ToggleChoice(optionalChoice);
             }
+            Require(Descendants(editor.Dialog).OfType<Microsoft.UI.Xaml.Controls.CheckBox>().Where(x => x.DataContext is PackageSetDialog.PackageChoiceRow { Required: true }).All(x => !x.IsEnabled), "Foundation toggles are disabled without a warning");
             inlineVersion.PickVersion("1.2.3"); await Task.Delay(100);
             Require(editor.Result()["custom.required"] == "1.2.3", "Shared editor stages version directly from its row");
             Require(ReferenceEquals(choiceSource, choiceList.ItemsSource) && stableChoices.SequenceEqual(choiceList.Items.OfType<PackageSetDialog.PackageChoiceRow>()), "Version edit preserves package row instances and order");
