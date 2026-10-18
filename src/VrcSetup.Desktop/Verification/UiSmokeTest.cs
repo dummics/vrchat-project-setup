@@ -271,7 +271,7 @@ public static class UiSmokeTest
                     }
                     var viewport = (FrameworkElement)page.FindName(screen == "Create" ? "CreateView" : "SettingsView");
                     var origin = form.TransformToVisual(viewport).TransformPoint(new(0, 0));
-                    Require(origin.X >= -1 && origin.X + form.ActualWidth <= viewport.ActualWidth + 1, "Form fits viewport: " + screen + " " + size.Width);
+                    Require(origin.X >= -1 && origin.X + form.ActualWidth <= viewport.ActualWidth - 23, "Form leaves a scrollbar gutter: " + screen + " " + size.Width);
                     var global = form.TransformToVisual(page).TransformPoint(new(0, 0));
                     Require(global.X >= 0 && global.X + form.ActualWidth <= page.ActualWidth + 1, "Form fits entire client window: " + screen + " " + size.Width);
                     if (screen == "Create" && size.Width < 800)

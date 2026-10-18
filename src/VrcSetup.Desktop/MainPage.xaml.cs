@@ -90,7 +90,9 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         Grid.SetColumnSpan(ProjectHeaderActions, stackProjectHeader ? 3 : 2);
         if (CreateView.ActualWidth > 0)
         {
-            CreateLayout.Width = CreateView.ActualWidth;
+            // WinUI scrollbars overlay content. Keep a stable gutter even before
+            // scrolling becomes necessary, so actions never sit under the thumb.
+            CreateLayout.Width = Math.Max(1, CreateView.ActualWidth - 24);
             CreateForm.Width = CreateLayout.Width;
             ImportQueueSection.Width = CreateLayout.Width;
             ImportQueueList.MaxHeight = ViewModel.ImportJobs.Any(x => x.DetailsOpen) ? Math.Min(520, Math.Max(260, CreateView.ActualHeight - 140)) : 220;
@@ -116,7 +118,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
         }
-        if (SettingsView.ActualWidth > 0) SettingsForm.Width = SettingsView.ActualWidth;
+        if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Max(1, SettingsView.ActualWidth - 24);
     }
     private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
     private async void AddCreationSuggestionClicked(object sender, RoutedEventArgs args)
