@@ -57,6 +57,7 @@ public sealed class AppConfiguration
     public bool ManualImportPath { get; set; }
     public bool AutoHideCompletedImports { get; set; }
     public bool CheckUpdatesOnStartup { get; set; } = true;
+    public bool AutomaticUpdates { get; set; } = true;
     public bool IncludeBetaUpdates { get; set; } = true;
     public DiagnosticSettings Diagnostics { get; set; } = new();
     [JsonIgnore] public string? Revision { get; set; }

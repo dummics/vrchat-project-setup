@@ -6,7 +6,7 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed record ApplicationRelease(string Version, Uri Installer, Uri Checksums, Uri Page, Uri? DeltaInstaller = null, string? BaseVersion = null);
+public sealed record ApplicationRelease(string Version, Uri Installer, Uri Checksums, Uri Page, Uri? DeltaInstaller = null, string? BaseVersion = null, Uri? Components = null);
 
 // GitHub hosts the feed, installer and checksums. No credentials or local data are sent.
 public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSource? source = null)
@@ -56,7 +56,8 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
             var page = new Uri(source.Repository.AbsoluteUri.TrimEnd('/') + "/releases/tag/" + Uri.EscapeDataString(tag));
             var baseVersion = installed.TrimStart('v');
             source.AllowsAsset(Asset($"Update-VrcSetup-{normalized}-from-{baseVersion}-win-x64.exe"), out var delta);
-            candidates.Add((version, new(normalized, installer!, checksums!, page, delta, delta is null ? null : baseVersion)));
+            source.AllowsAsset(Asset("components.json"), out var components);
+            candidates.Add((version, new(normalized, installer!, checksums!, page, delta, delta is null ? null : baseVersion, components)));
             }
             catch (Exception error) when (error is KeyNotFoundException or InvalidOperationException) { /* Ignore incomplete release metadata. */ }
         }
@@ -69,6 +70,26 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
         request.Headers.UserAgent.ParseAdd("VrcSetup/" + CurrentVersion);
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         return request;
+    }
+
+    public async Task<bool> SupportsPrefetchAsync(ApplicationRelease release, CancellationToken token = default)
+    {
+        if (release.Components is null) return false;
+        if (!Source.AllowsAsset(release.Components.AbsoluteUri, out _) || !Source.AllowsAsset(release.Checksums.AbsoluteUri, out _)) throw new IOException("Unrecognized preparation source.");
+        using var sumsRequest = Request(release.Checksums.AbsoluteUri);
+        using var sumsResponse = await client.SendAsync(sumsRequest, token); sumsResponse.EnsureSuccessStatusCode();
+        var sums = await sumsResponse.Content.ReadAsStringAsync(token);
+        if (sums.Length > 64 * 1024) throw new IOException("Update checksum file is too large.");
+        var hashes = sums.Split('\n').Select(x => x.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .Where(x => x.Length == 2 && x[1].TrimStart('*') == "components.json").Select(x => x[0]).ToArray();
+        if (hashes.Length != 1) throw new IOException("Preparation metadata checksum is missing or ambiguous.");
+        using var request = Request(release.Components.AbsoluteUri);
+        using var response = await client.SendAsync(request, token); response.EnsureSuccessStatusCode();
+        var bytes = await response.Content.ReadAsByteArrayAsync(token);
+        if (bytes.Length > 2 * 1024 * 1024 || !Convert.ToHexString(SHA256.HashData(bytes)).Equals(hashes[0], StringComparison.OrdinalIgnoreCase)) throw new IOException("Preparation metadata verification failed.");
+        using var manifest = JsonDocument.Parse(bytes);
+        return manifest.RootElement.TryGetProperty("Version", out var version) && version.GetString() == release.Version
+            && manifest.RootElement.TryGetProperty("Prefetch", out var support) && support.ValueKind == JsonValueKind.True;
     }
 
     public async Task<string> DownloadAsync(ApplicationRelease release, string directory, IProgress<int>? progress = null, CancellationToken token = default, string? installedRoot = null)

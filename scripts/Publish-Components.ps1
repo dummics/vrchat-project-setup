@@ -40,5 +40,5 @@ foreach ($category in $groups.Keys | Sort-Object) {
     $components.Add([ordered]@{ Name=$name; Sha256=$hash; Bytes=(Get-Item -LiteralPath $destination).Length; Files=$files })
 }
 $manifest = Join-Path $OutputDirectory 'components.json'
-[IO.File]::WriteAllText($manifest, (@{Schema=1;Version=$Version;BaseUri=$AssetBaseUri;Components=@($components)} | ConvertTo-Json -Depth 6 -Compress), [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($manifest, (@{Schema=1;Version=$Version;BaseUri=$AssetBaseUri;Components=@($components);Prefetch=$true} | ConvertTo-Json -Depth 6 -Compress), [Text.UTF8Encoding]::new($false))
 Write-Output $manifest

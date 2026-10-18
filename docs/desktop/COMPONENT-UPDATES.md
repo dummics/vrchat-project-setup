@@ -14,6 +14,16 @@ Before downloading a payload module, matching installed files are copied to fres
 
 First installation still transfers the required app/runtime content. The small initial EXE alone does not reduce that total. Later transfers avoid unchanged runtime modules, including when skipping versions. Runtimes remain bundled, so setup never changes machine-wide .NET installations.
 
+## Automatic preparation and next-launch installation
+
+The desktop waits 45 seconds after startup before its first scheduled check. A persisted deadline then limits checks to roughly four hours plus a small randomized delay, across application restarts and concurrent instances. Checks only run while the app is open; there is no Windows service or scheduled task. Manual checks remain immediate. The feed selects the newest compatible release, allowing intermediate builds to be skipped.
+
+With automatic updates enabled (the default), an installed copy verifies the unified EXE and runs its hidden `--prefetch` protocol. This reconstructs/verifies delivery content and warms the component cache, then exits without invoking the installation engine. The helper cancels and cleans staging when its parent app exits. Preparation never restarts the active app or modifies its installed files. Portable copies keep manual delivery.
+
+A pending record binds the installer hash, version, installation root and preparation time. At the next ordinary launch, before creating the main window or resuming import work, the app rechecks preferences, channel, version ordering and the installer hash. It defers while another window from the same installation is open. Prepared updates expire after 48 hours. Handoff consumes the record and remembers the attempted version before starting the existing transactional installer, preventing a failed update/relaunch loop. Manual retry or a newer release remains possible. The app stays usable after network/preparation failures; component cache validation and rollback remain unchanged.
+
+The `--prefetch` installer protocol starts with beta.15 and is advertised by `Prefetch: true` in checksum-verified `components.json`. The desktop verifies that explicit capability and matching version before invoking it; unsupported installers remain manual. Older installed clients still install this release through the existing manual updater; automatic delivery starts once the new app is installed. Only the three newest downloaded bootstrap installers plus a pending one are retained; component archives keep their existing separate budget.
+
 ## Hosting and a future VPS
 
 GitHub Releases is the initial static asset host. Components use plain HTTPS GET and no GitHub API, token or server process. CI uploads every module and checksum into a draft, checks the asset count, and only then publishes it. Manual workflow runs keep the verified draft unless publication was selected. Keep release assets immutable: corrections need a new version.

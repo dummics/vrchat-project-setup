@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace VrcSetup.Bootstrapper;
 
 public sealed record Component(string Name, string Sha256, long Bytes, Dictionary<string, string> Files);
-public sealed record ComponentManifest(int Schema, string Version, string BaseUri, List<Component> Components);
+public sealed record ComponentManifest(int Schema, string Version, string BaseUri, List<Component> Components, bool Prefetch = false);
 public sealed record DeliveryResult(long DownloadedBytes, int DownloadedComponents, int CachedComponents, int ReusedComponents);
 [JsonSerializable(typeof(ComponentManifest))]
 [JsonSerializable(typeof(DeliveryResult))]

@@ -99,7 +99,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (config.Diagnostics.Verbose && app.Configuration.ImportedFrom is { } imported) AppendActivity(new(DateTime.UtcNow, "Migration", "Settings imported: " + imported));
         });
         if (ErrorMessage.Length == 0) await PromptInterruptedImportAsync();
-        if (CheckUpdatesOnStartup && app.AllowBackgroundUpdateChecks) _ = CheckApplicationUpdatesAsync(false);
+        if (app.AllowBackgroundUpdateChecks) { await ReadPreviousUpdateResultAsync(); _ = RunPeriodicUpdateChecksAsync(); }
     }
     private void LoadSettings()
     {
@@ -109,6 +109,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ManualImportPath = config.ManualImportPath;
         AutoHideCompletedImports = config.AutoHideCompletedImports;
         CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates;
+        AutomaticUpdateEnabled = config.AutomaticUpdates;
         SelectedLanguage = config.Language;
         NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
         RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ProjectSort = config.ProjectLibrarySort;
@@ -414,6 +415,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         config.ManualImportPath = ManualImportPath;
         config.AutoHideCompletedImports = AutoHideCompletedImports;
         config.CheckUpdatesOnStartup = CheckUpdatesOnStartup; config.IncludeBetaUpdates = IncludeBetaUpdates;
+        config.AutomaticUpdates = AutomaticUpdateEnabled;
         config.Language = SelectedLanguage;
         if (!string.IsNullOrWhiteSpace(UnityEditorPath)) UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
         var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

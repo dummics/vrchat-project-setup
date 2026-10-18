@@ -44,6 +44,20 @@ public static class UpdateSmokeTest
         if (!vm.IsInstallingUpdate) throw new IOException("Update handoff did not start: " + vm.UpdateStatus);
     }
 
+    public static async Task PrepareBackgroundAsync(MainWindow window, UpdateSmokeSpec spec)
+    {
+        await window.Page.Initialized;
+        var vm = window.Page.ViewModel;
+        var settings = AtomicFile.Hash(vm.Application.Paths.ConfigFile);
+        await vm.RunBackgroundUpdateCheckAsync();
+        var ready = (await new AutomaticUpdates(vm.Application.Paths).ReadAsync()).Ready;
+        if (!vm.IsUpdateReady || ready?.Version != spec.Version) throw new IOException("Background update was not prepared: " + vm.UpdateStatus);
+        if (settings != AtomicFile.Hash(vm.Application.Paths.ConfigFile)) throw new IOException("Background preparation changed settings.");
+        await new InstallationManager(vm.Application.Paths).ValidatePayloadAsync(vm.Application.Paths.PayloadRoot);
+        await UiSmokeTest.Render(window.Page, Path.Combine(spec.Root, "background-ready.png"));
+        await AtomicFile.WriteJsonAsync(Path.Combine(spec.Root, "prepared.json"), new { Passed = true, ready.Version, SettingsPreserved = true, OldPayloadHashesVerified = true, UsesProductionBackgroundCheck = true });
+    }
+
     public static async Task VerifyAsync(MainWindow window, UpdateSmokeSpec spec)
     {
         await window.Page.Initialized;
@@ -76,9 +90,11 @@ public static class UpdateSmokeTest
             var name = "Install-VrcSetup-" + spec.Version + "-win-x64.exe";
             HttpContent content;
             if (request.RequestUri!.AbsoluteUri == "https://api.github.com/repos/dummics/vrchat-project-setup/releases?per_page=100")
-                content = new StringContent(JsonSerializer.Serialize(new[] { new { tag_name = "v" + spec.Version, draft = false, prerelease = true, assets = new[] { new { name, browser_download_url = root + name }, new { name = "SHA256SUMS.txt", browser_download_url = root + "SHA256SUMS.txt" } } } }));
+                content = new StringContent(JsonSerializer.Serialize(new[] { new { tag_name = "v" + spec.Version, draft = false, prerelease = true, assets = new[] { new { name, browser_download_url = root + name }, new { name = "SHA256SUMS.txt", browser_download_url = root + "SHA256SUMS.txt" }, new { name = "components.json", browser_download_url = root + "components.json" } } } }));
             else if (request.RequestUri.AbsoluteUri == root + "SHA256SUMS.txt")
                 content = new StringContent(File.ReadAllText(Path.Combine(Path.GetDirectoryName(spec.Installer)!, "SHA256SUMS.txt")));
+            else if (request.RequestUri.AbsoluteUri == root + "components.json")
+                content = new ByteArrayContent(File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(spec.Installer)!, "components.json")));
             else if (request.RequestUri.AbsoluteUri == root + name)
             {
                 content = new StreamContent(File.OpenRead(spec.Installer));

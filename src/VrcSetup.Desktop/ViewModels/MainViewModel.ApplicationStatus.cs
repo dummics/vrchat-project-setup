@@ -22,7 +22,7 @@ public sealed partial class MainViewModel
     }
     public bool ApplicationWorking => IsApplyingPackages || IsBusy || IsRefreshing || IsInspectingPackage || IsPreparingImport || IsSearchingPackages
         || HasActiveImports || IsDownloadingUpdate || IsInstallingUpdate || IsCheckingUpdate;
-    public bool ApplicationProgressIndeterminate => !IsDownloadingUpdate;
+    public bool ApplicationProgressIndeterminate => !IsDownloadingUpdate || UpdateStatus == "Preparing update…";
     public Visibility ApplicationProgressVisibility => ApplicationWorking ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ApplicationStatusVisibility => ApplicationStatus.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ApplicationStopVisibility => IsBusy && !IsApplyingPackages && !IsPreparingImport ? Visibility.Visible : Visibility.Collapsed;
@@ -34,7 +34,7 @@ public sealed partial class MainViewModel
             var parts = new List<string>();
             if (UpdateFailed) parts.Add(UiText.Text("Update failed"));
             if (IsInstallingUpdate) parts.Add(UiText.Text("Installing update"));
-            else if (IsDownloadingUpdate) parts.Add(UiText.Text("Downloading update") + $" · {UpdateDownloadPercent}%");
+            else if (IsDownloadingUpdate) parts.Add(UpdateStatus == "Preparing update…" ? UiText.Text("Preparing update…") : UiText.Text("Downloading update") + $" · {UpdateDownloadPercent}%");
             else if (IsCheckingUpdate) parts.Add(UiText.Text("Checking for updates…"));
             if (IsApplyingPackages) parts.Add(UiText.Text("Applying changes"));
             else if (IsPreparingImport) parts.Add(UiText.Text("Preparing review…"));

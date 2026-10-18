@@ -34,7 +34,7 @@ Unity with the required platform modules, VRChat Creator Companion and the VPM C
 
 ## Updates and support
 
-Check for updates from the version menu at the bottom of the app. Updates preserve your settings, reuse unchanged components and reopen the app automatically.
+While open, the app checks for updates roughly every four hours and prepares the newest version in the background. It installs a prepared update on the next launch, preserving settings and reopening automatically. Intermediate builds can be skipped; unchanged components are reused. Automatic updates can be disabled in **Settings → Updates**, and the version button still lets you update immediately.
 
 To report a problem, use **Information → Report a bug** or [open a GitHub issue](https://github.com/dummics/vrchat-project-setup/issues). Include your app version, what you tried and what happened. Remove personal information before sharing logs or screenshots.
 

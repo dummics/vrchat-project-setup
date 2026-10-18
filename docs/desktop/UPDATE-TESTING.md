@@ -1,6 +1,8 @@
 # Application update verification
 
-The normal updater accepts only published assets from this repository's GitHub Releases. Its URL policy is unchanged by the local test; there is no configurable production feed or local web server.
+`Test-ApplicationUpdate.ps1 -NextLaunch -ComponentsDirectory <candidate-folder>` verifies hidden component preparation followed by automatic installation before the main window is created. Build its base from source containing the next-launch implementation and use a strictly newer candidate installer. The helper uses isolated roots/home/shortcuts, verifies that prefetch leaves the old payload and settings unchanged, and checks the normal installer receipt, restart, hashes and settings after handoff. A locally built older-numbered base is a fixture, not a historical public release. `-UseRealNetwork` remains the separate public old-client update check.
+
+The default updater accepts published assets from this repository's GitHub Releases. Its URL policy is unchanged by local tests. A different HTTPS feed/asset prefix can be pinned at build time for hosting migration; tests do not add a user-configurable production override or local web server.
 
 ## Repeat the local update
 

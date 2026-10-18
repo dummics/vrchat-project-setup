@@ -10,13 +10,16 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial bool IsCheckingUpdate { get; set; }
     [ObservableProperty] public partial bool CheckUpdatesOnStartup { get; set; } = true;
     [ObservableProperty] public partial bool IncludeBetaUpdates { get; set; } = true;
+    [ObservableProperty] public partial bool AutomaticUpdateEnabled { get; set; } = true;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsUpdateReady { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool HasApplicationUpdate { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsDownloadingUpdate { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(MainInteractionEnabled))] public partial bool IsInstallingUpdate { get; set; }
     [ObservableProperty] public partial string UpdateStatus { get; set; } = "";
     [ObservableProperty] public partial bool UpdateFailed { get; set; }
     private string updateDetails = "";
-    public string UpdateSummary => UpdateFailed ? "Update failed" : IsDownloadingUpdate ? UpdateStatus : UpdateStatus.StartsWith("Finish") ? "Finish current work before updating" : UpdateStatus.StartsWith("No published") ? "Up to date" : UpdateStatus.StartsWith("Checking") ? "Checking for updates…" : "";
+    public string UpdateSummary => UpdateFailed ? "Update failed" : IsDownloadingUpdate ? UpdateStatus : IsUpdateReady ? "Ready for next launch" : UpdateStatus.StartsWith("Finish") ? "Finish current work before updating" : UpdateStatus.StartsWith("No published") ? "Up to date" : UpdateStatus.StartsWith("Checking") ? "Checking for updates…" : "";
+    partial void OnIsUpdateReadyChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); NotifyApplicationStatus(); }
     public Microsoft.UI.Xaml.Visibility UpdateSummaryVisibility => UpdateSummary.Length == 0 ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
     partial void OnUpdateStatusChanged(string value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); }
     partial void OnUpdateFailedChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); }
@@ -25,11 +28,12 @@ public sealed partial class MainViewModel
     { if (HasApplicationUpdate) await InstallApplicationUpdate(); else await CheckApplicationUpdatesAsync(true); }
     [RelayCommand] private void ContactSupport() => OpenPath("mailto:contact@dummics.com?subject=VRChat%20Project%20Setup");
     public string AppVersion => ApplicationUpdates.CurrentVersion;
-    public string UpdateLabel => IsDownloadingUpdate ? AppVersion : HasApplicationUpdate ? "Update available" : AppVersion;
+    public string UpdateLabel => IsDownloadingUpdate ? AppVersion : IsUpdateReady ? "Update ready" : HasApplicationUpdate ? "Update available" : AppVersion;
     [RelayCommand] private Task CheckApplicationUpdates() => CheckApplicationUpdatesAsync(true);
-    internal async Task CheckApplicationUpdatesAsync(bool manual)
+    internal async Task<bool> CheckApplicationUpdatesAsync(bool manual)
     {
-        if (IsCheckingUpdate || IsDownloadingUpdate) return;
+        if (IsCheckingUpdate || IsDownloadingUpdate) return false;
+        var succeeded = false;
         IsCheckingUpdate = true;
         if (manual) UpdateStatus = "Checking for updates…";
         try
@@ -40,14 +44,19 @@ public sealed partial class MainViewModel
             availableUpdate = await new ApplicationUpdates(client).CheckAsync(AppVersion, IncludeBetaUpdates, timeout.Token);
             HasApplicationUpdate = availableUpdate is not null;
             UpdateStatus = HasApplicationUpdate ? "Version " + availableUpdate!.Version + " is available" : manual ? "No published update available" : "";
+            succeeded = true;
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException or IOException)
         { if (manual) { updateDetails = error.ToString(); UpdateFailed = true; UpdateStatus = "Could not check updates."; } app.Diagnostics.Write("Updates", error.Message); }
         finally
         {
             IsCheckingUpdate = false;
-            if (!manual)
-            {
+            if (!manual) await ReadPreviousUpdateResultAsync();
+        }
+        return succeeded;
+    }
+    private async Task ReadPreviousUpdateResultAsync()
+    {
                 try
                 {
                     var path = Path.Combine(app.Paths.Home, "updates", "last-result.json");
@@ -60,8 +69,6 @@ public sealed partial class MainViewModel
                 }
                 catch (Exception error) when (error is IOException or System.Text.Json.JsonException or OperationCanceledException or UnauthorizedAccessException)
                 { app.Diagnostics.Write("Update result", error.Message); }
-            }
-        }
     }
     [RelayCommand] private async Task InstallApplicationUpdate()
     {
@@ -84,6 +91,7 @@ public sealed partial class MainViewModel
             if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty)
             { UpdateStatus = "Update downloaded. Finish your work, then choose Install update."; return; }
             UpdateStatus = "Restarting to install update…";
+            await new AutomaticUpdates(app.Paths).MarkAttemptAsync(availableUpdate.Version, lifetime.Token);
             if (!await ui.InstallApplicationUpdateAsync(installer, Path.Combine(app.Paths.Home, "updates", "last-result.json")))
                 UpdateStatus = "Update is ready. Finish current work before restarting.";
         }

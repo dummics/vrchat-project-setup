@@ -5,6 +5,7 @@ param(
     [string]$OutputDirectory,
     [switch]$UseRealNetwork,
     [switch]$DirectInstaller,
+    [switch]$NextLaunch,
     [string]$ComponentsDirectory,
     [ValidateRange(30,600)][int]$TimeoutSeconds = 180
 )
@@ -39,7 +40,7 @@ if ($ComponentsDirectory) {
 foreach ($item in Get-ChildItem -LiteralPath $BasePayload -Force) { Copy-Item -LiteralPath $item.FullName -Destination $install -Recurse }
 $record = @{Version=$manifest.Version;Root=$install;InstalledUtc=[DateTime]::UtcNow;PreviousInstall=$null}
 $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $install '.vrcsetup-install.json') -Encoding utf8
-$config = @{UnityProjectsRoot=(Join-Path $OutputDirectory 'projects');CheckUpdatesOnStartup=$false;IncludeBetaUpdates=$true;Theme='Dark';SavedProjectNames=@{'update-test-sentinel'='preserve me'}}
+$config = @{UnityProjectsRoot=(Join-Path $OutputDirectory 'projects');CheckUpdatesOnStartup=[bool]$NextLaunch;AutomaticUpdates=$true;IncludeBetaUpdates=$true;Theme='Dark';SavedProjectNames=@{'update-test-sentinel'='preserve me'}}
 $config.UnityEditorPath = 'Z:\Saved Unity\2022.3.22f1\Editor\Unity.exe'
 $config.AutoHideCompletedImports = $true
 [void][IO.Directory]::CreateDirectory($config.UnityProjectsRoot)
@@ -51,6 +52,20 @@ $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'app/desktop/Vr
 $start.UseShellExecute = $false; $start.CreateNoWindow = $true
 $start.WorkingDirectory = $install
 $start.ArgumentList.Add('--update-smoke-test'); $start.ArgumentList.Add($specFile)
+if ($NextLaunch) {
+    if ($DirectInstaller) { throw 'Choose next-launch or direct-installer verification.' }
+    $prefetch = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'app/desktop/VrcSetup.Desktop.exe')); $prefetch.UseShellExecute=$false; $prefetch.CreateNoWindow=$true; $prefetch.WorkingDirectory=[IO.Path]::GetTempPath()
+    $prefetch.ArgumentList.Add('--prepare-automatic-update-smoke'); $prefetch.ArgumentList.Add($specFile)
+    $before = (Get-FileHash (Join-Path $install '.vrcsetup-payload.json')).Hash
+    $worker=[Diagnostics.Process]::Start($prefetch)
+    if (-not $worker.WaitForExit($TimeoutSeconds * 1000)) { throw 'Background prefetch timed out.' }
+    if ($worker.ExitCode -ne 0 -or -not (Test-Path (Join-Path $OutputDirectory 'prepared.json'))) {
+        $failure = Join-Path $OutputDirectory 'failure.txt'; if(Test-Path $failure){Get-Content $failure}; throw 'Background preparation failed.'
+    }
+    if ((Get-FileHash (Join-Path $install '.vrcsetup-payload.json')).Hash -ne $before) { throw 'Prefetch modified the running installation.' }
+    if ((Get-FileHash $configFile).Hash -ne (Get-Content $specFile -Raw|ConvertFrom-Json).SettingsHash) { throw 'Prefetch changed settings.' }
+    $start.ArgumentList.Clear(); $start.ArgumentList.Add('--automatic-update-smoke'); $start.ArgumentList.Add($specFile)
+}
 if ($DirectInstaller) {
     if ($UseRealNetwork) { throw 'Direct installer mode does not test network discovery.' }
     $start = [Diagnostics.ProcessStartInfo]::new($UpdateInstaller)

@@ -23,6 +23,19 @@ public sealed class ApplicationUpdateSourceTests
     [Theory] [InlineData("http://updates.example.test/")] [InlineData("https://user@updates.example.test/")]
     public void BackendConfigurationRequiresHttpsWithoutCredentials(string uri)
     { Assert.Throws<ArgumentException>(() => new ApplicationUpdateSource(uri, ApplicationUpdates.Repository, "https://cdn.example.test/downloads/")); }
+    [Theory] [InlineData(true, false, true)] [InlineData(false, false, false)] [InlineData(true, true, false)]
+    public async Task PrefetchRequiresVerifiedExplicitCapability(bool support, bool wrongVersion, bool expected)
+    {
+        var root = ApplicationUpdates.Repository + "/releases/download/v0.2.0-beta.16/";
+        var metadata = JsonSerializer.SerializeToUtf8Bytes(new { Version = wrongVersion ? "0.2.0-beta.15" : "0.2.0-beta.16", Prefetch = support });
+        var checksum = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(metadata));
+        using var client = new HttpClient(new Handler(request => new(HttpStatusCode.OK) { Content = request.RequestUri!.LocalPath.EndsWith("components.json") ? new ByteArrayContent(metadata) : new StringContent(checksum + "  components.json") }));
+        var release = new ApplicationRelease("0.2.0-beta.16", new(root + "Install-VrcSetup-0.2.0-beta.16-win-x64.exe"), new(root + "SHA256SUMS.txt"), new(ApplicationUpdates.Repository), Components: new(root + "components.json"));
+        Assert.Equal(expected, await new ApplicationUpdates(client).SupportsPrefetchAsync(release));
+        Assert.False(await new ApplicationUpdates(client).SupportsPrefetchAsync(release with { Components = null }));
+        using var bad = new HttpClient(new Handler(request => new(HttpStatusCode.OK) { Content = request.RequestUri!.LocalPath.EndsWith("components.json") ? new ByteArrayContent(metadata) : new StringContent(new string('0', 64) + "  components.json") }));
+        await Assert.ThrowsAsync<IOException>(() => new ApplicationUpdates(bad).SupportsPrefetchAsync(release));
+    }
     private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => Task.FromResult(response(request)); }
 }

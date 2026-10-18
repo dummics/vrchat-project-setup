@@ -12,7 +12,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        var diagnostic = Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 };
+        var diagnostic = Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 } || args.Contains("--prefetch");
         try
         {
             using var window = new DownloadWindow(!diagnostic);
@@ -50,6 +50,9 @@ internal static class Program
         var cache = Path.Combine(home, "updates", "components");
         var staging = Path.Combine(Path.GetTempPath(), "VrcSetup-components-" + Guid.NewGuid().ToString("N"));
         var handedOff = false;
+        using var preparation = CancellationTokenSource.CreateLinkedTokenSource(window.Cancellation);
+        if (args.Contains("--prefetch") && Option(args, "--parent-pid") is { } parentId && int.TryParse(parentId, out var parentProcessId))
+            _ = CancelWhenParentExitsAsync(parentProcessId, preparation);
         try
         {
             using var manifestStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("components.json") ?? throw new IOException("Installer manifest missing.");
@@ -57,12 +60,19 @@ internal static class Program
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
             var result = await new ComponentDelivery(client).PrepareAsync(manifest, staging, cache, root,
                 new InlineProgress<(int Percent, string Step)>(p => window.Report(p.Percent, p.Step == "Verifying files"
-                    ? Text("Verifying files", "Verifica file") : Text("Downloading components…", "Download dei componenti…"))), window.Cancellation);
+                    ? Text("Verifying files", "Verifica file") : Text("Downloading components…", "Download dei componenti…"))), preparation.Token);
             using (var payload = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(staging, "payload", ".vrcsetup-payload.json"))))
                 if (payload.RootElement.GetProperty("Version").GetString() != manifest.Version) throw new IOException("Component and payload versions differ.");
             Directory.CreateDirectory(cache);
             await File.WriteAllTextAsync(Path.Combine(cache, "last-delivery.json"), JsonSerializer.Serialize(result, DeliveryJson.Default.DeliveryResult));
-            window.Cancellation.ThrowIfCancellationRequested();
+            preparation.Token.ThrowIfCancellationRequested();
+            // Background preparation never starts the installer or changes the app being used.
+            if (args.Contains("--prefetch"))
+            {
+                if (Option(args, "--result") is { } receipt)
+                { Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(receipt))!); await File.WriteAllTextAsync(receipt, "{\"Success\":true}"); }
+                return 0;
+            }
             window.Report(100, Text("Starting setup…", "Avvio installazione…"));
             var engine = new ProcessStartInfo(Path.Combine(staging, "engine", "VrcSetupInstaller.exe"))
             { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() };
@@ -96,10 +106,16 @@ internal static class Program
                 }
                 catch (Exception recovery) { await File.AppendAllTextAsync(Path.Combine(cache, "last-error.log"), "\nRecovery: " + recovery); }
             }
-            if (error is not OperationCanceledException || !window.Cancellation.IsCancellationRequested) window.Failure(Text("Download failed. Your installation is preserved. Details: ", "Download non riuscito. L’installazione precedente è conservata. Dettagli: ") + Path.Combine(cache, "last-error.log"));
+            if (!args.Contains("--prefetch") && (error is not OperationCanceledException || !window.Cancellation.IsCancellationRequested)) window.Failure(Text("Download failed. Your installation is preserved. Details: ", "Download non riuscito. L’installazione precedente è conservata. Dettagli: ") + Path.Combine(cache, "last-error.log"));
             return 1;
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+    }
+    private static async Task CancelWhenParentExitsAsync(int id, CancellationTokenSource preparation)
+    {
+        try { using var parent = Process.GetProcessById(id); await parent.WaitForExitAsync(); preparation.Cancel(); }
+        catch (ArgumentException) { preparation.Cancel(); }
+        catch (ObjectDisposedException) { }
     }
 }
 

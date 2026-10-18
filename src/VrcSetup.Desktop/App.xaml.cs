@@ -39,16 +39,26 @@ public partial class App : Application
         }
         var updateTestIndex = Array.IndexOf(arguments, "--update-smoke-test");
         var updateVerifyIndex = Array.IndexOf(arguments, "--verify-update-smoke");
-        if (updateTestIndex >= 0 || updateVerifyIndex >= 0)
+        var automaticTestIndex = Array.IndexOf(arguments, "--automatic-update-smoke");
+        var prepareTestIndex = Array.IndexOf(arguments, "--prepare-automatic-update-smoke");
+        if (updateTestIndex >= 0 || updateVerifyIndex >= 0 || automaticTestIndex >= 0 || prepareTestIndex >= 0)
         {
-            var index = Math.Max(updateTestIndex, updateVerifyIndex);
+            var index = Math.Max(Math.Max(updateTestIndex, updateVerifyIndex), Math.Max(automaticTestIndex, prepareTestIndex));
             Verification.UpdateSmokeSpec? spec = null;
             try
             {
                 if (index + 1 >= arguments.Length) throw new System.IO.IOException("Update test specification required.");
                 spec = await Verification.UpdateSmokeTest.ReadSpecAsync(arguments[index + 1]);
+                if (automaticTestIndex >= 0)
+                {
+                    var isolated = new VrcSetup.Infrastructure.VrcSetupApplication(System.IO.Path.Combine(spec.Root, "home"), ["--no-catalog-refresh", "--no-editor-discovery"]) { UpdateSmokeSpec = arguments[index + 1] };
+                    if (!await StartPreparedUpdateAsync(isolated)) throw new System.IO.IOException("Prepared update did not start at launch.");
+                    await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(spec.Root, "handoff.json"), new { AutomaticNextLaunch = true, MainWindowCreated = false });
+                    Exit(); return;
+                }
                 var main = new MainWindow(Verification.UpdateSmokeTest.CreateApplication(spec, arguments[index + 1])); window = main;
                 main.AppWindow.Show(false);
+                if (prepareTestIndex >= 0) { await Verification.UpdateSmokeTest.PrepareBackgroundAsync(main, spec); main.Close(); Exit(); return; }
                 if (updateVerifyIndex >= 0)
                 { await Verification.UpdateSmokeTest.VerifyAsync(main, spec); main.Close(); Exit(); }
                 else await Verification.UpdateSmokeTest.RunAsync(main, spec);
@@ -115,6 +125,8 @@ public partial class App : Application
             }
             return;
         }
-        window = new MainWindow(new VrcSetup.Infrastructure.VrcSetupApplication(diagnosticFlags: arguments)); window.Activate();
+        var normalApplication = new VrcSetup.Infrastructure.VrcSetupApplication(diagnosticFlags: arguments);
+        if (await StartPreparedUpdateAsync(normalApplication)) { Exit(); return; }
+        window = new MainWindow(normalApplication); window.Activate();
     }
 }
