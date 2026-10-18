@@ -34,7 +34,7 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
-      RELEASE_COMMIT: ${{ startsWith(github.event.head_commit.message, 'chore(release): ') }}
+      RELEASE_COMMIT: "${{ startsWith(github.event.head_commit.message, 'chore(release): ') }}"
       NUGET_PACKAGES: ${{ github.workspace }}/.work/cache/nuget
     steps:
       - uses: actions/checkout@v6
@@ -177,7 +177,7 @@ jobs:
           $full = Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe"
           ./scripts/Test-ApplicationUpdate.ps1 -BasePayload $basis -UpdateInstaller $full -OutputDirectory (Join-Path $env:RUNNER_TEMP 'update-full') -ComponentsDirectory (Join-Path $pwd release)
       - name: Create release
-        if: inputs.verify_only != true && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(release): '))
+        if: "inputs.verify_only != true && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(release): '))"
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
