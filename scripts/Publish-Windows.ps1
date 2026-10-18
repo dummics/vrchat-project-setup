@@ -1,11 +1,15 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '0.2.0-beta.1',
+    [string]$Version,
     [string]$OutputDirectory,
+    [string]$BaseArchive,
     [switch]$SkipInstaller
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ReleaseVersion.ps1')
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if (-not $Version) { $Version = ([xml](Get-Content (Join-Path $repoRoot 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version }
+$Version = (Get-ReleaseVersion $Version).Text
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repoRoot '.work\artifacts\release' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 [void][IO.Directory]::CreateDirectory($OutputDirectory)
@@ -14,7 +18,7 @@ if (Test-Path -LiteralPath $payload) { throw "Output already exists: $payload. C
 [void][IO.Directory]::CreateDirectory($payload)
 function Invoke-Dotnet {
     param([string[]]$Arguments)
-    & dotnet @Arguments
+    & dotnet @Arguments '-p:DebugType=None' '-p:DebugSymbols=false'
     if ($LASTEXITCODE -ne 0) { throw "dotnet failed with exit code $LASTEXITCODE" }
 }
 Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Cli\VrcSetup.Cli.csproj'),'-c','Release','-r','win-x64','--self-contained','true',('-p:Version=' + $Version),'-o',(Join-Path $payload 'app\cli'),'--nologo')
@@ -49,15 +53,44 @@ $manifest = [ordered]@{ Version=$Version; Files=$hashes }
 [IO.File]::WriteAllText((Join-Path $payload '.vrcsetup-portable'),'Portable user data lives in data/ next to this payload.')
 $archive = Join-Path $OutputDirectory ('VrcSetup-' + $Version + '-win-x64.zip')
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[IO.Compression.ZipFile]::CreateFromDirectory($payload,$archive,[IO.Compression.CompressionLevel]::Optimal,$false)
+[IO.Compression.ZipFile]::CreateFromDirectory($payload,$archive,[IO.Compression.CompressionLevel]::SmallestSize,$false)
 $installer = $null
+$deltaInstaller = $null
 if (-not $SkipInstaller) {
     $installerOutput = Join-Path $OutputDirectory 'installer-build'
     Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Installer\VrcSetup.Installer.csproj'),'-c','Release',('-p:Version=' + $Version),('-p:PayloadArchive=' + $archive),'-o',$installerOutput,'--nologo')
     $installer = Join-Path $OutputDirectory ('Install-VrcSetup-' + $Version + '-win-x64.exe')
     Copy-Item -LiteralPath (Join-Path $installerOutput 'VrcSetupInstaller.exe') -Destination $installer
+    if ($BaseArchive) {
+        $baseZip = [IO.Compression.ZipFile]::OpenRead([IO.Path]::GetFullPath($BaseArchive))
+        try {
+            $entry = $baseZip.GetEntry('.vrcsetup-payload.json')
+            if (-not $entry) { throw 'Base archive has no payload manifest.' }
+            $reader = [IO.StreamReader]::new($entry.Open())
+            try { $basis = $reader.ReadToEnd() | ConvertFrom-Json -AsHashtable } finally { $reader.Dispose() }
+        } finally { $baseZip.Dispose() }
+        if ((Compare-ReleaseVersion $basis.Version $Version) -ge 0) { throw 'Delta base must be older than the target version.' }
+        $deltaArchive = Join-Path $OutputDirectory ('delta-' + $basis.Version + '.zip')
+        $reuse = [ordered]@{}
+        $zip = [IO.Compression.ZipFile]::Open($deltaArchive, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($relative in $hashes.Keys) {
+                if ($basis.Files.ContainsKey($relative) -and $basis.Files[$relative] -eq $hashes[$relative]) { $reuse[$relative] = $hashes[$relative]; continue }
+                [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $payload $relative), $relative, [IO.Compression.CompressionLevel]::SmallestSize)
+            }
+            [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $payload '.vrcsetup-payload.json'), '.vrcsetup-payload.json', [IO.Compression.CompressionLevel]::SmallestSize)
+            $entry = $zip.CreateEntry('.vrcsetup-delta.json')
+            $writer = [IO.StreamWriter]::new($entry.Open(), [Text.UTF8Encoding]::new($false))
+            try { $writer.Write(([ordered]@{ BaseVersion=$basis.Version; Reuse=$reuse } | ConvertTo-Json -Depth 5)) } finally { $writer.Dispose() }
+        } finally { $zip.Dispose() }
+        Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Installer\VrcSetup.Installer.csproj'),'-c','Release',('-p:Version=' + $Version),('-p:PayloadArchive=' + $deltaArchive),'-o',(Join-Path $OutputDirectory 'delta-installer-build'),'--nologo')
+        $deltaInstaller = Join-Path $OutputDirectory ("Update-VrcSetup-$Version-from-$($basis.Version)-win-x64.exe")
+        Copy-Item -LiteralPath (Join-Path $OutputDirectory 'delta-installer-build/VrcSetupInstaller.exe') -Destination $deltaInstaller
+    }
 }
-$outputs = @($archive) + @($installer | Where-Object { $_ })
+$outputs = @($archive) + @($installer,$deltaInstaller | Where-Object { $_ })
 $checksums = @($outputs | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash,[IO.Path]::GetFileName($_) })
 [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'SHA256SUMS.txt'),$checksums,[Text.UTF8Encoding]::new($false))
-[pscustomobject]@{Version=$Version;Payload=$payload;Archive=$archive;Installer=$installer;Checksums=(Join-Path $OutputDirectory 'SHA256SUMS.txt')}
+$report = [ordered]@{Version=$Version;Payload=$payload;Archive=$archive;Installer=$installer;DeltaInstaller=$deltaInstaller;Checksums=(Join-Path $OutputDirectory 'SHA256SUMS.txt');Artifacts=@($outputs|ForEach-Object{[ordered]@{Name=[IO.Path]::GetFileName($_);Bytes=(Get-Item -LiteralPath $_).Length}})}
+$report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'release-build.json') -Encoding utf8
+[pscustomobject]$report

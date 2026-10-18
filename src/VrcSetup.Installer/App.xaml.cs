@@ -98,6 +98,8 @@ public partial class App : Application
                     Directory.CreateDirectory(Path.GetDirectoryName(target)!); entry.ExtractToFile(target);
                 }
             }
+            if (File.Exists(Path.Combine(extraction, DeltaUpdates.ManifestName)))
+                await DeltaUpdates.ReconstructAsync(extraction, destination);
             var paths = AppPaths.ForInstallation(home, extraction);
             return await new InstallationManager(paths).InstallAsync(destination, progress: progress);
         }

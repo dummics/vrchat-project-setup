@@ -29,6 +29,13 @@ public sealed class ApplicationUpdatesTests
         Assert.Null(ApplicationUpdates.SelectRelease(json, "0.2.0-beta.1", true));
         Assert.Null(ApplicationUpdates.SelectRelease(json, "0.2.1", true));
     }
+    [Fact] public void FutureStableVersionsAndOptInBetasRemainSupported()
+    {
+        var json = JsonSerializer.Serialize(new[] { Release("1.0.0", beta: false), Release("1.1.0-beta.1"), Release("2.0.0-preview.99") });
+        Assert.Equal("1.0.0", ApplicationUpdates.SelectRelease(json, "0.2.0-beta.7", false)!.Version);
+        Assert.Equal("1.1.0-beta.1", ApplicationUpdates.SelectRelease(json, "0.2.0-beta.7", true)!.Version);
+        Assert.Null(ApplicationUpdates.SelectRelease(json, "1.0.0", false));
+    }
     [Theory]
     [InlineData("https://example.org/dummics/vrchat-project-setup")]
     [InlineData("https://github.com/other/repository")]
@@ -70,4 +77,51 @@ public sealed class ApplicationUpdatesTests
     }
     private sealed class FixtureHandler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(response(request)); }
+
+    [Fact] public void DeltaIsSelectedOnlyForTheExactInstalledBase()
+    {
+        var root = ApplicationUpdates.Repository + "/releases/download/v0.2.0-beta.7/";
+        var json = JsonSerializer.Serialize(new[] { new { tag_name = "v0.2.0-beta.7", draft = false, prerelease = true,
+            assets = new[] { "Install-VrcSetup-0.2.0-beta.7-win-x64.exe", "Update-VrcSetup-0.2.0-beta.7-from-0.2.0-beta.6-win-x64.exe", "SHA256SUMS.txt" }
+                .Select(name => new { name, browser_download_url = root + name }) } });
+        Assert.NotNull(ApplicationUpdates.SelectRelease(json, "0.2.0-beta.6", true)!.DeltaInstaller);
+        Assert.Null(ApplicationUpdates.SelectRelease(json, "0.2.0-beta.5", true)!.DeltaInstaller);
+    }
+    [Theory]
+    [InlineData(true, true)] [InlineData(false, true)] [InlineData(true, false)]
+    public async Task DeltaUsesVerifiedBaseAndFallsBackToFull(bool validBase, bool validDelta)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "VrcSetup-delta-download-" + Guid.NewGuid().ToString("N"));
+        var installed = Path.Combine(directory, "installed");
+        var bytes = Encoding.UTF8.GetBytes("fixture bytes"); var hash = Convert.ToHexString(SHA256.HashData(bytes));
+        var full = "Install-VrcSetup-0.2.0-beta.7-win-x64.exe";
+        var delta = "Update-VrcSetup-0.2.0-beta.7-from-0.2.0-beta.6-win-x64.exe";
+        var root = ApplicationUpdates.Repository + "/releases/download/v0.2.0-beta.7/";
+        var requested = new List<string>();
+        try
+        {
+            var files = new Dictionary<string, string>();
+            foreach (var name in new[] { "app/cli/vrcsetup.exe", "app/desktop/VrcSetup.Desktop.exe" })
+            { var path = Path.Combine(installed, name); Directory.CreateDirectory(Path.GetDirectoryName(path)!); await File.WriteAllBytesAsync(path, bytes); files[name] = hash; }
+            await AtomicFile.WriteJsonAsync(Path.Combine(installed, ".vrcsetup-payload.json"), new PayloadManifest("0.2.0-beta.6", files));
+            await AtomicFile.WriteJsonAsync(Path.Combine(installed, ".vrcsetup-install.json"), new InstallationRecord("0.2.0-beta.6", installed, DateTime.UtcNow, null));
+            if (!validBase) await File.WriteAllTextAsync(Path.Combine(installed, "app/cli/vrcsetup.exe"), "changed");
+            using var client = new HttpClient(new FixtureHandler(request =>
+            {
+                var name = Path.GetFileName(request.RequestUri!.LocalPath); requested.Add(name);
+                return new(HttpStatusCode.OK) { Content = name.EndsWith(".txt")
+                    ? new StringContent(hash + "  " + full + "\n" + (validDelta ? hash : new string('0', 64)) + "  " + delta + "\n")
+                    : new ByteArrayContent(bytes) };
+            }));
+            var release = new ApplicationRelease("0.2.0-beta.7", new(root + full), new(root + "SHA256SUMS.txt"), new(ApplicationUpdates.Repository), new(root + delta), "0.2.0-beta.6");
+            var service = new ApplicationUpdates(client);
+            var downloaded = await service.DownloadAsync(release, Path.Combine(directory, "download"), installedRoot: installed);
+            Assert.Equal(validBase && validDelta ? delta : full, Path.GetFileName(downloaded));
+            if (!validBase) Assert.DoesNotContain(delta, requested);
+            var requests = requested.Count(x => x.EndsWith(".exe"));
+            await service.DownloadAsync(release with { DeltaInstaller = null }, Path.Combine(directory, "download"));
+            if (!validBase || !validDelta) Assert.Equal(requests, requested.Count(x => x.EndsWith(".exe")));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
 }

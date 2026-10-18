@@ -71,6 +71,7 @@ public sealed partial class MainViewModel
         if (!File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")))
         { UpdateStatus = "Portable copy: download the new version from Releases."; OpenPath(availableUpdate.Page.AbsoluteUri); return; }
         IsDownloadingUpdate = true;
+        var preferFullInstaller = UpdateFailed;
         UpdateFailed = false; updateDetails = "";
         try
         {
@@ -78,7 +79,7 @@ public sealed partial class MainViewModel
             client.Timeout = TimeSpan.FromMinutes(15); client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
             var progress = new SynchronizationProgress<int>(context, value => { if (IsDownloadingUpdate) UpdateStatus = "Downloading update · " + value + "%"; });
             var folder = Path.Combine(app.Paths.Home, "updates", availableUpdate.Version);
-            var installer = await new ApplicationUpdates(client).DownloadAsync(availableUpdate, folder, progress, lifetime.Token);
+            var installer = await new ApplicationUpdates(client).DownloadAsync(availableUpdate, folder, progress, lifetime.Token, preferFullInstaller ? null : app.Paths.PayloadRoot);
             if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty)
             { UpdateStatus = "Update downloaded. Finish your work, then choose Install update."; return; }
             UpdateStatus = "Restarting to install update…";

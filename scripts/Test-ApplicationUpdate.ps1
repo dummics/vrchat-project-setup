@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory)][string]$UpdateInstaller,
     [string]$OutputDirectory,
     [switch]$UseRealNetwork,
+    [switch]$DirectInstaller,
     [ValidateRange(30,600)][int]$TimeoutSeconds = 180
 )
 $ErrorActionPreference = 'Stop'
@@ -16,7 +17,7 @@ if ($OutputDirectory.StartsWith($BasePayload.TrimEnd('\') + '\', [StringComparis
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'Choose a new output directory; existing evidence is preserved.' }
 if (-not (Test-Path -LiteralPath (Join-Path $BasePayload '.vrcsetup-payload.json'))) { throw 'Base must be a published payload.' }
 $installerName = [IO.Path]::GetFileName($UpdateInstaller)
-if ($installerName -notmatch '^Install-VrcSetup-(0\.[0-9]+\.[0-9]+(?:-(?:beta|rc)\.[0-9]+)?)-win-x64\.exe$') { throw 'Use a published 0.x installer.' }
+if ($installerName -notmatch '^(?:Install|Update)-VrcSetup-(\d+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+)?)(?:-from-\d+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+)?)?-win-x64\.exe$') { throw 'Use a published versioned installer.' }
 $targetVersion = $Matches[1]
 $checksums = Join-Path ([IO.Path]::GetDirectoryName($UpdateInstaller)) 'SHA256SUMS.txt'
 $checksumLine = @(Get-Content -LiteralPath $checksums | Where-Object { $_ -match ('^[A-Fa-f0-9]{64}\s+\*?' + [regex]::Escape($installerName) + '$') })
@@ -45,6 +46,17 @@ $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'app/desktop/Vr
 $start.UseShellExecute = $false; $start.CreateNoWindow = $true
 $start.WorkingDirectory = $install
 $start.ArgumentList.Add('--update-smoke-test'); $start.ArgumentList.Add($specFile)
+if ($DirectInstaller) {
+    if ($UseRealNetwork) { throw 'Direct installer mode does not test network discovery.' }
+    $start = [Diagnostics.ProcessStartInfo]::new($UpdateInstaller)
+    $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = $install
+    foreach ($argument in @('--silent','--root',$install,'--home',$testHome,'--result',(Join-Path $testHome 'updates/last-result.json'),'--launch')) { $start.ArgumentList.Add($argument) }
+    $start.Environment['VRCSETUP_UPDATE_SMOKE_SPEC'] = $specFile
+    $start.Environment['VRCSETUP_HOME'] = $testHome
+    $start.Environment['VRCSETUP_SKIP_PATH_UPDATE'] = '1'
+    $start.Environment['VRCSETUP_START_MENU_ROOT'] = Join-Path $OutputDirectory 'start-menu'
+    @{ DirectInstaller=$true; UsesProductionInstaller=$true } | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory 'handoff.json')
+}
 $process = [Diagnostics.Process]::Start($start)
 $timer = [Diagnostics.Stopwatch]::StartNew()
 $receipt = Join-Path $OutputDirectory 'passed.json'; $failure = Join-Path $OutputDirectory 'failure.txt'

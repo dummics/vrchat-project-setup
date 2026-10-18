@@ -6,7 +6,7 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed record ApplicationRelease(string Version, Uri Installer, Uri Checksums, Uri Page);
+public sealed record ApplicationRelease(string Version, Uri Installer, Uri Checksums, Uri Page, Uri? DeltaInstaller = null, string? BaseVersion = null);
 
 // GitHub hosts the feed, installer and checksums. No credentials or local data are sent.
 public sealed class ApplicationUpdates(HttpClient client)
@@ -53,7 +53,9 @@ public sealed class ApplicationUpdates(HttpClient client)
             string? Asset(string name) => assets.FirstOrDefault(x => x.GetProperty("name").GetString() == name) is var asset && asset.ValueKind == JsonValueKind.Object ? asset.GetProperty("browser_download_url").GetString() : null;
             if (!TryAsset(Asset(installerName), out var installer) || !TryAsset(Asset("SHA256SUMS.txt"), out var checksums)) continue;
             var page = new Uri(Repository + "/releases/tag/" + Uri.EscapeDataString(tag));
-            candidates.Add((version, new(normalized, installer!, checksums!, page)));
+            var baseVersion = installed.TrimStart('v');
+            TryAsset(Asset($"Update-VrcSetup-{normalized}-from-{baseVersion}-win-x64.exe"), out var delta);
+            candidates.Add((version, new(normalized, installer!, checksums!, page, delta, delta is null ? null : baseVersion)));
             }
             catch (Exception error) when (error is KeyNotFoundException or InvalidOperationException) { /* Ignore incomplete release metadata. */ }
         }
@@ -73,25 +75,40 @@ public sealed class ApplicationUpdates(HttpClient client)
         return request;
     }
 
-    public async Task<string> DownloadAsync(ApplicationRelease release, string directory, IProgress<int>? progress = null, CancellationToken token = default)
+    public async Task<string> DownloadAsync(ApplicationRelease release, string directory, IProgress<int>? progress = null, CancellationToken token = default, string? installedRoot = null)
     {
-        if (!TryAsset(release.Installer.AbsoluteUri, out _) || !TryAsset(release.Checksums.AbsoluteUri, out _)) throw new IOException("Unrecognized update source.");
+        if (release.DeltaInstaller is not null && release.BaseVersion is not null && installedRoot is not null
+            && await DeltaUpdates.CanUseAsync(installedRoot, release.BaseVersion, token))
+        {
+            try { return await DownloadInstallerAsync(release, release.DeltaInstaller, $"Update-VrcSetup-{release.Version}-from-{release.BaseVersion}-win-x64.exe", directory, progress, token); }
+            catch (Exception error) when (error is IOException or HttpRequestException) { /* Full installer is the compatible fallback. */ }
+        }
+        return await DownloadInstallerAsync(release, release.Installer, $"Install-VrcSetup-{release.Version}-win-x64.exe", directory, progress, token);
+    }
+    private async Task<string> DownloadInstallerAsync(ApplicationRelease release, Uri installer, string name, string directory, IProgress<int>? progress, CancellationToken token)
+    {
+        if (!TryAsset(installer.AbsoluteUri, out _) || !TryAsset(release.Checksums.AbsoluteUri, out _)) throw new IOException("Unrecognized update source.");
         using var checksumRequest = Request(release.Checksums.AbsoluteUri);
         using var checksumResponse = await client.SendAsync(checksumRequest, token); checksumResponse.EnsureSuccessStatusCode();
         var checksumText = await checksumResponse.Content.ReadAsStringAsync(token);
         if (checksumText.Length > 64 * 1024) throw new IOException("Update checksum file is too large.");
-        var name = "Install-VrcSetup-" + release.Version + "-win-x64.exe";
-        if (Path.GetFileName(release.Installer.LocalPath) != name || name != Path.GetFileName(name)) throw new IOException("Unexpected update installer name.");
+        if (Path.GetFileName(installer.LocalPath) != name || name != Path.GetFileName(name)) throw new IOException("Unexpected update installer name.");
         var hashes = checksumText.Split('\n').Select(line => line.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
             .Where(parts => parts.Length == 2 && parts[1].TrimStart('*') == name).Select(parts => parts[0]).ToArray();
         if (hashes.Length != 1 || hashes[0].Length != 64 || !hashes[0].All(Uri.IsHexDigit)) throw new IOException("Installer checksum is missing or ambiguous.");
         var hash = hashes[0];
         Directory.CreateDirectory(directory);
         var target = Path.Combine(directory, name);
+        if (File.Exists(target))
+        {
+            await using var cached = File.OpenRead(target);
+            if (Convert.ToHexString(await SHA256.HashDataAsync(cached, token)).Equals(hash, StringComparison.OrdinalIgnoreCase))
+            { progress?.Report(100); return target; }
+        }
         var temporary = target + ".partial-" + Guid.NewGuid().ToString("N");
         try
         {
-            using var request = Request(release.Installer.AbsoluteUri);
+            using var request = Request(installer.AbsoluteUri);
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token); response.EnsureSuccessStatusCode();
             var length = response.Content.Headers.ContentLength;
             if (length > MaximumInstallerBytes) throw new IOException("Installer exceeds the update size limit.");
