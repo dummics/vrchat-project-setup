@@ -28,6 +28,10 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
                 known[entry.Key] = old with { SelectedVersion = entry.Value };
             }
         foreach (var id in config.FavoritePackages) known.TryAdd(id, new(id, FriendlyName(id), "latest"));
+        var repositoryNames = (await Task.Run(ReadRepositoryPackages, cancellationToken)).ToDictionary(x => x.Id, x => x.DisplayName, StringComparer.OrdinalIgnoreCase);
+        foreach (var id in known.Keys.ToArray())
+            if (string.IsNullOrWhiteSpace(known[id].DisplayName) || known[id].DisplayName.Equals(id, StringComparison.OrdinalIgnoreCase))
+                known[id] = known[id] with { DisplayName = repositoryNames.GetValueOrDefault(id) is { Length: > 0 } display && !display.Equals(id, StringComparison.OrdinalIgnoreCase) ? display : FriendlyName(id) };
         var metadata = await ReadVersionCache(cancellationToken);
         foreach (var id in known.Keys.ToArray())
             if (metadata.TryGetValue(id, out var cached) && (known[id].UpdatedUtc is null || cached.UpdatedUtc > known[id].UpdatedUtc))

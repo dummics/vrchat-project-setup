@@ -22,10 +22,13 @@ public sealed partial class MainViewModel
     public Visibility ProjectCatalogVisibility => BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
     public bool WorkspaceDirty => session?.HasPendingChanges == true;
     public Visibility WorkspaceChangesVisibility => WorkspaceDirty ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SingleProjectLaunchVisibility => session?.Projects.Length == 1 ? Visibility.Visible : Visibility.Collapsed;
     public string WorkspaceChangeContext => session is null ? "" : "Pending changes · " + session.Projects.Length + (session.Projects.Length == 1 ? " project" : " projects");
     partial void OnBrowsingProjectPackagesChanged(bool value) { OnPropertyChanged(nameof(PresetHeaderVisibility)); OnPropertyChanged(nameof(ProjectCatalogVisibility)); OnPropertyChanged(nameof(PresetChangesVisibility)); RefreshLibraryRows(); }
     public string[] CachedVersions(string id) => Registry.FirstOrDefault(x => x.Id == id)?.Versions ?? [];
     public Task<string[]> LoadVersionsAsync(string id) => versionCache.GetAsync(id);
+    public string PackageDisplayName(string id) => Packages.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase))?.Name
+        ?? Registry.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? VrcSetup.Infrastructure.PackageCatalog.FriendlyName(id);
     public async Task<bool> ConfirmCloseAsync()
     {
         if (!WorkspaceDirty && !PresetDirty) return true;
@@ -41,13 +44,12 @@ public sealed partial class MainViewModel
             var sameProjectDraft = page == "Workspace" && CurrentPage == "Catalog";
             if (WorkspaceDirty && !sameProjectDraft)
             {
-                if (!await ui.ConfirmAsync("Unsaved project changes", "Discard pending package changes and leave this project?", "Discard and leave")) return false;
+                if (!await ui.ConfirmAsync("Pending package changes", "Leave this screen and keep the current project draft?", "Keep draft and leave")) return false;
             }
             if (PresetDirty && page != "Presets")
             {
                 if (!await ui.ConfirmAsync("Unsaved preset", "Discard changes to " + PresetLabel + "?", "Discard and leave")) return false;
             }
-            if (WorkspaceDirty && !sameProjectDraft) { session!.Reset(); RenderWorkspace(); }
             if (PresetDirty && page != "Presets") LoadEditingPreset();
             BrowsingProjectPackages = false; CurrentPage = page; return true;
         }
@@ -76,7 +78,7 @@ public sealed partial class MainViewModel
         presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); PresetDirty = true; RenderPreset();
     }
     private void NotifyWorkspaceChanges()
-    { OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); }
+    { OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); }
     private async Task SearchLibraryAsync(string query)
     {
         packageSearch?.Cancel(); var source = packageSearch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); var token = source.Token;

@@ -105,6 +105,7 @@ public sealed record ProjectSnapshot
     public Dictionary<string, string> Packages { get; init; } = [];
     public Dictionary<string, string> LockedPackages { get; init; } = [];
     public Dictionary<string, string> InstalledVersions { get; init; } = [];
+    public Dictionary<string, string> PackageDisplayNames { get; init; } = [];
     public Dictionary<string, string> Policy { get; init; } = [];
     public string? PresetName { get; init; }
     public bool ProfileModified { get; init; }

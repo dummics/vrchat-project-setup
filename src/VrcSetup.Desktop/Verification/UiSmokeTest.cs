@@ -101,8 +101,10 @@ public static class UiSmokeTest
             flow.StageWorkspaceVersion("gogoloco", "1.8.7");
             Require(!await flow.NavigateAsync("Settings") && flow.CurrentPage == "Workspace" && flow.WorkspaceDirty, "Rejecting navigation keeps the active project draft");
             decisions.ConfirmResult = true;
-            Require(await flow.NavigateAsync("Projects") && !flow.WorkspaceDirty, "Confirmed navigation discards only staged project edits");
-            await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]); flow.OpenProjectCatalogCommand.Execute(null);
+            Require(await flow.NavigateAsync("Projects") && flow.WorkspaceDirty, "Confirmed navigation preserves the staged project draft");
+            await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
+            Require(flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.7", "Reopening the same project retains pending versions");
+            await flow.UndoChangesCommand.ExecuteAsync(null); flow.OpenProjectCatalogCommand.Execute(null);
             Require(flow.CurrentPage == "Catalog" && flow.BrowsingProjectPackages, "Add package opens the shared in-page library");
             flow.AddLibraryPackageCommand.Execute(flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury"));
             Require(flow.WorkspaceDirty && flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury").Included, "Local package addition is immediate and staged for the project");

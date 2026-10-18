@@ -192,8 +192,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (SelectedProjects.Count == 0) throw new InvalidOperationException("Select one or more projects.");
         await OpenProjectsAsync(SelectedProjects.ToArray());
     });
-    public async Task OpenProjectsAsync(ProjectSnapshot[] projects)
+    public async Task OpenProjectsAsync(ProjectSnapshot[] projects, bool reload = false)
     {
+        if (!reload && session?.MatchesProjects(projects) == true)
+        { BrowsingProjectPackages = false; RenderWorkspace(); CurrentPage = "Workspace"; return; }
         if (session?.HasPendingChanges == true && !await ui.ConfirmAsync("Pending changes", "Discard staged package changes?", "Discard")) return;
         var fresh = new List<ProjectSnapshot>(); foreach (var project in projects) fresh.Add(await app.Projects.ReadAsync(project.Path));
         var known = await Task.Run(() => app.Catalog.KnownAsync(config, fresh.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)));
@@ -259,11 +261,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task ApplyChanges() => await Guard(async () =>
     {
         if (session is null) return;
-        var plan = await app.Planner.PlanBulkAsync(session.Projects.Select(x => x.Path), session.Selected, config, session.Exact, session.Removed, session.Targets, session.Preset, session.ExtraImports);
-        if (!await ui.ReviewAsync(plan)) return;
-        var report = await Run(plan);
-        if (report.Success) { session.Reset(); await OpenProjectsAsync(session.Projects); }
-        else Status = "Some changes were not saved. Pending choices kept; review and retry.";
+        using var cancellation = new CancellationTokenSource(); operation = cancellation;
+        IsApplyingPackages = true; IsBusy = true; CanCancelApply = true;
+        ApplyProject = ""; ApplyPosition = $"{session.Projects.Length} projects"; ApplyPhase = "Preparing review";
+        try
+        {
+            var busy = await Task.Run(() => session.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
+            if (busy.Length > 0) throw new IOException("Close Unity before applying changes to: " + string.Join(", ", busy) + ". No project was changed.");
+            var plan = await Task.Run(() => app.Planner.PlanBulkAsync(session.Projects.Select(x => x.Path), session.Selected, config, session.Exact, session.Removed, session.Targets, session.Preset, session.ExtraImports, cancellation.Token));
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (!await ui.ReviewAsync(plan)) return;
+            cancellation.Token.ThrowIfCancellationRequested();
+            applyingProjects = plan.Projects; ApplyPhase = "Starting changes";
+            var report = await Run(plan, cancellation);
+            if (report.Success) { session.Reset(); await OpenProjectsAsync(session.Projects, reload: true); }
+            else { Status = "Some changes were not saved. Pending choices kept; review and retry."; ErrorMessage = report.Results.FirstOrDefault(x => x.Status is OperationStatus.Failed or OperationStatus.Cancelled or OperationStatus.Skipped)?.Message ?? Status; }
+        }
+        finally { operation = null; IsBusy = false; IsApplyingPackages = false; CanCancelApply = false; applyingProjects = []; }
     });
     [RelayCommand] private async Task PickPackage()
     { if (await ui.PickFileAsync(".unitypackage") is { } file) { PackageFile = file; CurrentPage = "Create"; } }
@@ -294,13 +308,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
         finally { IsPreparingImport = false; }
     }
-    private async Task<OperationReport> Run(OperationPlan plan)
+    private async Task<OperationReport> Run(OperationPlan plan, CancellationTokenSource? suppliedCancellation = null)
     {
-        using var cancellation = new CancellationTokenSource(); operation = cancellation; IsBusy = true;
+        using var ownedCancellation = suppliedCancellation is null ? new CancellationTokenSource() : null;
+        var cancellation = suppliedCancellation ?? ownedCancellation!; operation = cancellation; IsBusy = true;
         try
         {
-            var progress = new SynchronizationProgress<OperationEvent>(context, AppendActivity);
-            var report = await app.ApplyAsync(plan, progress, cancellation.Token);
+            var progress = new SynchronizationProgress<OperationEvent>(context, value => { AppendActivity(value); UpdateApplyProgress(value); });
+            var report = await Task.Run(() => app.ApplyAsync(plan, progress, cancellation.Token));
             LastLog = report.Results.FirstOrDefault()?.LogFile ?? "";
             lastReport = report.ReportFile ?? "";
             foreach (var result in report.Results) AppendActivity(new(DateTime.UtcNow, result.Status.ToString(), result.Project + ": " + result.Message, report.Success ? EventSeverity.Info : EventSeverity.Warning));
@@ -439,8 +454,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private void OpenProjectFolder() { if (session is not null) OpenPath(session.Projects[0].Path); }
     [RelayCommand] private async Task OpenUnity() => await Guard(async () =>
     {
-        if (session is null) return;
-        await LaunchUnityAsync(session.Projects[0].Path);
+        if (session?.Projects.Length != 1) return;
+        await LaunchUnityAsync(session.Projects.Single().Path);
     });
     [RelayCommand] private async Task LaunchProject(ProjectSnapshot? project) => await Guard(async () =>
     {

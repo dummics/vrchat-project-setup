@@ -23,6 +23,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
         var direct = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var locked = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var installed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var displayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var source = "None";
         var status = "No VPM manifest";
         var manifest = Path.Combine(path, "Packages", "vpm-manifest.json");
@@ -45,7 +46,11 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             try
             {
                 using var document = JsonDocument.Parse(File.ReadAllText(packageJson));
-                if (document.RootElement.TryGetProperty("name", out var name) && document.RootElement.TryGetProperty("version", out var version)) installed[name.GetString()!] = version.GetString()!;
+                if (document.RootElement.TryGetProperty("name", out var name) && document.RootElement.TryGetProperty("version", out var version))
+                {
+                    var id = name.GetString()!; installed[id] = version.GetString()!;
+                    if (document.RootElement.TryGetProperty("displayName", out var display) && display.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(display.GetString())) displayNames[id] = display.GetString()!;
+                }
             }
             catch (JsonException) { }
         }
@@ -108,7 +113,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             catch (JsonException) { modified = true; }
         }
         return new() { Path = path, Name = Path.GetFileName(path), Kind = kind, UnityVersion = unityVersion, UnityVersionSource = versionSource, PackageMetadataSource = source,
-            Status = status, LastUpdatedUtc = updated, Fingerprint = Fingerprint(path), Packages = direct, LockedPackages = locked, InstalledVersions = installed,
+            Status = status, LastUpdatedUtc = updated, Fingerprint = Fingerprint(path), Packages = direct, LockedPackages = locked, InstalledVersions = installed, PackageDisplayNames = displayNames,
             Incomplete = incomplete, PresetName = preset, ProfileModified = modified, PresetChanged = presetChanged, Policy = policy, ConfigurationFingerprint = AtomicFile.Hash(paths.ConfigFile) };
     }
 

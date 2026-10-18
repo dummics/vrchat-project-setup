@@ -15,6 +15,8 @@ public sealed class PackageEditSession
     public string? Preset { get; private set; }
     public string[] ExtraImports { get; set; } = [];
     public bool HasPendingChanges => Exact || Selected.Count > 0 || Removed.Count > 0 || ExtraImports.Length > 0;
+    public bool MatchesProjects(IEnumerable<ProjectSnapshot> projects) => Projects.Select(x => ProjectRules.NormalizePath(x.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase)
+        .SetEquals(projects.Select(x => ProjectRules.NormalizePath(x.Path)));
     public void AddDefinitions(IEnumerable<PackageDefinition> definitions) { foreach (var definition in definitions) known[definition.Id] = definition; }
     public PackageEditSession(ProjectSnapshot[] projects, AppConfiguration config, IEnumerable<PackageDefinition> definitions)
     {
@@ -34,7 +36,10 @@ public sealed class PackageEditSession
             var policies = Projects.Select(x => x.Policy.GetValueOrDefault(id) ?? x.InstalledVersions.GetValueOrDefault(id) ?? x.Packages.GetValueOrDefault(id) ?? "Not installed").Distinct().ToArray();
             var selected = Selected.GetValueOrDefault(id) ?? (policies.Length == 1 ? policies[0] : "Mixed — unchanged");
             var action = !included && exists ? "Will be removed" : Selected.ContainsKey(id) && !exists ? "Will be added" : Selected.ContainsKey(id) ? "Will be changed" : IsRequired(id) ? "Always included" : exists ? "Included" : "Available";
-            return new PackageWorkspaceRow(id, known.GetValueOrDefault(id)?.DisplayName ?? id, installed.Length == 1 ? installed[0] : "Mixed", selected, action, IsRequired(id), included, Targets.GetValueOrDefault(id)?.Length ?? Projects.Length);
+            var displayName = known.GetValueOrDefault(id)?.DisplayName;
+            if (string.IsNullOrWhiteSpace(displayName) || displayName.Equals(id, StringComparison.OrdinalIgnoreCase))
+                displayName = Projects.Select(x => x.PackageDisplayNames.GetValueOrDefault(id)).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x) && !x.Equals(id, StringComparison.OrdinalIgnoreCase)) ?? id;
+            return new PackageWorkspaceRow(id, displayName, installed.Length == 1 ? installed[0] : "Mixed", selected, action, IsRequired(id), included, Targets.GetValueOrDefault(id)?.Length ?? Projects.Length);
         }).Where(x => string.IsNullOrWhiteSpace(query) || (x.Id + " " + x.Name).Contains(query, StringComparison.OrdinalIgnoreCase))
           .OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : x.Id == ProjectRules.AvatarSdk || x.Id == ProjectRules.WorldSdk ? 1 : x.Id == ProjectRules.Resolver ? 2 : x.Required ? 3 : x.Included || Removed.Contains(x.Id) ? 4 : 5).ThenBy(x => x.Name).ToArray();
     }

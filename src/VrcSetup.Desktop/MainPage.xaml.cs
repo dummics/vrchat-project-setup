@@ -265,20 +265,38 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             return await ShowDialog(new() { Title = plan.Projects.Length == 1 ? "Import project" : $"Import {plan.Projects.Length} projects", Content = new ScrollViewer { Content = recap, MaxHeight = 360 }, PrimaryButtonText = "Import", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Primary }) == ContentDialogResult.Primary;
         }
         var stack = new StackPanel { Spacing = 14, MaxWidth = 600 };
+        if (plan.Projects.All(x => !x.HasChanges)) stack.Children.Add(new TextBlock { Text = "Packages are already up to date. Save the selected version policies.", TextWrapping = TextWrapping.Wrap });
+        foreach (var group in PackageReview.Group(plan))
+        {
+            var names = string.Join(", ", group.Projects.Select(x => x.Name));
+            var section = new StackPanel { Spacing = 8 };
+            var header = new TextBlock { Text = group.Projects.Length == plan.Projects.Length && plan.Projects.Length > 1 ? $"All {plan.Projects.Length} projects" : names, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+            ToolTipService.SetToolTip(header, string.Join(Environment.NewLine, group.Projects.Select(x => x.Path))); section.Children.Add(header);
+            foreach (var change in group.Changes)
+            {
+                var name = ViewModel.PackageDisplayName(change.Id);
+                var text = change.Kind switch
+                {
+                    ChangeKind.Add => $"Add {name} · {change.ResolvedVersion}",
+                    ChangeKind.Remove => $"Remove {name} · {change.InstalledVersion}",
+                    _ when change.InstalledVersion == change.ResolvedVersion => $"Repair {name} · {change.ResolvedVersion}",
+                    _ => $"{name} · {change.InstalledVersion} → {change.ResolvedVersion}"
+                };
+                section.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap });
+            }
+            stack.Children.Add(section);
+        }
         foreach (var project in plan.Projects)
         {
-            stack.Children.Add(new TextBlock { Text = project.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 18 });
-            stack.Children.Add(new TextBlock { Text = project.Path, TextWrapping = TextWrapping.Wrap, Opacity = 0.65 });
             if (project.Creation is { } create)
             {
                 stack.Children.Add(new TextBlock { Text = "Create from " + create.UnityPackagePath, TextWrapping = TextWrapping.Wrap });
                 stack.Children.Add(new TextBlock { Text = "Unity: " + create.BuildTarget + " · Publish: " + string.Join(", ", create.PublishingPlatforms), TextWrapping = TextWrapping.Wrap });
             }
-            foreach (var change in project.Changes.Where(x => x.Kind != ChangeKind.Keep))
-                stack.Children.Add(new TextBlock { Text = $"{change.Kind}  {PackageCatalog.FriendlyName(change.Id)}  {change.InstalledVersion ?? "—"} → {change.ResolvedVersion ?? "removed"}", TextWrapping = TextWrapping.Wrap });
-            foreach (var import in project.ExtraImports.Concat(project.Creation?.ExtraImports ?? [])) stack.Children.Add(new TextBlock { Text = "Import: " + import, TextWrapping = TextWrapping.Wrap });
-            if (project.NeedsEasyLoginRepository) stack.Children.Add(new TextBlock { Text = "Ensure Vulpine Vault repository; recognized legacy Easy Login assets will be backed up and migrated.", TextWrapping = TextWrapping.Wrap });
+            foreach (var import in project.ExtraImports.Concat(project.Creation?.ExtraImports ?? [])) stack.Children.Add(new TextBlock { Text = project.Name + " · Import: " + Path.GetFileName(import), TextWrapping = TextWrapping.Wrap });
         }
+        var legacy = plan.Projects.Where(x => x.NeedsEasyLoginRepository && Directory.Exists(Path.Combine(x.Path, "Assets", "EASY LOGIN"))).ToArray();
+        if (legacy.Length > 0) stack.Children.Add(new TextBlock { Text = "Legacy Easy Login folder will be checked and backed up before migration: " + string.Join(", ", legacy.Select(x => x.Name)), TextWrapping = TextWrapping.Wrap });
         stack.Children.Add(new TextBlock { Text = "Projects open in Unity or changed after this review will be skipped. Backups are kept in each project's .vrcsetup folder.", TextWrapping = TextWrapping.Wrap });
         if (plan.Projects.Any(x => x.Creation is not null) && ViewModel.InspectionReviewNote.Length > 0) stack.Children.Add(new TextBlock { Text = ViewModel.InspectionReviewNote, TextWrapping = TextWrapping.Wrap });
         var dialog = new ContentDialog { Title = "Review changes", Content = new ScrollViewer { Content = stack, MaxHeight = 430 }, PrimaryButtonText = plan.Projects.Any(x => x.Creation is not null) ? "Create project" : "Apply changes", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Close };

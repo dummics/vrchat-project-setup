@@ -20,6 +20,7 @@ public sealed partial class MainWindow : Window
             if (closingConfirmed) { page.ViewModel.Dispose(); return; }
             // Closing is synchronous at the native boundary; cancel before awaiting.
             args.Cancel = true;
+            if (page.ViewModel.IsApplyingPackages) return;
             if (closePromptPending) return;
             closePromptPending = true;
             try

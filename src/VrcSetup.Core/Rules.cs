@@ -204,7 +204,7 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
         {
             var old = snapshot.InstalledVersions.GetValueOrDefault(id) ?? snapshot.LockedPackages.GetValueOrDefault(id) ?? snapshot.Packages.GetValueOrDefault(id);
             var version = resolved.GetValueOrDefault(id);
-            var kind = !desired.ContainsKey(id) ? ChangeKind.Remove : old is null ? ChangeKind.Add : desired[id] != "latest" && snapshot.InstalledVersions.GetValueOrDefault(id) == version ? ChangeKind.Keep : ChangeKind.Update;
+            var kind = !desired.ContainsKey(id) ? ChangeKind.Remove : old is null ? ChangeKind.Add : snapshot.InstalledVersions.GetValueOrDefault(id) == version ? ChangeKind.Keep : ChangeKind.Update;
             return new PackageChange(id, old, desired.GetValueOrDefault(id), version, kind);
         }).OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : ProjectRules.SdkIds.Contains(x.Id) ? 1 : x.Id == ProjectRules.Resolver ? 2 : 3).ThenBy(x => x.Id).ToArray();
         foreach (var import in (extraImports ?? []).Concat(creation?.ExtraImports ?? []))

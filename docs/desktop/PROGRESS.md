@@ -1,5 +1,15 @@
 # VRCSETUP Desktop migration
 
+## Next candidate — batch editor, not installed
+
+Batch management hides Open project and rejects its launch command unless exactly one project is managed. Project selection has consistent rounded rows and an explicit selected-count action. Leaving a pending project editor requires confirmation and keeps the draft; reopening the same target set reuses it. Changing target sets requires explicit discard. Successful Apply reloads fresh metadata. Revert remains the explicit discard action.
+
+Review groups each identical package transition once for its exact target set; different installed/target versions remain attributable to their projects. Already-installed resolved `latest` is Keep; a missing embedded package still requests repair even when its locked version matches. Generic Easy Login repository-check text is omitted; an existing legacy folder retains a contextual migration notice. Human package names are recovered from local repository metadata and installed package manifests without registering discovered packages.
+
+Apply has a blocking dimmed overlay from preparation through execution/recovery, showing current project, ordinal and phase. Navigation and normal window close are blocked; Cancel requests cancellation and waits for the executor's recovery before releasing the UI. Planning/execution run off the UI thread. An initial busy-project check blocks the batch with explicit project names; executor preflight remains authoritative if Unity opens afterward. Failures/skips are surfaced rather than only recorded in Activity.
+
+Read-only diagnosis: reports `4ad1879563b04ad5bbb451b30490454f` (21:38 local) and `26a3230fa7e54e6eacd5880b0af59360` (21:40 local), 17 October, reported Skipped/Open in Unity. All four target editors were then confirmed running; sampled Lulla lockfiles were exclusively held. No real project update was attempted by Codex. 24 focused fixture tests pass and Release desktop build has zero diagnostics. Native UI regression-check source was updated but not executed. No installation or interaction with the owner's editors. Evidence: `.work/artifacts/2026-10-17-batch-edit-polish/`.
+
 ## Preview 13 installed
 
 Installed on Dom's explicit request on 17 October 2026 from implementation 09d6a68: installer exit 0, all 759 installed payload hashes verified, configuration/import journal/legacy launcher hashes unchanged. Previous installation preserved by the installer. App was closed; no active Unity project imports were found. Stale Running/Queued journal rows had completed project markers and were left unchanged for normal startup reconciliation. No application or import was launched during installation. Evidence: `installed-verification.txt` and `install-result.json` in the artifact directory below.

@@ -33,7 +33,8 @@ public sealed partial class MainViewModel
     public string PresetSaveContext => "Unsaved changes · " + PresetLabel;
     public Visibility ActivityEmptyVisibility => Activity.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool HasSelectedProjects => SelectedProjects.Count > 0;
-    public void NotifyProjectSelection() => OnPropertyChanged(nameof(HasSelectedProjects));
+    public string ManageSelectionLabel => SelectedProjects.Count > 0 ? $"Manage {SelectedProjects.Count} " + (SelectedProjects.Count == 1 ? "project" : "projects") : "Manage selected projects";
+    public void NotifyProjectSelection() { OnPropertyChanged(nameof(HasSelectedProjects)); OnPropertyChanged(nameof(ManageSelectionLabel)); }
     public bool IsErrorVisible => ErrorMessage.Length > 0;
     public Visibility WorkVisibility => IsBusy ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DeveloperVisibility => DeveloperMode ? Visibility.Visible : Visibility.Collapsed;

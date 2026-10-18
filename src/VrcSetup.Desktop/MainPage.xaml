@@ -30,7 +30,7 @@
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <InfoBar IsOpen="{Binding IsErrorVisible}" Message="{Binding ErrorMessage}" Title="" Severity="Error" IsClosable="True" Closed="ErrorClosed" Margin="12,8"/>
-        <NavigationView x:Name="Navigation" Grid.Row="1" IsBackButtonVisible="Collapsed" PaneDisplayMode="Auto" OpenPaneLength="220" ExpandedModeThresholdWidth="1000" CompactModeThresholdWidth="640"
+        <NavigationView x:Name="Navigation" Grid.Row="1" IsEnabled="{Binding MainInteractionEnabled}" IsBackButtonVisible="Collapsed" PaneDisplayMode="Auto" OpenPaneLength="220" ExpandedModeThresholdWidth="1000" CompactModeThresholdWidth="640"
                         IsSettingsVisible="True" ItemInvoked="NavigationInvoked">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Projects" Tag="Projects" Icon="Library"/>
@@ -53,7 +53,8 @@
                         <ComboBox Grid.Column="1" ItemsSource="{Binding SortChoices}" SelectedItem="{Binding ProjectSort, Mode=TwoWay}" SelectionChanged="SortChanged" HorizontalAlignment="Stretch" AutomationProperties.Name="Project sort order"/>
                         <Button Grid.Column="2" Content="Refresh" Command="{Binding RefreshProjectsCommand}"/>
                     </Grid>
-                    <ListView x:Name="ProjectList" Grid.Row="2" ItemsSource="{Binding Projects}" SelectionMode="Multiple" SelectionChanged="ProjectsSelected" IsItemClickEnabled="True" ItemClick="ProjectClicked">
+                    <ListView x:Name="ProjectList" Grid.Row="2" ItemsSource="{Binding Projects}" SelectionMode="Multiple" IsMultiSelectCheckBoxEnabled="True" SelectionChanged="ProjectsSelected">
+                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="56"/><Setter Property="CornerRadius" Value="6"/><Setter Property="Margin" Value="0,2"/></Style></ListView.ItemContainerStyle>
                         <ListView.ItemTemplate><DataTemplate>
                             <Grid Padding="14,12" ColumnSpacing="16" RowSpacing="8" Loaded="ProjectRowLoaded" SizeChanged="ProjectRowSizeChanged" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
                                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -66,7 +67,7 @@
                     </ListView>
                     <StackPanel Grid.Row="2" Visibility="{Binding EmptyProjectsVisibility}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" MaxWidth="460"><FontIcon Glyph="&#xE8B7;" FontSize="40" Opacity="0.55"/><TextBlock Text="{Binding EmptyProjectsMessage}" TextWrapping="Wrap" TextAlignment="Center"/><Button Content="Choose projects folder" Command="{Binding PickProjectsRootCommand}" HorizontalAlignment="Center"/></StackPanel>
                     <ProgressRing Grid.Row="2" IsActive="{Binding IsLoadingProjects}" Width="36" Height="36" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    <Button Grid.Row="3" Content="Manage selected projects" IsEnabled="{Binding HasSelectedProjects}" Command="{Binding OpenSelectedProjectsCommand}" HorizontalAlignment="Right" Margin="0,16,0,0"/>
+                    <Button Grid.Row="3" Content="{Binding ManageSelectionLabel}" IsEnabled="{Binding HasSelectedProjects}" Command="{Binding OpenSelectedProjectsCommand}" HorizontalAlignment="Right" Margin="0,16,0,0"/>
                 </Grid>
 
                 <ScrollViewer x:Name="CreateView" Visibility="Collapsed" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" AllowDrop="True" DragOver="PackageDragOver" Drop="ImportFilesDropped">
@@ -116,14 +117,14 @@
 
                 <Grid x:Name="WorkspaceView" Visibility="Collapsed">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <StackPanel Spacing="12" Margin="0,0,0,22"><StackPanel Orientation="Horizontal" Spacing="12"><Button Content="‹ Projects" Command="{Binding BackToProjectsCommand}" Style="{StaticResource QuietButton}"/><Button Content="Open project" Command="{Binding OpenUnityCommand}" Style="{StaticResource ActionButton}" Padding="12,6"/></StackPanel><TextBlock Text="{Binding WorkspaceTitle}" Style="{StaticResource TitleTextBlockStyle}" TextTrimming="CharacterEllipsis"/></StackPanel>
+                    <StackPanel Spacing="12" Margin="0,0,0,22"><StackPanel Orientation="Horizontal" Spacing="12"><Button Content="‹ Projects" Command="{Binding BackToProjectsCommand}" Style="{StaticResource QuietButton}"/><Button Content="Open project" Command="{Binding OpenUnityCommand}" Visibility="{Binding SingleProjectLaunchVisibility}" Style="{StaticResource ActionButton}" Padding="12,6"/></StackPanel><TextBlock Text="{Binding WorkspaceTitle}" Style="{StaticResource TitleTextBlockStyle}" TextTrimming="CharacterEllipsis"/></StackPanel>
                     <Grid Grid.Row="1" ColumnSpacing="12" Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox PlaceholderText="Filter project packages" Text="{Binding PackageFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Filter project packages"/><Button Grid.Column="1" Content="Add package" Command="{Binding OpenProjectCatalogCommand}" Style="{StaticResource ActionButton}"/></Grid>
                     <Grid Grid.Row="2" Padding="14,8" ColumnSpacing="16" Background="{ThemeResource SubtleFillColorSecondaryBrush}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/><ColumnDefinition Width="44"/></Grid.ColumnDefinitions><TextBlock Text="Package" FontSize="12" Opacity="0.65"/><TextBlock Grid.Column="1" Text="Installed version" FontSize="12" Opacity="0.65"/></Grid>
                     <ListView x:Name="WorkspacePackages" Grid.Row="3" ItemsSource="{Binding Packages}" SelectedItem="{Binding SelectedPackage, Mode=TwoWay}">
                         <ListView.ItemTemplate><DataTemplate><Grid Padding="14,12" ColumnSpacing="16" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/><ColumnDefinition Width="44"/></Grid.ColumnDefinitions>
                             <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><FontIcon Glyph="&#xE7B8;" FontSize="17" Opacity="0.65" VerticalAlignment="Top" Margin="0,2,0,0"/><StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Id}"/><TextBlock Text="{Binding Converter={StaticResource PackageRow}, ConverterParameter=Pending}" Visibility="{Binding Converter={StaticResource PackageRow}, ConverterParameter=PendingVisibility}" FontSize="12" Foreground="#51CEBD" TextWrapping="Wrap"/></StackPanel></Grid>
                             <local:PackageVersionSelector Grid.Column="1" PackageId="{Binding Id}" Value="{Binding SelectedVersion}" DisplayVersion="{Binding InstalledVersion}" Loaded="VersionSelectorLoaded" VersionPicked="WorkspaceVersionPicked" Background="Transparent" BorderThickness="0" Padding="8,6" HorizontalContentAlignment="Left" HorizontalAlignment="Stretch" VerticalAlignment="Center" AutomationProperties.Name="Installed package version"/>
-                            <Button Grid.Column="2" Click="WorkspaceToggleClicked" Style="{StaticResource QuietButton}" IsEnabled="{Binding Converter={StaticResource PackageRow}, ConverterParameter=CanRemove}" ToolTipService.ToolTip="{Binding Converter={StaticResource PackageRow}, ConverterParameter=Action}" AutomationProperties.Name="{Binding Converter={StaticResource PackageRow}, ConverterParameter=Action}"><FontIcon Glyph="{Binding Converter={StaticResource PackageRow}, ConverterParameter=Glyph}" FontSize="14"/></Button>
+                            <Button Grid.Column="2" Click="WorkspaceToggleClicked" Style="{StaticResource QuietButton}" IsEnabled="{Binding Converter={StaticResource PackageRow}, ConverterParameter=CanRemove}" ToolTipService.ToolTip="{Binding Converter={StaticResource PackageRow}, ConverterParameter=Action}" AutomationProperties.Name="{Binding Converter={StaticResource PackageRow}, ConverterParameter=Action}"><Grid Width="20" Height="20"><Ellipse Stroke="{ThemeResource TextFillColorPrimaryBrush}" StrokeThickness="1.2"/><TextBlock Text="{Binding Converter={StaticResource PackageRow}, ConverterParameter=Glyph}" FontSize="16" LineHeight="20" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid></Button>
                         </Grid></DataTemplate></ListView.ItemTemplate>
                     </ListView>
                     <StackPanel Grid.Row="4" Spacing="8" Margin="0,18,0,0" Visibility="{Binding WorkspaceChangesVisibility}"><TextBlock Text="{Binding WorkspaceChangeContext}" TextTrimming="CharacterEllipsis" Opacity="0.65"/><StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"><Button Content="Revert" Command="{Binding UndoChangesCommand}"/><Button Content="Apply changes" Command="{Binding ApplyChangesCommand}" Style="{StaticResource ActionButton}"/></StackPanel></StackPanel>
@@ -193,5 +194,10 @@
                 <Button Grid.Column="1" Content="Activity" Click="ActivityClicked"/><Button Grid.Column="3" Content="Stop" Command="{Binding CancelOperationCommand}"/>
             </Grid>
         </Border>
+        <Grid Grid.RowSpan="3" Background="#99000000" Visibility="{Binding ApplyOverlayVisibility}" AutomationProperties.Name="Applying package changes">
+            <Border Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="10" Padding="24" MaxWidth="460" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="16"><TextBlock Text="Applying changes" FontSize="20" FontWeight="SemiBold"/><TextBlock Text="{Binding ApplyProject}" TextWrapping="Wrap" FontWeight="SemiBold"/><TextBlock Text="{Binding ApplyPosition}" FontSize="12" Opacity="0.65"/><ProgressBar IsIndeterminate="True" MinWidth="200"/><TextBlock Text="{Binding ApplyPhase}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/><Button Content="Cancel" Command="{Binding CancelApplyCommand}" IsEnabled="{Binding CanCancelApply}" HorizontalAlignment="Right" Style="{StaticResource QuietButton}"/></StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Page>
