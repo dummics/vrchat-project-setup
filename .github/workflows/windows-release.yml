@@ -41,10 +41,27 @@ jobs:
         shell: pwsh
         run: |
           $exe = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64/app/desktop/VrcSetup.Desktop.exe"
-          $process = Start-Process $exe -ArgumentList @('--smoke-test', '"' + (Join-Path $env:RUNNER_TEMP 'vrcsetup-ui') + '"') -PassThru
+          $artifacts = Join-Path $env:RUNNER_TEMP 'vrcsetup-ui'
+          $start = [Diagnostics.ProcessStartInfo]::new($exe)
+          $start.UseShellExecute = $false
+          $start.ArgumentList.Add('--smoke-test')
+          $start.ArgumentList.Add($artifacts)
+          $process = [Diagnostics.Process]::Start($start)
           if (-not $process.WaitForExit(180000)) { throw 'Native UI verification timed out.' }
-          $result = Get-Content (Join-Path $env:RUNNER_TEMP 'vrcsetup-ui/ui-smoke.json') -Raw | ConvertFrom-Json
+          foreach ($name in @('failure.txt', 'unhandled.txt')) {
+            $failure = Join-Path $artifacts $name
+            if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+          }
+          $result = Get-Content (Join-Path $artifacts 'ui-smoke.json') -Raw | ConvertFrom-Json
           if ($process.ExitCode -ne 0 -or -not $result.Passed) { throw 'Native UI verification failed.' }
+      - name: Preserve native UI verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ui-verification
+          path: ${{ runner.temp }}/vrcsetup-ui
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Create reviewable draft release
         shell: pwsh
         env:
