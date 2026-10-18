@@ -221,7 +221,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (!new Windows.UI.ViewManagement.UISettings().AnimationsEnabled) return;
         var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
         {
-            From = previousWidth, To = PackageRecapWidth(), Duration = new Duration(TimeSpan.FromMilliseconds(180)),
+            From = previousWidth, To = PackageRecapWidth(), Duration = new Duration(TimeSpan.FromMilliseconds(380)),
             EnableDependentAnimation = true, FillBehavior = Microsoft.UI.Xaml.Media.Animation.FillBehavior.Stop,
             EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut }
         };
@@ -291,12 +291,12 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void VersionSelectorLoaded(object sender, RoutedEventArgs args)
     { if (sender is PackageVersionSelector selector) { selector.VersionSource = ViewModel.LoadVersionsAsync; selector.CachedSource = ViewModel.CachedVersions; } }
     private void PresetVersionPicked(object? sender, string version)
-    { if ((sender as FrameworkElement)?.DataContext is UiPackageRow row) ViewModel.StagePresetVersion(row.Id, version); }
+    { if ((sender as FrameworkElement)?.DataContext is UiPackageRow row) PackageScrollStability.Run(sender as FrameworkElement, () => ViewModel.StagePresetVersion(row.Id, version)); }
     private void WorkspaceVersionPicked(object? sender, string version)
-    { if ((sender as FrameworkElement)?.DataContext is PackageWorkspaceRow row) ViewModel.StageWorkspaceVersion(row.Id, version); }
+    { if ((sender as FrameworkElement)?.DataContext is PackageWorkspaceRow row) PackageScrollStability.Run(sender as FrameworkElement, () => ViewModel.StageWorkspaceVersion(row.Id, version)); }
     private void WorkspaceToggleClicked(object sender, RoutedEventArgs args)
-    { if ((sender as FrameworkElement)?.DataContext is PackageWorkspaceRow row) ViewModel.ToggleWorkspacePackage(row); }
-    private void PresetRemoveClicked(object sender, RoutedEventArgs args) => ViewModel.RemovePresetPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
+    { if ((sender as FrameworkElement)?.DataContext is PackageWorkspaceRow row) PackageScrollStability.Run(sender as FrameworkElement, () => ViewModel.ToggleWorkspacePackage(row)); }
+    private void PresetRemoveClicked(object sender, RoutedEventArgs args) => PackageScrollStability.Run(sender as FrameworkElement, () => ViewModel.RemovePresetPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow));
     private void LibraryAddClicked(object sender, RoutedEventArgs args) => ViewModel.AddLibraryPackageCommand.Execute((sender as FrameworkElement)?.DataContext as UiPackageRow);
     private async void PackageStarClicked(object sender, RoutedEventArgs args) => await ViewModel.TogglePackageFavoriteCommand.ExecuteAsync((sender as FrameworkElement)?.DataContext as UiPackageRow);
     private void PackageDragLeave(object sender, DragEventArgs args) => PackageDropZone.BorderThickness = new Thickness(1);
@@ -411,14 +411,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             foreach (var project in plan.Projects)
             {
                 var platform = (project.Creation ?? project.RecoverySource)!.BuildTarget switch { "Android" => "Android / Quest", "iOS" => "iOS", _ => "Windows" };
-                var preset = project.PresetName is null or "My default packages" ? "Default" : project.PresetName;
                 var row = new StackPanel { Spacing = 4 };
                 row.Children.Add(new TextBlock { Text = project.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-                row.Children.Add(new TextBlock { Text = (project.RecoverySource is null ? "" : "Resume · ") + $"{platform} · {preset} · {project.DesiredPolicy.Count} packages", Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
-                if (project.RecoverySource is not null) row.Children.Add(new TextBlock { Text = "Existing files preserved; backup before reimport.", Opacity = 0.65, TextWrapping = TextWrapping.Wrap });
+                row.Children.Add(new TextBlock { Text = UiText.Text(project.RecoverySource is null ? "Create a new project" : "Complete existing project") + " · " + platform, Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
+                if (project.RecoverySource is not null) row.Children.Add(new TextBlock { Text = UiText.Text("Add missing assets from the package. Files already in the project stay unchanged."), Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
                 ToolTipService.SetToolTip(row, project.Path); recap.Children.Add(row);
             }
-            return await ShowDialog(new() { Title = plan.Projects.Length == 1 ? "Import project" : $"Import {plan.Projects.Length} projects", Content = new ScrollViewer { Content = recap, MaxHeight = 360 }, PrimaryButtonText = "Import", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Primary }) == ContentDialogResult.Primary;
+            var existingOnly = plan.Projects.All(x => x.RecoverySource is not null);
+            return await ShowDialog(new() { Title = UiText.Text(existingOnly ? "Complete existing project" : "Import project"), Content = new ScrollViewer { Content = recap, MaxHeight = 360 }, PrimaryButtonText = UiText.Text(existingOnly ? "Complete project" : "Import"), CloseButtonText = UiText.Text("Back"), DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary;
         }
         var stack = new StackPanel { Spacing = 14, MaxWidth = 600 };
         if (plan.Projects.All(x => !x.HasChanges)) stack.Children.Add(new TextBlock { Text = "Packages are already up to date. Save the selected version policies.", TextWrapping = TextWrapping.Wrap });

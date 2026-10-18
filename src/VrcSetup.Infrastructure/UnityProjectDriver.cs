@@ -46,6 +46,7 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         }
         var legacy = Path.Combine(plan.Path, "Assets", "EASY LOGIN");
         if (!Directory.Exists(legacy)) return;
+        if (plan.RecoverySource is not null) throw new IOException("Update legacy Easy Login from Manage packages before completing this import.");
         ProjectRules.EnsureContained(plan.Path, legacy);
         // Only move the known Easy Login folder, after the workspace has backed it up.
         if (!Directory.EnumerateFiles(legacy, "*", SearchOption.AllDirectories).Any(x => Path.GetFileName(x).Contains("EasyLogin", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(x).Contains("Easy Login", StringComparison.OrdinalIgnoreCase)))
@@ -142,7 +143,7 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         }
         var editorFolder = Path.Combine(plan.Path, "Assets", "Editor"); Directory.CreateDirectory(editorFolder);
         var bridgeDestination = Path.Combine(editorFolder, "VrcSetupPostImport.cs");
-        if (File.Exists(bridgeDestination) && AtomicFile.Hash(bridgeDestination) != AtomicFile.Hash(paths.BridgePath))
+        if (plan.RecoverySource is null && File.Exists(bridgeDestination) && AtomicFile.Hash(bridgeDestination) != AtomicFile.Hash(paths.BridgePath))
         {
             var backup = Path.Combine(plan.Path, ".vrcsetup", "backups", "bridge-" + Guid.NewGuid().ToString("N") + ".cs");
             Directory.CreateDirectory(Path.GetDirectoryName(backup)!); File.Copy(bridgeDestination, backup);

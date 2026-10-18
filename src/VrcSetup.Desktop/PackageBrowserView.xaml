@@ -16,6 +16,7 @@
         </Grid>
         <TextBlock Grid.Row="1" Text="{Binding CatalogNotice, Converter={StaticResource Localize}}" Visibility="{Binding CatalogNoticeVisibility}" Foreground="{ThemeResource AppSecondaryBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
         <GridView x:Name="LibraryCards" Grid.Row="2" ItemsSource="{Binding LibraryPackages}" SelectionMode="None" Visibility="{Binding LibraryGridVisibility}" SizeChanged="CardsSizeChanged">
+            <GridView.ItemContainerTransitions><TransitionCollection><RepositionThemeTransition/></TransitionCollection></GridView.ItemContainerTransitions>
             <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" ItemWidth="260" ItemHeight="128"/></ItemsPanelTemplate></GridView.ItemsPanel>
             <GridView.ItemTemplate><DataTemplate>
                 <Border Margin="0,0,8,8" Padding="12" CornerRadius="6" Background="{ThemeResource AppCatalogCardBrush}" BorderBrush="{ThemeResource AppSubtleStrokeBrush}" BorderThickness="1">
@@ -31,6 +32,7 @@
             </DataTemplate></GridView.ItemTemplate>
         </GridView>
         <ListView x:Name="LibraryList" Grid.Row="2" ItemsSource="{Binding LibraryPackages}" SelectionMode="None" Visibility="{Binding LibraryListVisibility}">
+            <ListView.ItemContainerTransitions><TransitionCollection><RepositionThemeTransition/></TransitionCollection></ListView.ItemContainerTransitions>
             <ListView.ItemTemplate><DataTemplate>
                 <Grid Padding="12,9" ColumnSpacing="10" CornerRadius="6" Background="{ThemeResource AppCatalogCardBrush}" BorderBrush="{ThemeResource AppSubtleStrokeBrush}" BorderThickness="1">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions>

@@ -106,6 +106,14 @@ public sealed class PlannerExecutorTests
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
         Assert.True(report.Success); Assert.Equal("1.1.0", workspace.Project.InstalledVersions["tool"]); Assert.True(workspace.Completed);
     }
+    [Fact] public async Task ReimportDoesNotCreateOrRestoreABackup()
+    {
+        var workspace = new MemoryWorkspace(); var driver = new MemoryDriver(workspace);
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        project = project with { RecoverySource = new("source.unitypackage", project.Name, project.Path, "Unity.exe", "StandaloneWindows64", [], []) };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
+        Assert.True(report.Success); Assert.Equal(0, workspace.Backups); Assert.Equal(0, workspace.Restores); Assert.Null(report.Results.Single().BackupPath);
+    }
     [Fact] public async Task PrereleaseSdkMustExistForEveryLinkedComponent()
     {
         var catalog = new FixtureCatalog(); catalog.Versions[ProjectRules.BaseSdk] = ["3.10.5-beta.1"];

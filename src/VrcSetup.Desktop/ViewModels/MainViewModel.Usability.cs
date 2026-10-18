@@ -115,7 +115,7 @@ public sealed partial class MainViewModel
             config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase) || presetWorking.ContainsKey(x.Id) ||
             BrowsingProjectPackages && browserIncluded.Contains(x.Id)) &&
         (!FavoritesOnly || libraryFavoriteSnapshot.Contains(x.Id)) && (onlineMatches.Contains(x.Id) || tokens.All(token => (x.Id + " " + x.DisplayName).Contains(token, StringComparison.OrdinalIgnoreCase))))
-        .Select(x => MakeRow(x.Id, x.SelectedVersion)).OrderByDescending(x => libraryFavoriteSnapshot.Contains(x.Id)).ThenBy(x => x.Name).ToArray();
+        .Select(x => MakeRow(x.Id, "latest")).OrderByDescending(x => libraryFavoriteSnapshot.Contains(x.Id)).ThenBy(x => x.Name).ToArray();
         var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var index = LibraryPackages.Count - 1; index >= 0; index--) if (!ids.Contains(LibraryPackages[index].Id)) LibraryPackages.RemoveAt(index);
         for (var index = 0; index < desired.Length; index++)
@@ -123,8 +123,8 @@ public sealed partial class MainViewModel
             var next = desired[index];
             var existing = LibraryPackages.FirstOrDefault(x => x.Id.Equals(next.Id, StringComparison.OrdinalIgnoreCase));
             if (existing is null) LibraryPackages.Add(next);
-            else if (existing.Name != next.Name || existing.Version != next.Version || existing.Required != next.Required || existing.Included != next.Included || existing.ProjectContext != next.ProjectContext) LibraryPackages[LibraryPackages.IndexOf(existing)] = next;
-            else existing.Favorite = next.Favorite;
+            else if (existing.Name != next.Name || existing.Required != next.Required || existing.ProjectContext != next.ProjectContext) LibraryPackages[LibraryPackages.IndexOf(existing)] = next;
+            else { existing.UpdateVersion(next.Version); existing.UpdateIncluded(next.Included); existing.Favorite = next.Favorite; }
             var position = LibraryPackages.IndexOf(LibraryPackages.First(x => x.Id.Equals(next.Id, StringComparison.OrdinalIgnoreCase)));
             if (position != index) LibraryPackages.Move(position, index);
         }
@@ -183,8 +183,8 @@ public sealed partial class MainViewModel
     [RelayCommand] private void AddLibraryPackage(UiPackageRow? row)
     {
         if (row is null || IsBusy) return;
-        if (BrowsingProjectPackages) { session?.AddDefinitions(Registry); if (session is not null && (row.Included || session.Removed.Contains(row.Id))) ToggleWorkspacePackage(session.Rows().First(x => x.Id == row.Id)); else StageWorkspaceVersion(row.Id, row.Version); }
-        else if (!presetWorking.ContainsKey(row.Id)) { presetWorking[row.Id] = row.Version; PresetDirty = true; RenderPreset(); RefreshLibraryRows(); }
+        if (BrowsingProjectPackages) { session?.AddDefinitions(Registry); if (session is not null && (row.Included || session.Removed.Contains(row.Id))) ToggleWorkspacePackage(session.Rows().First(x => x.Id == row.Id)); else StageWorkspaceVersion(row.Id, "latest"); }
+        else if (!presetWorking.ContainsKey(row.Id)) { presetWorking[row.Id] = "latest"; PresetDirty = true; RenderPreset(); RefreshLibraryRows(); }
     }
     [RelayCommand] private async Task TogglePackageFavorite(UiPackageRow? row) => await Guard(async () =>
     {
@@ -220,7 +220,13 @@ public sealed class UiPackageRow(string id, string name, string version, bool re
     internal void UpdateVersion(string value)
     { if (SetProperty(ref versionValue, value, nameof(Version))) OnPropertyChanged(nameof(VersionLabel)); }
     public bool Required { get; } = required;
-    public bool Included { get; } = included;
+    private bool includedValue = included;
+    public bool Included => includedValue;
+    internal void UpdateIncluded(bool value)
+    {
+        if (!SetProperty(ref includedValue, value, nameof(Included))) return;
+        foreach (var property in new[] { nameof(CanAdd), nameof(AddVisibility), nameof(IncludedVisibility), nameof(AddLabel), nameof(IncludedLabel) }) OnPropertyChanged(property);
+    }
     public bool ProjectContext { get; } = projectContext;
     private bool favoriteValue = favorite;
     public bool Favorite

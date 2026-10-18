@@ -60,9 +60,12 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                     results.Add(new(project.Name, project.Path, OperationStatus.Unchanged, "Already up to date."));
                     continue;
                 }
-                phase = "Backup";
-                backup = await workspace.BackupAsync(project, cancellationToken);
-                Emit(phase, $"Backup: {backup.Directory}");
+                if (project.RecoverySource is null)
+                {
+                    phase = "Backup";
+                    backup = await workspace.BackupAsync(project, cancellationToken);
+                    Emit(phase, $"Backup: {backup.Directory}");
+                }
                 mutated = true;
                 if (!(project.RecoverySource is not null && project.PreparationComplete))
                 {
@@ -112,7 +115,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 if (project.Creation is not null && !await driver.RegisterAsync(project.Path, progress, cancellationToken))
                     warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
                 var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;
-                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup.Directory));
+                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory));
                 Emit("Completed", warnings.Count > 0 ? warnings[0] : "Project saved.", warnings.Count > 0 ? EventSeverity.Warning : EventSeverity.Info);
             }
             catch (ProjectSkippedException error)

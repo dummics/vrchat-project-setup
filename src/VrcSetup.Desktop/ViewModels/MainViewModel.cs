@@ -176,7 +176,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void RenderWorkspace()
     {
         var selected = SelectedPackage?.Id;
-        Replace(Packages, session?.Rows(PackageFilter).Where(x => x.Action != "Available") ?? []);
+        var desired = session?.Rows(PackageFilter).Where(x => x.Action != "Available").ToArray() ?? [];
+        var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var i = Packages.Count - 1; i >= 0; i--) if (!ids.Contains(Packages[i].Id)) Packages.RemoveAt(i);
+        for (var i = 0; i < desired.Length; i++)
+        {
+            var next = desired[i]; var current = Packages.FirstOrDefault(x => x.Id.Equals(next.Id, StringComparison.OrdinalIgnoreCase));
+            if (current is null) Packages.Insert(i, next);
+            else
+            {
+                var position = Packages.IndexOf(current);
+                if (current != next) Packages[position] = next;
+                if (position != i) Packages.Move(position, i);
+            }
+        }
         SelectedPackage = Packages.FirstOrDefault(x => x.Id == selected) ?? Packages.FirstOrDefault();
         NotifyWorkspaceChanges();
     }

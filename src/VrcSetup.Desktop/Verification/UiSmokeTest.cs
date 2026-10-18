@@ -30,8 +30,8 @@ public static class UiSmokeTest
         config.UnityEditorPath = Path.Combine(artifacts, "saved-editor", "Unity.exe");
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
         config.CreationRecipes["PC template"] = new() { Preset = "creator pc", Packages = packages }; await application.Configuration.SaveAsync(config);
-        await application.Catalog.RememberAsync([new("com.llealloo.audiolink", "AudioLink", "latest"), new("nadena.dev.modular-avatar", "Modular Avatar", "latest"),
-            new("com.nanochip.avatarlimbscaling", "Avatar Limb Scaling", "latest"), new("vrchat.blackstartx.gesture-manager", "Gesture Manager", "latest"),
+        await application.Catalog.RememberAsync([new("com.llealloo.audiolink", "AudioLink", "2.0.0"), new("nadena.dev.modular-avatar", "Modular Avatar", "latest"),
+            new("com.nanochip.avatarlimbscaling", "Avatar Limb Scaling", "1.2.0"), new("vrchat.blackstartx.gesture-manager", "Gesture Manager", "3.9.0"),
             new("jp.lilxyzw.liltoon", "lilToon", "latest"), new("com.example.package-with-a-long-technical-identifier", "A package with a longer display name", "latest")]);
         return application;
     }
@@ -155,6 +155,15 @@ public static class UiSmokeTest
         viewModel.AddLibraryPackageCommand.Execute(viewModel.LibraryPackages.First(x => x.Id == "gogoloco"));
         Require(viewModel.PresetDirty && viewModel.PresetPackages.Any(x => x.Id == "gogoloco"), "Saved library package is added without a repository search");
         Require(!viewModel.LibraryPackages.Any(x => x.Id == "gogoloco"), "Adding a package moves it into the preset without a duplicate catalogue card");
+        foreach (var id in new[] { "com.llealloo.audiolink", "com.nanochip.avatarlimbscaling", "vrchat.blackstartx.gesture-manager" })
+        {
+            viewModel.AddLibraryPackageCommand.Execute(viewModel.LibraryPackages.First(x => x.Id == id));
+            var row = viewModel.PresetPackages.First(x => x.Id == id);
+            Require(row.Version == "latest", "Preset additions default to latest despite cached package version: " + id);
+            viewModel.StagePresetVersion(id, "1.2.3");
+            Require(viewModel.PresetPackages.First(x => x.Id == id).Version == "1.2.3", "Explicit preset pin remains supported: " + id);
+            viewModel.RemovePresetPackageCommand.Execute(row);
+        }
         viewModel.DiscardPresetChangesCommand.Execute(null); viewModel.EditingPreset = "My default packages";
         saved = await viewModel.Application.Configuration.LoadAsync();
         saved.PackagePresets["Creator PC"]["gogoloco"] = "1.8.6";
@@ -200,6 +209,13 @@ public static class UiSmokeTest
             Require(!flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.6", "Reopening a project reloads the original version policy");
 await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(flow.CurrentPage == "Workspace" && flow.BrowsingProjectPackages, "Package catalog stays inside the project management page");
+            foreach (var id in new[] { "com.llealloo.audiolink", "com.nanochip.avatarlimbscaling", "vrchat.blackstartx.gesture-manager" })
+            {
+                var row = flow.LibraryPackages.First(x => x.Id == id);
+                flow.AddLibraryPackageCommand.Execute(row);
+                Require(flow.Packages.First(x => x.Id == id).SelectedVersion == "latest" && ReferenceEquals(row, flow.LibraryPackages.First(x => x.Id == id)), "Project addition ignores cached pin and updates the same card: " + id);
+                flow.AddLibraryPackageCommand.Execute(row);
+            }
             Require(!flow.LibraryPackages.Any(x => x.Id == "gogoloco" || x.Id == ProjectRules.BaseSdk), "Add catalog excludes packages already included in the project");
             flow.AddLibraryPackageCommand.Execute(flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury"));
             Require(flow.WorkspaceDirty && flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury").Included && flow.Packages.Any(x => x.Id == "com.vrcfury.vrcfury" && x.Action == "Will be added"), "Staged additions stay visible as Added until Apply");
@@ -404,7 +420,19 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     var addedTop = addedControl.TransformToVisual(scroll).TransformPoint(new(0, 0)).Y;
                     scroll.ChangeView(null, Math.Clamp(scroll.VerticalOffset + addedTop - scroll.ViewportHeight * .5, 0, scroll.ScrollableHeight), null, true); await Task.Delay(250);
                     await Render(page, Path.Combine(artifacts, "workspace-staged-addition.png"));
-                    viewModel.AddLibraryPackageCommand.Execute(viewModel.LibraryPackages.First(x => x.Id == available.Id));
+                    var resetCount = 0;
+                    System.Collections.Specialized.NotifyCollectionChangedEventHandler resets = (_, args) => { if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) resetCount++; };
+                    viewModel.Packages.CollectionChanged += resets; viewModel.LibraryPackages.CollectionChanged += resets;
+                    var stableRow = viewModel.LibraryPackages.First(x => x.Id == available.Id);
+                    var untouched = viewModel.Packages.First(x => x.Id == ProjectRules.Resolver);
+                    var anchorBefore = addedControl.TransformToVisual(scroll).TransformPoint(new(0, 0)).Y;
+                    PackageScrollStability.Run(addedControl, () => viewModel.AddLibraryPackageCommand.Execute(stableRow));
+                    await Task.Delay(250); page.UpdateLayout();
+                    var anchorAfter = addedControl.TransformToVisual(scroll).TransformPoint(new(0, 0)).Y;
+                    Require(resetCount == 0 && ReferenceEquals(stableRow, viewModel.LibraryPackages.First(x => x.Id == available.Id)) && ReferenceEquals(untouched, viewModel.Packages.First(x => x.Id == ProjectRules.Resolver)), "Package toggle preserves collection and untouched row identity without Reset");
+                    Require(Math.Abs(anchorAfter - anchorBefore) < 3 && scroll.VerticalOffset > 0, "Removing an addition retains the clicked card position and scrolled viewport");
+                    await Render(page, Path.Combine(artifacts, "workspace-scroll-preserved.png"));
+                    viewModel.Packages.CollectionChanged -= resets; viewModel.LibraryPackages.CollectionChanged -= resets;
                     scroll.ChangeView(null, 0, null, true);
                 }
                 if (screen == "Create")
@@ -444,11 +472,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 {
                     var details = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails");
                     details.IsExpanded = true; viewModel.IsInspectingPackage = true;
-                    await Task.Delay(250); page.UpdateLayout();
+                    await Task.Delay(650); page.UpdateLayout();
                     var footer = (FrameworkElement)page.FindName("StatusBar");
                     var text = (Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("ApplicationStatusText");
                     Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);
-                    Require(((FrameworkElement)page.FindName("CreationPackageList")).ActualHeight <= 128 && details.ActualWidth <= 560, "Expanded package recap remains bounded: " + size.Width);
+                    var creationList = (Microsoft.UI.Xaml.Controls.GridView)page.FindName("CreationPackageList");
+                    Require(double.IsPositiveInfinity(creationList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(creationList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled && details.ActualWidth <= 560, "Expanded package recap shows its full list without nested scrolling: " + size.Width);
+                    Require(creationList.ActualHeight >= 28 && creationList.Items.Count == viewModel.CreationPackages.Count && creationList.Items.Cast<object>().All(x => creationList.ContainerFromItem(x) is FrameworkElement { ActualHeight: > 0 }), "Every included import package is rendered without clipping: " + size.Width);
                     var chip = Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>().First(x => x.Name == "ExpanderHeader");
                     Require(Math.Abs(chip.ActualWidth - details.ActualWidth) < 2, "Package disclosure opens as one continuous surface: " + size.Width);
                     Require(!Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.Command == viewModel.InspectDeeperCommand), "Package recap has no technical analysis action: " + size.Width);

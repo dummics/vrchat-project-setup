@@ -39,7 +39,7 @@ public sealed class ImportDestinationInspector(ProjectWorkspace workspace)
             if (!recorded.Equals(source, StringComparison.OrdinalIgnoreCase)) return new(ImportDestinationKind.DifferentSource, "This unfinished project belongs to another source package. Select that file or choose a new project name.");
             if (!Directory.Exists(Path.Combine(path, "Assets")) || !File.Exists(Path.Combine(path, "Packages", "manifest.json")))
                 return new(ImportDestinationKind.Partial, "Project creation stopped before Unity initialized it. The partial folder is preserved; review it in Activity before restarting.");
-            return new(ImportDestinationKind.Recoverable, "Unfinished import from this file. Resume in the existing project; a backup is kept before reimporting.");
+            return new(ImportDestinationKind.Recoverable, "Complete the existing project by adding missing assets from this package. Existing files stay unchanged.");
         }
     }
 }
