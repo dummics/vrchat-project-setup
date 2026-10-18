@@ -105,17 +105,11 @@ public sealed partial class MainViewModel
     }
     private async Task QueueCreationAsync()
     {
+        if (!await FindEditorAsync(true)) return;
         var choices = config.Copy(); var preset = SelectedPreset == DefaultPresetKey ? null : SelectedPreset;
         // Use the settings currently visible in the UI, without saving unrelated edits.
         choices.UnityEditorPath = string.IsNullOrWhiteSpace(UnityEditorPath) ? "" : ProjectRules.NormalizePath(UnityEditorPath);
         choices.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
-        if (!File.Exists(choices.UnityEditorPath) || !Path.GetFileName(choices.UnityEditorPath).Equals("Unity.exe", StringComparison.OrdinalIgnoreCase))
-        {
-            var editors = UnityProjectDriver.FindEditors();
-            if (editors.Length != 1) throw new IOException("Choose a Unity Editor in Settings before importing.");
-            choices.UnityEditorPath = editors[0].Path;
-            UnityEditorPath = editors[0].Path;
-        }
         var recipe = SelectedRecipe == "No recipe" ? null : SelectedRecipe;
         var inputFile = PackageFile; var inputName = ProjectName; var inputPlatform = BuildTarget;
         var inputPackages = creationOverrides;

@@ -21,6 +21,7 @@ public sealed class VrcSetupApplication
     private readonly string[] diagnosticFlags;
     public bool AllowBackgroundCatalogRefresh => !diagnosticFlags.Contains("--no-catalog-refresh");
     public bool AllowBackgroundUpdateChecks => !diagnosticFlags.Contains("--no-update-check");
+    public bool AllowEditorDiscovery => !diagnosticFlags.Contains("--no-editor-discovery");
     public VrcSetupApplication(string? home = null, string[]? diagnosticFlags = null, IUnityPackageInspector? packageInspector = null)
     {
         this.diagnosticFlags = diagnosticFlags ?? [];
@@ -47,9 +48,10 @@ public sealed class VrcSetupApplication
             try
             {
                 var config = await Configuration.LoadAsync(CancellationToken.None);
+                var baseline = config.Copy();
                 config.LastProjectName = creation.Name; config.LastUnityPackagePath = creation.UnityPackagePath;
                 if (config.Naming.RememberUnityPackageNames) config.SavedProjectNames[creation.UnityPackagePath] = creation.Name;
-                await Configuration.SaveAsync(config, CancellationToken.None);
+                await Configuration.MergeAsync(baseline, config, CancellationToken.None);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {

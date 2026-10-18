@@ -36,6 +36,7 @@ public partial class App : Application
                 if (arguments.Contains("--launch") && !arguments.Contains("--uninstall"))
                 {
                     var launch = new ProcessStartInfo(Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false };
+                    launch.Environment["VRCSETUP_HOME"] = AppPaths.ForInstallation(home, target).Home;
                     if (Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 } spec)
                     { launch.ArgumentList.Add("--verify-update-smoke"); launch.ArgumentList.Add(spec); }
                     Process.Start(launch);
@@ -101,6 +102,7 @@ public sealed class InstallerWindow : Window
     private string? installedRoot;
     public InstallerWindow()
     {
+        Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/AppMark.png"));
         Title = "Install VRChat Project Setup"; Width = 600; Height = 420; MinWidth = 520; MinHeight = 380;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var panel = new StackPanel { Margin = new Thickness(28) };

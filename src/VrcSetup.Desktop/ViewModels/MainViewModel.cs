@@ -86,6 +86,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await Guard(async () =>
         {
             config = await app.Configuration.LoadAsync(); app.ConfigureDiagnostics(config); LoadSettings(); LoadPresetNames();
+            if (app.AllowEditorDiscovery) await FindEditorAsync(false);
             try { await LoadRegistry(); } catch (Exception error) { app.Diagnostics.Write("Package library", error.Message, error); AppendActivity(new(DateTime.UtcNow, "Packages", "Saved package library could not load: " + error.Message, EventSeverity.Warning)); }
             LoadEditingPreset();
             try { await app.Imports.InitializeAsync(lifetime.Token); }
@@ -100,6 +101,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
     private void LoadSettings()
     {
+        persistedConfiguration = config.Copy();
+        NotifyLibraryLayout();
         UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
         ManualImportPath = config.ManualImportPath;
         AutoHideCompletedImports = config.AutoHideCompletedImports;
@@ -183,7 +186,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
     [RelayCommand] private async Task ChangeSort()
     {
-        await Guard(async () => { config.ProjectLibrarySort = ProjectSort; await app.Configuration.SaveAsync(config); await RefreshProjectsCore(); });
+        await Guard(async () => { config.ProjectLibrarySort = ProjectSort; await PersistConfigurationAsync(); await RefreshProjectsCore(); });
     }
     [RelayCommand] private async Task PickExistingProject()
     {
@@ -341,7 +344,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var current = session?.Projects[0].Packages ?? config.VpmPackages;
         var selected = session is null ? new Dictionary<string, string>(current) : ProjectRules.Merge(current, session.Selected, session.Exact);
         if (session is not null) foreach (var id in session.Removed) selected.Remove(id);
-        config.PackagePresets[name] = selected; await app.Configuration.SaveAsync(config); LoadPresetNames();
+        config.PackagePresets[name] = selected; await PersistConfigurationAsync(); LoadPresetNames();
     });
     [RelayCommand] private async Task EditPreset() => await Guard(async () =>
     {
@@ -349,19 +352,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var source = name == "My default packages" ? config.VpmPackages : config.PackagePresets[name];
         var result = await EditPackageSet(new(source), name); if (result is null) return;
         if (name == "My default packages") config.VpmPackages = result; else config.PackagePresets[name] = result;
-        await app.Configuration.SaveAsync(config); await LoadRegistry();
+        await PersistConfigurationAsync(); await LoadRegistry();
     });
     [RelayCommand] private async Task CreatePreset() => await Guard(async () =>
     {
         var name = await ui.TextAsync("New preset"); if (string.IsNullOrWhiteSpace(name)) return;
         if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Choose a different preset name.");
         if (PresetDirty && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + PresetLabel + "?", "Discard")) return;
-        config.PackagePresets[name] = new(presetWorking.Count > 0 ? presetWorking : config.VpmPackages); await app.Configuration.SaveAsync(config); LoadPresetNames(); presetSwitching = true; EditingPreset = name; presetSwitching = false; LoadEditingPreset();
+        config.PackagePresets[name] = new(presetWorking.Count > 0 ? presetWorking : config.VpmPackages); await PersistConfigurationAsync(); LoadPresetNames(); presetSwitching = true; EditingPreset = name; presetSwitching = false; LoadEditingPreset();
     });
     [RelayCommand] private async Task DeletePreset() => await Guard(async () =>
     {
         var name = EditingPreset; if (name == DefaultPresetKey) { Status = "Default cannot be deleted"; return; }
-        if (await ui.ConfirmAsync("Delete preset", name, "Delete")) { config.PackagePresets.Remove(name); await app.Configuration.SaveAsync(config); LoadPresetNames(); presetSwitching = true; EditingPreset = DefaultPresetKey; presetSwitching = false; LoadEditingPreset(); }
+        if (await ui.ConfirmAsync("Delete preset", name, "Delete")) { config.PackagePresets.Remove(name); await PersistConfigurationAsync(); LoadPresetNames(); presetSwitching = true; EditingPreset = DefaultPresetKey; presetSwitching = false; LoadEditingPreset(); }
     });
     private async Task<Dictionary<string, string>?> EditPackageSet(Dictionary<string, string> working, string title)
     {
@@ -371,7 +374,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var id = SelectedDefinition?.Id ?? SelectedPackage?.Id; if (id is null) return;
         if (!config.FavoritePackages.Remove(id)) config.FavoritePackages.Add(id);
-        await app.Configuration.SaveAsync(config); Status = "Favorites saved";
+        await PersistConfigurationAsync(); Status = "Favorites saved";
     });
     [RelayCommand] private async Task RegistryToPreset() => await Guard(async () =>
     {
@@ -379,7 +382,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var name = await ui.ChooseAsync("Add to preset", Presets.ToArray()); if (name is null) return;
         var set = name == "My default packages" ? config.VpmPackages : config.PackagePresets[name];
         set[SelectedDefinition.Id] = await ui.VersionAsync(SelectedDefinition.Id, await app.Catalog.GetVersionsAsync(SelectedDefinition.Id), SelectedDefinition.SelectedVersion) ?? SelectedDefinition.SelectedVersion;
-        await app.Configuration.SaveAsync(config); await LoadRegistry();
+        await PersistConfigurationAsync(); await LoadRegistry();
     });
     [RelayCommand] private async Task RefreshCatalog()
     {
@@ -395,12 +398,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var name = await ui.TextAsync("Save template"); if (string.IsNullOrWhiteSpace(name)) return;
         config.CreationRecipes[name] = new() { Preset = SelectedPreset == "My default packages" ? "" : SelectedPreset,
             Packages = creationOverrides ?? new(SelectedPreset == "My default packages" ? config.VpmPackages : config.PackagePresets[SelectedPreset]), BuildTarget = BuildTarget, PublishingPlatforms = [BuildTarget], ExtraImports = app.ExtraImports(config) };
-        await app.Configuration.SaveAsync(config); LoadPresetNames();
+        await PersistConfigurationAsync(); LoadPresetNames();
     });
     [RelayCommand] private async Task DeleteRecipe() => await Guard(async () =>
     {
         var name = await ui.ChooseAsync("Delete creation recipe", config.CreationRecipes.Keys.ToArray()); if (name is null) return;
-        if (await ui.ConfirmAsync("Delete recipe", name, "Delete")) { config.CreationRecipes.Remove(name); await app.Configuration.SaveAsync(config); LoadPresetNames(); }
+        if (await ui.ConfirmAsync("Delete recipe", name, "Delete")) { config.CreationRecipes.Remove(name); await PersistConfigurationAsync(); LoadPresetNames(); }
     });
     [RelayCommand] private async Task SaveSettings() => await Guard(async () =>
     {
@@ -415,20 +418,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         config.UnityPackagesFolder = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? null : ProjectRules.NormalizePath(ExtraImportsFolder);
         config.Naming = new() { DefaultPrefix = NamingPrefix, DefaultSuffix = NamingSuffix, RegexRemovePatterns = patterns.ToList(), RememberUnityPackageNames = RememberNames }; config.Theme = Theme;
         config.Diagnostics = new() { DeveloperMode = DeveloperMode, Verbose = VerboseDiagnostics, TraceTools = TraceTools }; app.Diagnostics.Configure(config.Diagnostics);
-        await app.Configuration.SaveAsync(config); Status = "Settings saved";
+        await PersistConfigurationAsync(); Status = "Settings saved";
         if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) await RefreshProjectsCore();
     });
-    [RelayCommand] private async Task PickEditor()
-    {
-        var editors = UnityProjectDriver.FindEditors();
-        if (editors.Length > 0)
-        { var choice = await ui.ChooseAsync("Unity Editor", editors.Select(x => x.Version + " · " + x.Path).Append("Browse").ToArray()); var editor = editors.FirstOrDefault(x => x.Version + " · " + x.Path == choice); if (editor.Path is not null) { UnityEditorPath = editor.Path; return; } }
-        if (await ui.PickFileAsync(".exe") is { } file) UnityEditorPath = file;
-    }
+    [RelayCommand] private async Task PickEditor() => await Guard(async () =>
+    { if (await ui.PickFileAsync(".exe") is { } file) await SetEditorAsync(file); });
     [RelayCommand] private async Task PickProjectsRoot() => await Guard(async () =>
     {
         if (await ui.PickFolderAsync() is not { } folder) return; ProjectsRoot = folder;
-        if (CurrentPage == "Projects") { config.UnityProjectsRoot = folder; await app.Configuration.SaveAsync(config); await RefreshProjectsCore(); }
+        if (CurrentPage == "Projects") { config.UnityProjectsRoot = folder; await PersistConfigurationAsync(); await RefreshProjectsCore(); }
     });
     [RelayCommand] private async Task PickExtraFolder() { if (await ui.PickFolderAsync() is { } folder) ExtraImportsFolder = folder; }
     [RelayCommand] private async Task ResetSettings() => await Guard(async () =>
@@ -468,7 +466,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async Task LaunchUnityAsync(string project)
     {
         if (!Directory.Exists(project)) throw new IOException("Project folder is unavailable: " + project);
-        UnityProjectDriver.ValidateEditor(config.UnityEditorPath);
+        if (!await FindEditorAsync(true)) return;
         if (app.Projects.IsBusy(project)) { Status = "Project is already open in Unity"; return; }
         var start = new ProcessStartInfo(config.UnityEditorPath) { UseShellExecute = false }; start.ArgumentList.Add("-projectPath"); start.ArgumentList.Add(project); Process.Start(start); await Task.CompletedTask;
     }

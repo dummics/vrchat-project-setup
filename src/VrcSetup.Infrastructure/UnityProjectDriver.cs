@@ -199,7 +199,6 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
     };
     public static (string Version, string Path)[] FindEditors()
     {
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Unity", "Hub", "Editor");
-        return Directory.Exists(root) ? Directory.EnumerateDirectories(root).Select(x => (Version: Path.GetFileName(x), Path: Path.Combine(x, "Editor", "Unity.exe"))).Where(x => File.Exists(x.Path)).ToArray() : [];
+        return UnityEditorDiscovery.FindEditors();
     }
 }

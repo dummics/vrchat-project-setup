@@ -52,6 +52,7 @@ public sealed class AppConfiguration
     public string LastUnityPackagePath { get; set; } = "";
     public string ProjectLibrarySort { get; set; } = "recent";
     public string Theme { get; set; } = "System";
+    public string PackageLibraryView { get; set; } = "grid";
     public bool ManualImportPath { get; set; }
     public bool AutoHideCompletedImports { get; set; }
     public bool CheckUpdatesOnStartup { get; set; } = true;

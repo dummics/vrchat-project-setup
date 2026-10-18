@@ -6,7 +6,7 @@ The Windows app and vrcsetup command use the same C#/.NET 10 engine.
 
 Run Install-VrcSetup-<version>-win-x64.exe. It is self-contained: no .NET SDK or Visual Studio is required. Install for the current user, then open **VRChat Project Setup** from Windows Search.
 
-Current numbering is **0.2.0-beta.1**. The earlier 2.0 previews were development builds, not a stable 2.0 release. Installing the beta over a preview preserves user settings, projects and a previous-program backup.
+Current numbering is **0.2.0-beta.3**. The earlier 2.0 previews were development builds, not a stable 2.0 release. Installing the beta over a preview preserves user settings, projects and a previous-program backup. The saved editor is retained; the app searches Unity Hub metadata/custom paths, default installations and Windows installed-program records for the pinned Unity 2022.3.22f1, checking executable product metadata. Settings offers Find editor, Choose file and the official Unity installation guide; imports and Open project can configure the editor before executing. A manual editor choice is saved immediately. Installed copies remember their data home across independent launches.
 
 ## Updates and sharing
 
@@ -14,7 +14,7 @@ Give friends the self-contained installer, or a published asset from [GitHub Rel
 
 When a newer complete release is available, choose **Install update and restart**. The app downloads the installer from this repository, verifies its SHA-256 against that release's `SHA256SUMS.txt`, waits for imports and pending edits to finish, closes normally, installs and reopens. It never kills Unity or a running import. The installer refuses replacement while another installed GUI/CLI process remains active and preserves the previous installation. Portable copies link to Releases instead of replacing their own folder. Offline/rate-limit failures are non-blocking; manual retries stay in the status bar.
 
-The repository includes `.github/workflows/windows-release.yml`: an owner-triggered run or `v0.*` tag validates the version, runs fixture tests/native UI checks, builds installer+ZIP+checksums and creates a **draft** release. Review and publish that draft to expose it to clients. Drafts and releases without installer/checksums are ignored. Existing releases are never overwritten. All release binaries derive their version from the requested release version; use `0.x.y-beta.n`, `0.x.y-rc.n` or `0.x.y`.
+The repository includes `.github/workflows/windows-release.yml`: a `v0.*` tag validates the version, runs fixture tests/native UI checks, builds installer+ZIP+checksums and publishes the release (beta/rc versions are marked prerelease). A manual run defaults to a draft unless Publish is selected. Drafts and releases without installer/checksums are ignored by clients. Existing releases are never overwritten. All binaries derive their version from the requested version; use `0.x.y-beta.n`, `0.x.y-rc.n` or `0.x.y`. Publishing remains an explicit owner-authorized release action.
 
 `docs/site/index.html` is a dependency-free download page using the same public Releases API, with fallback links when GitHub is unavailable. Enable GitHub Pages with the GitHub Actions source, then run `download-page.yml` after the workflows are integrated into the default branch. No Pages deployment or public beta publication is implied by a local build. The feature branch remains separate until owner-approved integration.
 

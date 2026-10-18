@@ -5,7 +5,7 @@ using VrcSetup.Infrastructure;
 
 namespace VrcSetup_Desktop.Verification;
 
-public sealed record UpdateSmokeSpec(string Root, string Installer, string Version, string SettingsHash);
+public sealed record UpdateSmokeSpec(string Root, string Installer, string Version, string SettingsHash, bool UseRealNetwork = false);
 
 // Explicit developer entry point. Only its HTTP transport is replaced; the GUI
 // commands, hash verification, installer handoff and restart are production paths.
@@ -25,10 +25,10 @@ public static class UpdateSmokeTest
         return spec;
     }
 
-    public static VrcSetupApplication CreateApplication(UpdateSmokeSpec spec, string path) => new(Path.Combine(spec.Root, "home"), ["--no-catalog-refresh", "--no-update-check"])
+    public static VrcSetupApplication CreateApplication(UpdateSmokeSpec spec, string path) => new(Path.Combine(spec.Root, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery"])
     {
         UpdateSmokeSpec = path,
-        UpdateHttpClientFactory = () => new HttpClient(new FileReleaseHandler(spec))
+        UpdateHttpClientFactory = spec.UseRealNetwork ? null : () => new HttpClient(new FileReleaseHandler(spec))
     };
 
     public static async Task RunAsync(MainWindow window, UpdateSmokeSpec spec)
@@ -39,7 +39,7 @@ public static class UpdateSmokeTest
         await vm.CheckApplicationUpdatesCommand.ExecuteAsync(null);
         if (!vm.HasApplicationUpdate) throw new IOException("Update test did not discover a newer release: " + vm.UpdateStatus);
         await UiSmokeTest.Render(window.Page, Path.Combine(spec.Root, "before-update.png"));
-        await AtomicFile.WriteJsonAsync(Path.Combine(spec.Root, "handoff.json"), new { Version = vm.AppVersion, Target = spec.Version, Process = Environment.ProcessId, HttpTransport = "Isolated file fixture", UsesProductionInstallCommand = true });
+        await AtomicFile.WriteJsonAsync(Path.Combine(spec.Root, "handoff.json"), new { Version = vm.AppVersion, Target = spec.Version, Process = Environment.ProcessId, HttpTransport = spec.UseRealNetwork ? "Public GitHub Releases" : "Isolated file fixture", UsesProductionInstallCommand = true });
         await vm.InstallApplicationUpdateCommand.ExecuteAsync(null);
         if (!vm.IsInstallingUpdate) throw new IOException("Update handoff did not start: " + vm.UpdateStatus);
     }
@@ -62,7 +62,7 @@ public static class UpdateSmokeTest
         {
             Passed = true, Version = vm.AppVersion, RelaunchedProcess = Environment.ProcessId,
             SettingsPreserved = true, PayloadHashesVerified = true, PreviousInstallPreserved = true,
-            NoRepeatedUpdate = true, RealNetworkUsed = false, RealInstallerUsed = true,
+            NoRepeatedUpdate = true, RealNetworkUsed = spec.UseRealNetwork, RealInstallerUsed = true,
             Root = vm.Application.Paths.PayloadRoot, Home = vm.Application.Paths.Home
         });
     }

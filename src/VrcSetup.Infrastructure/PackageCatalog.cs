@@ -13,7 +13,11 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
         [ProjectRules.BaseSdk] = "VRChat SDK Base", [ProjectRules.AvatarSdk] = "VRChat SDK Avatars", [ProjectRules.WorldSdk] = "VRChat SDK Worlds", [ProjectRules.Resolver] = "VRChat Package Resolver",
         [ProjectRules.EasyLogin] = "Easy Login", ["com.vrcfury.vrcfury"] = "VRCFury", ["com.poiyomi.toon"] = "Poiyomi Toon Shader", ["gogoloco"] = "GoGo Loco", ["adjerry91.vrcft.templates"] = "VRCFury Templates", ["nadena.dev.modular-avatar"] = "Modular Avatar", ["nadena.dev.ndmf"] = "NDMF"
     };
-    public static string FriendlyName(string id) => FriendlyNames.GetValueOrDefault(id) ?? id;
+    public static string FriendlyName(string id) => FriendlyNames.GetValueOrDefault(id) ?? id switch
+    {
+        "com.manonchip.avatarlimbscaling" => "Avatar Limb Scaling", "com.llealloo.audiolink" => "AudioLink",
+        "jp.lilxyzw.liltoon" => "lilToon", "vrchat.blackstartx.gesture-manager" => "Gesture Manager", _ => id
+    };
     private string RegistryFile => Path.Combine(paths.Cache, "known-packages.json");
     private string VersionFile => Path.Combine(paths.Cache, "package-versions.json");
 

@@ -72,7 +72,7 @@ public sealed partial class MainViewModel
         PresetDirty = false; RenderPreset(); RefreshLibraryRows();
     }
     private UiPackageRow MakeRow(string id, string version, bool required = false) => new(id,
-        Registry.FirstOrDefault(x => x.Id == id)?.DisplayName ?? VrcSetup.Infrastructure.PackageCatalog.FriendlyName(id), version, required, config.FavoritePackages.Contains(id, StringComparer.OrdinalIgnoreCase), BrowsingProjectPackages ? browserIncluded.Contains(id) : presetWorking.ContainsKey(id), BrowsingProjectPackages);
+        Registry.FirstOrDefault(x => x.Id == id)?.DisplayName is { Length: > 0 } name && !name.Equals(id, StringComparison.OrdinalIgnoreCase) ? name : VrcSetup.Infrastructure.PackageCatalog.FriendlyName(id), version, required, config.FavoritePackages.Contains(id, StringComparer.OrdinalIgnoreCase), BrowsingProjectPackages ? browserIncluded.Contains(id) : presetWorking.ContainsKey(id), BrowsingProjectPackages);
     private void RenderPreset()
     {
         var required = ProjectRules.Foundation(presetWorking, config);
@@ -119,7 +119,7 @@ public sealed partial class MainViewModel
         if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Choose a different preset name.");
         config.PackagePresets[name] = config.PackagePresets[old]; config.PackagePresets.Remove(old);
         foreach (var key in config.CreationRecipes.Where(x => x.Value.Preset.Equals(old, StringComparison.OrdinalIgnoreCase)).Select(x => x.Key).ToArray()) config.CreationRecipes[key] = config.CreationRecipes[key] with { Preset = name };
-        await app.Configuration.SaveAsync(config);
+        await PersistConfigurationAsync();
         presetSwitching = true;
         try { if (!Presets.Contains(name)) Presets.Add(name); EditingPreset = name; if (SelectedPreset.Equals(old, StringComparison.OrdinalIgnoreCase)) SelectedPreset = name; }
         finally { presetSwitching = false; }
@@ -129,7 +129,7 @@ public sealed partial class MainViewModel
     {
         var name = EditingPreset; var saved = new Dictionary<string, string>(presetWorking);
         if (name == DefaultPresetKey) config.VpmPackages = new(saved); else config.PackagePresets[name] = new(saved);
-        await app.Configuration.SaveAsync(config);
+        await PersistConfigurationAsync();
         if (EditingPreset == name && saved.Count == presetWorking.Count && saved.All(x => presetWorking.GetValueOrDefault(x.Key) == x.Value)) PresetDirty = false;
         await LoadRegistry(); Status = (name == DefaultPresetKey ? "Default" : name) + " saved";
     });
@@ -157,7 +157,7 @@ public sealed partial class MainViewModel
     {
         if (row is null) return;
         if (!config.FavoritePackages.Remove(row.Id)) config.FavoritePackages.Add(row.Id);
-        await app.Configuration.SaveAsync(config);
+        await PersistConfigurationAsync();
         var favorite = config.FavoritePackages.Contains(row.Id, StringComparer.OrdinalIgnoreCase);
         foreach (var visible in LibraryPackages.Concat(PresetPackages).Where(x => x.Id.Equals(row.Id, StringComparison.OrdinalIgnoreCase))) visible.Favorite = favorite;
     });

@@ -22,6 +22,12 @@ Inspect `result.json` (`Passed: true`), `handoff.json`, `home/updates/last-resul
 
 ## Actual online update
 
+The beta.3 test entry point also supports `-UseRealNetwork -TimeoutSeconds 600`. Build a base payload from beta.3 source with version beta.1, provide the published beta.3 installer as `-UpdateInstaller`, and use a fresh output directory. In this mode the app uses its normal HTTP client, public GitHub feed, redirects and asset download; the supplied installer only defines the expected version/checksum fixture. No transport is substituted. Successful evidence must explicitly report `RealNetworkUsed: true`. The isolated app/installer still cannot alter owner data or shortcuts.
+
+The fixture includes a saved editor path on an unavailable drive plus appearance/import preferences. Its complete configuration hash must survive replacement and candidate startup. Native UI checks separately verify that a found editor is persisted immediately and survives reload. Normal installed copies record their data home in the installation marker, and installer relaunch passes the same home to the new process.
+
+From beta.3 onward, tag pushes publish releases after all checks pass; manual runs remain drafts by default. Beta/rc tags remain prereleases. Earlier beta.2 draft evidence below is historical.
+
 The local test verifies the complete installer/restart pipeline, with HTTP transport supplied by files. It does **not** verify GitHub's live download/redirect path or publishing permissions.
 
 For a real beta.1 → beta.2 check, publish the newer complete GitHub release with its installer and `SHA256SUMS.txt`, then use the installed app's version menu → Check for updates → Install update and restart. Finish imports and save/revert pending package edits first. The current beta remains installed until that action; publishing a test candidate does not itself replace local programs.

@@ -6,6 +6,11 @@ on:
         description: Version, for example 0.2.0-beta.1
         required: true
         type: string
+      publish:
+        description: Publish this release (otherwise keep a draft)
+        required: false
+        default: false
+        type: boolean
   push:
     tags: ['v0.*']
 permissions:
@@ -62,14 +67,16 @@ jobs:
           path: ${{ runner.temp }}/vrcsetup-ui
           if-no-files-found: ignore
           retention-days: 7
-      - name: Create reviewable draft release
+      - name: Create release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          PUBLISH_RELEASE: ${{ github.event_name == 'push' || inputs.publish }}
         run: |
           $tag = "v$env:RELEASE_VERSION"
           $assets = @("release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe", "release/VrcSetup-$env:RELEASE_VERSION-win-x64.zip", 'release/SHA256SUMS.txt')
-          $arguments = @('release','create',$tag,'--target',$env:GITHUB_SHA,'--draft','--title',"VRChat Project Setup $env:RELEASE_VERSION",'--generate-notes')
+          $arguments = @('release','create',$tag,'--target',$env:GITHUB_SHA,'--title',"VRChat Project Setup $env:RELEASE_VERSION",'--generate-notes')
+          if ($env:PUBLISH_RELEASE -ne 'true') { $arguments += '--draft' }
           if ($env:RELEASE_VERSION.Contains('-')) { $arguments += '--prerelease' }
           & gh @arguments @assets
-          if ($LASTEXITCODE -ne 0) { throw 'Draft release failed. Existing releases are never overwritten.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Release failed. Existing releases are never overwritten.' }

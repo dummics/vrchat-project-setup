@@ -6,7 +6,9 @@
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract><EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <PublishTrimmed>false</PublishTrimmed><PublishReadyToRun>false</PublishReadyToRun>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../VrcSetup.Desktop/Assets/AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../VrcSetup.Infrastructure/VrcSetup.Infrastructure.csproj" /></ItemGroup>
+  <ItemGroup><Resource Include="../VrcSetup.Desktop/Assets/AppMark.png" Link="AppMark.png" /></ItemGroup>
   <ItemGroup Condition="Exists('$(PayloadArchive)')"><EmbeddedResource Include="$(PayloadArchive)" LogicalName="VrcSetup.Payload.zip" /></ItemGroup>
 </Project>

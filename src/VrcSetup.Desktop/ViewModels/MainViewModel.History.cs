@@ -106,7 +106,8 @@ public sealed partial class MainViewModel
             if (SelectedImportDraft is { } draft) draft.Packages = new(creationOverrides);
             RefreshCreationPackages(); return;
         }
-        UnityProjectDriver.ValidateEditor(source.UnityEditorPath);
+        if (!await FindEditorAsync(true)) return;
+        source = source with { UnityEditorPath = config.UnityEditorPath };
         foreach (var platform in source.PublishingPlatforms.Append(source.BuildTarget).Distinct())
             if (!UnityProjectDriver.HasBuildSupport(source.UnityEditorPath, platform)) throw new IOException("Unity build support is missing for " + platform);
         var project = job.Plan.Projects.Single();

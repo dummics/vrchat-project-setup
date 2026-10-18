@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
@@ -31,7 +32,18 @@ public sealed class AppPaths
         var explicitHome = home ?? Environment.GetEnvironmentVariable("VRCSETUP_HOME");
         AllowLegacyImport = string.IsNullOrWhiteSpace(explicitHome);
         var portable = File.Exists(Path.Combine(PayloadRoot, ".vrcsetup-portable"));
-        Home = ProjectRules.NormalizePath(explicitHome ?? (portable ? Path.Combine(PayloadRoot, "data") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup")));
+        string? installedHome = null;
+        var installation = Path.Combine(PayloadRoot, ".vrcsetup-install.json");
+        if (File.Exists(installation))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(installation));
+                if (doc.RootElement.TryGetProperty("Home", out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } homePath && Path.IsPathFullyQualified(homePath)) installedHome = homePath;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { }
+        }
+        Home = ProjectRules.NormalizePath(explicitHome ?? installedHome ?? (portable ? Path.Combine(PayloadRoot, "data") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup")));
         Resources = new[] { Path.Combine(basePath, "Resources"), Path.Combine(PayloadRoot, "app", "cli", "Resources"), Path.Combine(SourceRoot ?? PayloadRoot, "src", "VrcSetup.Infrastructure", "Resources") }.FirstOrDefault(Directory.Exists) ?? Path.Combine(basePath, "Resources");
         Tools = Path.Combine(basePath, "Tools");
     }
@@ -128,6 +140,24 @@ public sealed class ConfigurationStore(AppPaths paths)
         Normalize(config);
         await AtomicFile.WriteJsonAsync(paths.ConfigFile, config, cancellationToken);
         config.Revision = AtomicFile.Hash(paths.ConfigFile);
+    }
+    public async Task<AppConfiguration> MergeAsync(AppConfiguration baseline, AppConfiguration edited, CancellationToken cancellationToken = default)
+    {
+        using var configLock = await AtomicFile.LockAsync(Path.Combine(paths.Home, "config.lock"), cancellationToken);
+        var current = await AtomicFile.ReadJsonAsync<AppConfiguration>(paths.ConfigFile, cancellationToken) ?? throw new IOException("Settings are unavailable. Reload before saving.");
+        var original = JsonSerializer.SerializeToNode(baseline, JsonDefaults.Options)!.AsObject();
+        var changes = JsonSerializer.SerializeToNode(edited, JsonDefaults.Options)!.AsObject();
+        var merged = JsonSerializer.SerializeToNode(current, JsonDefaults.Options)!.AsObject();
+        foreach (var item in changes)
+        {
+            if (JsonNode.DeepEquals(original[item.Key], item.Value)) continue;
+            if (!JsonNode.DeepEquals(merged[item.Key], original[item.Key]) && !JsonNode.DeepEquals(merged[item.Key], item.Value))
+                throw new IOException("Setting changed in another window: " + item.Key + ". Reload before saving.");
+            merged[item.Key] = item.Value?.DeepClone();
+        }
+        var saved = merged.Deserialize<AppConfiguration>(JsonDefaults.Options)!;
+        Normalize(saved); await AtomicFile.WriteJsonAsync(paths.ConfigFile, saved, cancellationToken);
+        saved.Revision = AtomicFile.Hash(paths.ConfigFile); return saved;
     }
     public async Task<AppConfiguration> ImportAsync(string source, CancellationToken cancellationToken = default)
     {

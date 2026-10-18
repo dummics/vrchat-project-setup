@@ -81,6 +81,29 @@ public sealed class StorageContractTests : IDisposable
         await store.SaveAsync(config); var saved = await store.LoadAsync();
         Assert.Equal("1.0.0", saved.PackagePresets["Creator"]["tool"]); Assert.Equal("latest", saved.PackagePresets["Creator"]["other"]); Assert.Equal("keep", saved.AdditionalSettings!["futureOption"].GetString());
     }
+    [Fact] public async Task PreferencesMergePreservesEditorAndBackgroundImportSettings()
+    {
+        var store = App.Configuration; var baseline = await store.LoadAsync();
+        baseline.UnityEditorPath = "D:/Unity/2022.3.22f1/Editor/Unity.exe";
+        await store.SaveAsync(baseline);
+        var edit = baseline.Copy(); edit.Theme = "Dark";
+        var worker = await store.LoadAsync(); worker.LastProjectName = "New avatar"; await store.SaveAsync(worker);
+        var saved = await store.MergeAsync(baseline, edit);
+        Assert.Equal("New avatar", saved.LastProjectName); Assert.Equal(baseline.UnityEditorPath, saved.UnityEditorPath); Assert.Equal("Dark", saved.Theme);
+        var conflicting = saved.Copy(); conflicting.Theme = "Light";
+        var other = saved.Copy(); other.Theme = "System"; await store.SaveAsync(other);
+        await Assert.ThrowsAsync<IOException>(() => store.MergeAsync(saved, conflicting));
+        Assert.Equal("System", (await store.LoadAsync()).Theme);
+    }
+    [Fact] public async Task InstalledDataHomeSurvivesAnIndependentRelaunch()
+    {
+        var payload = Path.Combine(root, "installed"); Directory.CreateDirectory(payload);
+        await AtomicFile.WriteJsonAsync(Path.Combine(payload, ".vrcsetup-payload.json"), new PayloadManifest("0.2.0-beta.3", new()));
+        var home = Path.Combine(root, "custom-data");
+        await AtomicFile.WriteJsonAsync(Path.Combine(payload, ".vrcsetup-install.json"), new InstallationRecord("0.2.0-beta.3", payload, DateTime.UtcNow, null, home));
+        Assert.Equal(ProjectRules.NormalizePath(Environment.GetEnvironmentVariable("VRCSETUP_HOME") ?? home), new AppPaths(baseDirectory: payload).Home);
+        Assert.Equal(ProjectRules.NormalizePath(Path.Combine(root, "explicit")), new AppPaths(Path.Combine(root, "explicit"), payload).Home);
+    }
     [Fact] public async Task HeldUnityLockfileMarksProjectBusy()
     {
         Directory.CreateDirectory(Path.Combine(Project, "Temp")); using var held = new FileStream(Path.Combine(Project, "Temp", "UnityLockfile"), FileMode.Create, FileAccess.ReadWrite, FileShare.None);

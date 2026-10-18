@@ -14,7 +14,7 @@ public static class UiSmokeTest
     public static async Task<VrcSetupApplication> PrepareAsync(string artifacts)
     {
         artifacts = ProjectRules.NormalizePath(artifacts); Directory.CreateDirectory(artifacts);
-        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh", "--no-update-check"]);
+        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery"]);
         var project = Path.Combine(artifacts, "projects", "Creator [PC] & café");
         Directory.CreateDirectory(Path.Combine(project, "Assets")); Directory.CreateDirectory(Path.Combine(project, "ProjectSettings"));
         Dictionary<string, string> packages = new() { [ProjectRules.BaseSdk] = "3.10.5", [ProjectRules.AvatarSdk] = "3.10.5", [ProjectRules.Resolver] = "0.1.29", ["gogoloco"] = "1.8.6" };
@@ -26,6 +26,7 @@ public static class UiSmokeTest
         await AtomicFile.WriteJsonAsync(Path.Combine(project, "Packages", "vpm-manifest.json"), new { dependencies = packages, locked = packages });
         await File.WriteAllTextAsync(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
         var config = await application.Configuration.LoadAsync(); config.UnityProjectsRoot = Path.GetDirectoryName(project)!;
+        config.UnityEditorPath = Path.Combine(artifacts, "saved-editor", "Unity.exe");
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
         config.CreationRecipes["PC template"] = new() { Preset = "creator pc", Packages = packages }; await application.Configuration.SaveAsync(config);
         return application;
@@ -35,6 +36,18 @@ public static class UiSmokeTest
         var page = window.Page; await page.Initialized;
         var viewModel = page.ViewModel; var checks = new List<string>();
         Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
+        Require(viewModel.UnityEditorPath == Path.Combine(artifacts, "saved-editor", "Unity.exe"), "Startup preserves a saved editor path even when its drive is unavailable");
+        var installedEditor = UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path;
+        if (installedEditor is not null)
+        {
+            await viewModel.FindEditorCommand.ExecuteAsync(null);
+            Require(viewModel.EditorReady && viewModel.UnityEditorPath == installedEditor && (await viewModel.Application.Configuration.LoadAsync()).UnityEditorPath == installedEditor, "Installed pinned editor is discovered and saved immediately");
+            await viewModel.ReloadConfigurationAsync();
+            Require(viewModel.EditorReady && viewModel.UnityEditorPath == installedEditor, "Reload preserves the discovered editor");
+        }
+        await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null);
+        Require(viewModel.LibraryIsList && (await viewModel.Application.Configuration.LoadAsync()).PackageLibraryView == "list", "List view is available and persisted");
+        await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null);
         Require(new SemanticVersion(viewModel.AppVersion).Major == 0 && ((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Content?.ToString() == viewModel.AppVersion, "Beta version is visible in the persistent version menu");
         var updateMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Flyout;
         updateMenu.ShowAt((FrameworkElement)page.FindName("ApplicationVersionButton")); await Task.Delay(80);
@@ -280,7 +293,10 @@ public static class UiSmokeTest
                         viewModel.DiscardPresetChangesCommand.Execute(null);
                     }
                     var tabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("PackageTabs"); tabs.SelectedIndex = 1; await Task.Delay(180);
-                    await Render(page, Path.Combine(artifacts, "my-packages-" + size.Width + ".png")); tabs.SelectedIndex = 0;
+                    await Render(page, Path.Combine(artifacts, "my-packages-" + size.Width + ".png"));
+                    await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null); await Task.Delay(120);
+                    await Render(page, Path.Combine(artifacts, "my-packages-list-" + size.Width + ".png"));
+                    await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null); tabs.SelectedIndex = 0;
                 }
             }
         }

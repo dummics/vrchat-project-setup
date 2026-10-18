@@ -5,7 +5,7 @@ using VrcSetup.Core;
 namespace VrcSetup.Infrastructure;
 
 public sealed record PayloadManifest(string Version, Dictionary<string, string> Files);
-public sealed record InstallationRecord(string Version, string Root, DateTime InstalledUtc, string? PreviousInstall);
+public sealed record InstallationRecord(string Version, string Root, DateTime InstalledUtc, string? PreviousInstall, string? Home = null);
 
 public sealed class InstallationManager(AppPaths paths)
 {
@@ -59,7 +59,7 @@ public sealed class InstallationManager(AppPaths paths)
             catch { if (previous is not null && !Directory.Exists(target)) Directory.Move(previous, target); throw; }
             try
             {
-                var record = new InstallationRecord(manifest.Version, target, DateTime.UtcNow, previous);
+                var record = new InstallationRecord(manifest.Version, target, DateTime.UtcNow, previous, destinationPaths.Home);
                 await AtomicFile.WriteJsonAsync(Path.Combine(target, Marker), record, token);
                 await IntegrateAsync(target, token);
                 return record;

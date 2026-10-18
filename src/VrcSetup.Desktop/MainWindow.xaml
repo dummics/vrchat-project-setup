@@ -16,7 +16,7 @@
 
         <TitleBar x:Name="AppTitleBar" Title="VrcSetup.Desktop">
             <TitleBar.IconSource>
-                <ImageIconSource ImageSource="Assets/AppIcon.ico" />
+                <ImageIconSource ImageSource="Assets/AppMark.png" />
             </TitleBar.IconSource>
         </TitleBar>
 

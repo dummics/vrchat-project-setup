@@ -1,5 +1,13 @@
 # VRCSETUP Desktop migration
 
+## Beta.3 editor discovery and package library
+
+The saved owner configuration still contained a valid editor path during diagnosis; loss of that file was not reproduced. Editor picking previously changed only the settings draft until Save settings; it now validates pinned executable metadata and persists immediately. Automatic discovery checks Unity Hub binary/custom-location metadata, standard directories and Windows uninstall records off the UI thread. The pinned 2022.3.22f1 is selected rather than the newest Unity. Settings and import setup expose Find/Choose/Install; Open project, import and recovery resolve configuration before executing. Missing saved paths remain intact until a replacement is found/selected.
+
+Installer relaunch now carries its explicit data home, and new installation markers preserve that home for later independent launches. Desktop preference saves merge only changed fields with current disk settings and reject conflicting edits, preserving background import-name updates. Existing strict SaveAsync revision checks remain intact.
+
+Package library supports persisted grid/list layouts, accent-colored Add/included feedback, aligned human names and package IDs. Shared project rows show IDs below names. VP dialogue-panel artwork replaces the default executable/titlebar/installer icon; the selected generated source and ICO conversion script are versioned. 130 fixture tests and 150 local native UI checks pass, including real installed-editor discovery/persistence and narrow list screenshots. Evidence: `.work/artifacts/2026-10-18-editor-release/`. Public release/download verification is recorded there after the release job completes.
+
 ## Local update pipeline verified
 
 A repeatable `Test-ApplicationUpdate.ps1` now drives the native app through update discovery, streamed SHA-256 download, real installer handoff/wait/replacement and candidate relaunch in an explicitly marked isolated installation. Only HTTP transport is substituted with file-backed GitHub-shaped responses; the production source allowlist remains unchanged. The test routes shortcuts into its fixture and disables user PATH mutation in the child process. Candidate relaunch uses direct process creation so the isolated environment is retained.

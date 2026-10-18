@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][string]$BasePayload,
     [Parameter(Mandatory)][string]$UpdateInstaller,
     [string]$OutputDirectory,
+    [switch]$UseRealNetwork,
     [ValidateRange(30,600)][int]$TimeoutSeconds = 180
 )
 $ErrorActionPreference = 'Stop'
@@ -11,6 +12,7 @@ $BasePayload = [IO.Path]::GetFullPath($BasePayload)
 $UpdateInstaller = [IO.Path]::GetFullPath($UpdateInstaller)
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repoRoot ('.work/artifacts/update-e2e/' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0,8)) }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
+if ($OutputDirectory.StartsWith($BasePayload.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or $BasePayload.StartsWith($OutputDirectory.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Base payload and evidence must be separate folders.' }
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'Choose a new output directory; existing evidence is preserved.' }
 if (-not (Test-Path -LiteralPath (Join-Path $BasePayload '.vrcsetup-payload.json'))) { throw 'Base must be a published payload.' }
 $installerName = [IO.Path]::GetFileName($UpdateInstaller)
@@ -32,11 +34,13 @@ foreach ($item in Get-ChildItem -LiteralPath $BasePayload -Force) { Copy-Item -L
 $record = @{Version=$manifest.Version;Root=$install;InstalledUtc=[DateTime]::UtcNow;PreviousInstall=$null}
 $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $install '.vrcsetup-install.json') -Encoding utf8
 $config = @{UnityProjectsRoot=(Join-Path $OutputDirectory 'projects');CheckUpdatesOnStartup=$false;IncludeBetaUpdates=$true;Theme='Dark';SavedProjectNames=@{'update-test-sentinel'='preserve me'}}
+$config.UnityEditorPath = 'Z:\Saved Unity\2022.3.22f1\Editor\Unity.exe'
+$config.AutoHideCompletedImports = $true
 [void][IO.Directory]::CreateDirectory($config.UnityProjectsRoot)
 $configFile = Join-Path $testHome 'config.json'
 $config | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configFile -Encoding utf8
 $specFile = Join-Path $OutputDirectory 'update-test.json'
-@{Root=$OutputDirectory;Installer=$UpdateInstaller;Version=$targetVersion;SettingsHash=(Get-FileHash -LiteralPath $configFile -Algorithm SHA256).Hash} | ConvertTo-Json | Set-Content -LiteralPath $specFile -Encoding utf8
+@{Root=$OutputDirectory;Installer=$UpdateInstaller;Version=$targetVersion;SettingsHash=(Get-FileHash -LiteralPath $configFile -Algorithm SHA256).Hash;UseRealNetwork=[bool]$UseRealNetwork} | ConvertTo-Json | Set-Content -LiteralPath $specFile -Encoding utf8
 $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'app/desktop/VrcSetup.Desktop.exe'))
 $start.UseShellExecute = $false; $start.CreateNoWindow = $true
 $start.ArgumentList.Add('--update-smoke-test'); $start.ArgumentList.Add($specFile)
