@@ -97,11 +97,15 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             // scrolling becomes necessary, so actions never sit under the thumb.
             CreateLayout.Width = Math.Max(1, CreateView.ActualWidth - 24);
             CreateForm.Width = CreateLayout.Width;
-            CreationPackageDetails.Width = CreateForm.Width;
+            CreationPackageDetails.Width = PackageRecapWidth();
             DependencyObject? header = CreationPackageHeader;
             while (header is not null && header is not Microsoft.UI.Xaml.Controls.Primitives.ToggleButton) header = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(header);
             if (header is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton toggle)
-            { toggle.HorizontalAlignment = HorizontalAlignment.Left; toggle.Width = double.NaN; toggle.MaxWidth = CreateForm.Width; }
+            { toggle.HorizontalAlignment = HorizontalAlignment.Stretch; toggle.Width = double.NaN; toggle.MaxWidth = CreateForm.Width; }
+            // The stock template uses a StaticResource for this border, so local
+            // resource overrides do not remove its oversized content outline.
+            if (FindVisualChild<Border>(CreationPackageDetails, "ExpanderContent") is { } contentBorder)
+                contentBorder.BorderThickness = new Thickness(0);
             ImportQueueSection.Width = CreateLayout.Width;
             ImportQueueList.MaxHeight = ViewModel.ImportJobs.Any(x => x.DetailsOpen) ? Math.Min(480, Math.Max(240, CreateView.ActualHeight - 180))
                 : Math.Clamp(CreateView.ActualHeight - CreateForm.ActualHeight - ImportPageHeader.ActualHeight - 40, 120, 240);
@@ -122,7 +126,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             Grid.SetColumn(CustomizePackagesButton, stackPreset ? 0 : 1); Grid.SetRow(CustomizePackagesButton, stackPreset ? 1 : 0);
             CustomizePackagesButton.HorizontalAlignment = HorizontalAlignment.Left;
             if (CreationPackageList.ItemsPanelRoot is ItemsWrapGrid items)
-                items.ItemWidth = Math.Max(1, (CreationPackageList.ActualWidth - 16) / (CreationPackageList.ActualWidth >= 720 ? 2 : 1));
+                items.ItemWidth = Math.Max(1, (CreationPackageList.ActualWidth - 8) / (CreationPackageList.ActualWidth >= 480 ? 2 : 1));
             Grid.SetColumn(ChoosePackageButton, narrow ? 1 : 2); Grid.SetRow(ChoosePackageButton, narrow ? 1 : 0);
             ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
@@ -131,8 +135,41 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
     private void CreationPackagesResized(object sender, SizeChangedEventArgs args) => ConstrainForms();
-    private void CreationPackagesExpanded(Expander sender, ExpanderExpandingEventArgs args) => ConstrainForms();
-    private void CreationPackagesCollapsed(Expander sender, ExpanderCollapsedEventArgs args) => ConstrainForms();
+    private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement
+    {
+        for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is T element && element.Name == name) return element;
+            if (FindVisualChild<T>(child, name) is { } match) return match;
+        }
+        return null;
+    }
+    private double PackageRecapWidth()
+    {
+        if (CreationPackageDetails.IsExpanded) return Math.Min(560, CreateForm.Width);
+        var label = new TextBlock { Text = ViewModel.CreationPackageSummary, FontSize = 13 };
+        label.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        return Math.Min(CreateForm.Width, Math.Max(180, label.DesiredSize.Width + 80));
+    }
+    private void AnimatePackageRecap()
+    {
+        var previousWidth = CreationPackageDetails.ActualWidth;
+        ConstrainForms();
+        if (!new Windows.UI.ViewManagement.UISettings().AnimationsEnabled) return;
+        var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        {
+            From = previousWidth, To = PackageRecapWidth(), Duration = new Duration(TimeSpan.FromMilliseconds(180)),
+            EnableDependentAnimation = true, FillBehavior = Microsoft.UI.Xaml.Media.Animation.FillBehavior.Stop,
+            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut }
+        };
+        var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, CreationPackageDetails);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Width");
+        storyboard.Children.Add(animation); storyboard.Begin();
+    }
+    private void CreationPackagesExpanded(Expander sender, ExpanderExpandingEventArgs args) => AnimatePackageRecap();
+    private void CreationPackagesCollapsed(Expander sender, ExpanderCollapsedEventArgs args) => AnimatePackageRecap();
     private async void AddCreationSuggestionClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiCreationPackage row) await ViewModel.AddCreationSuggestionAsync(row); }
     private async void HistoryLogClicked(object sender, RoutedEventArgs args)

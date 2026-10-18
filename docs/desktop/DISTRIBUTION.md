@@ -30,7 +30,7 @@ Unity Editor and its selected build modules, VRChat Creator Companion and the VP
 
 The application is a community utility, independent of VRChat Inc. Unsigned test builds may show Windows reputation prompts. Verify SHA256SUMS.txt; do not disable Windows security settings to run a test build.
 
-Packages uses a centered preset selector with Preset packages and My packages tabs; package/preset menus hold secondary actions, and save controls appear for pending edits. Preview 13 moves recovery actions into each Activity entry, with Imports/Operations history and individual logs. It was installed on Dom's request on 17 October 2026; installed payload hashes and preserved settings/history/legacy launcher were verified.
+Packages keeps Preset packages and My packages tabs above their content. The centered preset selector belongs only to Preset packages, with previous/next arrows and a dropdown; package/preset menus hold secondary actions, and save controls appear for pending edits. Version changes preserve existing rows, and successful saves receive a brief footer confirmation. Preview 13 moves recovery actions into each Activity entry, with Imports/Operations history and individual logs. It was installed on Dom's request on 17 October 2026; installed payload hashes and preserved settings/history/legacy launcher were verified.
 
 Preview 6 includes the preview 5 package workflow: My packages and project Add package share an in-page local/online browser. Version choices are row dropdowns with a beta filter; Latest retains the shared `latest` policy. Project changes remain staged until Apply, with Back/Revert and confirmation before leaving a pending draft.
 

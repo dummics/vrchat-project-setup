@@ -258,5 +258,10 @@
   "CPU busy": "CPU molto utilizzata",
   "Application status": "Stato applicazione",
   "Downloading update": "Download aggiornamento",
-  "Working…": "Operazione in corso…"
+  "Working…": "Operazione in corso…",
+  "Previous preset": "Preset precedente",
+  "Next preset": "Preset successivo",
+  "Selected preset": "Preset selezionato",
+  "Saved": "Salvato",
+  "Preset saved": "Preset salvato"
 }

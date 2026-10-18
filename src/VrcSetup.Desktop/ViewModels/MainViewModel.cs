@@ -130,6 +130,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         foreach (var name in Recipes.Where(x => !recipeNames.Contains(x)).ToArray()) Recipes.Remove(name);
         SelectedRecipe = recipe;
         OnPropertyChanged(nameof(EditingPreset)); OnPropertyChanged(nameof(SelectedPreset));
+        OnPropertyChanged(nameof(HasMultiplePresets));
     }
     private async Task LoadRegistry()
     {

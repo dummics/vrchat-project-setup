@@ -33,6 +33,16 @@ public partial class App : Application
             var progressWindow = !diagnostic && (arguments.Contains("--wait-for-pid") || arguments.Contains("--show-progress")) ? new UpdateProgressWindow() : null;
             progressWindow?.Show();
             var progress = new Progress<string>(message => progressWindow?.SetStep(message));
+            var dispatcherClock = Stopwatch.StartNew();
+            var lastTick = TimeSpan.Zero; var maximumGap = TimeSpan.Zero; var ticks = 0;
+            var heartbeat = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+            void SampleDispatcher()
+            {
+                var now = dispatcherClock.Elapsed; var gap = now - lastTick; lastTick = now;
+                if (gap > maximumGap) maximumGap = gap;
+            }
+            heartbeat.Tick += (_, _) => { SampleDispatcher(); ticks++; };
+            if (diagnostic) { heartbeat.Start(); await Task.Delay(100); }
             try
             {
                 // An updater launched by the installed shortcut inherits the install
@@ -49,21 +59,23 @@ public partial class App : Application
                 if (arguments.Contains("--uninstall")) await new InstallationManager(new AppPaths(home)).UninstallAsync(target, arguments.Contains("--yes"));
                 else if (arguments.Contains("--repair")) await new InstallationManager(new AppPaths(home)).RepairAsync(target);
                 else await Install(target, home, progress);
-                if (Option("--result") is { } result) await AtomicFile.WriteJsonAsync(result, new { Success = true, Root = target });
+                if (diagnostic) { SampleDispatcher(); heartbeat.Stop(); }
+                if (Option("--result") is { } result) await AtomicFile.WriteJsonAsync(result, new { Success = true, Root = target, DispatcherTicks = ticks, DispatcherMaximumGapMs = maximumGap.TotalMilliseconds });
                 if (arguments.Contains("--launch") && !arguments.Contains("--uninstall"))
                 {
                     progressWindow?.SetStep("Updated. Reopening the app…", true);
                     if (progressWindow is not null) await Task.Delay(900);
-                    LaunchInstalled(target, home, true);
+                    await Task.Run(() => LaunchInstalled(target, home, true));
                 }
                 Shutdown(0);
             }
             catch (Exception error)
             {
+                heartbeat.Stop();
                 if (Option("--result") is { } result) await AtomicFile.WriteJsonAsync(result, new { Success = false, Error = error.ToString() });
                 var reopened = false;
                 if (!diagnostic && arguments.Contains("--launch") && File.Exists(Path.Combine(target, ".vrcsetup-install.json")))
-                    try { LaunchInstalled(target, home, false); reopened = true; } catch (Exception launchError) when (launchError is IOException or System.ComponentModel.Win32Exception) { }
+                    try { await Task.Run(() => LaunchInstalled(target, home, false)); reopened = true; } catch (Exception launchError) when (launchError is IOException or System.ComponentModel.Win32Exception) { }
                 if (progressWindow is not null) progressWindow.ShowFailure(reopened, Option("--result"));
                 else Shutdown(1);
             }
@@ -79,7 +91,11 @@ public partial class App : Application
         { launch.ArgumentList.Add("--verify-update-smoke"); launch.ArgumentList.Add(spec); }
         Process.Start(launch);
     }
-    internal static async Task<InstallationRecord> Install(string destination, string? home = null, IProgress<string>? progress = null)
+    // ZIP extraction, hashing and filesystem moves include synchronous work.
+    // Keep the entire operation off WPF's dispatcher, including before the first await.
+    internal static Task<InstallationRecord> Install(string destination, string? home = null, IProgress<string>? progress = null)
+        => Task.Run(() => InstallCore(destination, home, progress));
+    private static async Task<InstallationRecord> InstallCore(string destination, string? home, IProgress<string>? progress)
     {
         Environment.CurrentDirectory = Path.GetTempPath();
         EnsureApplicationClosed(destination);

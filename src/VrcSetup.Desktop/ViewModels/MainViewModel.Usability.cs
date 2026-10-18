@@ -29,6 +29,14 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial string EmptyProjectsMessage { get; set; } = "";
     public string PresetLabel => EditingPreset == DefaultPresetKey ? "Default" : EditingPreset;
     public bool IsCustomPreset => EditingPreset != DefaultPresetKey;
+    public bool HasMultiplePresets => Presets.Count > 1;
+    [RelayCommand] private void PreviousPreset() => CyclePreset(-1);
+    [RelayCommand] private void NextPreset() => CyclePreset(1);
+    private void CyclePreset(int direction)
+    {
+        if (IsBusy || Presets.Count < 2) return;
+        EditingPreset = Presets[(Presets.IndexOf(EditingPreset) + direction + Presets.Count) % Presets.Count];
+    }
     public Visibility PresetChangesVisibility => PresetDirty && !BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
     public string PresetSaveContext => "Unsaved changes · " + PresetLabel;
     public Visibility ActivityEmptyVisibility => Activity.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -74,7 +82,21 @@ public sealed partial class MainViewModel
     private void RenderPreset()
     {
         var required = ProjectRules.Foundation(presetWorking, config);
-        Replace(PresetPackages, presetWorking.Select(x => MakeRow(x.Key, x.Value, required.Contains(x.Key))).OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : ProjectRules.SdkIds.Contains(x.Id) ? 1 : x.Id == ProjectRules.Resolver ? 2 : x.Required ? 3 : 4).ThenBy(x => x.Name));
+        var desired = presetWorking.Select(x => MakeRow(x.Key, x.Value, required.Contains(x.Key))).OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : ProjectRules.SdkIds.Contains(x.Id) ? 1 : x.Id == ProjectRules.Resolver ? 2 : x.Required ? 3 : 4).ThenBy(x => x.Name).ToArray();
+        var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var i = PresetPackages.Count - 1; i >= 0; i--) if (!ids.Contains(PresetPackages[i].Id)) PresetPackages.RemoveAt(i);
+        for (var i = 0; i < desired.Length; i++)
+        {
+            var next = desired[i]; var current = PresetPackages.FirstOrDefault(x => x.Id.Equals(next.Id, StringComparison.OrdinalIgnoreCase));
+            if (current is null) PresetPackages.Insert(i, next);
+            else
+            {
+                var index = PresetPackages.IndexOf(current);
+                if (current.Name != next.Name || current.Required != next.Required) PresetPackages[index] = next;
+                else { current.UpdateVersion(next.Version); current.Favorite = next.Favorite; }
+                if (index != i) PresetPackages.Move(index, i);
+            }
+        }
     }
     private void RefreshLibraryRows()
     {
@@ -129,7 +151,7 @@ public sealed partial class MainViewModel
         if (name == DefaultPresetKey) config.VpmPackages = new(saved); else config.PackagePresets[name] = new(saved);
         await PersistConfigurationAsync();
         if (EditingPreset == name && saved.Count == presetWorking.Count && saved.All(x => presetWorking.GetValueOrDefault(x.Key) == x.Value)) PresetDirty = false;
-        await LoadRegistry(); Status = (name == DefaultPresetKey ? "Default" : name) + " saved";
+        await LoadRegistry(); ShowSavedFeedback("Preset saved"); Status = (name == DefaultPresetKey ? "Default" : name) + " saved";
     });
     [RelayCommand] private void DiscardPresetChanges() => LoadEditingPreset();
     [RelayCommand] private async Task ChangePresetVersion(UiPackageRow? row) => await Guard(async () =>
@@ -177,7 +199,10 @@ public sealed class UiPackageRow(string id, string name, string version, bool re
 {
     public string Id { get; } = id;
     public string Name { get; } = name;
-    public string Version { get; } = version;
+    private string versionValue = version;
+    public string Version => versionValue;
+    internal void UpdateVersion(string value)
+    { if (SetProperty(ref versionValue, value, nameof(Version))) OnPropertyChanged(nameof(VersionLabel)); }
     public bool Required { get; } = required;
     public bool Included { get; } = included;
     public bool ProjectContext { get; } = projectContext;

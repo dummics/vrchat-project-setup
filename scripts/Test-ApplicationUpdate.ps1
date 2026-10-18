@@ -68,6 +68,10 @@ while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
     if (Test-Path -LiteralPath $receipt) {
         $result = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
         if (-not $result.Passed) { throw 'Updater did not report success.' }
+        if ($outcome.PSObject.Properties['DispatcherTicks']) {
+            if ($outcome.DispatcherTicks -lt 2 -or $outcome.DispatcherMaximumGapMs -gt 1000) { throw 'Updater dispatcher stalled during installation.' }
+            $result | Add-Member -NotePropertyName DispatcherMaximumGapMs -NotePropertyValue $outcome.DispatcherMaximumGapMs
+        }
         $result | Add-Member -NotePropertyName BaseVersion -NotePropertyValue $manifest.Version
         $result | Add-Member -NotePropertyName ElapsedSeconds -NotePropertyValue ([math]::Round($timer.Elapsed.TotalSeconds,1))
         $result | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8

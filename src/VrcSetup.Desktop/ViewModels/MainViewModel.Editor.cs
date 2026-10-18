@@ -38,6 +38,7 @@ public sealed partial class MainViewModel
         config = await app.Configuration.MergeAsync(persistedConfiguration, config, lifetime.Token);
         persistedConfiguration = config.Copy();
         NotifyLibraryLayout();
+        ShowSavedFeedback("Saved");
     }
     private async Task SetEditorAsync(string editor)
     {

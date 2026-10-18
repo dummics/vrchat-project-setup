@@ -63,6 +63,7 @@ public static class UiSmokeTest
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(partial).State == "Partially applied", "Mixed batch outcomes remain explicit");
         Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 2, "Diagnostics tab is absent in normal mode");
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
+        viewModel.CurrentPage = "Presets"; viewModel.PackageTabIndex = 0; await Task.Delay(100); page.UpdateLayout();
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == "My default packages", "Preset selector has a visible selection after binding");
         Require(viewModel.ApplicationProgressVisibility == Visibility.Collapsed, "Idle application progress is hidden");
         Require(!((Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails")).IsExpanded, "Creation packages start as a compact summary");
@@ -87,12 +88,20 @@ public static class UiSmokeTest
         viewModel.SelectedRecipe = null!; viewModel.SelectedRecipe = "No recipe";
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
+        var currentPreset = viewModel.EditingPreset;
+        viewModel.NextPresetCommand.Execute(null); viewModel.PreviousPresetCommand.Execute(null);
+        Require(viewModel.EditingPreset == currentPreset, "Preset arrows cycle and wrap without losing the selected preset");
+        var stablePresetRows = viewModel.PresetPackages.ToArray();
+        viewModel.StagePresetVersion("gogoloco", "1.8.7");
+        Require(stablePresetRows.SequenceEqual(viewModel.PresetPackages) && viewModel.PresetPackages.First(x => x.Id == "gogoloco").Version == "1.8.7", "Changing one preset version preserves every row instance");
+        viewModel.DiscardPresetChangesCommand.Execute(null);
         Require(viewModel.LibraryPackages.All(x => x.Included == viewModel.PresetPackages.Any(p => p.Id == x.Id)), "Library cards reflect the selected preset");
         var original = await viewModel.Application.Projects.ReadAsync(viewModel.Projects[0].Path);
         var optional = viewModel.PresetPackages.First(x => x.Id == "gogoloco");
         viewModel.RemovePresetPackageCommand.Execute(optional);
         Require(viewModel.PresetDirty && !viewModel.PresetPackages.Any(x => x.Id == "gogoloco"), "Preset edits are staged in the selected preset");
         await viewModel.SaveEditedPresetCommand.ExecuteAsync(null);
+        Require(viewModel.ApplicationNotice == "Preset saved" && viewModel.ApplicationStatus.Contains("Preset saved"), "Preset save reports concise success in the application footer");
         var saved = await viewModel.Application.Configuration.LoadAsync();
         Require(!saved.PackagePresets["Creator PC"].ContainsKey("gogoloco") && saved.VpmPackages.ContainsKey("gogoloco"), "Saving named preset preserves Default");
         Require((await viewModel.Application.Projects.ReadAsync(original.Path)).Fingerprint == original.Fingerprint, "Preset edits do not mutate project files");
@@ -256,6 +265,7 @@ public static class UiSmokeTest
             {
                 if (screen == "Catalog") viewModel.OpenProjectCatalogCommand.Execute(null);
                 else { if (viewModel.BrowsingProjectPackages) viewModel.BackToProjectCommand.Execute(null); viewModel.CurrentPage = screen; }
+                if (screen == "Presets") viewModel.PackageTabIndex = 0;
                 if (screen == "Activity") viewModel.AppendActivity(new(DateTime.UtcNow, "Verified", "Native renderer / shared viewmodel verification"));
                 await Task.Delay(180);
                 page.UpdateLayout();
@@ -300,15 +310,19 @@ public static class UiSmokeTest
                     var footer = (FrameworkElement)page.FindName("StatusBar");
                     var text = (Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("ApplicationStatusText");
                     Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);
-                    Require(((FrameworkElement)page.FindName("CreationPackageList")).ActualHeight <= 160, "Expanded package recap remains compact: " + size.Width);
+                    Require(((FrameworkElement)page.FindName("CreationPackageList")).ActualHeight <= 128 && details.ActualWidth <= 560, "Expanded package recap remains bounded: " + size.Width);
                     var chip = Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>().First(x => x.Name == "ExpanderHeader");
-                    Require(chip.ActualWidth < 400, "Package disclosure stays compact when its details expand: " + size.Width);
+                    Require(Math.Abs(chip.ActualWidth - details.ActualWidth) < 2, "Package disclosure opens as one continuous surface: " + size.Width);
+                    Require(!Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.Command == viewModel.InspectDeeperCommand), "Package recap has no technical analysis action: " + size.Width);
                     Require(!((Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("CreationPackageHeader")).IsTextTrimmed, "Compact package summary remains fully readable: " + size.Width);
                     await Render(page, Path.Combine(artifacts, "create-expanded-status-" + size.Width + ".png"));
                     details.IsExpanded = false; viewModel.IsInspectingPackage = false; await Task.Delay(200);
                 }
                 if (screen == "Presets")
                 {
+                    var carousel = (FrameworkElement)page.FindName("PresetCarousel");
+                    var tabStrip = (FrameworkElement)page.FindName("PackageTabs");
+                    Require(carousel.TransformToVisual(page).TransformPoint(new(0, 0)).Y > tabStrip.TransformToVisual(page).TransformPoint(new(0, 0)).Y + 24, "Preset selector belongs below the tabs: " + size.Width);
                     if (size.Width == 1180)
                     {
                         var options = Descendants(page).OfType<Microsoft.UI.Xaml.Controls.Button>().First(x => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(x) == "Package options");

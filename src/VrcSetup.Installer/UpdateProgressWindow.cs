@@ -9,7 +9,7 @@ namespace VrcSetup.Installer;
 internal sealed class UpdateProgressWindow : Window
 {
     private readonly TextBlock step = new() { Text = UiText.Text("Waiting for the app to close…"), FontSize = 14, Margin = new Thickness(0, 0, 0, 14) };
-    private readonly ProgressBar progress = new() { IsIndeterminate = true, Height = 5 };
+    private readonly ProgressBar progress = new() { IsIndeterminate = true, Height = 12 };
     private readonly StackPanel panel = new() { Margin = new Thickness(24) };
     private bool canClose;
     public UpdateProgressWindow()
