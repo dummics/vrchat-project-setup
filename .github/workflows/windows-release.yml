@@ -105,6 +105,22 @@ jobs:
         shell: pwsh
         run: |
           ./tests/Run-InstallerTests.ps1 -Installer (Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe") -TestRoot (Join-Path $env:RUNNER_TEMP 'installer-lifecycle') -ComponentsDirectory (Join-Path $pwd release)
+      - name: Verify manual completion and version warnings
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP 'manual-installer'
+          New-Item -ItemType Directory -Path $fixture | Out-Null
+          New-Item -ItemType File -Path (Join-Path $fixture '.manual-installer-fixture') | Out-Null
+          $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $pwd 'release/installer-build/VrcSetupInstaller.exe'))
+          $start.UseShellExecute = $false
+          foreach ($argument in @('--verify-manual-installer', $fixture, '--source-payload', (Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64"), '--home', (Join-Path $fixture 'home'))) { $start.ArgumentList.Add($argument) }
+          $start.Environment['VRCSETUP_SKIP_PATH_UPDATE'] = '1'
+          $start.Environment['VRCSETUP_START_MENU_ROOT'] = Join-Path $fixture 'start'
+          $start.Environment['VRCSETUP_DESKTOP_ROOT'] = Join-Path $fixture 'desktop'
+          $process = [Diagnostics.Process]::Start($start)
+          if (-not $process.WaitForExit(120000)) { throw 'Manual installer verification timed out.' }
+          if ($process.ExitCode -ne 0) { Get-Content (Join-Path $fixture 'failure.txt'); throw 'Manual installer verification failed.' }
+          if (-not (Get-Content (Join-Path $fixture 'manual-installer.json') -Raw | ConvertFrom-Json).Passed) { throw 'Missing manual installer proof.' }
       - name: Verify unified installer update and restart
         if: env.UPDATE_BASE_ARCHIVE != ''
         shell: pwsh
@@ -131,7 +147,7 @@ jobs:
           [![Download this version](https://img.shields.io/badge/Download_this_version-Windows_x64-2ea493?style=for-the-badge)](https://github.com/dummics/vrchat-project-setup/releases/download/$tag/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe)
           <!-- vrcsetup-download:end -->
 
-          Use the button above to install or update this version. Setup preserves your settings and opens the app automatically.
+          Use the button above to install or update this version. Setup preserves your settings. Choose Start/Desktop shortcuts and launch on the final page; automatic updates reopen the app without this step.
 
           Internet is required for uncached components. The portable ZIP is optional. Hash-named ZIPs and components.json are internal installer assets: you do not need to download them manually. This is a beta for testing.
 

@@ -192,21 +192,36 @@ public static class UiSmokeTest
         {
             await flow.InitializeAsync(); await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
             flow.StageWorkspaceVersion("gogoloco", "1.8.7");
-            Require(!await flow.NavigateAsync("Settings") && flow.CurrentPage == "Workspace" && flow.WorkspaceDirty, "Rejecting navigation keeps the active project draft");
+            Require(await flow.NavigateAsync("Settings") && !flow.WorkspaceDirty && flow.Packages.Count == 0, "Leaving project management discards pending versions and clears the draft");
             decisions.ConfirmResult = true;
-            Require(await flow.NavigateAsync("Projects") && flow.WorkspaceDirty, "Confirmed navigation preserves the staged project draft");
+            Require(await flow.NavigateAsync("Projects") && !flow.WorkspaceDirty, "Navigation does not retain a hidden project draft");
             await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
-            Require(flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.7", "Reopening the same project retains pending versions");
+            Require(!flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.6", "Reopening a project reloads the original version policy");
             await flow.UndoChangesCommand.ExecuteAsync(null); flow.OpenProjectCatalogCommand.Execute(null);
             Require(flow.CurrentPage == "Catalog" && flow.BrowsingProjectPackages, "Add package opens the shared in-page library");
+            Require(!flow.LibraryPackages.Any(x => x.Id == "gogoloco" || x.Id == ProjectRules.BaseSdk), "Add catalog excludes packages already included in the project");
             flow.AddLibraryPackageCommand.Execute(flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury"));
-            Require(flow.WorkspaceDirty && flow.LibraryPackages.First(x => x.Id == "com.vrcfury.vrcfury").Included, "Local package addition is immediate and staged for the project");
+            Require(flow.WorkspaceDirty && !flow.LibraryPackages.Any(x => x.Id == "com.vrcfury.vrcfury") && flow.Packages.Any(x => x.Id == "com.vrcfury.vrcfury" && x.Action == "Will be added"), "Staged additions leave the add catalog and appear in project management");
             flow.BackToProjectCommand.Execute(null);
             Require(flow.CurrentPage == "Workspace" && flow.WorkspaceDirty, "Returning from the library keeps the same pending batch");
             await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(!flow.WorkspaceDirty && !flow.Packages.Any(x => x.Id == "com.vrcfury.vrcfury"), "Revert restores the installed project selection");
             flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco")); flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco"));
             Require(!flow.WorkspaceDirty, "Undoing a removal restores the original version policy without a new change");
+            flow.OpenProjectCatalogCommand.Execute(null);
+            flow.ToggleWorkspacePackage(flow.Packages.First(x => x.Id == "gogoloco"));
+            var removedPackage = flow.LibraryPackages.First(x => x.Id == "gogoloco");
+            flow.AddLibraryPackageCommand.Execute(removedPackage);
+            Require(!flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.6" && !flow.LibraryPackages.Any(x => x.Id == "gogoloco"), "Readding a staged removal restores its original policy and hides it from the add catalog");
+            flow.StageWorkspaceVersion("gogoloco", "1.8.7");
+            var pendingVersion = flow.Packages.First(x => x.Id == "gogoloco");
+            Require((string)new PackageRowConverter().Convert(pendingVersion, typeof(string), "Version", "en") == "1.8.7", "Version selector displays the pending choice instead of the old installed version");
+            flow.BackToProjectCommand.Execute(null);
+            Require(flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.7", "Returning from Add packages retains the current operation's version selection");
+            await flow.NavigateAsync("Settings");
+            await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
+            Require(!flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "1.8.6", "Leaving and reopening clears pending versions and reloads the installed policy");
+            flow.OpenProjectCatalogCommand.Execute(null);
             flow.LibraryFilter = "vrc fury";
             Require(flow.LibraryPackages.Concat(flow.PresetPackages).Any(x => x.Id == "com.vrcfury.vrcfury"), "Unified package search finds multi-word matches in the correct section"); flow.LibraryFilter = "";
         }
@@ -389,6 +404,14 @@ public static class UiSmokeTest
                 if (screen == "Presets")
                 {
                     var carousel = (FrameworkElement)page.FindName("PresetCarousel");
+                    var pageScroll = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("PresetPageScroll");
+                    var includedList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("PresetPackageList");
+                    Require(double.IsPositiveInfinity(includedList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(includedList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled, "Included packages have no height cap or nested scrolling: " + size.Width);
+                    Require(includedList.ActualHeight >= includedList.Items.Count * 56 && pageScroll.ExtentHeight >= includedList.ActualHeight, "One page scroll contains all included packages and the catalog: " + size.Width);
+                    pageScroll.ChangeView(null, pageScroll.ScrollableHeight, null, true); await Task.Delay(150);
+                    Require(pageScroll.ScrollableHeight == 0 || pageScroll.VerticalOffset > 0, "Catalog is reachable with the shared page scroll: " + size.Width);
+                    await Render(page, Path.Combine(artifacts, "presets-scrolled-" + size.Width + ".png"));
+                    pageScroll.ChangeView(null, 0, null, true); await Task.Delay(100);
                     Require(carousel.ActualWidth > 0 && page.FindName("PackageTabs") is null, "Preset editor is one unified page without duplicate tabs: " + size.Width);
                     var editorBounds = (FrameworkElement)page.FindName("PresetEditor");
                     var editorRight = editorBounds.TransformToVisual(page).TransformPoint(new(editorBounds.ActualWidth, 0)).X;

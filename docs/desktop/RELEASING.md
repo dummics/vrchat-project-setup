@@ -40,6 +40,10 @@ CI downloads the newest complete older portable release and verifies its checksu
 
 ## Verification and recovery
 
+Manual installation ends on a completion page with Start (selected), desktop shortcut (optional), and launch (selected) choices, applied by Finish. Start shortcuts use the product name **VRC Project Setup** for Windows search under the current user. Reinstalling the same version or manually installing an older version requires confirmation; downgrades are not a guarantee of older settings-format compatibility. The automatic updater skips this page and reopens the app automatically.
+
+`VrcSetupInstaller.exe --verify-manual-installer <fixture> --source-payload <payload>` exercises completion, shell shortcuts, declined reinstall/downgrade and uninstall. It requires a fresh fixture with `.manual-installer-fixture`, `VRCSETUP_SKIP_PATH_UPDATE=1`, and Start/Desktop overrides pointing to its `start` and `desktop` folders. Evidence is saved inside the fixture; real user shell folders are never used by this test.
+
 - Fixture tests cover exact-base selection, modified local files, bad downloads, checksum/cache behavior, reconstruction and invalid reuse metadata.
 - Native UI checks run against the published self-contained desktop.
 - With a previous release available, CI tests the unified GUI update/restart in an isolated copy, preserving settings and checking every installed hash. No real Unity projects are changed.

@@ -7,6 +7,17 @@ public sealed partial class PackageBrowserView : UserControl
     public static readonly DependencyProperty ShowSearchProperty = DependencyProperty.Register(nameof(ShowSearch), typeof(bool), typeof(PackageBrowserView),
         new PropertyMetadata(true, (owner, _) => ((PackageBrowserView)owner).UpdateSearch()));
     public bool ShowSearch { get => (bool)GetValue(ShowSearchProperty); set => SetValue(ShowSearchProperty, value); }
+    public static readonly DependencyProperty UsePageScrollProperty = DependencyProperty.Register(nameof(UsePageScroll), typeof(bool), typeof(PackageBrowserView),
+        new PropertyMetadata(false, (owner, _) => ((PackageBrowserView)owner).UpdateScrolling()));
+    public bool UsePageScroll { get => (bool)GetValue(UsePageScrollProperty); set => SetValue(UsePageScrollProperty, value); }
+    private void UpdateScrolling()
+    {
+        foreach (var list in new ListViewBase[] { LibraryCards, LibraryList })
+        {
+            ScrollViewer.SetVerticalScrollMode(list, UsePageScroll ? ScrollMode.Disabled : ScrollMode.Enabled);
+            ScrollViewer.SetVerticalScrollBarVisibility(list, UsePageScroll ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
+        }
+    }
     public PackageBrowserView() => InitializeComponent();
     private void UpdateSearch() { if (SearchToolbar is not null) SearchToolbar.Visibility = ShowSearch ? Visibility.Visible : Visibility.Collapsed; }
     private void CardsSizeChanged(object sender, SizeChangedEventArgs args)

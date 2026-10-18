@@ -14,6 +14,7 @@ public sealed class PackageRowConverter : IValueConverter
             "Glyph" => row.Included ? "−" : "+",
             "Action" => UiText.Text(row.Required ? "Required package" : row.Included ? "Remove package" : "Keep package"),
             "PendingVisibility" => row.Action.StartsWith("Will be") ? Visibility.Visible : Visibility.Collapsed,
+            "Version" => row.Action is "Will be added" or "Will be changed" ? UiText.Text(row.SelectedVersion == "latest" ? "Latest" : row.SelectedVersion) : row.InstalledVersion,
             _ => UiText.Text(row.Action == "Will be removed" ? "Remove on apply" : row.Action.StartsWith("Will be") ? "On apply · " + (row.SelectedVersion == "latest" ? "Latest" : row.SelectedVersion) : "")
         };
     }

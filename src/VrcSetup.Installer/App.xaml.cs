@@ -19,6 +19,12 @@ public partial class App : Application
         string? Option(string name) { var i = Array.IndexOf(arguments, name); return i >= 0 && i + 1 < arguments.Length ? arguments[i + 1] : null; }
         sourcePayload = Option("--source-payload");
         UiText.LoadPreference(AppPaths.ForInstallation(Option("--home"), Option("--root") ?? InstallationManager.DefaultRoot).ConfigFile);
+        if (Option("--verify-manual-installer") is { } manualEvidence)
+        {
+            try { await ManualInstallerVerification.RunAsync(manualEvidence); }
+            catch (Exception error) { Directory.CreateDirectory(manualEvidence); await File.WriteAllTextAsync(Path.Combine(manualEvidence, "failure.txt"), error.ToString()); Environment.ExitCode = 1; }
+            Shutdown(); return;
+        }
         if (Option("--render-update-progress") is { } render)
         {
             Directory.CreateDirectory(render);
@@ -83,9 +89,9 @@ public partial class App : Application
             }
             return;
         }
-        var window = new InstallerWindow(); MainWindow = window; window.Show();
+        var window = new InstallerWindow(Option("--root"), Option("--home")); MainWindow = window; window.Show();
     }
-    private static void LaunchInstalled(string target, string? home, bool updated)
+    internal static void LaunchInstalled(string target, string? home, bool updated)
     {
         var launch = new ProcessStartInfo(Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() };
         launch.Environment["VRCSETUP_HOME"] = AppPaths.ForInstallation(home, target).Home;
@@ -95,14 +101,14 @@ public partial class App : Application
     }
     // ZIP extraction, hashing and filesystem moves include synchronous work.
     // Keep the entire operation off WPF's dispatcher, including before the first await.
-    internal static Task<InstallationRecord> Install(string destination, string? home = null, IProgress<string>? progress = null)
-        => Task.Run(() => InstallCore(destination, home, progress));
-    private static async Task<InstallationRecord> InstallCore(string destination, string? home, IProgress<string>? progress)
+    internal static Task<InstallationRecord> Install(string destination, string? home = null, IProgress<string>? progress = null, bool createStartMenu = true)
+        => Task.Run(() => InstallCore(destination, home, progress, createStartMenu));
+    private static async Task<InstallationRecord> InstallCore(string destination, string? home, IProgress<string>? progress, bool createStartMenu)
     {
         Environment.CurrentDirectory = Path.GetTempPath();
         EnsureApplicationClosed(destination);
         if (sourcePayload is not null)
-            return await new InstallationManager(AppPaths.ForInstallation(home, Path.GetFullPath(sourcePayload))).InstallAsync(destination, progress: progress);
+            return await new InstallationManager(AppPaths.ForInstallation(home, Path.GetFullPath(sourcePayload))).InstallAsync(destination, progress: progress, createStartMenu: createStartMenu);
         var extraction = Path.Combine(Path.GetTempPath(), "VrcSetup-install-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(extraction);
         try
@@ -121,7 +127,7 @@ public partial class App : Application
             if (File.Exists(Path.Combine(extraction, DeltaUpdates.ManifestName)))
                 await DeltaUpdates.ReconstructAsync(extraction, destination);
             var paths = AppPaths.ForInstallation(home, extraction);
-            return await new InstallationManager(paths).InstallAsync(destination, progress: progress);
+            return await new InstallationManager(paths).InstallAsync(destination, progress: progress, createStartMenu: createStartMenu);
         }
         finally { if (Directory.Exists(extraction)) Directory.Delete(extraction, true); }
     }
@@ -139,45 +145,5 @@ public partial class App : Application
                     }
                     catch (InvalidOperationException) { /* Process exited during inspection. */ }
                 }
-    }
-}
-
-public sealed class InstallerWindow : Window
-{
-    private readonly TextBox target;
-    private readonly TextBlock status;
-    private readonly ProgressBar progress;
-    private readonly Button install;
-    private readonly Button launch;
-    private string? installedRoot;
-    private bool installing;
-    public InstallerWindow()
-    {
-        Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/AppMark.png"));
-        Title = "VRC Project Setup · " + UiText.Text("Setup"); Width = 600; MinWidth = 520; MinHeight = 340; SizeToContent = SizeToContent.Height;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        var panel = new StackPanel { Margin = new Thickness(28) };
-        panel.Children.Add(new TextBlock { Text = "VRC Project Setup", FontSize = 28, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 24) });
-        panel.Children.Add(new TextBlock { Text = UiText.Text("Install folder"), Margin = new Thickness(0, 0, 0, 8) });
-        target = new TextBox { Text = InstallationManager.DefaultRoot, Margin = new Thickness(0, 0, 0, 14) }; panel.Children.Add(target);
-        progress = new ProgressBar { IsIndeterminate = false, Height = 12, Margin = new Thickness(0, 0, 0, 12) }; panel.Children.Add(progress);
-        status = new TextBlock { Text = UiText.Text("Ready"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 20) }; panel.Children.Add(status);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        install = new Button { Content = UiText.Text("Install"), Padding = new Thickness(20, 9, 20, 9), Margin = new Thickness(0, 0, 10, 0) };
-        void UpdateInstallAction() => install.Content = UiText.Text(File.Exists(Path.Combine(target.Text, ".vrcsetup-install.json")) ? "Update" : "Install");
-        target.TextChanged += (_, _) => UpdateInstallAction(); UpdateInstallAction();
-        launch = new Button { Content = UiText.Text("Open"), Padding = new Thickness(20, 9, 20, 9), IsEnabled = false };
-        install.Click += async (_, _) =>
-        {
-            installing = true;
-            install.IsEnabled = false; target.IsEnabled = false; progress.IsIndeterminate = true; status.Text = UiText.Text("Verifying and installing…");
-            try { var record = await App.Install(ProjectRules.NormalizePath(target.Text), progress: new Progress<string>(message => status.Text = UiText.Text(message))); installedRoot = record.Root; status.Text = UiText.Text("Installed. Opening the app…"); launch.IsEnabled = true; Process.Start(new ProcessStartInfo(Path.Combine(installedRoot, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() }); installing = false; Close(); }
-            catch (Exception error) { status.Text = error.Message; install.IsEnabled = true; target.IsEnabled = true; }
-            finally { installing = false; progress.IsIndeterminate = false; }
-        };
-        launch.Click += (_, _) => { if (installedRoot is not null) Process.Start(new ProcessStartInfo(Path.Combine(installedRoot, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = true }); Close(); };
-        actions.Children.Add(install); actions.Children.Add(launch); panel.Children.Add(actions); Content = panel;
-        Closed += (_, _) => Application.Current.Shutdown();
-        Closing += (_, args) => args.Cancel = installing;
     }
 }

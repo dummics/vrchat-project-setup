@@ -205,7 +205,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     public async Task OpenProjectsAsync(ProjectSnapshot[] projects, bool reload = false)
     {
-        if (!reload && session?.MatchesProjects(projects) == true)
+        if (!reload && (CurrentPage is "Workspace" or "Catalog") && session?.MatchesProjects(projects) == true)
         { BrowsingProjectPackages = false; RenderWorkspace(); CurrentPage = "Workspace"; return; }
         if (session?.HasPendingChanges == true && !await ui.ConfirmAsync("Pending changes", "Discard staged package changes?", "Discard")) return;
         var fresh = new List<ProjectSnapshot>(); foreach (var project in projects) fresh.Add(await app.Projects.ReadAsync(project.Path));
@@ -218,7 +218,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : $"{projects.Length} projects"; PackageFilter = ""; RenderWorkspace(); CurrentPage = "Workspace";
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>
-    { if (session is null || SelectedPackage is null) return; session.Toggle(SelectedPackage.Id); RenderWorkspace(); await Task.CompletedTask; });
+    { if (session is null || SelectedPackage is null) return; ToggleWorkspacePackage(SelectedPackage); await Task.CompletedTask; });
     [RelayCommand] private async Task ChooseVersion() => await Guard(async () =>
     {
         if (session is null || SelectedPackage is null) return;

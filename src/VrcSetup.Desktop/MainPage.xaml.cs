@@ -139,11 +139,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ConstrainForms()
     {
-        var presetHeight = PresetEditor.ActualHeight > 0 ? PresetEditor.ActualHeight : PageContent.ActualHeight;
         if (PresetEditor.ActualWidth > 0) PresetSelector.Width = Math.Clamp(PresetEditor.ActualWidth * .3, 180, 320);
-        var catalogSpace = ViewModel.PresetCatalogVisibility == Visibility.Visible ? ViewModel.LibraryIsList ? 140 : 168 : 0;
-        var listBudget = presetHeight - PresetCarousel.ActualHeight - 8 - PresetSearchToolbar.ActualHeight - 42 - 48 - catalogSpace;
-        PresetPackageList.MaxHeight = Math.Max(56, Math.Floor(Math.Min(480, listBudget) / 56) * 56);
         var stackProjectHeader = ProjectsView.ActualWidth < 560;
         Grid.SetRow(ProjectHeaderActions, stackProjectHeader ? 1 : 0);
         Grid.SetColumn(ProjectHeaderActions, stackProjectHeader ? 0 : 1);

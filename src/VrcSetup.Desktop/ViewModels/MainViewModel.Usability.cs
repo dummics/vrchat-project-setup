@@ -109,7 +109,7 @@ public sealed partial class MainViewModel
         browserIncluded = session?.Rows().Where(x => x.Included).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var tokens = (LibraryFilter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         libraryFavoriteSnapshot ??= config.FavoritePackages.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var desired = Registry.Where(x => (BrowsingProjectPackages || !presetWorking.ContainsKey(x.Id)) && (tokens.Length > 0 || personalPackageIds.Contains(x.Id) ||
+        var desired = Registry.Where(x => (BrowsingProjectPackages ? !browserIncluded.Contains(x.Id) : !presetWorking.ContainsKey(x.Id)) && (tokens.Length > 0 || personalPackageIds.Contains(x.Id) ||
             config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase) || presetWorking.ContainsKey(x.Id) ||
             BrowsingProjectPackages && browserIncluded.Contains(x.Id)) &&
         (!FavoritesOnly || libraryFavoriteSnapshot.Contains(x.Id)) && (onlineMatches.Contains(x.Id) || tokens.All(token => (x.Id + " " + x.DisplayName).Contains(token, StringComparison.OrdinalIgnoreCase))))

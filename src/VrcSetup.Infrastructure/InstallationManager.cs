@@ -22,7 +22,7 @@ public sealed class InstallationManager(AppPaths paths)
         foreach (var required in new[] { "app/cli/vrcsetup.exe", "app/desktop/VrcSetup.Desktop.exe" })
             if (!File.Exists(Path.Combine(root, required))) throw new IOException("Payload is missing " + required);
     }
-    public async Task<InstallationRecord> InstallAsync(string? destination = null, CancellationToken token = default, IProgress<string>? progress = null)
+    public async Task<InstallationRecord> InstallAsync(string? destination = null, CancellationToken token = default, IProgress<string>? progress = null, bool createStartMenu = true)
     {
         var source = ProjectRules.NormalizePath(paths.PayloadRoot);
         var target = ProjectRules.NormalizePath(destination ?? DefaultRoot);
@@ -65,7 +65,7 @@ public sealed class InstallationManager(AppPaths paths)
                 var record = new InstallationRecord(manifest.Version, target, DateTime.UtcNow, previous, destinationPaths.Home);
                 await AtomicFile.WriteJsonAsync(Path.Combine(target, Marker), record, token);
                 progress?.Report("Updating shortcuts");
-                await IntegrateAsync(target, token);
+                await IntegrateAsync(target, token, createStartMenu);
                 return record;
             }
             catch when (previous is not null)
@@ -92,13 +92,14 @@ public sealed class InstallationManager(AppPaths paths)
         await ValidatePayloadAsync(target, token);
         await IntegrateAsync(target, token);
     }
-    private static async Task IntegrateAsync(string target, CancellationToken token)
+    private static async Task IntegrateAsync(string target, CancellationToken token, bool createStartMenu = true)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Windows installation only.");
         var bin = Path.Combine(target, "bin");
         await WriteAliasAsync(target, token);
         var existingPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
         if (Environment.GetEnvironmentVariable("VRCSETUP_SKIP_PATH_UPDATE") != "1" && !existingPath.Split(';').Any(x => x.TrimEnd('\\').Equals(bin, StringComparison.OrdinalIgnoreCase))) Environment.SetEnvironmentVariable("PATH", string.Join(';', existingPath.Split(';', StringSplitOptions.RemoveEmptyEntries).Append(bin)), EnvironmentVariableTarget.User);
+        if (!createStartMenu) return;
         var shortcuts = Path.Combine(Environment.GetEnvironmentVariable("VRCSETUP_START_MENU_ROOT") ?? Environment.GetFolderPath(Environment.SpecialFolder.Programs), "VRChat Project Setup"); Directory.CreateDirectory(shortcuts);
         await Task.Run(() =>
         {
@@ -129,6 +130,35 @@ public sealed class InstallationManager(AppPaths paths)
                     }
                     finally { Marshal.FinalReleaseComObject(shortcut); }
                 }
+            }
+            finally { Marshal.FinalReleaseComObject(shell); }
+        }, token);
+    }
+    public async Task ConfigureShortcutsAsync(string target, bool startMenu, bool desktop, CancellationToken token = default)
+    {
+        target = ProjectRules.NormalizePath(target);
+        using var lease = AcquireInstallation(target);
+        var record = await AtomicFile.ReadJsonAsync<InstallationRecord>(Path.Combine(target, Marker), token) ?? throw new IOException("Installation marker missing.");
+        if (!record.Root.Equals(target, StringComparison.OrdinalIgnoreCase)) throw new IOException("Installation marker does not match this folder.");
+        if (startMenu) await IntegrateAsync(target, token);
+        if (!desktop) return;
+        await Task.Run(() =>
+        {
+            if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Windows shortcuts only.");
+            var folder = Environment.GetEnvironmentVariable("VRCSETUP_DESKTOP_ROOT") ?? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            Directory.CreateDirectory(folder);
+            var shellType = Type.GetTypeFromProgID("WScript.Shell") ?? throw new IOException("Windows shortcut support is unavailable.");
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            try
+            {
+                dynamic link = shell.CreateShortcut(Path.Combine(folder, "VRC Project Setup.lnk"));
+                try
+                {
+                    link.TargetPath = Path.Combine(target, "app", "desktop", "VrcSetup.Desktop.exe");
+                    link.WorkingDirectory = target; link.IconLocation = Path.Combine(target, "app", "desktop", "Assets", "AppIcon.ico") + ",0";
+                    link.Description = "VRC Project Setup"; link.Save();
+                }
+                finally { Marshal.FinalReleaseComObject(link); }
             }
             finally { Marshal.FinalReleaseComObject(shell); }
         }, token);
@@ -164,6 +194,13 @@ public sealed class InstallationManager(AppPaths paths)
             dynamic shell = Activator.CreateInstance(shellType)!;
             try
             {
+                var desktopLink = Path.Combine(Environment.GetEnvironmentVariable("VRCSETUP_DESKTOP_ROOT") ?? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "VRC Project Setup.lnk");
+                if (File.Exists(desktopLink))
+                {
+                    dynamic link = shell.CreateShortcut(desktopLink);
+                    try { string executable = link.TargetPath; if (executable.StartsWith(target.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) File.Delete(desktopLink); }
+                    finally { Marshal.FinalReleaseComObject(link); }
+                }
                 foreach (var name in new[] { "VRC Project Setup", "Repair VRC Project Setup", "Uninstall VRC Project Setup", "VRChat Project Setup", "Repair VRChat Project Setup", "Uninstall VRChat Project Setup" })
                 {
                     var link = Path.Combine(shortcuts, name + ".lnk"); if (!File.Exists(link)) continue;

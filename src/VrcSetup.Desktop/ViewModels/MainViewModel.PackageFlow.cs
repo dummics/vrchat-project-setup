@@ -42,16 +42,16 @@ public sealed partial class MainViewModel
         navigating = true;
         try
         {
-            var sameProjectDraft = page == "Workspace" && CurrentPage == "Catalog";
-            if (WorkspaceDirty && !sameProjectDraft)
-            {
-                if (!await ui.ConfirmAsync("Pending package changes", "Leave this screen and keep the current project draft?", "Keep draft and leave")) return false;
-            }
+            var sameProjectDraft = (page is "Workspace" or "Catalog") && (CurrentPage is "Workspace" or "Catalog");
             if (PresetDirty && page != "Presets")
             {
                 if (!await ui.ConfirmAsync("Unsaved preset", "Discard changes to " + PresetLabel + "?", "Discard and leave")) return false;
             }
             if (PresetDirty && page != "Presets") LoadEditingPreset();
+            if (!sameProjectDraft && session is not null)
+            {
+                session.Reset(); session = null; RenderWorkspace(); RefreshLibraryRows();
+            }
             BrowsingProjectPackages = false; CurrentPage = page; return true;
         }
         finally { navigating = false; }
