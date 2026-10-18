@@ -26,7 +26,7 @@ function Invoke-Dotnet {
     if ($UpdateFeedUri) { $hosting += '-p:UpdateFeedUri=' + $UpdateFeedUri }
     if ($UpdateAssetPrefix) { $hosting += '-p:UpdateAssetPrefix=' + $UpdateAssetPrefix }
     $stageClock = [Diagnostics.Stopwatch]::StartNew()
-    & dotnet @Arguments @hosting '-p:DebugType=None' '-p:DebugSymbols=false'
+    & dotnet @Arguments @hosting '-p:Platform=x64' '-p:DebugType=None' '-p:DebugSymbols=false'
     if ($LASTEXITCODE -ne 0) { throw "dotnet failed with exit code $LASTEXITCODE" }
     $stageSeconds[('publish-' + [IO.Path]::GetFileNameWithoutExtension($Arguments[1]))] = [math]::Round($stageClock.Elapsed.TotalSeconds, 2)
 }

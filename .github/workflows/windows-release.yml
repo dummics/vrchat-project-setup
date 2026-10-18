@@ -16,7 +16,7 @@ on:
         default: false
         type: boolean
   push:
-    branches: [main, feature/winui-desktop]
+    branches: ['**']
     paths:
       - Directory.Build.props
       - .github/workflows/windows-release.yml
@@ -76,7 +76,7 @@ jobs:
           "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
       - name: Fixture tests
         shell: pwsh
-        run: dotnet test tests/VrcSetup.Core.Tests/VrcSetup.Core.Tests.csproj -c Release --nologo
+        run: dotnet test tests/VrcSetup.Core.Tests/VrcSetup.Core.Tests.csproj -c Release -p:Platform=x64 --nologo
       - name: Build self-contained installer and portable archive
         shell: pwsh
         env:
