@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/VrcSetup.Bootstrapper/VrcSetup.Bootstrapper.csproj" />
     <Project Path="src/VrcSetup.Cli/VrcSetup.Cli.csproj" />
     <Project Path="src/VrcSetup.Core/VrcSetup.Core.csproj" />
     <Project Path="src/VrcSetup.Desktop/VrcSetup.Desktop.csproj" />

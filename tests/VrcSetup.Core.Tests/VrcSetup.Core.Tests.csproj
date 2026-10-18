@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>net10.0</TargetFramework><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable></PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/VrcSetup.Bootstrapper/ComponentDelivery.cs" Link="Bootstrapper/ComponentDelivery.cs" />
     <ProjectReference Include="../../src/VrcSetup.Infrastructure/VrcSetup.Infrastructure.csproj" />
     <ProjectReference Include="../../src/VrcSetup.Cli/VrcSetup.Cli.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />

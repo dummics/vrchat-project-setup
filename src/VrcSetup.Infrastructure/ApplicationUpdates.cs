@@ -9,27 +9,28 @@ namespace VrcSetup.Infrastructure;
 public sealed record ApplicationRelease(string Version, Uri Installer, Uri Checksums, Uri Page, Uri? DeltaInstaller = null, string? BaseVersion = null);
 
 // GitHub hosts the feed, installer and checksums. No credentials or local data are sent.
-public sealed class ApplicationUpdates(HttpClient client)
+public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSource? source = null)
 {
+    private ApplicationUpdateSource Source => source ?? ApplicationUpdateSource.Default;
     public const string Repository = "https://github.com/dummics/vrchat-project-setup";
     public static string CurrentVersion => typeof(ApplicationUpdates).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.2.0-beta.1";
     public static string BugReportUrl => Repository + "/issues/new?title=" + Uri.EscapeDataString("[Bug]: ") + "&body="
         + Uri.EscapeDataString("App version: " + CurrentVersion + "\n\nWhat did you do?\n\nWhat happened?\n\nWhat did you expect?\n\nOptional screenshot or log excerpt (remove personal details):\n");
     private const long MaximumInstallerBytes = 1024L * 1024 * 1024;
-    private const string AssetPrefix = Repository + "/releases/download/";
 
     public async Task<ApplicationRelease?> CheckAsync(string installed, bool includeBeta, CancellationToken token = default)
     {
-        using var request = Request("https://api.github.com/repos/dummics/vrchat-project-setup/releases?per_page=100");
+        using var request = Request(Source.Feed.AbsoluteUri);
         using var response = await client.SendAsync(request, token);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadAsStringAsync(token);
-        return SelectRelease(json, installed, includeBeta);
+        return SelectRelease(json, installed, includeBeta, Source);
     }
 
-    public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta)
+    public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta, ApplicationUpdateSource? source = null)
     {
+        source ??= ApplicationUpdateSource.Default;
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("Expected a GitHub releases list.");
         var current = new SemanticVersion(installed);
@@ -51,10 +52,10 @@ public sealed class ApplicationUpdates(HttpClient client)
             var installerName = $"Install-VrcSetup-{normalized}-win-x64.exe";
             var assets = entry.GetProperty("assets").EnumerateArray().ToArray();
             string? Asset(string name) => assets.FirstOrDefault(x => x.GetProperty("name").GetString() == name) is var asset && asset.ValueKind == JsonValueKind.Object ? asset.GetProperty("browser_download_url").GetString() : null;
-            if (!TryAsset(Asset(installerName), out var installer) || !TryAsset(Asset("SHA256SUMS.txt"), out var checksums)) continue;
-            var page = new Uri(Repository + "/releases/tag/" + Uri.EscapeDataString(tag));
+            if (!source.AllowsAsset(Asset(installerName), out var installer) || !source.AllowsAsset(Asset("SHA256SUMS.txt"), out var checksums)) continue;
+            var page = new Uri(source.Repository.AbsoluteUri.TrimEnd('/') + "/releases/tag/" + Uri.EscapeDataString(tag));
             var baseVersion = installed.TrimStart('v');
-            TryAsset(Asset($"Update-VrcSetup-{normalized}-from-{baseVersion}-win-x64.exe"), out var delta);
+            source.AllowsAsset(Asset($"Update-VrcSetup-{normalized}-from-{baseVersion}-win-x64.exe"), out var delta);
             candidates.Add((version, new(normalized, installer!, checksums!, page, delta, delta is null ? null : baseVersion)));
             }
             catch (Exception error) when (error is KeyNotFoundException or InvalidOperationException) { /* Ignore incomplete release metadata. */ }
@@ -62,11 +63,6 @@ public sealed class ApplicationUpdates(HttpClient client)
         return candidates.OrderByDescending(x => x.Version).FirstOrDefault().Release;
     }
 
-    private static bool TryAsset(string? value, out Uri? uri)
-    {
-        uri = null;
-        return Uri.TryCreate(value, UriKind.Absolute, out uri) && uri.Scheme == "https" && uri.AbsoluteUri.StartsWith(AssetPrefix, StringComparison.Ordinal) && string.IsNullOrEmpty(uri.UserInfo) && uri.IsDefaultPort;
-    }
     private static HttpRequestMessage Request(string uri)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, uri);
@@ -87,7 +83,7 @@ public sealed class ApplicationUpdates(HttpClient client)
     }
     private async Task<string> DownloadInstallerAsync(ApplicationRelease release, Uri installer, string name, string directory, IProgress<int>? progress, CancellationToken token)
     {
-        if (!TryAsset(installer.AbsoluteUri, out _) || !TryAsset(release.Checksums.AbsoluteUri, out _)) throw new IOException("Unrecognized update source.");
+        if (!Source.AllowsAsset(installer.AbsoluteUri, out _) || !Source.AllowsAsset(release.Checksums.AbsoluteUri, out _)) throw new IOException("Unrecognized update source.");
         using var checksumRequest = Request(release.Checksums.AbsoluteUri);
         using var checksumResponse = await client.SendAsync(checksumRequest, token); checksumResponse.EnsureSuccessStatusCode();
         var checksumText = await checksumResponse.Content.ReadAsStringAsync(token);

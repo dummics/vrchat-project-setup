@@ -2,6 +2,9 @@
 param(
     [string]$Version,
     [string]$OutputDirectory,
+    [string]$AssetBaseUri,
+    [string]$UpdateFeedUri,
+    [string]$UpdateAssetPrefix,
     [switch]$SkipInstaller
 )
 $ErrorActionPreference = 'Stop'
@@ -17,7 +20,10 @@ if (Test-Path -LiteralPath $payload) { throw "Output already exists: $payload. C
 [void][IO.Directory]::CreateDirectory($payload)
 function Invoke-Dotnet {
     param([string[]]$Arguments)
-    & dotnet @Arguments '-p:DebugType=None' '-p:DebugSymbols=false'
+    $hosting = @()
+    if ($UpdateFeedUri) { $hosting += '-p:UpdateFeedUri=' + $UpdateFeedUri }
+    if ($UpdateAssetPrefix) { $hosting += '-p:UpdateAssetPrefix=' + $UpdateAssetPrefix }
+    & dotnet @Arguments @hosting '-p:DebugType=None' '-p:DebugSymbols=false'
     if ($LASTEXITCODE -ne 0) { throw "dotnet failed with exit code $LASTEXITCODE" }
 }
 Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Cli\VrcSetup.Cli.csproj'),'-c','Release','-r','win-x64','--self-contained','true',('-p:Version=' + $Version),'-o',(Join-Path $payload 'app\cli'),'--nologo')
@@ -56,11 +62,16 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $installer = $null
 if (-not $SkipInstaller) {
     $installerOutput = Join-Path $OutputDirectory 'installer-build'
-    Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Installer\VrcSetup.Installer.csproj'),'-c','Release',('-p:Version=' + $Version),('-p:PayloadArchive=' + $archive),'-o',$installerOutput,'--nologo')
+    Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Installer\VrcSetup.Installer.csproj'),'-c','Release',('-p:Version=' + $Version),'-p:PublishSingleFile=false','-p:IncludeAllContentForSelfExtract=false','-o',$installerOutput,'--nologo')
+    if (-not $AssetBaseUri) { $AssetBaseUri = "https://github.com/dummics/vrchat-project-setup/releases/download/v$Version/" }
+    $componentManifest = & (Join-Path $PSScriptRoot 'Publish-Components.ps1') -Payload $payload -Engine $installerOutput -Version $Version -OutputDirectory $OutputDirectory -AssetBaseUri $AssetBaseUri
+    $bootstrapOutput = Join-Path $OutputDirectory 'bootstrap-build'
+    Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Bootstrapper\VrcSetup.Bootstrapper.csproj'),'-c','Release',('-p:Version=' + $Version),('-p:ComponentManifest=' + $componentManifest),'-o',$bootstrapOutput,'--nologo')
     $installer = Join-Path $OutputDirectory ('Install-VrcSetup-' + $Version + '-win-x64.exe')
-    Copy-Item -LiteralPath (Join-Path $installerOutput 'VrcSetupInstaller.exe') -Destination $installer
+    Copy-Item -LiteralPath (Join-Path $bootstrapOutput 'VrcSetupSetup.exe') -Destination $installer
 }
 $outputs = @($archive) + @($installer | Where-Object { $_ })
+if (-not $SkipInstaller) { $outputs += @(Get-ChildItem -LiteralPath $OutputDirectory -Filter '*.zip' -File | Where-Object { $_.Name -match '^[a-f0-9]{64}\.zip$' } | ForEach-Object FullName); $outputs += $componentManifest }
 $checksums = @($outputs | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash,[IO.Path]::GetFileName($_) })
 [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'SHA256SUMS.txt'),$checksums,[Text.UTF8Encoding]::new($false))
 $report = [ordered]@{Version=$Version;Payload=$payload;Archive=$archive;Installer=$installer;Checksums=(Join-Path $OutputDirectory 'SHA256SUMS.txt');Artifacts=@($outputs|ForEach-Object{[ordered]@{Name=[IO.Path]::GetFileName($_);Bytes=(Get-Item -LiteralPath $_).Length}})}

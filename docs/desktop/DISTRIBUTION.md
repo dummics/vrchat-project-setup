@@ -4,7 +4,7 @@ The Windows app and vrcsetup command use the same C#/.NET 10 engine.
 
 ## Install
 
-Run Install-VrcSetup-<version>-win-x64.exe. This single executable installs a new copy or updates an existing installation, preserves settings and opens **VRC Project Setup** automatically. It is self-contained: no .NET SDK or Visual Studio is required. The technical filename and installation/data paths remain compatible with existing clients.
+Run Install-VrcSetup-<version>-win-x64.exe. This small online installer downloads verified components, installs or updates **VRC Project Setup**, preserves settings and opens the app automatically. Internet is required for uncached components; no .NET SDK or Visual Studio is required. The technical filename and installation/data paths remain compatible with existing clients. Download only the EXE; hash-named ZIPs and components.json are technical assets fetched automatically.
 
 Download the Windows installer from [GitHub Releases](https://github.com/dummics/vrchat-project-setup/releases), including prereleases while beta testing. The installer is currently unsigned, so Windows may show a publisher/reputation prompt on a browser download. SHA-256 is available alongside it. Public download and the app's full update/restart path are verified in isolated installations; avatar import acceptance on other PCs remains beta testing.
 
@@ -18,7 +18,7 @@ When a newer complete release is available, choose **Install update and restart*
 
 Maintainers use [the release command](RELEASING.md). An explicit version tag validates the single source version, runs fixture/native UI checks, builds the unified installer, portable ZIP and checksums, verifies update/restart from an older release in an isolated copy, then publishes. A manual run defaults to a draft unless Publish is selected. Drafts and incomplete releases are ignored by clients. Existing release tags/assets are never overwritten. Ordinary source commits do not publish updates.
 
-From beta.11, releases provide one full EXE for installation and updates, plus an optional portable ZIP. Existing clients use the full installer when no differential asset is present; users do not need an intermediate upgrade. Historical differential releases remain supported. No additional runtime installation is required.
+From beta.12, releases provide one small online EXE for installation and updates, plus verified component archives and an optional portable ZIP. Unchanged components are reused from the current installation or verified cache, including when skipping versions. Existing clients recognize the same installer filename; no intermediate upgrade is required. See [component updates](COMPONENT-UPDATES.md) for cache behavior and future hosting migration. No machine-wide runtime installation is required.
 
 `docs/site/index.html` is a dependency-free download page using the same public Releases API, with fallback links when GitHub is unavailable. Enable GitHub Pages with the GitHub Actions source, then run `download-page.yml` after the workflows are integrated into the default branch. No Pages deployment or public beta publication is implied by a local build. The feature branch remains separate until owner-approved integration.
 

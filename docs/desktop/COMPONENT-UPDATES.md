@@ -1,0 +1,38 @@
+# Online installer and component updates
+
+VRC Project Setup publishes one Windows EXE for install/update. The Native AOT bootstrapper needs no preinstalled .NET runtime. It downloads and verifies components before starting the existing WPF installer engine, which stages, validates, swaps, retains the previous installation, integrates shortcuts and reopens the app. Existing clients recognize the unchanged `Install-VrcSetup-<version>-win-x64.exe` name and verify it with SHA256SUMS.txt.
+
+## Components and trust
+
+`components.json` schema 1 is embedded in the EXE and published for inspection. It pins the exact target version, an HTTPS asset directory, each immutable `<sha256>.zip` name/size/hash and every extracted file hash. Modules contain `payload/` or `engine/` paths only. Duplicate paths, traversal, Windows path aliases, symlinks, undeclared/missing entries, oversized downloads and invalid hashes fail before installation. The payload version must equal the embedded target version. The installer independently verifies all payload files again before replacement. HTTPS and the verified bootstrapper authenticate the pinned metadata; builds are currently unsigned and this is not a substitute for future Authenticode signing.
+
+Application assemblies/resources/metadata form a small changing component. CLI, WinUI and installer runtime/dependency files use stable filename-based buckets with deterministic ZIP timestamps/order. A version-only change does not invalidate runtime buckets; SDK/dependency updates intentionally do. Files are still installed as one coherent app version: components are delivery units, not independently activated plugins.
+
+Before downloading a payload module, matching installed files are copied to fresh staging and rehashed. Otherwise a cached archive is rehashed or downloaded to a unique partial file, size/hash verified and atomically renamed. Corrupt cache is redownloaded; transient HTTP failures retry twice. Cancellation and verification failure preserve the installed app. The previous app is reopened on pre-handoff update failure where possible. No Unity process is killed. The installer engine retains its existing busy checks and rollback behavior.
+
+`<data-home>/updates/components` holds verified archives and a per-cache exclusive lease. Concurrent bootstrappers fail clearly rather than racing. Abandoned partials are removed under that lease on the next attempt. Current components are retained; unused archives are limited by a 512 MiB cache budget and 30-day retention. `last-delivery.json` records downloaded/cached/reused components and bytes; `last-error.log` contains diagnostic details. Temporary reconstruction is removed after the installer exits. The optional portable ZIP remains a self-contained alternative; it has no install/update EXE.
+
+First installation still transfers the required app/runtime content. The small initial EXE alone does not reduce that total. Later transfers avoid unchanged runtime modules, including when skipping versions. Runtimes remain bundled, so setup never changes machine-wide .NET installations.
+
+## Hosting and a future VPS
+
+GitHub Releases is the initial static asset host. Components use plain HTTPS GET and no GitHub API, token or server process. Upload every module and checksum before making a release discoverable. Keep release assets immutable: corrections need a new version.
+
+`Publish-Windows.ps1 -AssetBaseUri https://downloads.example.com/v<version>/` pins a different component directory in the bootstrapper. Upload the generated hash-named ZIPs to that exact directory before publishing its EXE. No app installer logic changes and no user-facing host field are required.
+
+Release discovery is separate. `ApplicationUpdateSource` defaults to GitHub but supports an HTTPS static JSON feed with the existing GitHub release-list shape (`tag_name`, `draft`, `prerelease`, `assets` with `name` and `browser_download_url`). Tests exercise an independent feed and CDN host. Maintainer build parameters `-UpdateFeedUri` and `-UpdateAssetPrefix` pin the future feed and allowed installer/checksum URL prefix into the app. Feed failures stay non-blocking; a static VPS/CDN feed can replace the GitHub API if its shared-IP limits become relevant.
+
+Migration sequence:
+
+1. Prepare HTTPS hosting, static feed, immutable modules and checksums; test downloads/checksums first.
+2. Build a bridge release with the new component host and, if desired, new feed/prefix metadata.
+3. Publish that bootstrap EXE and its checksum on GitHub as well: old installed clients only trust GitHub asset URLs and must find the bridge there.
+4. Verify an actual old-client upgrade; retain GitHub history/bridge assets. Only migrated clients can rely exclusively on the new feed.
+
+There is no automatic untrusted host discovery, API key, VPS deployment or server credential in the app.
+
+## Verification
+
+Fixture tests cover cold/warm caches, changed application modules, reuse from installed files, corrupt/truncated content, cancellation, HTTP retries, traversal, duplicates, cache retention and static-host feeds. CI seeds only the normal hash-verified archive cache to test before public assets exist; it does not replace the bootstrapper transport or add a production source override. It runs install/upgrade/repair/uninstall, shortcut migration, old GUI updater handoff/relaunch and native UI checks. Public real-network upgrade and first-install evidence are recorded separately in task artifacts.
+
+Build locally with `Publish-Windows.ps1`; release intentionally with `Release.ps1 -NextBeta -Publish`. The release workflow publishes exactly one EXE plus technical component assets, the optional portable ZIP and checksums. To test an unpublished build, pass its output folder as `-ComponentsDirectory` to `Run-InstallerTests.ps1` or `Test-ApplicationUpdate.ps1`. These tests use isolated roots/homes/menus and do not update the owner's app or Unity projects.

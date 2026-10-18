@@ -24,9 +24,9 @@ GitHub Actions owns build, tests and asset publication. Beta/RC/alpha releases a
 ./scripts/Publish-Windows.ps1 -OutputDirectory .work/artifacts/my-release
 ```
 
-Use a fresh output directory. The build emits one self-contained Windows installer, an optional-use portable ZIP, `SHA256SUMS.txt` and local `release-build.json` with measured byte sizes. The same EXE installs or updates VRC Project Setup. Its technical filename remains `Install-VrcSetup-<version>-win-x64.exe` for compatibility with installed clients. Published binaries omit debug symbols; development builds retain them. The desktop excludes unused AI/ML/Search/Widgets packages. All required runtimes remain bundled.
+Use a fresh output directory. The build emits one small Native AOT online installer, hash-named component ZIPs, `components.json`, an optional-use portable ZIP, `SHA256SUMS.txt` and local `release-build.json` with measured byte sizes. The same EXE installs or updates VRC Project Setup. Its technical filename remains `Install-VrcSetup-<version>-win-x64.exe` for compatibility with installed clients. Published binaries omit debug symbols; development builds retain them. All required runtimes are supplied through verified components. See [component updates and hosting migration](COMPONENT-UPDATES.md). Building the bootstrapper requires the Windows C++ toolchain; users need no development tools.
 
-CI downloads the newest complete older portable release and verifies its checksum to test the unified installer through the previous app's updater. New releases publish exactly one EXE. Historical differential releases remain readable by existing clients, but separate differential installers are no longer produced.
+CI downloads the newest complete older portable release and verifies its checksum to test the unified installer through the previous app's updater. Before publication, tests seed the ordinary verified component cache with build output. All component ZIPs must be published with the EXE; `Release.ps1` and CI handle this. New releases publish exactly one EXE. Historical differential releases remain readable by existing clients, but separate differential installers are no longer produced.
 
 ## Verification and recovery
 

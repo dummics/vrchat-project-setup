@@ -5,6 +5,7 @@ param(
     [string]$OutputDirectory,
     [switch]$UseRealNetwork,
     [switch]$DirectInstaller,
+    [string]$ComponentsDirectory,
     [ValidateRange(30,600)][int]$TimeoutSeconds = 180
 )
 $ErrorActionPreference = 'Stop'
@@ -30,6 +31,10 @@ foreach ($entry in $manifest.Files.psobject.Properties) {
 }
 $install = Join-Path $OutputDirectory 'install'; $testHome = Join-Path $OutputDirectory 'home'
 [void][IO.Directory]::CreateDirectory($install); [void][IO.Directory]::CreateDirectory($testHome)
+if ($ComponentsDirectory) {
+    $cache = Join-Path $testHome 'updates/components'; [void][IO.Directory]::CreateDirectory($cache)
+    Get-ChildItem -LiteralPath $ComponentsDirectory -File -Filter '*.zip' | Where-Object Name -Match '^[a-f0-9]{64}\.zip$' | Copy-Item -Destination $cache
+}
 [IO.File]::WriteAllText((Join-Path $OutputDirectory '.vrcsetup-update-smoke'), 'Owned isolated updater fixture. No user projects.')
 foreach ($item in Get-ChildItem -LiteralPath $BasePayload -Force) { Copy-Item -LiteralPath $item.FullName -Destination $install -Recurse }
 $record = @{Version=$manifest.Version;Root=$install;InstalledUtc=[DateTime]::UtcNow;PreviousInstall=$null}

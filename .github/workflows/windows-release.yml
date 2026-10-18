@@ -104,7 +104,7 @@ jobs:
       - name: Verify install, repair and shortcut migration
         shell: pwsh
         run: |
-          ./tests/Run-InstallerTests.ps1 -Installer (Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe") -TestRoot (Join-Path $env:RUNNER_TEMP 'installer-lifecycle')
+          ./tests/Run-InstallerTests.ps1 -Installer (Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe") -TestRoot (Join-Path $env:RUNNER_TEMP 'installer-lifecycle') -ComponentsDirectory (Join-Path $pwd release)
       - name: Verify unified installer update and restart
         if: env.UPDATE_BASE_ARCHIVE != ''
         shell: pwsh
@@ -112,7 +112,7 @@ jobs:
           $basis = Join-Path $env:RUNNER_TEMP 'update-base'
           Expand-Archive -LiteralPath $env:UPDATE_BASE_ARCHIVE -DestinationPath $basis
           $full = Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe"
-          ./scripts/Test-ApplicationUpdate.ps1 -BasePayload $basis -UpdateInstaller $full -OutputDirectory (Join-Path $env:RUNNER_TEMP 'update-full')
+          ./scripts/Test-ApplicationUpdate.ps1 -BasePayload $basis -UpdateInstaller $full -OutputDirectory (Join-Path $env:RUNNER_TEMP 'update-full') -ComponentsDirectory (Join-Path $pwd release)
       - name: Create release
         shell: pwsh
         env:
@@ -123,13 +123,15 @@ jobs:
           $executables = @(Get-ChildItem release -File -Filter '*.exe')
           if ($executables.Count -ne 1) { throw 'Publish exactly one unified Windows installer.' }
           $assets = @("release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe#VRC Project Setup - Windows Setup (Install or Update)", "release/VrcSetup-$env:RELEASE_VERSION-win-x64.zip#Portable ZIP (optional)", 'release/SHA256SUMS.txt')
+          $assets += 'release/components.json'
+          $assets += @(Get-ChildItem release -File -Filter '*.zip' | Where-Object Name -Match '^[a-f0-9]{64}\.zip$' | ForEach-Object FullName)
           $notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
           @"
           ## VRC Project Setup for Windows
 
-          Download **VRC Project Setup - Windows Setup (Install or Update)** below. The same executable installs a new copy or updates an existing installation, preserves settings, and opens the app automatically. Existing versions can update from inside the app.
+          Download **VRC Project Setup - Windows Setup (Install or Update)** below. This small online installer downloads verified components, installs or updates the app, preserves settings, and opens it automatically. Existing versions can update from inside the app. Unchanged components are reused from the installation or verified download cache.
 
-          The portable ZIP is optional; it is not needed for installation. This is a beta for testing.
+          Internet is required for uncached components. The portable ZIP is optional. Hash-named ZIPs and components.json are internal installer assets: you do not need to download them manually. This is a beta for testing.
           "@ | Set-Content -LiteralPath $notes -Encoding utf8
           $arguments = @('release','create',$tag,'--target',$env:GITHUB_SHA,'--title',"VRC Project Setup $env:RELEASE_VERSION",'--notes-file',$notes,'--generate-notes')
           if ($env:PUBLISH_RELEASE -ne 'true') { $arguments += '--draft' }

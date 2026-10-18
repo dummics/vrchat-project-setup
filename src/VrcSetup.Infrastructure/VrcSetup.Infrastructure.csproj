@@ -3,6 +3,10 @@
   <ItemGroup><ProjectReference Include="../VrcSetup.Core/VrcSetup.Core.csproj" /></ItemGroup>
   <ItemGroup><PackageReference Include="System.Management" Version="10.0.0" /></ItemGroup>
   <ItemGroup>
+    <AssemblyMetadata Include="UpdateFeedUri" Value="$(UpdateFeedUri)" />
+    <AssemblyMetadata Include="UpdateAssetPrefix" Value="$(UpdateAssetPrefix)" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="Resources/**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Tools/**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../VrcSetup.UnityBridge/VrcSetupPostImport.cs" Link="Resources/VrcSetupPostImport.cs" CopyToOutputDirectory="PreserveNewest" />

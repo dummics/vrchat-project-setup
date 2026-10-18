@@ -11,11 +11,13 @@ namespace VrcSetup.Installer;
 
 public partial class App : Application
 {
+    private static string? sourcePayload;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         var arguments = e.Args;
         string? Option(string name) { var i = Array.IndexOf(arguments, name); return i >= 0 && i + 1 < arguments.Length ? arguments[i + 1] : null; }
+        sourcePayload = Option("--source-payload");
         UiText.LoadPreference(AppPaths.ForInstallation(Option("--home"), Option("--root") ?? InstallationManager.DefaultRoot).ConfigFile);
         if (Option("--render-update-progress") is { } render)
         {
@@ -99,6 +101,8 @@ public partial class App : Application
     {
         Environment.CurrentDirectory = Path.GetTempPath();
         EnsureApplicationClosed(destination);
+        if (sourcePayload is not null)
+            return await new InstallationManager(AppPaths.ForInstallation(home, Path.GetFullPath(sourcePayload))).InstallAsync(destination, progress: progress);
         var extraction = Path.Combine(Path.GetTempPath(), "VrcSetup-install-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(extraction);
         try
@@ -146,6 +150,7 @@ public sealed class InstallerWindow : Window
     private readonly Button install;
     private readonly Button launch;
     private string? installedRoot;
+    private bool installing;
     public InstallerWindow()
     {
         Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/AppMark.png"));
@@ -164,13 +169,15 @@ public sealed class InstallerWindow : Window
         launch = new Button { Content = UiText.Text("Open"), Padding = new Thickness(20, 9, 20, 9), IsEnabled = false };
         install.Click += async (_, _) =>
         {
+            installing = true;
             install.IsEnabled = false; target.IsEnabled = false; progress.IsIndeterminate = true; status.Text = UiText.Text("Verifying and installing…");
-            try { var record = await App.Install(ProjectRules.NormalizePath(target.Text), progress: new Progress<string>(message => status.Text = UiText.Text(message))); installedRoot = record.Root; status.Text = UiText.Text("Installed. Opening the app…"); launch.IsEnabled = true; Process.Start(new ProcessStartInfo(Path.Combine(installedRoot, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() }); Close(); }
+            try { var record = await App.Install(ProjectRules.NormalizePath(target.Text), progress: new Progress<string>(message => status.Text = UiText.Text(message))); installedRoot = record.Root; status.Text = UiText.Text("Installed. Opening the app…"); launch.IsEnabled = true; Process.Start(new ProcessStartInfo(Path.Combine(installedRoot, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() }); installing = false; Close(); }
             catch (Exception error) { status.Text = error.Message; install.IsEnabled = true; target.IsEnabled = true; }
-            finally { progress.IsIndeterminate = false; }
+            finally { installing = false; progress.IsIndeterminate = false; }
         };
         launch.Click += (_, _) => { if (installedRoot is not null) Process.Start(new ProcessStartInfo(Path.Combine(installedRoot, "app", "desktop", "VrcSetup.Desktop.exe")) { UseShellExecute = true }); Close(); };
         actions.Children.Add(install); actions.Children.Add(launch); panel.Children.Add(actions); Content = panel;
         Closed += (_, _) => Application.Current.Shutdown();
+        Closing += (_, args) => args.Cancel = installing;
     }
 }

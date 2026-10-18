@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$Installer, [Parameter(Mandatory=$true)][string]$TestRoot)
+param([Parameter(Mandatory=$true)][string]$Installer, [Parameter(Mandatory=$true)][string]$TestRoot, [string]$ComponentsDirectory)
 $ErrorActionPreference = 'Stop'
 $Installer = [IO.Path]::GetFullPath($Installer)
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
@@ -8,6 +8,10 @@ if (Test-Path -LiteralPath $TestRoot) { throw 'Choose a fresh test folder; exist
 $previousSkip = $env:VRCSETUP_SKIP_PATH_UPDATE; $previousMenu = $env:VRCSETUP_START_MENU_ROOT
 $env:VRCSETUP_SKIP_PATH_UPDATE = '1'; $env:VRCSETUP_START_MENU_ROOT = Join-Path $TestRoot 'menu'
 $program = Join-Path $TestRoot ('Program [test] & caf' + [char]0xE9); $dataRoot = Join-Path $TestRoot 'home'
+if ($ComponentsDirectory) {
+    $cache = Join-Path $dataRoot 'updates/components'; [void][IO.Directory]::CreateDirectory($cache)
+    Get-ChildItem -LiteralPath $ComponentsDirectory -File -Filter '*.zip' | Where-Object Name -Match '^[a-f0-9]{64}\.zip$' | Copy-Item -Destination $cache
+}
 $checks = [Collections.Generic.List[string]]::new()
 function Assert-Test([bool]$condition,[string]$message) { if (-not $condition) { throw $message }; $checks.Add($message); Write-Output $message }
 function Invoke-Installer([string]$name,[string[]]$Options) {

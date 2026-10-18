@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework><OutputType>WinExe</OutputType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier><PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference><InvariantGlobalization>false</InvariantGlobalization>
+    <AssemblyName>VrcSetupSetup</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../VrcSetup.Desktop/Assets/AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(ComponentManifest)')"><EmbeddedResource Include="$(ComponentManifest)" LogicalName="components.json" /></ItemGroup>
+</Project>
