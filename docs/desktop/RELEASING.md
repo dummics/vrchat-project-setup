@@ -1,5 +1,15 @@
 # Publishing an update
 
+## Release presentation
+
+- Title: the version alone, for example `0.2.0-beta.15` or `1.0.0`. Keep the immutable `v<version>` tag and existing prerelease/stable channel unchanged.
+- Start notes with the marked **Download this version** badge linking directly to that release's unified Windows EXE, followed by notes/changelog. Never link users to a source archive as the installer. The release workflow generates this automatically.
+- Display the installer as `VrcSetup-<version>-win-x64.exe`. Existing physical `Install-VrcSetup-...` filenames and URLs stay unchanged: installed clients discover them by exact name and verify their checksums. Display labels do not alter downloads or integrity metadata.
+- A future physical filename change needs a bridge app release accepting both names before later releases switch to the short one. Keep the bridge available for older clients. Do not rename existing assets or publish a duplicate EXE just to hide the old prefix.
+- `scripts/Sync-ReleasePresentation.ps1 -WhatIf` previews metadata normalization. The **Release presentation** maintenance workflow applies it using the repository-scoped Actions token and saves the old public metadata as an artifact. It changes only titles, note badges and display labels, never payloads, tags, dates or channel flags. This preserves old-client updates; downgrade behavior is a separate installer feature.
+
+The default branch's README must point to `/releases`, including while all public builds are prereleases. Keep it short and product-facing. The desktop source currently remains in its feature worktree; README presentation does not require merging the application.
+
 Source work and release publication are separate. Commit the intended changes on the existing project branch; do not create a release for every source commit. `Directory.Build.props` is the single version source.
 
 ```powershell

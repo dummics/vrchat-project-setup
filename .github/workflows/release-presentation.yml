@@ -1,0 +1,27 @@
+name: Release presentation
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/winui-desktop]
+    paths:
+      - .github/workflows/release-presentation.yml
+      - scripts/Sync-ReleasePresentation.ps1
+permissions:
+  contents: write
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Normalize titles and download buttons
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/Sync-ReleasePresentation.ps1 -SnapshotPath '${{ runner.temp }}/release-presentation-before.json'
+      - name: Preserve previous presentation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-presentation-before
+          path: ${{ runner.temp }}/release-presentation-before.json
+          retention-days: 30
