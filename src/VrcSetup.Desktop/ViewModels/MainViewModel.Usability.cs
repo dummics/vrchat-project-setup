@@ -36,11 +36,9 @@ public sealed partial class MainViewModel
     public string ManageSelectionLabel => SelectedProjects.Count > 0 ? $"Manage {SelectedProjects.Count} " + (SelectedProjects.Count == 1 ? "project" : "projects") : "Manage selected projects";
     public void NotifyProjectSelection() { OnPropertyChanged(nameof(HasSelectedProjects)); OnPropertyChanged(nameof(ManageSelectionLabel)); }
     public bool IsErrorVisible => ErrorMessage.Length > 0;
-    public Visibility WorkVisibility => IsBusy ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DeveloperVisibility => DeveloperMode ? Visibility.Visible : Visibility.Collapsed;
     public string PackageFileLabel => ImportDrafts.Count > 1 ? $"{ImportDrafts.Count} packages selected" : string.IsNullOrWhiteSpace(PackageFile) ? "Drop .unitypackages here" : Path.GetFileName(PackageFile);
     public string DestinationPreview => string.IsNullOrWhiteSpace(ProjectsRoot) ? "Choose a projects folder in Settings" : Path.Combine(ProjectsRoot, string.IsNullOrWhiteSpace(ProjectName) ? "Project name" : ProjectName);
-    partial void OnIsBusyChanged(bool value) { OnPropertyChanged(nameof(WorkVisibility)); }
     partial void OnDeveloperModeChanged(bool value) { OnPropertyChanged(nameof(DeveloperVisibility)); }
     partial void OnProjectNameChanged(string value)
     { OnPropertyChanged(nameof(DestinationPreview)); if (!switchingImportDraft && SelectedImportDraft is { } draft) draft.Name = value; }

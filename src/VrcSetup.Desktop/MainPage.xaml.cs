@@ -29,12 +29,15 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         SizeChanged += (_, _) => ConstrainContent();
         Navigation.DisplayModeChanged += (_, _) => ConstrainContent();
         CreateView.SizeChanged += (_, _) => ConstrainForms(); SettingsView.SizeChanged += (_, _) => ConstrainForms();
+        CreateForm.SizeChanged += (_, _) => ConstrainForms();
         ProjectsView.SizeChanged += (_, _) => ConstrainForms();
         ViewModel.PropertyChanged += (_, eventArgs) =>
         {
             if (eventArgs.PropertyName == nameof(ViewModel.CurrentPage)) ShowPage(ViewModel.CurrentPage);
             if (eventArgs.PropertyName == nameof(ViewModel.DeveloperMode)) SyncDiagnosticsTab();
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
+            if (eventArgs.PropertyName == nameof(ViewModel.CreationPackageSummary)) DispatcherQueue.TryEnqueue(ConstrainForms);
+            if (eventArgs.PropertyName == nameof(ViewModel.ImportJobsVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
         };
         Loaded += async (_, _) =>
         {
@@ -94,8 +97,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             // scrolling becomes necessary, so actions never sit under the thumb.
             CreateLayout.Width = Math.Max(1, CreateView.ActualWidth - 24);
             CreateForm.Width = CreateLayout.Width;
+            CreationPackageDetails.Width = CreateForm.Width;
+            DependencyObject? header = CreationPackageHeader;
+            while (header is not null && header is not Microsoft.UI.Xaml.Controls.Primitives.ToggleButton) header = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(header);
+            if (header is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton toggle)
+            { toggle.HorizontalAlignment = HorizontalAlignment.Left; toggle.Width = double.NaN; toggle.MaxWidth = CreateForm.Width; }
             ImportQueueSection.Width = CreateLayout.Width;
-            ImportQueueList.MaxHeight = ViewModel.ImportJobs.Any(x => x.DetailsOpen) ? Math.Min(520, Math.Max(260, CreateView.ActualHeight - 140)) : 220;
+            ImportQueueList.MaxHeight = ViewModel.ImportJobs.Any(x => x.DetailsOpen) ? Math.Min(480, Math.Max(240, CreateView.ActualHeight - 180))
+                : Math.Clamp(CreateView.ActualHeight - CreateForm.ActualHeight - ImportPageHeader.ActualHeight - 40, 120, 240);
             var narrow = CreateForm.Width < 560;
             Grid.SetRow(ImportResourceSummary, narrow ? 1 : 0); Grid.SetColumn(ImportResourceSummary, narrow ? 0 : 1);
             Grid.SetColumnSpan(ImportResourceSummary, narrow ? 3 : 1);
@@ -113,7 +122,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             Grid.SetColumn(CustomizePackagesButton, stackPreset ? 0 : 1); Grid.SetRow(CustomizePackagesButton, stackPreset ? 1 : 0);
             CustomizePackagesButton.HorizontalAlignment = HorizontalAlignment.Left;
             if (CreationPackageList.ItemsPanelRoot is ItemsWrapGrid items)
-                items.ItemWidth = Math.Max(1, (CreateForm.Width - 16) / (CreateForm.Width >= 720 ? 2 : 1));
+                items.ItemWidth = Math.Max(1, (CreationPackageList.ActualWidth - 16) / (CreationPackageList.ActualWidth >= 720 ? 2 : 1));
             Grid.SetColumn(ChoosePackageButton, narrow ? 1 : 2); Grid.SetRow(ChoosePackageButton, narrow ? 1 : 0);
             ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
@@ -121,6 +130,9 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Max(1, SettingsView.ActualWidth - 24);
     }
     private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
+    private void CreationPackagesResized(object sender, SizeChangedEventArgs args) => ConstrainForms();
+    private void CreationPackagesExpanded(Expander sender, ExpanderExpandingEventArgs args) => ConstrainForms();
+    private void CreationPackagesCollapsed(Expander sender, ExpanderCollapsedEventArgs args) => ConstrainForms();
     private async void AddCreationSuggestionClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiCreationPackage row) await ViewModel.AddCreationSuggestionAsync(row); }
     private async void HistoryLogClicked(object sender, RoutedEventArgs args)

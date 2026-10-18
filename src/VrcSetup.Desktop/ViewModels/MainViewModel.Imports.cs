@@ -11,12 +11,11 @@ public sealed partial class MainViewModel
 {
     public ObservableCollection<UiImportRow> ImportJobs { get; } = [];
     private const int RequestedParallelism = int.MaxValue;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportReviewLabel)), NotifyPropertyChangedFor(nameof(ImportPreparingVisibility))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportReviewLabel))]
     public partial bool IsPreparingImport { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportErrorVisibility)), NotifyPropertyChangedFor(nameof(ImportSettingsVisibility))]
     public partial string ImportError { get; set; } = "";
     public string ImportReviewLabel => IsPreparingImport ? "Preparing review…" : "Review and import";
-    public Visibility ImportPreparingVisibility => IsPreparingImport ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportErrorVisibility => ImportError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportSettingsVisibility => ImportError.Contains("Settings", StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ManualImportPathVisibility))] public partial bool ManualImportPath { get; set; }
@@ -66,7 +65,6 @@ public sealed partial class MainViewModel
     }
     public bool HasActiveImports => app.Imports.HasActiveJobs;
     public bool ImportsIdle => !HasActiveImports;
-    public Visibility ImportsEmptyVisibility => ImportJobs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)
     {
@@ -87,9 +85,10 @@ public sealed partial class MainViewModel
                 var current = ImportJobs.IndexOf(ImportJobs.First(x => x.Id == jobs[index].Id));
                 if (current != index) ImportJobs.Move(current, index);
             }
-            OnPropertyChanged(nameof(HasActiveImports)); OnPropertyChanged(nameof(ImportsIdle)); OnPropertyChanged(nameof(ImportsEmptyVisibility));
+            OnPropertyChanged(nameof(HasActiveImports)); OnPropertyChanged(nameof(ImportsIdle));
             OnPropertyChanged(nameof(ResourceSummary));
             OnPropertyChanged(nameof(CanClearCompletedImports));
+            OnPropertyChanged(nameof(ImportJobsVisibility)); OnPropertyChanged(nameof(ClearCompletedVisibility));
             if (CurrentPage == "Activity") ReconcileHistory(snapshot);
             var resource = app.Imports.Resources;
             if (resource is not null && !ReferenceEquals(resource, lastResource))

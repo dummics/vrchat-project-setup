@@ -52,7 +52,7 @@ public static class UiSmokeTest
         await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null);
         Require(viewModel.LibraryIsList && (await viewModel.Application.Configuration.LoadAsync()).PackageLibraryView == "list", "List view is available and persisted");
         await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null);
-        Require(new SemanticVersion(viewModel.AppVersion).Major == 0 && ((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Content?.ToString() == viewModel.AppVersion, "Beta version is visible in the persistent version menu");
+        Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Content?.ToString() == viewModel.AppVersion, "Application version is visible in the persistent version menu");
         Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Command is not null && ((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Flyout is null, "Footer update is a direct action without a menu");
         viewModel.UpdateFailed = true; viewModel.UpdateStatus = new string('x', 400);
         Require(viewModel.UpdateSummary == "Update failed", "Technical update errors stay compact in the footer");
@@ -64,7 +64,16 @@ public static class UiSmokeTest
         Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 2, "Diagnostics tab is absent in normal mode");
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == "My default packages", "Preset selector has a visible selection after binding");
-        Require(viewModel.WorkVisibility == Visibility.Collapsed, "Idle footer actions are hidden");
+        Require(viewModel.ApplicationProgressVisibility == Visibility.Collapsed, "Idle application progress is hidden");
+        Require(!((Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails")).IsExpanded, "Creation packages start as a compact summary");
+        viewModel.IsInspectingPackage = true;
+        Require(viewModel.ApplicationStatus.Contains("Checking packages") && viewModel.ApplicationProgressIndeterminate, "Background analysis appears in application status");
+        viewModel.IsDownloadingUpdate = true; viewModel.UpdateDownloadPercent = 42;
+        Require(viewModel.ApplicationStatus.Contains("42%") && viewModel.ApplicationStatus.Contains("Checking packages") && !viewModel.ApplicationProgressIndeterminate, "Application status preserves concurrent work and real download progress");
+        viewModel.IsDownloadingUpdate = false; viewModel.IsInspectingPackage = false;
+        viewModel.IsBusy = true; viewModel.Status = "technical fixture path and tool output";
+        Require(viewModel.ApplicationStatus == "Working…" && viewModel.ApplicationStopVisibility == Visibility.Visible, "General work uses a short friendly status with stop");
+        viewModel.IsBusy = false;
         Require(viewModel.PresetChangesVisibility == Visibility.Collapsed, "Preset save actions are contextual");
         var retries = 0;
         var retryCache = new AsyncVersionCache((_, _) => Task.FromResult(Interlocked.Increment(ref retries) == 1 ? Array.Empty<string>() : new[] { "1.0.0" }));
@@ -261,7 +270,7 @@ public static class UiSmokeTest
                     Require(Descendants(projects).OfType<FrameworkElement>().Any(x => x.Name == "ProjectModified"), "Project last-modified field is materialized: " + size.Width);
                 }
                 if (screen == "Create")
-                    Require(((FrameworkElement)page.FindName("ImportQueueSection")).ActualWidth > 200 && viewModel.ImportsIdle, "Shared import page has a usable queue layout: " + size.Width);
+                    Require(((FrameworkElement)page.FindName("ImportQueueSection")).Visibility == Visibility.Collapsed && viewModel.ImportsIdle, "Empty imports reserve no workspace: " + size.Width);
                 if (screen is "Create" or "Settings")
                 {
                     var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");
@@ -283,6 +292,21 @@ public static class UiSmokeTest
                     }
                 }
                 await Render(page, Path.Combine(artifacts, screen.ToLowerInvariant() + "-" + size.Width + ".png"));
+                if (screen == "Create" && size.Width is 720 or 1180)
+                {
+                    var details = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails");
+                    details.IsExpanded = true; viewModel.IsInspectingPackage = true;
+                    await Task.Delay(250); page.UpdateLayout();
+                    var footer = (FrameworkElement)page.FindName("StatusBar");
+                    var text = (Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("ApplicationStatusText");
+                    Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);
+                    Require(((FrameworkElement)page.FindName("CreationPackageList")).ActualHeight <= 160, "Expanded package recap remains compact: " + size.Width);
+                    var chip = Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>().First(x => x.Name == "ExpanderHeader");
+                    Require(chip.ActualWidth < 400, "Package disclosure stays compact when its details expand: " + size.Width);
+                    Require(!((Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("CreationPackageHeader")).IsTextTrimmed, "Compact package summary remains fully readable: " + size.Width);
+                    await Render(page, Path.Combine(artifacts, "create-expanded-status-" + size.Width + ".png"));
+                    details.IsExpanded = false; viewModel.IsInspectingPackage = false; await Task.Delay(200);
+                }
                 if (screen == "Presets")
                 {
                     if (size.Width == 1180)
@@ -316,6 +340,29 @@ public static class UiSmokeTest
                 }
             }
         }
+        viewModel.CurrentPage = "Create";
+        var jobList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("ImportQueueList");
+        var jobSection = (FrameworkElement)page.FindName("ImportQueueSection");
+        var fixtureJobs = new[] { "First avatar", "Second avatar" }.Select((name, index) => new VrcSetup_Desktop.ViewModels.UiImportRow(
+            new ImportJob("visual-" + index, new OperationPlan("visual", DateTime.UtcNow, []),
+                new CreationRequest("fixture.unitypackage", name, Path.Combine(artifacts, name), "", "StandaloneWindows64", [], []),
+                "Running", "Packages", 35 + index * 20, "", "", DateTime.UtcNow.AddMinutes(-2)))).ToArray();
+        jobList.ItemsSource = fixtureJobs; jobList.Visibility = Visibility.Visible; jobSection.Visibility = Visibility.Visible;
+        foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(1180, 800) })
+        {
+            window.AppWindow.Resize(size); await Task.Delay(600); page.UpdateLayout();
+            var view = (FrameworkElement)page.FindName("CreateView");
+            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 2, "Imports remain below the form at every window size: " + size.Width);
+            Require(jobList.ActualHeight >= 100, "Active job rows are visible in the adaptive import area: " + size.Width);
+            var form = (FrameworkElement)page.FindName("CreateForm");
+            var formOrigin = form.TransformToVisual(view).TransformPoint(new(0, 0));
+            var jobsOrigin = jobSection.TransformToVisual(view).TransformPoint(new(0, 0));
+            Require(jobsOrigin.Y >= formOrigin.Y + form.ActualHeight, "Import jobs never overlap the package recap: " + size.Width);
+            await Render(page, Path.Combine(artifacts, "create-jobs-fixture-" + size.Width + ".png"));
+        }
+        jobList.SetBinding(Microsoft.UI.Xaml.Controls.ItemsControl.ItemsSourceProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportJobs)) });
+        jobList.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportJobsVisibility)) });
+        jobSection.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportJobsVisibility)) });
         viewModel.Theme = "Dark"; viewModel.CurrentPage = "Workspace"; await Task.Delay(180);
         await Render(page, Path.Combine(artifacts, "workspace-dark.png"));
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(520, 800), new Windows.Graphics.SizeInt32(1180, 800) })

@@ -7,7 +7,7 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     private ApplicationRelease? availableUpdate;
-    private bool checkingUpdate;
+    [ObservableProperty] public partial bool IsCheckingUpdate { get; set; }
     [ObservableProperty] public partial bool CheckUpdatesOnStartup { get; set; } = true;
     [ObservableProperty] public partial bool IncludeBetaUpdates { get; set; } = true;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool HasApplicationUpdate { get; set; }
@@ -25,12 +25,12 @@ public sealed partial class MainViewModel
     { if (HasApplicationUpdate) await InstallApplicationUpdate(); else await CheckApplicationUpdatesAsync(true); }
     [RelayCommand] private void ContactSupport() => OpenPath("mailto:contact@dummics.com?subject=VRChat%20Project%20Setup");
     public string AppVersion => ApplicationUpdates.CurrentVersion;
-    public string UpdateLabel => IsDownloadingUpdate ? "Downloading…" : HasApplicationUpdate ? "Update available" : AppVersion;
+    public string UpdateLabel => IsDownloadingUpdate ? AppVersion : HasApplicationUpdate ? "Update available" : AppVersion;
     [RelayCommand] private Task CheckApplicationUpdates() => CheckApplicationUpdatesAsync(true);
     internal async Task CheckApplicationUpdatesAsync(bool manual)
     {
-        if (checkingUpdate || IsDownloadingUpdate) return;
-        checkingUpdate = true;
+        if (IsCheckingUpdate || IsDownloadingUpdate) return;
+        IsCheckingUpdate = true;
         if (manual) UpdateStatus = "Checking for updates…";
         try
         {
@@ -45,7 +45,7 @@ public sealed partial class MainViewModel
         { if (manual) { updateDetails = error.ToString(); UpdateFailed = true; UpdateStatus = "Could not check updates."; } app.Diagnostics.Write("Updates", error.Message); }
         finally
         {
-            checkingUpdate = false;
+            IsCheckingUpdate = false;
             if (!manual)
             {
                 try
@@ -71,13 +71,14 @@ public sealed partial class MainViewModel
         if (!File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")))
         { UpdateStatus = "Portable copy: download the new version from Releases."; OpenPath(availableUpdate.Page.AbsoluteUri); return; }
         IsDownloadingUpdate = true;
+        UpdateDownloadPercent = 0;
         var preferFullInstaller = UpdateFailed;
         UpdateFailed = false; updateDetails = "";
         try
         {
             using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
             client.Timeout = TimeSpan.FromMinutes(15); client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
-            var progress = new SynchronizationProgress<int>(context, value => { if (IsDownloadingUpdate) UpdateStatus = "Downloading update · " + value + "%"; });
+            var progress = new SynchronizationProgress<int>(context, value => { if (IsDownloadingUpdate) { UpdateDownloadPercent = value; UpdateStatus = "Downloading update · " + value + "%"; } });
             var folder = Path.Combine(app.Paths.Home, "updates", availableUpdate.Version);
             var installer = await new ApplicationUpdates(client).DownloadAsync(availableUpdate, folder, progress, lifetime.Token, preferFullInstaller ? null : app.Paths.PayloadRoot);
             if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty)

@@ -249,5 +249,14 @@
   "Verifying and installing…": "Verifica e installazione…",
   "Installed. Opening the app…": "Installato. Apertura dell'app…",
   "The required VRChat foundation stays included.": "I pacchetti di base richiesti da VRChat restano inclusi.",
-  "Restarting to install update…": "Riavvio per installare l'aggiornamento…"
+  "Restarting to install update…": "Riavvio per installare l'aggiornamento…",
+  "{0} packages included": "{0} pacchetti inclusi",
+  "{0} suggested": "{0} suggeriti",
+  "{0} imports in progress": "{0} import in corso",
+  "1 import in progress": "1 import in corso",
+  "Memory nearly full": "Memoria quasi piena",
+  "CPU busy": "CPU molto utilizzata",
+  "Application status": "Stato applicazione",
+  "Downloading update": "Download aggiornamento",
+  "Working…": "Operazione in corso…"
 }

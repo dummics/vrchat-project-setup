@@ -16,8 +16,8 @@ public sealed partial class MainViewModel
         get
         {
             var missing = CreationPackages.Count(x => !x.Selected);
-            var status = IsInspectingPackage ? " · checking…" : CreationInspection is { Observation.ArchiveComplete: false } or { Observation.TextComplete: false } ? " · partial analysis" : "";
-            return $"{CreationPackages.Count(x => x.Selected)} packages" + (missing > 0 ? $" · {missing} suggestions" : "") + status;
+            return string.Format(UiText.Text("{0} packages included"), CreationPackages.Count(x => x.Selected))
+                + (missing > 0 ? " · " + string.Format(UiText.Text("{0} suggested"), missing) : "");
         }
     }
     private Dictionary<string, string> CurrentCreationSelection()
@@ -37,7 +37,7 @@ public sealed partial class MainViewModel
         var ordered = desired.OrderBy(x => creationPreviewOrder[x.Id]).ToArray();
         for (var i = 0; i < ordered.Length; i++)
         {
-            var item = ordered[i]; var name = Registry.FirstOrDefault(x => x.Id.Equals(item.Id, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? PackageCatalog.FriendlyName(item.Id);
+            var item = ordered[i]; var name = PackageDisplayName(item.Id);
             var current = CreationPackages.FirstOrDefault(x => x.Id.Equals(item.Id, StringComparison.OrdinalIgnoreCase));
             if (current is null) CreationPackages.Insert(i, new(item, name));
             else { current.Update(item, name); var old = CreationPackages.IndexOf(current); if (old != i) CreationPackages.Move(old, i); }
@@ -71,6 +71,7 @@ public sealed class UiCreationPackage(PackageSelectionPreview data, string name)
     };
     public string Action => Data.Evidence is { } hint && DependencyAdvisor.SuggestedVersion(hint) is not null ? "Add" : "Review";
     public Visibility ActionVisibility => Selected ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility PinVisibility => Data.Version is "latest" or "" ? Visibility.Collapsed : Visibility.Visible;
     public string Tooltip => Id + (Data.Evidence?.VersionConstraint is { Length: > 0 } constraint ? "\nRequires " + constraint : "");
     public void Update(PackageSelectionPreview value, string displayName)
     { if (Data == value && Name == displayName) return; Data = value; Name = displayName; OnPropertyChanged(string.Empty); }
