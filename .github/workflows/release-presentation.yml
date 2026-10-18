@@ -6,18 +6,24 @@ on:
     paths:
       - .github/workflows/release-presentation.yml
       - scripts/Sync-ReleasePresentation.ps1
+      - scripts/Export-UpdateFeed.ps1
+      - tests/Test-UpdateFeed.ps1
 permissions:
   contents: write
 jobs:
   normalize:
+    if: "!startsWith(github.event.head_commit.message, 'chore(release): ')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Verify static update feed export
+        shell: pwsh
+        run: ./tests/Test-UpdateFeed.ps1 -OutputDirectory '${{ runner.temp }}/update-feed-fixture'
       - name: Normalize titles and download buttons
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/Sync-ReleasePresentation.ps1 -ReadmeBranch main -SnapshotPath '${{ runner.temp }}/release-presentation-before.json'
+        run: ./scripts/Sync-ReleasePresentation.ps1 -ReadmeBranch main -FeedBranch main -SnapshotPath '${{ runner.temp }}/release-presentation-before.json'
       - name: Preserve previous presentation
         if: always()
         uses: actions/upload-artifact@v4

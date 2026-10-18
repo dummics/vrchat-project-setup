@@ -12,6 +12,8 @@ The default branch's README links directly to the newest numbered public release
 
 Source work and release publication are separate. Commit the intended changes on the existing project branch; do not create a release for every source commit. `Directory.Build.props` is the single version source.
 
+After public assets are verified/published, `Sync-ReleasePresentation.ps1 -ReadmeBranch main -FeedBranch main` refreshes the download link and the generated `.github/updates/releases.json` on `main`. Clients fetch that static raw file instead of the rate-limited REST API. The presentation-maintenance workflow can repair/refresh the feed without building another app; it skips release-intent pushes because the release workflow owns that publication. Preserve this step for future beta and stable releases.
+
 ```powershell
 # Preview: does not edit files, commit, tag or push.
 ./scripts/Release.ps1 -NextBeta

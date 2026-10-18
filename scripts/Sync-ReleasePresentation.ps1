@@ -2,7 +2,8 @@
 param(
     [string]$Repository = 'dummics/vrchat-project-setup',
     [string]$SnapshotPath,
-    [string]$ReadmeBranch
+    [string]$ReadmeBranch,
+    [string]$FeedBranch
 )
 $ErrorActionPreference = 'Stop'
 if ($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid repository.' }
@@ -62,5 +63,21 @@ if ($ReadmeBranch) {
         if (-not $env:GH_TOKEN) { throw 'A repository-scoped GH_TOKEN is required for changes.' }
         $payload = @{ message='docs(readme): point download to ' + $latest.Version; branch=$ReadmeBranch; sha=$readme.sha; content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($updated)) } | ConvertTo-Json
         $null = Invoke-RestMethod "$base/contents/README.md" -Method Put -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($payload))
+    }
+}
+if ($FeedBranch) {
+    $feedFile = Join-Path $PSScriptRoot '../.work/artifacts/update-feed/releases.json'
+    & (Join-Path $PSScriptRoot 'Export-UpdateFeed.ps1') -Releases $releases -Repository $Repository -OutputPath $feedFile
+    $json = [IO.File]::ReadAllText($feedFile)
+    $contentUrl = "$base/contents/.github/updates/releases.json"
+    $existing = $null
+    try { $existing = Invoke-RestMethod ($contentUrl + '?ref=' + [uri]::EscapeDataString($FeedBranch)) -Headers $headers }
+    catch { if ([int]$_.Exception.Response.StatusCode -ne 404) { throw } }
+    $oldJson = if ($existing) { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($existing.content)) } else { '' }
+    if ($oldJson -ne $json -and $PSCmdlet.ShouldProcess("$FeedBranch/.github/updates/releases.json", 'Publish static update feed')) {
+        if (-not $env:GH_TOKEN) { throw 'A repository-scoped GH_TOKEN is required for changes.' }
+        $payload = @{ message='chore(updates): refresh static release feed'; branch=$FeedBranch; content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)) }
+        if ($existing) { $payload.sha = $existing.sha }
+        $null = Invoke-RestMethod $contentUrl -Method Put -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json)))
     }
 }

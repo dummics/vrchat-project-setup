@@ -89,13 +89,14 @@ public static class UpdateSmokeTest
             var root = ApplicationUpdates.Repository + "/releases/download/v" + spec.Version + "/";
             var name = "Install-VrcSetup-" + spec.Version + "-win-x64.exe";
             HttpContent content;
-            if (request.RequestUri!.AbsoluteUri == "https://api.github.com/repos/dummics/vrchat-project-setup/releases?per_page=100")
+            var uri = request.RequestUri ?? throw new IOException("Missing update request URI.");
+            if (uri == ApplicationUpdateSource.Default.Feed)
                 content = new StringContent(JsonSerializer.Serialize(new[] { new { tag_name = "v" + spec.Version, draft = false, prerelease = true, assets = new[] { new { name, browser_download_url = root + name }, new { name = "SHA256SUMS.txt", browser_download_url = root + "SHA256SUMS.txt" }, new { name = "components.json", browser_download_url = root + "components.json" } } } }));
-            else if (request.RequestUri.AbsoluteUri == root + "SHA256SUMS.txt")
+            else if (uri.AbsoluteUri == root + "SHA256SUMS.txt")
                 content = new StringContent(File.ReadAllText(Path.Combine(Path.GetDirectoryName(spec.Installer)!, "SHA256SUMS.txt")));
-            else if (request.RequestUri.AbsoluteUri == root + "components.json")
+            else if (uri.AbsoluteUri == root + "components.json")
                 content = new ByteArrayContent(File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(spec.Installer)!, "components.json")));
-            else if (request.RequestUri.AbsoluteUri == root + name)
+            else if (uri.AbsoluteUri == root + name)
             {
                 content = new StreamContent(File.OpenRead(spec.Installer));
                 content.Headers.ContentLength = new FileInfo(spec.Installer).Length;

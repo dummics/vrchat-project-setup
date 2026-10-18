@@ -77,6 +77,9 @@ jobs:
       - name: Fixture tests
         shell: pwsh
         run: dotnet test tests/VrcSetup.Core.Tests/VrcSetup.Core.Tests.csproj -c Release -p:Platform=x64 --nologo
+      - name: Verify static update feed export
+        shell: pwsh
+        run: ./tests/Test-UpdateFeed.ps1 -OutputDirectory '${{ runner.temp }}/update-feed-fixture'
       - name: Build self-contained installer and portable archive
         shell: pwsh
         env:
@@ -200,6 +203,8 @@ jobs:
           Internet is required for uncached components. The portable ZIP is optional. Hash-named ZIPs and components.json are internal installer assets: you do not need to download them manually. This is a beta for testing.
 
           The app checks periodically while open, prepares supported updates in the background, and installs them on the next launch. Settings > Updates controls automatic updates; the footer still allows an immediate update. Existing installations need to install this version once to enable the new behavior.
+
+          Update checks now use a static feed instead of the GitHub REST API. If an older version reports an API rate limit, download and run the EXE above once; it updates the existing installation and preserves settings.
           "@ | Set-Content -LiteralPath $notes -Encoding utf8
           $arguments = @('release','create',$tag,'--target',$env:GITHUB_SHA,'--title',$env:RELEASE_VERSION,'--notes-file',$notes,'--generate-notes')
           # Upload into a draft first: clients must never discover an EXE while
@@ -213,5 +218,5 @@ jobs:
           if ($env:PUBLISH_RELEASE -eq 'true') {
             & gh release edit $tag --draft=false
             if ($LASTEXITCODE -ne 0) { throw 'Publishing failed; verified assets remain in the draft.' }
-            ./scripts/Sync-ReleasePresentation.ps1 -ReadmeBranch main
+            ./scripts/Sync-ReleasePresentation.ps1 -ReadmeBranch main -FeedBranch main
           }

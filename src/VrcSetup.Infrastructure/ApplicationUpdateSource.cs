@@ -26,7 +26,7 @@ public sealed record ApplicationUpdateSource
     {
         var metadata = typeof(ApplicationUpdateSource).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToArray();
         string Setting(string name, string fallback) => metadata.FirstOrDefault(x => x.Key == name)?.Value is { Length: > 0 } value ? value : fallback;
-        return new(Setting("UpdateFeedUri", "https://api.github.com/repos/dummics/vrchat-project-setup/releases?per_page=100"),
+        return new(Setting("UpdateFeedUri", "https://raw.githubusercontent.com/dummics/vrchat-project-setup/main/.github/updates/releases.json"),
             ApplicationUpdates.Repository, Setting("UpdateAssetPrefix", ApplicationUpdates.Repository + "/releases/download/"));
     }
     public bool AllowsAsset(string? value, out Uri? uri)

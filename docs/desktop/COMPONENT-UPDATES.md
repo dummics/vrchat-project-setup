@@ -30,7 +30,9 @@ GitHub Releases is the initial static asset host. Components use plain HTTPS GET
 
 `Publish-Windows.ps1 -AssetBaseUri https://downloads.example.com/v<version>/` pins a different component directory in the bootstrapper. Upload the generated hash-named ZIPs to that exact directory before publishing its EXE. No app installer logic changes and no user-facing host field are required.
 
-Release discovery is separate. `ApplicationUpdateSource` defaults to GitHub but supports an HTTPS static JSON feed with the existing GitHub release-list shape (`tag_name`, `draft`, `prerelease`, `assets` with `name` and `browser_download_url`). Tests exercise an independent feed and CDN host. Maintainer build parameters `-UpdateFeedUri` and `-UpdateAssetPrefix` pin the future feed and allowed installer/checksum URL prefix into the app. Feed failures stay non-blocking; a static VPS/CDN feed can replace the GitHub API if its shared-IP limits become relevant.
+Release discovery uses a static JSON file at `https://raw.githubusercontent.com/dummics/vrchat-project-setup/main/.github/updates/releases.json`, outside the GitHub REST API's shared-IP quota. Release publication and presentation maintenance regenerate it from complete public releases using the Actions repository token; clients need no token. The contract retains `tag_name`, `draft`, `prerelease`, and `assets` with `name` and `browser_download_url`. `Export-UpdateFeed.ps1` excludes drafts, incomplete releases and external asset URLs; an empty valid set never overwrites the feed. Installer/components remain on GitHub Releases with unchanged hash checks and URL restrictions. There is no automatic fallback to the REST API. Older apps still using that API may need one manual installer download to receive this change.
+
+`ApplicationUpdateSource` also supports an independent HTTPS feed/CDN. Maintainer build parameters `-UpdateFeedUri` and `-UpdateAssetPrefix` pin a future host without changing the format. Feed failures stay non-blocking, and the client cache/backoff still applies.
 
 Migration sequence:
 

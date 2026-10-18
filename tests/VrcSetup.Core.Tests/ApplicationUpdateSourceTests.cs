@@ -7,6 +7,11 @@ namespace VrcSetup.Tests;
 
 public sealed class ApplicationUpdateSourceTests
 {
+    [Fact] public void DefaultDiscoveryUsesStaticFeedAndRetainsReleaseAssetTrust()
+    {
+        Assert.Equal("https://raw.githubusercontent.com/dummics/vrchat-project-setup/main/.github/updates/releases.json", ApplicationUpdateSource.Default.Feed.AbsoluteUri);
+        Assert.Equal(ApplicationUpdates.Repository + "/releases/download/", ApplicationUpdateSource.Default.AssetPrefix);
+    }
     [Fact] public async Task StaticVpsFeedSelectsReleasesWithoutGitHubApiOrWiderAssetTrust()
     {
         var source = new ApplicationUpdateSource("https://updates.example.test/releases.json", ApplicationUpdates.Repository, "https://cdn.example.test/downloads/");
