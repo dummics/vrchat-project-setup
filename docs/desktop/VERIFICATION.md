@@ -174,3 +174,10 @@ Local verification: 220 core tests, 364 native WinUI checks and 43 checks agains
 The Native AOT public bootstrapper was built and its start/download/install/completion controls captured offscreen. File/byte progress tests cover cold versus cached delivery; the measured bar switches between determinate and indeterminate styles. Engine tests exercise manual Finish choices, declined reinstall/downgrade and automatic completion without an engine window. These tests use isolated folders and shell overrides; no owner installation or real Unity project is changed.
 
 The real beta.14 app updated to beta.22 and reopened in 14.8 seconds with settings preserved, using the public Native AOT EXE and the verified component cache. This is local component-delivery evidence; CI additionally checks the newest preceding published release.
+## Compact setup, project feedback and contact (19 October 2026)
+
+222 core tests and 369 native UI checks pass. Executor tests now allow ordinary package-tool changes with Unity open while preserving the exclusive Unity requirement for extra file imports. Native checks cover pointer focus after deselection, cleared selection feedback, error-banner log actions and the contact dialog's two explicit copy choices. Contact tests do not change the owner's clipboard or send messages.
+
+The installer keeps a fixed 560 × 260 logical-pixel window across choices/progress/completion, with a 14px phase label directly above the 24px bar. Actual native captures confirm all controls fit. Project surfaces animate hover/selection for 180ms, use the real IsSelected state and reserve the checkbox slot to prevent text shifting. Dark/light themes and system motion preferences remain supported.
+
+Evidence: `.work/artifacts/2026-10-19-compact-setup-project-feedback/`. WinUI captures show distinct selected/hover/neutral background pixels after deselection. The owner's Apply diagnostics were read only; they recorded the previous Unity-open preflight refusal. No real project or installed app was modified. These changes are source commits for the next build, not a published release.

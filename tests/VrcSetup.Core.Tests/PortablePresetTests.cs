@@ -45,4 +45,11 @@ public sealed class PortablePresetTests
         Assert.DoesNotContain("private path", UserErrors.Message(new IOException("private path")));
         Assert.NotEqual(text, UserErrors.Message(new UnauthorizedAccessException("private path")));
     }
+    [Fact] public void BusyProjectsGiveTheUserAConcreteRecoveryAction()
+    {
+        var text = UserErrors.Message(new ProjectsInUseException(["Avatar PC", "Avatar Quest"]));
+        Assert.Contains("Avatar PC", text); Assert.Contains("Avatar Quest", text);
+        Assert.DoesNotContain("Try again, or contact support", text);
+        Assert.DoesNotContain("IOException", text);
+    }
 }

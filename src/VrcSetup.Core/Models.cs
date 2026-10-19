@@ -162,6 +162,7 @@ public sealed record ProjectPlan
     public string UnityEditorPath { get; init; } = "";
     public IReadOnlyDictionary<string, string> ImportFingerprints { get; init; } = new Dictionary<string, string>();
     public bool HasChanges => Creation is not null || RecoverySource is not null || ExtraImports.Length > 0 || Changes.Any(x => x.Kind != ChangeKind.Keep);
+    public bool RequiresUnityBatch => Creation is not null || RecoverySource is not null || ExtraImports.Length > 0;
 }
 public sealed record OperationPlan(string Id, DateTime CreatedUtc, ProjectPlan[] Projects);
 

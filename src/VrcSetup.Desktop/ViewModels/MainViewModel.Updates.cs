@@ -27,11 +27,7 @@ public sealed partial class MainViewModel
     [RelayCommand] private Task ShowUpdateDetails() => ui.ShowUpdateInfoAsync(UiText.Text(updateDetails.Length > 0 ? updateDetails : UpdateStatus));
     [RelayCommand] private async Task UpdateAction()
     { if (HasApplicationUpdate) await InstallApplicationUpdate(); else await CheckApplicationUpdatesAsync(true); }
-    [RelayCommand] private async Task ContactSupport() => await Guard(async () =>
-    {
-        var address = new Uri("mailto:contact@dummics.com?subject=" + Uri.EscapeDataString("VRC Project Setup " + AppVersion) + "&body=" + Uri.EscapeDataString(UiText.Text("What were you trying to do?\n\nWhat happened?\n\nSteps to reproduce:\n\n") + "VRC Project Setup " + AppVersion + " · Windows " + Environment.OSVersion.Version));
-        if (!await Windows.System.Launcher.LaunchUriAsync(address)) await ui.ShowErrorAsync(UiText.Text("No email app is configured. Contact us at contact@dummics.com."));
-    });
+    [RelayCommand] private async Task ContactSupport() => await Guard(ui.ShowContactAsync);
     public string AppVersion => ApplicationUpdates.CurrentVersion;
     public string UpdateLabel => IsDownloadingUpdate ? AppVersion : IsUpdateReady ? "Update ready" : HasApplicationUpdate ? "Update available" : AppVersion;
     [RelayCommand] private Task CheckApplicationUpdates() => CheckApplicationUpdatesAsync(true);

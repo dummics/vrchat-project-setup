@@ -374,5 +374,13 @@
   "Discard package changes for this import?": "Scartare le modifiche ai pacchetti di questa importazione?",
   "Import log": "Log dell'importazione",
   "Wait for imports to finish before changing the app or its settings.": "Attendi la fine delle importazioni prima di modificare l'app o le impostazioni.",
-  "Update will wait until imports finish.": "L'aggiornamento attenderà la fine delle importazioni."
+  "Update will wait until imports finish.": "L'aggiornamento attenderà la fine delle importazioni.",
+  "Close Unity to import additional files into {0}. No project was changed.": "Chiudi Unity per importare file aggiuntivi in {0}. Nessun progetto è stato modificato.",
+  "Wait for this project's import to finish before changing its packages.": "Attendi la fine dell'importazione di questo progetto prima di modificarne i pacchetti.",
+  "Contact": "Contatti",
+  "Copy email": "Copia email",
+  "Copy Discord username": "Copia nome Discord",
+  "Copied": "Copiato",
+  "Could not copy. Select and copy the contact instead.": "Impossibile copiare. Seleziona e copia il contatto.",
+  "This action could not be completed. Open logs for details.": "Non è stato possibile completare l'operazione. Apri i log per i dettagli."
 }

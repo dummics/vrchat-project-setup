@@ -33,7 +33,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 foreach (var import in project.ImportFingerprints)
                     if (ProjectRules.FileIdentity(import.Key) != import.Value) throw new ProjectSkippedException("UnityPackage changed after review. Review again before importing.");
-                if (workspace.IsBusy(project.Path)) throw new ProjectSkippedException("Open in Unity; skipped. Close Unity and review again.");
+                if (project.RequiresUnityBatch && workspace.IsBusy(project.Path)) throw new ProjectSkippedException("Close Unity before importing additional files. No project was changed.");
                 if (project.Creation is null)
                 {
                     var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
@@ -78,7 +78,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 foreach (var change in project.Changes.Where(x => x.Kind != ChangeKind.Keep).OrderBy(x => x.Kind == ChangeKind.Remove ? 0 : 1))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (workspace.IsBusy(project.Path)) throw new IOException("Unity opened the project during the operation. Package changes stopped.");
+                    if (project.RequiresUnityBatch && workspace.IsBusy(project.Path)) throw new IOException("Unity opened the project before the file import. Close Unity and try again.");
                     Emit(phase, $"{change.Kind}: {change.Id}{(change.ResolvedVersion is null ? "" : " @ " + change.ResolvedVersion)}");
                     var result = await driver.ChangePackageAsync(project.Path, change, progress, cancellationToken);
                     if (ProjectRules.ToolFailed(result, change.Kind == ChangeKind.Remove ? null : change.Id)) throw new IOException($"Package operation failed: {change.Id}. {result.Output}");

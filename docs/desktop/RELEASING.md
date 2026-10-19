@@ -46,6 +46,8 @@ CI downloads the newest complete older portable release and verifies its checksu
 
 ## Verification and recovery
 
+The native setup keeps a fixed 560 × 260 logical-pixel window for initial choices, all progress phases and completion. Phase text uses 14px Segoe UI immediately above the 24px progress bar. Shortcut choices and Finish fit the same compact window; the download/install protocol is unchanged.
+
 The public EXE owns one native window throughout setup. The downloaded engine connects through a random, current-user-only named pipe and creates no window. Progress resets per phase: download counts missing archive bytes; preparation counts verified files; installation counts source verification, staging copies and staged verification. Unknown-duration integration uses an indeterminate bar. Detailed file operations go to `updates/components/last-engine.log`; download/setup diagnostics go to `last-install.log`. Manual Finish choices remain in the original window; automatic updates skip them.
 
 `tests/Test-HostedSetup.ps1 -Installer <engine.exe> -TestRoot <fresh-folder> -Version <version>` verifies the real headless engine, measured progress, shortcuts, declined reinstall/downgrade and automatic completion using isolated files and shell-folder overrides. CI requires this proof before publishing. `VrcSetupSetup.exe --render-setup <folder>` captures the actual native start/download/install/completion controls offscreen without downloading or installing.

@@ -112,6 +112,20 @@ public static class UiSmokeTest
             Require(viewModel.CurrentPage == footerPage && ((FrameworkElement)page.FindName(footerPage + "NavigationMarker")).Visibility == Visibility.Visible, "Footer button navigates and marks the active page: " + footerPage);
         }
         viewModel.CurrentPage = "Presets";
+        viewModel.ErrorMessage = "Fixture error"; await Task.Delay(150);
+        var errorBanner = (Microsoft.UI.Xaml.Controls.InfoBar)page.FindName("ErrorBanner");
+        Require(errorBanner.ActionButton is Microsoft.UI.Xaml.Controls.Button errorAction && ReferenceEquals(errorAction.Command, viewModel.OpenLogsCommand), "Error banner opens logs directly");
+        await Render(page, Path.Combine(artifacts, "error-log-action.png")); viewModel.ErrorMessage = "";
+        window.AppWindow.Resize(new(1180, 800)); await Task.Delay(100);
+        var contact = page.CreateContactDialog(); contact.XamlRoot = page.XamlRoot;
+        var contactTask = contact.ShowAsync(); await Task.Delay(200);
+        try
+        {
+            var contactCopies = Descendants(contact).OfType<Microsoft.UI.Xaml.Controls.Button>().Select(x => x.Tag?.ToString()).ToArray();
+            Require(contactCopies.Contains("contact@dummics.com") && contactCopies.Contains("dummics"), "Contact offers explicit email and Discord copy actions");
+            await Render(contact, Path.Combine(artifacts, "contact-dialog.png"));
+        }
+        finally { contact.Hide(); await contactTask; }
         var information = (FrameworkElement)page.FindName("InformationItem");
         var informationMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.GetAttachedFlyout(information);
         informationMenu.ShowAt(information); await Task.Delay(100);
@@ -480,7 +494,17 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                         Require(secondRow.TransformToVisual(list).TransformPoint(new(0, 0)).Y >= firstRow.TransformToVisual(list).TransformPoint(new(0, firstRow.ActualHeight)).Y - 1, "Selected project rows remain separate without overlap");
                         Require(batch.Visibility == Visibility.Visible && Microsoft.UI.Xaml.Controls.Grid.GetRow(batch) == 0, "Multi-project action lives in the toolbar and covers no list rows");
                         await Render(page, Path.Combine(artifacts, "projects-multiple-selection.png"));
-                        list.SelectedItems.Clear(); viewModel.Projects.Remove(second);
+                        firstRow.Focus(FocusState.Pointer);
+                        list.SelectedItems.Clear(); await Task.Delay(240);
+                        Require(Descendants(list).OfType<ProjectSelectionIndicator>().All(x => x.IsChecked != true && x.Visibility == Visibility.Collapsed), "Pointer focus does not keep a deselected project checkbox active");
+                        var surface = Descendants(firstRow).OfType<ProjectRowSurface>().Single();
+                        Require(!surface.SelectionHighlighted, "Project highlight clears with the real selection");
+                        surface.SetHovered(true); await Task.Delay(240);
+                        await Render(page, Path.Combine(artifacts, "projects-hover-feedback.png"));
+                        surface.SetHovered(false); await Task.Delay(240);
+                        await Render(page, Path.Combine(artifacts, "projects-deselected-feedback.png"));
+                        Require(!surface.Hovered && !surface.SelectionHighlighted, "Project hover exit leaves no remembered pressed state");
+                        viewModel.Projects.Remove(second);
                         await viewModel.CycleProjectSortAsync("name"); await viewModel.CycleProjectSortAsync("name"); await viewModel.CycleProjectSortAsync("name");
                         Require(viewModel.ProjectSort == "default", "Native column sort cycles back to no explicit sort");
                     }

@@ -22,6 +22,7 @@ public interface IDesktopInteraction
     Task<string[]?> ChooseProjectsAsync(string title, ProjectSnapshot[] projects, string[] selected);
     Task ShowErrorAsync(string message);
     Task ShowUpdateInfoAsync(string details) => ShowErrorAsync(details);
+    Task ShowContactAsync() => ShowErrorAsync("Email: contact@dummics.com · Discord: dummics");
     Task<bool> RestartApplicationAsync() => Task.FromResult(false);
     Task<string?> PromptRecoveryAsync(string name, bool canResume) => Task.FromResult<string?>(null);
     void CloseApplication();
@@ -300,17 +301,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task ApplyChanges() => await Guard(async () =>
     {
         if (session is null) return;
+        if (ProjectImportsActive(session.Projects.Select(x => x.Path))) return;
         using var cancellation = new CancellationTokenSource(); operation = cancellation;
         IsApplyingPackages = true; IsBusy = true; CanCancelApply = true;
         ApplyProject = ""; ApplyPosition = $"{session.Projects.Length} projects"; ApplyPhase = "Preparing review";
         try
         {
-            var busy = await Task.Run(() => session.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
-            if (busy.Length > 0) throw new IOException("Close Unity before applying changes to: " + string.Join(", ", busy) + ". No project was changed.");
+            var busy = session.ExtraImports.Length == 0 ? [] : await Task.Run(() => session.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
+            if (busy.Length > 0) throw new ProjectsInUseException(busy);
             var plan = await Task.Run(() => app.Planner.PlanBulkAsync(session.Projects.Select(x => x.Path), session.Selected, config, session.Exact, session.Removed, session.Targets, session.Preset, session.ExtraImports, cancellation.Token));
             cancellation.Token.ThrowIfCancellationRequested();
             if (!await ui.ReviewAsync(plan)) return;
             cancellation.Token.ThrowIfCancellationRequested();
+            if (ProjectImportsActive(plan.Projects.Select(x => x.Path))) return;
             applyingProjects = plan.Projects; ApplyPhase = "Starting changes";
             var report = await Run(plan, cancellation);
             if (report.Success) { session.Reset(); await OpenProjectsAsync(session.Projects, reload: true); }

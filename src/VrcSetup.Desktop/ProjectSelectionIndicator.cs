@@ -17,6 +17,7 @@ public sealed class ProjectSelectionIndicator : CheckBox
         Visibility = Visibility.Collapsed; VerticalAlignment = VerticalAlignment.Center;
         Loaded += (_, _) =>
         {
+            hovered = focused = false;
             for (DependencyObject? node = this; node is not null; node = VisualTreeHelper.GetParent(node))
             {
                 if (node is ListViewItem item) row = item;
@@ -26,14 +27,14 @@ public sealed class ProjectSelectionIndicator : CheckBox
             if (row is not null) { row.PointerEntered += RowEntered; row.PointerExited += RowExited; row.GotFocus += RowFocused; row.LostFocus += RowUnfocused; }
             Sync();
         };
-        Unloaded += (_, _) => { if (owner is not null) owner.SelectionChanged -= SelectionChanged; if (row is not null) { row.PointerEntered -= RowEntered; row.PointerExited -= RowExited; row.GotFocus -= RowFocused; row.LostFocus -= RowUnfocused; } owner = null; row = null; };
+        Unloaded += (_, _) => { if (owner is not null) owner.SelectionChanged -= SelectionChanged; if (row is not null) { row.PointerEntered -= RowEntered; row.PointerExited -= RowExited; row.GotFocus -= RowFocused; row.LostFocus -= RowUnfocused; } owner = null; row = null; hovered = focused = false; };
         Checked += (_, _) => SetSelected(true); Unchecked += (_, _) => SetSelected(false);
     }
     private void SelectionChanged(object sender, SelectionChangedEventArgs args) => Sync();
     private bool hovered, focused;
     private void RowEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args) { hovered = true; Sync(); }
     private void RowExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args) { hovered = false; Sync(); }
-    private void RowFocused(object sender, RoutedEventArgs args) { focused = true; Sync(); }
+    private void RowFocused(object sender, RoutedEventArgs args) { focused = args.OriginalSource is Control { FocusState: FocusState.Keyboard }; Sync(); }
     private void RowUnfocused(object sender, RoutedEventArgs args) { focused = false; Sync(); }
     private void SetSelected(bool selected) { if (!syncing && row is not null) row.IsSelected = selected; }
     private void Sync()

@@ -78,12 +78,21 @@ public sealed class PlannerExecutorTests
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
         Assert.Equal(OperationStatus.Skipped, report.Results.Single().Status); Assert.Equal(0, driver.Calls);
     }
-    [Fact] public async Task BusyProjectIsSkippedWithoutTakingBackup()
+    [Fact] public async Task PackageChangesCanRunWhileUnityIsOpen()
     {
         var workspace = new MemoryWorkspace { Busy = true }; var driver = new MemoryDriver(workspace);
         var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
-        Assert.Equal(OperationStatus.Skipped, report.Results.Single().Status); Assert.Equal(0, workspace.Backups);
+        Assert.True(report.Success); Assert.True(driver.Calls > 0); Assert.Equal("1.1.0", workspace.Project.InstalledVersions["tool"]);
+        Assert.Equal(0, driver.UnityCalls); Assert.False(workspace.LeaseHeld);
+    }
+    [Fact] public async Task AdditionalFileImportsStillNeedAnAvailableUnityProject()
+    {
+        var workspace = new MemoryWorkspace { Busy = true }; var driver = new MemoryDriver(workspace);
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        project = project with { ExtraImports = ["extra.unitypackage"] };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
+        Assert.Equal(OperationStatus.Skipped, report.Results.Single().Status); Assert.Equal(0, workspace.Backups); Assert.Equal(0, driver.Calls);
     }
     [Fact] public async Task BackupFailurePreventsToolMutations()
     {
@@ -162,7 +171,7 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
-    public bool Fail; public int Calls;
+    public bool Fail; public int Calls, UnityCalls;
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
     public Task<ToolResult> ChangePackageAsync(string project, PackageChange change, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
@@ -174,7 +183,7 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
         return Task.FromResult(new ToolResult(0, "Added package " + change.Id, ""));
     }
     public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.FromResult(new ToolResult(0, "Resolved", ""));
-    public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
-    public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
+    public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.FromResult(true);
 }

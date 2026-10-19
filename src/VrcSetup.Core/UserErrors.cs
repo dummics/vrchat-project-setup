@@ -8,6 +8,7 @@ public static class UserErrors
 {
     public static string Message(Exception error) => UiText.Text(Advice(error.Message) ?? (error switch
     {
+        ProjectsInUseException busy => string.Format(UiText.Text("Close Unity to import additional files into {0}. No project was changed."), string.Join(", ", busy.Projects)),
         HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden } => "The download service is busy. Please try again later.",
         HttpRequestException => "Could not connect. Check your connection and try again.",
         TimeoutException or TaskCanceledException => "This is taking longer than expected. Please try again.",
@@ -19,7 +20,7 @@ public static class UserErrors
         InvalidOperationException when error.Message == "Choose Unity and a projects folder to continue." => error.Message,
         InvalidOperationException when error.Message == "Imports are in progress." => "Wait for imports to finish before changing the app or its settings.",
         InvalidDataException => "This preset file is not supported. Ask for a new export from VRC Project Setup.",
-        _ => "This action could not be completed. Try again, or contact support if it happens again."
+        _ => "This action could not be completed. Open logs for details."
     }));
     private static string? Advice(string message) => message switch
     {
@@ -33,4 +34,9 @@ public static class UserErrors
         "Two files would create the same project name. Select each file and give it a different name." => "Two packages have the same project name. Rename one before importing.",
         _ => null
     };
+}
+
+public sealed class ProjectsInUseException(string[] projects) : IOException("Close Unity before importing additional files into: " + string.Join(", ", projects) + ". No project was changed.")
+{
+    public string[] Projects { get; } = projects.ToArray();
 }

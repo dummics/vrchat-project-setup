@@ -79,3 +79,8 @@ Repair rebuilds the command and shortcuts after validating payload hashes. Unins
 ## Feedback
 
 Report the app version, action, result and relevant diagnostic log. Avoid sharing personal paths or private avatar content unnecessarily. This package includes source, fixture and native-render verification on its development branch; interactive mouse/keyboard acceptance is a separate test.
+## Contact and package edits
+
+The error banner opens the logs folder. Contact shows email `contact@dummics.com` and Discord `dummics`, with separate copy buttons and selectable text; no mail client is required and nothing is sent automatically.
+
+Package additions, removals and updates run through package tools while Unity is open. No full project copy is made for ordinary package edits; small manifest recovery files remain available. Imports that need a separate Unity batch process still require an available project. Changes are serialized per project, and Apply refuses targets with an active or queued app import.

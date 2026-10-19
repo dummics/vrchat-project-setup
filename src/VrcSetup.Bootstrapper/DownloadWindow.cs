@@ -14,7 +14,7 @@ internal sealed partial class DownloadWindow : IDisposable
     private readonly ConcurrentQueue<Action> actions = new();
     private readonly nint window, heading, label, counter, bar, target, targetLabel, primary, cancel, start, desktop, launch, details;
     private readonly nint background = CreateSolidBrush(0x2A2725);
-    private readonly nint icon, smallIcon, font, titleFont;
+    private readonly nint icon, smallIcon, font, titleFont, phaseFont;
     private readonly bool visible;
     private readonly double scale;
     private TaskCompletionSource<string>? targetChoice;
@@ -36,9 +36,10 @@ internal sealed partial class DownloadWindow : IDisposable
         var cls = new WindowClass { Size = (uint)Marshal.SizeOf<WindowClass>(), Procedure = Marshal.GetFunctionPointerForDelegate(procedure), Instance = GetModuleHandleW(null), Name = "VrcSetupDownload", Background = background, Cursor = LoadCursorW(0, 32512), Icon = icon, SmallIcon = smallIcon };
         if (RegisterClassExW(ref cls) == 0) throw new System.ComponentModel.Win32Exception();
         window = CreateWindowExW(0, cls.Name, "VRC Project Setup", 0x00CA0000,
-            (GetSystemMetrics(0) - S(560)) / 2, (GetSystemMetrics(1) - S(340)) / 2, S(560), S(340), 0, 0, cls.Instance, 0);
+            (GetSystemMetrics(0) - S(560)) / 2, (GetSystemMetrics(1) - S(260)) / 2, S(560), S(260), 0, 0, cls.Instance, 0);
         font = CreateFontW(-S(16), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
         titleFont = CreateFontW(-S(22), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
+        phaseFont = CreateFontW(-S(14), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
         nint Control(string type, string text, uint style, int x, int y, int width, int height, int id = 0)
         {
             var control = CreateWindowExW(0, type, text, 0x50000000 | style, S(x), S(y), S(width), S(height), window, id, cls.Instance, 0);
@@ -47,19 +48,20 @@ internal sealed partial class DownloadWindow : IDisposable
             if (type == "BUTTON" || type == "EDIT") SetWindowTheme(control, "DarkMode_Explorer", "");
             return control;
         }
-        heading = Control("STATIC", updating ? T("Updating", "Aggiornamento") : T("Installation", "Installazione"), 0, 24, 22, 504, 30);
+        heading = Control("STATIC", updating ? T("Updating", "Aggiornamento") : T("Installation", "Installazione"), 0, 24, 18, 504, 30);
         SendMessageW(heading, 0x30, titleFont, 1);
-        label = Control("STATIC", T("Preparing…", "Preparazione…"), 0, 24, 78, 504, 24);
-        bar = Control("msctls_progress32", "", 8, 24, 112, 504, 24);
-        counter = Control("STATIC", "", 2, 24, 144, 504, 22);
-        targetLabel = Control("STATIC", T("Install folder", "Cartella di installazione"), 0, 24, 76, 504, 22);
-        target = Control("EDIT", "", 0x00800080, 24, 106, 504, 30);
-        primary = Control("BUTTON", T("Install", "Installa"), 0x10001, 408, 248, 120, 34, 110);
-        cancel = Control("BUTTON", T("Cancel", "Annulla"), 0x10000, 280, 248, 120, 34, 111);
-        start = Control("BUTTON", T("Add to Start", "Aggiungi a Start"), 0x10003, 24, 86, 504, 28, 114);
-        desktop = Control("BUTTON", T("Create desktop shortcut", "Crea collegamento sul desktop"), 0x10003, 24, 122, 504, 28, 115);
-        launch = Control("BUTTON", T("Open VRC Project Setup", "Apri VRC Project Setup"), 0x10003, 24, 158, 504, 28, 116);
-        details = Control("BUTTON", T("Open log", "Apri log"), 0x10000, 24, 248, 120, 34, 113);
+        label = Control("STATIC", T("Preparing…", "Preparazione…"), 0, 24, 60, 504, 22);
+        bar = Control("msctls_progress32", "", 8, 24, 88, 504, 24);
+        counter = Control("STATIC", "", 2, 24, 120, 504, 22);
+        SendMessageW(label, 0x30, phaseFont, 1); SendMessageW(counter, 0x30, phaseFont, 1);
+        targetLabel = Control("STATIC", T("Install folder", "Cartella di installazione"), 0, 24, 58, 504, 22);
+        target = Control("EDIT", "", 0x00800080, 24, 84, 504, 30);
+        primary = Control("BUTTON", T("Install", "Installa"), 0x10001, 408, 166, 120, 34, 110);
+        cancel = Control("BUTTON", T("Cancel", "Annulla"), 0x10000, 280, 166, 120, 34, 111);
+        start = Control("BUTTON", T("Add to Start", "Aggiungi a Start"), 0x10003, 24, 56, 504, 28, 114);
+        desktop = Control("BUTTON", T("Create desktop shortcut", "Crea collegamento sul desktop"), 0x10003, 24, 86, 504, 28, 115);
+        launch = Control("BUTTON", T("Open VRC Project Setup", "Apri VRC Project Setup"), 0x10003, 24, 116, 504, 28, 116);
+        details = Control("BUTTON", T("Open log", "Apri log"), 0x10000, 24, 166, 120, 34, 113);
         foreach (var item in new[] { target, targetLabel, primary, start, desktop, launch, details }) ShowWindow(item, 0);
         var dark = 1; _ = DwmSetWindowAttribute(window, 20, ref dark, sizeof(int));
         SetWindowTheme(bar, "", ""); SendMessageW(bar, 0x409, 0, 0xBBCD50); SendMessageW(bar, 0x2001, 0, 0x45413E);
@@ -186,7 +188,7 @@ internal sealed partial class DownloadWindow : IDisposable
         return DefWindowProcW(hwnd, message, wParam, lParam);
     }
     public void Pump() { while (GetMessageW(out var message, 0, 0, 0) > 0) { if (IsDialogMessageW(window, ref message)) continue; TranslateMessage(ref message); DispatchMessageW(ref message); } }
-    public void Dispose() { cancellation.Dispose(); DeleteObject(background); DeleteObject(font); DeleteObject(titleFont); if (icon != 0) DestroyIcon(icon); if (smallIcon != 0) DestroyIcon(smallIcon); GC.KeepAlive(procedure); }
+    public void Dispose() { cancellation.Dispose(); DeleteObject(background); DeleteObject(font); DeleteObject(titleFont); DeleteObject(phaseFont); if (icon != 0) DestroyIcon(icon); if (smallIcon != 0) DestroyIcon(smallIcon); GC.KeepAlive(procedure); }
     [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate nint WndProc(nint hwnd, uint msg, nuint wParam, nint lParam);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct WindowClass { public uint Size, Style; public nint Procedure; public int ClassExtra, WindowExtra; public nint Instance, Icon, Cursor, Background; public string? Menu, Name; public nint SmallIcon; }
     [StructLayout(LayoutKind.Sequential)] private struct Message { public nint Window; public uint Id; public nuint WParam; public nint LParam; public uint Time; public int X, Y; public uint Private; }
