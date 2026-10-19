@@ -3,7 +3,7 @@
         <Style x:Key="QuietButton" TargetType="Button"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="8,6"/><Setter Property="MinHeight" Value="32"/><Setter Property="CornerRadius" Value="6"/></Style>
         <Style x:Key="AddButton" TargetType="Button" BasedOn="{StaticResource QuietButton}"><Setter Property="Foreground" Value="{ThemeResource AppAccentTextBrush}"/><Setter Property="Background" Value="{ThemeResource AppAccentSubtleBrush}"/><Setter Property="Padding" Value="10,5"/></Style>
         <Style TargetType="GridViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/><Setter Property="MinWidth" Value="0"/></Style>
-        <Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,8"/><Setter Property="MinWidth" Value="0"/></Style>
+        <Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,3"/><Setter Property="MinWidth" Value="0"/></Style>
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
@@ -19,7 +19,7 @@
             <GridView.ItemContainerTransitions><TransitionCollection><RepositionThemeTransition IsStaggeringEnabled="False"/></TransitionCollection></GridView.ItemContainerTransitions>
             <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" ItemWidth="260" ItemHeight="128"/></ItemsPanelTemplate></GridView.ItemsPanel>
             <GridView.ItemTemplate><DataTemplate>
-                <Border Margin="0,0,8,8" Padding="12" CornerRadius="6" Background="{ThemeResource AppCatalogCardBrush}" BorderBrush="{ThemeResource AppSubtleStrokeBrush}" BorderThickness="1">
+                <Grid Style="{StaticResource PackageRowSurface}" Margin="0,0,4,4" Padding="10">
                     <Grid><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><FontIcon Glyph="&#xE7B8;" FontSize="17" Foreground="{ThemeResource AppSecondaryBrush}" VerticalAlignment="Top" Margin="0,2,0,0"/><StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="2"/><TextBlock Text="{Binding Id}" FontSize="11" Foreground="{ThemeResource AppSecondaryBrush}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Id}"/></StackPanel></Grid>
                         <Grid Grid.Row="1" ColumnSpacing="4"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -28,13 +28,13 @@
                             <Button Grid.Column="1" Click="PackageStarClicked" Style="{StaticResource QuietButton}" AutomationProperties.Name="{Binding FavoriteAction}"><FontIcon Glyph="{Binding StarGlyph}" Foreground="{Binding StarBrush}" FontSize="16"/></Button>
                         </Grid>
                     </Grid>
-                </Border>
+                </Grid>
             </DataTemplate></GridView.ItemTemplate>
         </GridView>
         <ListView x:Name="LibraryList" Grid.Row="2" ItemsSource="{Binding LibraryPackages}" SelectionMode="None" Visibility="{Binding LibraryListVisibility}">
             <ListView.ItemContainerTransitions><TransitionCollection><RepositionThemeTransition IsStaggeringEnabled="False"/></TransitionCollection></ListView.ItemContainerTransitions>
             <ListView.ItemTemplate><DataTemplate>
-                <Grid Padding="12,9" ColumnSpacing="10" CornerRadius="6" Background="{ThemeResource AppCatalogCardBrush}" BorderBrush="{ThemeResource AppSubtleStrokeBrush}" BorderThickness="1">
+                <Grid Style="{StaticResource PackageRowSurface}" Padding="12,7" ColumnSpacing="10">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions>
                     <StackPanel Spacing="3" VerticalAlignment="Center" MinWidth="0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Id}" FontSize="11" Foreground="{ThemeResource AppSecondaryBrush}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Id}"/></StackPanel>
                     <Button Grid.Column="1" Click="LibraryAddClicked" Visibility="{Binding AddVisibility}" Style="{StaticResource AddButton}" VerticalAlignment="Center" AutomationProperties.Name="{Binding AddLabel, Converter={StaticResource Localize}}"><StackPanel Orientation="Horizontal" Spacing="7"><local:PackageActionIcon IsAdd="{Binding CanAdd}" Foreground="{ThemeResource AppAccentTextBrush}"/><TextBlock Text="{Binding AddLabel, Converter={StaticResource Localize}}" VerticalAlignment="Center"/></StackPanel></Button>

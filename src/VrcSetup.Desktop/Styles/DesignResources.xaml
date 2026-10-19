@@ -40,6 +40,12 @@
             <SolidColorBrush x:Key="AppSelectionStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
+    <Style x:Key="PackageRowSurface" TargetType="Grid">
+        <Setter Property="Background" Value="{ThemeResource AppCatalogCardBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource AppSubtleStrokeBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="4"/>
+    </Style>
     <Color x:Key="SystemAccentColor">#50CDBB</Color>
     <Color x:Key="SystemAccentColorLight1">#70D8C9</Color>
     <Color x:Key="SystemAccentColorLight2">#9AE4DA</Color>

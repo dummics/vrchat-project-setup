@@ -16,6 +16,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private bool initialized;
     private bool syncingNavigation;
     private bool informationExpanded;
+    private bool packageRecapAnimating;
+    private Microsoft.UI.Xaml.Media.Animation.Storyboard? packageRecapStoryboard;
     private readonly TaskCompletionSource initializedCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Task Initialized => initializedCompletion.Task;
     public MainViewModel ViewModel { get; }
@@ -156,7 +158,12 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             // scrolling becomes necessary, so actions never sit under the thumb.
             CreateLayout.Width = Math.Max(1, CreateView.ActualWidth - 24);
             CreateForm.Width = CreateLayout.Width;
-            CreationPackageDetails.Width = PackageRecapWidth();
+            if (!packageRecapAnimating)
+            {
+                var recapWidth = PackageRecapWidth();
+                CreationPackageDetails.Width = recapWidth;
+                UpdateCreationPackageItemWidth(recapWidth);
+            }
             DependencyObject? header = CreationPackageHeader;
             while (header is not null && header is not Microsoft.UI.Xaml.Controls.Primitives.ToggleButton) header = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(header);
             if (header is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton toggle)
@@ -184,11 +191,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             PresetFields.ColumnDefinitions[1].Width = stackPreset ? new GridLength(0) : GridLength.Auto;
             Grid.SetColumn(CustomizePackagesButton, stackPreset ? 0 : 1); Grid.SetRow(CustomizePackagesButton, stackPreset ? 1 : 0);
             CustomizePackagesButton.HorizontalAlignment = HorizontalAlignment.Left;
-            if (CreationPackageList.ItemsPanelRoot is ItemsWrapGrid items)
-            {
-                var available = Math.Max(1, CreationPackageList.ActualWidth - CreationPackageList.Padding.Left - CreationPackageList.Padding.Right - 8);
-                items.ItemWidth = available / (available >= 480 ? 2 : 1);
-            }
             Grid.SetColumn(ChoosePackageButton, narrow ? 1 : 2); Grid.SetRow(ChoosePackageButton, narrow ? 1 : 0);
             ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
@@ -196,7 +198,16 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Max(1, SettingsView.ActualWidth - 24);
     }
     private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
-    private void CreationPackagesResized(object sender, SizeChangedEventArgs args) => ConstrainForms();
+    private void UpdateCreationPackageItemWidth(double recapWidth)
+    {
+        var listWidth = Math.Max(1, recapWidth - CreationPackageDetails.Padding.Left - CreationPackageDetails.Padding.Right);
+        if (double.IsNaN(CreationPackageList.Width) || Math.Abs(CreationPackageList.Width - listWidth) > 0.5)
+            CreationPackageList.Width = listWidth;
+        if (CreationPackageList.ItemsPanelRoot is not ItemsWrapGrid items) return;
+        var available = Math.Max(1, listWidth - CreationPackageList.Padding.Left - CreationPackageList.Padding.Right - 8);
+        var itemWidth = available / (available >= 480 ? 2 : 1);
+        if (double.IsNaN(items.ItemWidth) || Math.Abs(items.ItemWidth - itemWidth) > 0.5) items.ItemWidth = itemWidth;
+    }
     private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement
     {
         for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
@@ -217,18 +228,38 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void AnimatePackageRecap()
     {
         var previousWidth = CreationPackageDetails.ActualWidth;
+        packageRecapStoryboard?.Stop();
+        packageRecapStoryboard = null;
+        packageRecapAnimating = false;
         ConstrainForms();
-        if (!new Windows.UI.ViewManagement.UISettings().AnimationsEnabled) return;
+        var targetWidth = PackageRecapWidth();
+        UpdateCreationPackageItemWidth(targetWidth);
+        if (!new Windows.UI.ViewManagement.UISettings().AnimationsEnabled || Math.Abs(previousWidth - targetWidth) < 1)
+        {
+            packageRecapAnimating = false;
+            CreationPackageDetails.Width = targetWidth;
+            return;
+        }
+        packageRecapAnimating = true;
         var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
         {
-            From = previousWidth, To = PackageRecapWidth(), Duration = new Duration(TimeSpan.FromMilliseconds(380)),
+            From = previousWidth, To = targetWidth, Duration = new Duration(TimeSpan.FromMilliseconds(380)),
             EnableDependentAnimation = true, FillBehavior = Microsoft.UI.Xaml.Media.Animation.FillBehavior.Stop,
             EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut }
         };
         var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
         Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, CreationPackageDetails);
         Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Width");
-        storyboard.Children.Add(animation); storyboard.Begin();
+        storyboard.Children.Add(animation);
+        storyboard.Completed += (_, _) =>
+        {
+            if (!ReferenceEquals(packageRecapStoryboard, storyboard)) return;
+            packageRecapStoryboard = null;
+            packageRecapAnimating = false;
+            ConstrainForms();
+        };
+        packageRecapStoryboard = storyboard;
+        storyboard.Begin();
     }
     private void CreationPackagesExpanded(Expander sender, ExpanderExpandingEventArgs args) => AnimatePackageRecap();
     private void CreationPackagesCollapsed(Expander sender, ExpanderCollapsedEventArgs args) => AnimatePackageRecap();
