@@ -4,6 +4,11 @@ using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 
+if (args is ["--verify-public-update", var previousVersion, var expectedVersion, var updateEvidence])
+{
+    await PublicUpdateVerification.RunAsync(previousVersion, expectedVersion, updateEvidence);
+    return;
+}
 if (args is ["--verify-fresh-packages", var payload, var evidence])
 {
     await FreshPackageVerification.RunAsync(payload, evidence);

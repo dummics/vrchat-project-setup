@@ -157,7 +157,7 @@ All rows below are implemented. Evidence is deliberately separated: tests prove 
 
 ## Distribution boundaries
 
-The app includes .NET and Windows App SDK runtimes; Unity/VCC/VPM and VPM's own runtime are external prerequisites. Android/iOS build modules and signing/upload flows are not bundled. Recipes reproduce setup choices and package sets; they do not clone private avatar assets or entire VCC template projects. The original PowerShell engine is retired on this branch, retained in Git history and stable main. No main merge is performed.
+The app includes .NET, Windows App SDK runtimes and the native VPM package client; a separately installed VPM CLI/runtime is not required for package operations. Unity is required for creation/import; optional VCC registration remains separate. Android/iOS build modules and signing/upload flows are not bundled. Recipes reproduce setup choices and package sets; they do not clone private avatar assets or entire VCC template projects. The original PowerShell engine is retired on this branch, retained in Git history and stable main. No main merge is performed.
 
 The tester's acceptance pass should cover mouse/keyboard navigation, file pickers/drop, actual monitor DPI/accessibility, and platform modules they intend to use. Dom explicitly requested continuing without desktop input, so these checks are reported as unperformed.
 
@@ -188,3 +188,11 @@ Evidence: `.work/artifacts/2026-10-19-compact-setup-project-feedback/`. WinUI ca
 The public Windows job additionally resolves every fresh-default package using the published native client on a disposable Windows profile. That real source check is CI-only because vrc-get shares VCC's profile; no owner repositories, Unity projects or clipboard were mutated by fixture tests. Source logs supplied by the owner showed import-queue sharing violations and a selected package's unavailable metadata; the updater error was reported to succeed on retry, without its exact cause in those logs.
 
 Evidence: `.work/artifacts/2026-10-19-fresh-machine-fixes/`. New defaults include only Resolver/Base/Avatars, Poiyomi and VRCFury; existing preferences and extra packages are retained. Error files have a readable product/date name. Shared ZIPs contain app/update diagnostics, exclude settings/assets, and open selected in Explorer.
+
+## Additional PC compatibility checks (19 October 2026)
+
+234 core tests pass. The public beta.24 EXE passed 19 isolated installation lifecycle checks on a non-elevated Windows 11 x64 token, starting with no cached components: 13 components / 182,384,465 bytes downloaded. Install, same-version reinstall, repair, bundled CLI, isolated shortcuts and uninstall passed; settings and the synthetic project remained intact. Public updater verification also passed discovery from beta.23, fresh/cache behavior, version/channel filtering, background preparation metadata and installer checksum. No installer is executed by the public updater check itself.
+
+Run the opt-in network check with `dotnet run --project tests/VrcSetup.E2E/VrcSetup.E2E.csproj -c Release --property:Platform=x64 -- --verify-public-update <previous-version> <expected-version> <new-evidence-directory>`. It uses public release assets, no credentials and no real app settings. It intentionally stays outside normal unit tests and release CI to avoid repeated public downloads.
+
+Evidence: `.work/artifacts/2026-10-19-pc-compatibility/`. See [VM acceptance](VM-ACCEPTANCE.md) for the remaining clean-machine Unity/user checks and explicit platform limits. No new application build is needed: only tests and verification documentation changed.

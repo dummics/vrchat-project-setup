@@ -60,7 +60,7 @@ On Dom's PC, `vrcsetup-legacy` opens the preserved original PowerShell tool whil
 
 ## Diagnostics
 
-Settings → Developer tools enables development controls, verbose diagnostics and tool-output tracing; Save settings persists these choices. CLI and `vrcsetup gui` also accept `--developer`, `--verbose`, `--trace-tools` and `--no-catalog-refresh` for that run. Errors are always recorded in `%LOCALAPPDATA%\VrcSetup\logs\diagnostics-yyyyMMdd.jsonl`. Trace output may contain local paths; inspect it before sharing.
+Settings → Developer tools enables development controls, verbose diagnostics and tool-output tracing; Save settings persists these choices. CLI and `vrcsetup gui` also accept `--developer`, `--verbose`, `--trace-tools` and `--no-catalog-refresh` for that run. Errors are always recorded in `%LOCALAPPDATA%\VrcSetup\logs\VRC-Project-Setup-Errors-yyyy-MM-dd.jsonl`. Trace output may contain local paths; inspect it before sharing.
 
 Activity separates imports and operations. Check, resume/reimport and associated-backup restore belong to each relevant history entry. The CLI retains `recovery` commands and its interactive Activity menu. Presets use local known packages and favorites immediately; stale version lists refresh asynchronously when the preset page opens. Search contacts repositories only when requested.
 
@@ -74,7 +74,7 @@ The main window has a 720×580 minimum, an always-accessible compact sidebar, an
 
 Installed settings/cache/logs: %LOCALAPPDATA%\VrcSetup. Program: %LOCALAPPDATA%\Programs\VrcSetup. Backups and operation state live in each project's .vrcsetup folder. Legacy configuration is copied and migrated, preserving the original.
 
-Stop Unity before changing its project packages. If an operation fails, inspect Activity and the full log, then review again or restore a verified backup. Imported assets are backed up on existing projects. A new partial project is preserved until you explicitly delete it.
+Ordinary package changes can run while Unity is open; Unity reloads the changes. Imports that require a separate Unity batch process need the target project to be available. If an operation fails, inspect Activity or export the logs, then review and retry. Reimport does not create a project backup. A new partial project is preserved until you explicitly delete it.
 
 Repair rebuilds the command and shortcuts after validating payload hashes. Uninstall removes the program and its scoped shortcuts/PATH entry, preserving settings and Unity projects. Previous installation backups are preserved during upgrades.
 
