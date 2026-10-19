@@ -288,8 +288,9 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require((await flow.Application.Projects.ReadAsync(firstProject.Path)).Fingerprint == firstFingerprint, "Managing and discarding a batch never writes the project");
             flow.FavoritesOnly = true;
             flow.LibraryFilter = "nonexistent-package-query";
-            Require(flow.PresetPackages.Count == 0 && flow.PresetIncludedVisibility == Visibility.Visible && flow.PresetCountLabel.StartsWith("0"), "Filtering keeps the preset total and explains an empty included list");
+            Require(flow.PresetPackages.Count > 0 && flow.PresetIncludedVisibility == Visibility.Collapsed && flow.IsSearchingPackages, "Search scopes results to addable packages and shows activity immediately");
             flow.ClearPackageFiltersCommand.Execute(null);
+            Require(!flow.IsSearchingPackages && flow.PresetIncludedVisibility == Visibility.Visible, "Clearing search restores included packages without changing membership");
             await flow.NavigateAsync("Settings");
             var savedPrefix = flow.NamingPrefix; flow.NamingPrefix = "Unsaved fixture";
             Require(flow.SettingsDirty && !await flow.NavigateAsync("Projects") && !await flow.ConfirmCloseAsync(), "Settings cancellation protects edits on navigation and close");
@@ -311,6 +312,31 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             await flow.ImportPresetCommand.ExecuteAsync(null);
             Require(flow.Presets.Count == presetCount + 1 && flow.ErrorMessage.Length > 0, "A broken preset leaves existing presets intact and reports a readable error");
             decisions.FileChoice = null;
+            flow.ErrorMessage = "";
+            await flow.NavigateAsync("Create");
+            var importFile = flow.PackageFile; var presetBefore = (await flow.Application.Configuration.LoadAsync()).VpmPackages.ToDictionary();
+            await flow.CustomizeCreationPackagesCommand.ExecuteAsync(null);
+            Require(flow.CurrentPage == "ImportPackages" && flow.PresetOptionsVisibility == Visibility.Collapsed, "Import customization reuses the package editor without editing saved presets");
+            var importOptional = flow.LibraryPackages.First(); flow.AddLibraryPackageCommand.Execute(importOptional);
+            await flow.SaveEditedPresetCommand.ExecuteAsync(null);
+            Require((await flow.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(presetBefore.OrderBy(x => x.Key)), "Project-only customization cannot save over the shared preset");
+            await flow.UsePresetForImportCommand.ExecuteAsync(null);
+            Require(flow.CurrentPage == "Create" && flow.PackageFile == importFile && flow.CreationPackages.Any(x => x.Id == importOptional.Id && x.Selected), "Using a local package selection returns to the unchanged import draft");
+            var queue = flow.Application.Imports;
+            var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var protectedJob = new ImportJob("protected-fixture", new OperationPlan("protected", DateTime.UtcNow, []), new CreationRequest("", "Protected", "fixture", "", "StandaloneWindows64", [], []), "Running", "Import", 20, "", "", DateTime.UtcNow);
+            lock (queueSync) queueJobs.Add(protectedJob);
+            try
+            {
+                var confirmations = decisions.Confirmations; var configuration = await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile);
+                await flow.ResetSettingsCommand.ExecuteAsync(null); await flow.RepairInstallationCommand.ExecuteAsync(null);
+                await flow.UninstallApplicationCommand.ExecuteAsync(null); await flow.ImportSettingsCommand.ExecuteAsync(null);
+                await flow.SaveSettingsCommand.ExecuteAsync(null); await flow.RunBackgroundUpdateCheckAsync();
+                Require(decisions.Confirmations == confirmations && await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile) == configuration && flow.ErrorMessage.Length > 0, "Active imports block maintenance, settings restore/save and automatic update without touching configuration");
+                Require(protectedJob.Active, "Protected imports remain active after blocked operations");
+            }
+            finally { lock (queueSync) queueJobs.Remove(protectedJob); }
         }
         Require((await new VrcSetupApplication(Path.Combine(artifacts, "seed-check-home")).Inspection.LoadIndexAsync()).Signatures.Length > 1000, "Published bundle includes the offline dependency signature seed");
         var inspectionFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
@@ -651,6 +677,17 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(jobsOrigin.Y >= formOrigin.Y + form.ActualHeight, "Import jobs never overlap the package recap: " + size.Width);
             await Render(page, Path.Combine(artifacts, "create-jobs-fixture-" + size.Width + ".png"));
         }
+        fixtureJobs[1].DetailsOpen = true;
+        await Task.Delay(600);
+        fixtureJobs[1].LogText = string.Join("\n", Enumerable.Range(1, 160).Select(x => "Import log line " + x));
+        page.UpdateLayout(); await Task.Delay(180);
+        Require(Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(jobList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled, "Import rows have no intermediate scrolling viewport");
+        var importLog = Descendants(jobList).OfType<Microsoft.UI.Xaml.Controls.ScrollViewer>().First(x => x.Height == 260);
+        Require(importLog.ScrollableHeight > 0, "Expanded import log has its own readable scroll range");
+        importLog.ChangeView(null, 160, null, true); await Task.Delay(180);
+        Require(importLog.VerticalOffset >= 150, "Import log scrolls without resetting to the beginning");
+        await Render(page, Path.Combine(artifacts, "create-log-expanded.png"));
+        fixtureJobs[1].DetailsOpen = false;
         jobList.SetBinding(Microsoft.UI.Xaml.Controls.ItemsControl.ItemsSourceProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportJobs)) });
         jobList.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportJobsVisibility)) });
         jobSection.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportJobsVisibility)) });

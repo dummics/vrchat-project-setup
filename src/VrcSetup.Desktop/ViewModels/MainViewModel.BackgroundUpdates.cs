@@ -32,7 +32,7 @@ public sealed partial class MainViewModel
         if (!automatic.Due(state)) return;
         await automatic.ReserveCheckAsync(state, lifetime.Token);
         if (!await CheckApplicationUpdatesAsync(false) || availableUpdate is not { } release) return;
-        if (!AutomaticUpdateEnabled || !automatic.Installed || state.LastAttemptVersion == release.Version) return;
+        if (HasActiveImports || !AutomaticUpdateEnabled || !automatic.Installed || state.LastAttemptVersion == release.Version) return;
         if (state.Ready is { } prepared && prepared.Version == release.Version) { UpdateFailed = false; IsUpdateReady = true; return; }
         IsDownloadingUpdate = true; UpdateDownloadPercent = 0;
         try
@@ -47,6 +47,7 @@ public sealed partial class MainViewModel
             var installer = await updates.DownloadAsync(release, folder, progress, lifetime.Token);
             if (!AutomaticUpdateEnabled || !CheckUpdatesOnStartup || (!IncludeBetaUpdates && new VrcSetup.Core.SemanticVersion(release.Version).IsPrerelease)) return;
             UpdateStatus = "Preparing update…";
+            if (HasActiveImports) { UpdateStatus = "Update will wait until imports finish."; return; }
             var receipt = Path.Combine(folder, "prefetch-result.json");
             if (File.Exists(receipt)) File.Delete(receipt);
             var start = new ProcessStartInfo(installer) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() };

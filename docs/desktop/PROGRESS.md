@@ -175,3 +175,7 @@ Dom approved the complete migration, dedicated remote branch, installer and loca
 Dom requested tests without desktop input. Human mouse/keyboard, screen reader, actual multiple-DPI displays and a clean tester PC remain acceptance checks, not claimed results. Android/iOS modules and exact prerelease installation were not exercised live. Unity/VCC/VPM and VPM's compatible runtime remain external prerequisites; the application itself bundles .NET/Windows App SDK runtimes. The installer is unsigned.
 
 Source changes and this handoff are committed/pushed on the feature branch. No personal-memory write or automated goal was created. [Distribution instructions](DISTRIBUTION.md) describe installation, portable mode, CLI and recovery.
+
+## Current iteration: unified setup and local import customization
+
+One native installer window owns all phases and manual completion; its downloaded engine runs without a second window. Real byte/file counts drive per-phase progress. Import customization now uses the shared package editor with draft-local changes, while search has one centered searching/empty state. Project rows reuse the light package surfaces and the package-management icon. Import jobs sit at the page bottom, remove duplicate outlines and expose a single log viewport. Active imports block maintenance and update application.

@@ -67,13 +67,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ProjectsView.Visibility = page == "Projects" ? Visibility.Visible : Visibility.Collapsed;
         CreateView.Visibility = page == "Create" ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceView.Visibility = page == "Workspace" ? Visibility.Visible : Visibility.Collapsed;
-        PresetsView.Visibility = page == "Presets" ? Visibility.Visible : Visibility.Collapsed;
+        PresetsView.Visibility = page is "Presets" or "ImportPackages" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         ActivityNavigationMarker.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsNavigationMarker.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
-        try { Navigation.SelectedItem = Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page)); }
+        try { Navigation.SelectedItem = Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page == "ImportPackages" ? "Create" : page)); }
         finally { syncingNavigation = false; }
     }
     private async void NavigationInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
@@ -144,7 +144,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ProjectSearch.Width = Math.Clamp(ProjectsView.ActualWidth - (ViewModel.SelectedProjects.Count >= 2 ? ManageSelectionAction.ActualWidth + 16 : 0), 140, 320);
         var stackProjectColumns = ProjectsView.ActualWidth < 640;
         ProjectColumnHeaders.ColumnDefinitions[1].Width = new GridLength(stackProjectColumns ? 0 : 260);
-        ProjectColumnHeaders.ColumnDefinitions[2].Width = new GridLength(stackProjectColumns ? 0 : 170);
+        ProjectColumnHeaders.ColumnDefinitions[2].Width = new GridLength(stackProjectColumns ? 0 : 140);
         Grid.SetRow(ProjectDateSortHeader, stackProjectColumns ? 1 : 0); Grid.SetColumn(ProjectDateSortHeader, stackProjectColumns ? 0 : 1);
         Grid.SetColumnSpan(ProjectDateSortHeader, stackProjectColumns ? 3 : 1);
         if (PresetEditor.ActualWidth > 0) PresetSelector.Width = Math.Clamp(PresetEditor.ActualWidth * .3, 180, 320);
@@ -178,8 +178,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (FindVisualChild<Border>(CreationPackageDetails, "ExpanderContent") is { } contentBorder)
                 contentBorder.BorderThickness = new Thickness(0);
             ImportQueueSection.Width = CreateLayout.Width;
-            ImportQueueList.MaxHeight = ViewModel.ImportJobs.Any(x => x.DetailsOpen) ? Math.Min(480, Math.Max(240, CreateView.ActualHeight - 180))
-                : Math.Clamp(CreateView.ActualHeight - CreateForm.ActualHeight - ImportPageHeader.ActualHeight - 40, 120, 240);
+            CreateLayout.MinHeight = Math.Max(0, CreateView.ActualHeight);
             var narrow = CreateForm.Width < 560;
             Grid.SetRow(ImportResourceSummary, narrow ? 1 : 0); Grid.SetColumn(ImportResourceSummary, narrow ? 0 : 1);
             Grid.SetColumnSpan(ImportResourceSummary, narrow ? 3 : 1);
@@ -310,7 +309,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (grid.Tag is bool previous && previous == narrow) return;
         grid.Tag = narrow; grid.ColumnSpacing = narrow ? 0 : 16; grid.RowSpacing = narrow ? 8 : 0;
         grid.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(260);
-        grid.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : new GridLength(170);
+        grid.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : new GridLength(140);
         foreach (var child in grid.Children.OfType<FrameworkElement>())
         {
             if (child.Name == "ProjectDates") { Grid.SetColumn(child, narrow ? 0 : 1); Grid.SetRow(child, narrow ? 1 : 0); }
@@ -368,6 +367,10 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if ((sender as FrameworkElement)?.DataContext is UiImportDraft draft) ViewModel.RemoveImportDraft(draft); }
     private async void ImportDetailsExpanded(Expander sender, ExpanderExpandingEventArgs args)
     { if (sender.DataContext is UiImportRow row) { row.DetailsOpen = true; ConstrainForms(); await ViewModel.RefreshImportLogAsync(row, true); } }
+    private void ImportExpanderLoaded(object sender, RoutedEventArgs args)
+    {
+        if (sender is Expander expander && FindVisualChild<Border>(expander, "ExpanderContent") is { } border) border.BorderThickness = new Thickness(0);
+    }
     private void ImportDetailsCollapsed(object sender, object args)
     { if (sender is Expander { DataContext: UiImportRow row }) { row.DetailsOpen = false; ConstrainForms(); } }
     private void ImportCancelClicked(object sender, RoutedEventArgs args)

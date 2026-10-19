@@ -167,7 +167,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSelectedPresetChanged(string value)
     {
         creationOverrides = null;
-        foreach (var draft in ImportDrafts) draft.Packages = null;
+        if (!acceptingImportSelection) foreach (var draft in ImportDrafts) draft.Packages = null;
         RefreshCreationPackages();
     }
     partial void OnSelectedRecipeChanged(string value)
@@ -322,9 +322,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     { if (await ui.PickFileAsync(".unitypackage") is { } file) { PackageFile = file; CurrentPage = "Create"; } }
     [RelayCommand] private async Task CustomizeCreationPackages() => await Guard(async () =>
     {
-        var working = new Dictionary<string, string>(creationOverrides ?? (SelectedPreset == "My default packages" ? config.VpmPackages : config.PackagePresets[SelectedPreset]));
-        if (await ui.EditPackagesAsync("Packages for this project", working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync, CreationInspection) is { } edited)
-        { creationOverrides = edited; if (SelectedImportDraft is { } draft) draft.Packages = new(edited); RefreshCreationPackages(); }
+        var working = CurrentCreationSelection();
+        if (!await NavigateAsync("ImportPackages")) return;
+        presetSwitching = true;
+        try { EditingPreset = SelectedPreset; LoadEditingPreset(); }
+        finally { presetSwitching = false; }
+        editingImportPreset = true;
+        presetWorking = working; LibraryFilter = ""; FavoritesOnly = false; RenderPreset(); RefreshLibraryRows();
+        OnPropertyChanged(nameof(UseImportPresetVisibility)); OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility));
     });
     private Dictionary<string, string>? creationOverrides;
     [RelayCommand] private async Task CreateProject()
@@ -441,6 +446,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task SaveSettings() => await Guard(SaveSettingsCoreAsync);
     private async Task SaveSettingsCoreAsync()
     {
+        if (!RequireImportsIdle()) throw new InvalidOperationException("Imports are in progress.");
         // Validate the entire form before changing the working configuration.
         if (!string.IsNullOrWhiteSpace(UnityEditorPath)) UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
         if (setupMode && (!EditorReady || string.IsNullOrWhiteSpace(ProjectsRoot))) throw new InvalidOperationException("Choose Unity and a projects folder to continue.");
@@ -478,15 +484,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task PickExtraFolder() { if (await ui.PickFolderAsync() is { } folder) ExtraImportsFolder = folder; }
     [RelayCommand] private async Task ResetSettings() => await Guard(async () =>
     {
+        if (!RequireImportsIdle()) return;
         if (!await ui.ConfirmAsync("Reset settings", "Reset defaults, presets and paths? Your Unity projects are preserved.", "Reset")) return;
         await app.Configuration.ResetAsync(); await ReloadConfigurationAsync();
     });
     [RelayCommand] private async Task RepairInstallation() => await Guard(async () =>
     {
+        if (!RequireImportsIdle()) return;
         await new InstallationManager(app.Paths).RepairAsync(InstallationRoot()); Status = "Installation and shortcuts verified";
     });
     [RelayCommand] private async Task UninstallApplication() => await Guard(async () =>
     {
+        if (!RequireImportsIdle()) return;
         var root = InstallationRoot();
         if (!await ui.ConfirmAsync("Uninstall VRCSETUP", root + "\nSettings and Unity projects will be preserved.", "Uninstall")) return;
         await new InstallationManager(app.Paths).UninstallAsync(root, true); ui.CloseApplication();
@@ -494,6 +503,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private string InstallationRoot() => File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")) ? app.Paths.PayloadRoot : InstallationManager.DefaultRoot;
     [RelayCommand] private async Task ImportSettings() => await Guard(async () =>
     {
+        if (!RequireImportsIdle()) return;
         if (!await ResolveSettingsAsync()) return;
         if (PresetDirty && !await ui.ConfirmAsync("Unsaved preset", "Discard changes before importing settings?", "Discard")) return;
         if (await ui.PickFileAsync(".json") is { } file && await ui.ConfirmAsync("Restore settings", "This replaces your settings and presets. Your Unity projects stay unchanged.", "Restore")) { await app.Configuration.ImportAsync(file); await ReloadConfigurationAsync(); }

@@ -29,10 +29,13 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial Visibility EmptyProjectsVisibility { get; set; } = Visibility.Collapsed;
     [ObservableProperty] public partial string EmptyProjectsMessage { get; set; } = "";
     public string PresetLabel => EditingPreset == DefaultPresetKey ? "Default" : EditingPreset;
-    public bool IsCustomPreset => EditingPreset != DefaultPresetKey;
+    public bool IsCustomPreset => !editingImportPreset && EditingPreset != DefaultPresetKey;
+    public Visibility PresetOptionsVisibility => editingImportPreset ? Visibility.Collapsed : Visibility.Visible;
     public bool HasMultiplePresets => Presets.Count > 1;
-    public Visibility PresetCatalogVisibility => LibraryPackages.Count > 0 || CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility PresetIncludedVisibility => presetWorking.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public bool HasPackageQuery => !string.IsNullOrWhiteSpace(LibraryFilter);
+    public Visibility CatalogHeadingVisibility => HasPackageQuery ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility PresetCatalogVisibility => HasPackageQuery || IsSearchingPackages || LibraryPackages.Count > 0 || CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PresetIncludedVisibility => !HasPackageQuery && presetWorking.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PresetEmptyVisibility => presetWorking.Count > 0 && PresetPackages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public string PresetCountLabel => PresetPackages.Count == presetWorking.Count ? presetWorking.Count.ToString() : string.Format(UiText.Text("{0} of {1}"), PresetPackages.Count, presetWorking.Count);
     [RelayCommand] private void PreviousPreset() => CyclePreset(-1);
@@ -42,7 +45,7 @@ public sealed partial class MainViewModel
         if (IsBusy || Presets.Count < 2) return;
         EditingPreset = Presets[(Presets.IndexOf(EditingPreset) + direction + Presets.Count) % Presets.Count];
     }
-    public Visibility PresetChangesVisibility => PresetDirty && !BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PresetChangesVisibility => PresetDirty && !BrowsingProjectPackages && !editingImportPreset ? Visibility.Visible : Visibility.Collapsed;
     public string PresetSaveContext => "Unsaved changes · " + PresetLabel;
     public Visibility ActivityEmptyVisibility => Activity.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool HasSelectedProjects => SelectedProjects.Count > 0;
@@ -65,7 +68,7 @@ public sealed partial class MainViewModel
     {
         BrowsingProjectPackages = value == "Workspace" && session is not null;
         if (value == "Activity") _ = RefreshSavedHistoryAsync();
-        if (value is "Presets" or "Workspace") { libraryFavoriteSnapshot = null; LibraryPackages.Clear(); RefreshLibraryRows(); }
+        if (value is "Presets" or "Workspace" or "ImportPackages") { libraryFavoriteSnapshot = null; LibraryPackages.Clear(); RefreshLibraryRows(); }
     }
     partial void OnEditingPresetChanged(string oldValue, string newValue)
     {
@@ -91,9 +94,7 @@ public sealed partial class MainViewModel
     {
         PresetDirty = presetWorking.Count != presetBaseline.Count || presetWorking.Any(x => !presetBaseline.TryGetValue(x.Key, out var version) || version != x.Value);
         var required = ProjectRules.Foundation(presetWorking, config);
-        var tokens = (LibraryFilter ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var desired = presetWorking.Select(x => MakeRow(x.Key, x.Value, required.Contains(x.Key)))
-            .Where(x => tokens.All(t => (x.Name + " " + x.Id).Contains(t, StringComparison.OrdinalIgnoreCase)) && (!FavoritesOnly || (libraryFavoriteSnapshot ?? config.FavoritePackages.ToHashSet(StringComparer.OrdinalIgnoreCase)).Contains(x.Id)))
             .OrderBy(x => x.Id == ProjectRules.Resolver ? 0 : x.Id == ProjectRules.BaseSdk ? 1 : ProjectRules.SdkIds.Contains(x.Id) ? 2 : x.Required ? 3 : 4).ThenBy(x => x.Name).ToArray();
         var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var i = PresetPackages.Count - 1; i >= 0; i--) if (!ids.Contains(PresetPackages[i].Id)) PresetPackages.RemoveAt(i);
@@ -111,6 +112,7 @@ public sealed partial class MainViewModel
         }
         OnPropertyChanged(nameof(PresetIncludedVisibility));
         OnPropertyChanged(nameof(PresetEmptyVisibility)); OnPropertyChanged(nameof(PresetCountLabel));
+        NotifyCatalogStatus();
     }
     private void RefreshLibraryRows()
     {
@@ -135,6 +137,7 @@ public sealed partial class MainViewModel
             if (position != index) LibraryPackages.Move(position, index);
         }
         OnPropertyChanged(nameof(PresetCatalogVisibility));
+        NotifyCatalogStatus();
     }
     private void UpdateProjectState()
     {
@@ -165,6 +168,7 @@ public sealed partial class MainViewModel
     }
     [RelayCommand] private async Task SaveEditedPreset() => await Guard(async () =>
     {
+        if (editingImportPreset) return;
         var name = EditingPreset; var saved = new Dictionary<string, string>(presetWorking);
         if (name == DefaultPresetKey) config.VpmPackages = new(saved); else config.PackagePresets[name] = new(saved);
         await PersistConfigurationAsync();

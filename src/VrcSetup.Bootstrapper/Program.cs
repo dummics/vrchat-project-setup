@@ -2,6 +2,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using System.IO.Pipes;
+using System.Text;
+using VrcSetup.Core;
 
 namespace VrcSetup.Bootstrapper;
 
@@ -12,15 +15,25 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        var diagnostic = Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 } || args.Contains("--prefetch");
+        var diagnostic = Environment.GetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC") is { Length: > 0 } || args.Contains("--prefetch") || args.Contains("--render-setup");
         try
         {
-            using var window = new DownloadWindow(!diagnostic);
-            var work = Task.Run(() => RunAsync(args, window));
+            using var window = new DownloadWindow(!diagnostic, args.Contains("--silent"));
+            var work = Task.Run(async () =>
+            {
+                if (Option(args, "--render-setup") is { } preview)
+                {
+                    Directory.CreateDirectory(preview);
+                    foreach (var page in new[] { "start", "download", "install", "complete" }) await window.CapturePreviewAsync(page, Path.Combine(preview, page + ".bmp"));
+                    return 0;
+                }
+                return await RunAsync(args, window);
+            });
             _ = work.ContinueWith(_ => window.Finish(), TaskScheduler.Default);
             window.Pump();
             return work.GetAwaiter().GetResult();
         }
+        catch (OperationCanceledException) { return 0; }
         catch (Exception error)
         {
             // Startup/configuration errors must also produce a receipt rather
@@ -40,6 +53,7 @@ internal static class Program
     {
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var root = Path.GetFullPath(Option(args, "--root") ?? Path.Combine(local, "Programs", "VrcSetup"));
+        if (!args.Contains("--silent") && !args.Contains("--prefetch")) root = Path.GetFullPath(await window.ChooseTargetAsync(root));
         var home = Option(args, "--home");
         if (home is null && File.Exists(Path.Combine(root, ".vrcsetup-install.json")))
         {
@@ -58,9 +72,14 @@ internal static class Program
             using var manifestStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("components.json") ?? throw new IOException("Installer manifest missing.");
             var manifest = ComponentDelivery.Read(manifestStream);
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-            var result = await new ComponentDelivery(client).PrepareAsync(manifest, staging, cache, root,
-                new InlineProgress<(int Percent, string Step)>(p => window.Report(p.Percent, p.Step == "Verifying files"
-                    ? Text("Verifying files", "Verifica file") : Text("Downloading components…", "Download dei componenti…"))), preparation.Token);
+            Directory.CreateDirectory(cache);
+            var log = Path.Combine(cache, "last-install.log");
+            using var trace = new StreamWriter(log, false, new UTF8Encoding(false)) { AutoFlush = true };
+            trace.WriteLine(DateTime.UtcNow.ToString("O") + " Setup " + manifest.Version);
+            var logGate = new object();
+            void Trace(string text) { lock (logGate) trace.WriteLine(DateTime.UtcNow.ToString("O") + " " + text); }
+            var result = await new ComponentDelivery(client).PrepareAsync(manifest, staging, cache, root, token: preparation.Token,
+                measured: new InlineProgress<SetupProgress>(p => { window.Report(p); Trace(p.Phase + " " + p.Completed + "/" + p.Total); }));
             using (var payload = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(staging, "payload", ".vrcsetup-payload.json"))))
                 if (payload.RootElement.GetProperty("Version").GetString() != manifest.Version) throw new IOException("Component and payload versions differ.");
             Directory.CreateDirectory(cache);
@@ -73,22 +92,49 @@ internal static class Program
                 { Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(receipt))!); await File.WriteAllTextAsync(receipt, "{\"Success\":true}"); }
                 return 0;
             }
-            window.Report(100, Text("Starting setup…", "Avvio installazione…"));
+            window.Installing();
+            var pipeName = "vrcsetup-setup-" + Guid.NewGuid().ToString("N");
+            await using var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             var engine = new ProcessStartInfo(Path.Combine(staging, "engine", "VrcSetupInstaller.exe"))
             { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() };
-            foreach (var arg in args) engine.ArgumentList.Add(arg);
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (args[i] is "--root" or "--home" or "--ui-pipe") { i++; continue; }
+                engine.ArgumentList.Add(args[i]);
+            }
+            foreach (var arg in new[] { "--root", root, "--home", home, "--ui-pipe", pipeName }) engine.ArgumentList.Add(arg);
             engine.ArgumentList.Add("--source-payload"); engine.ArgumentList.Add(Path.Combine(staging, "payload"));
             engine.Environment["VRCSETUP_HOME"] = home;
             using var process = Process.Start(engine) ?? throw new IOException("Could not start setup.");
-            handedOff = true; window.Hide();
+            handedOff = true;
+            using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(preparation.Token); connectTimeout.CancelAfter(TimeSpan.FromSeconds(45));
+            var connection = pipe.WaitForConnectionAsync(connectTimeout.Token);
+            if (await Task.WhenAny(connection, process.WaitForExitAsync()) != connection) throw new IOException("Setup engine exited before connecting.");
+            await connection;
+            using var reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, true);
+            using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
+            var completed = false;
+            while (await reader.ReadLineAsync() is { } line)
+            {
+                var message = JsonSerializer.Deserialize(line, DeliveryJson.Default.SetupMessage) ?? throw new IOException("Invalid setup progress.");
+                Trace(line);
+                if (message.Kind == "progress") window.Report(new(message.Phase, message.Completed, message.Total));
+                else if (message.Kind == "confirm")
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(new SetupMessage("confirm", Accepted: await window.ConfirmVersionAsync(message.Phase == "downgrade", message.Text)), DeliveryJson.Default.SetupMessage));
+                else if (message.Kind == "complete") await writer.WriteLineAsync(JsonSerializer.Serialize(await window.CompleteAsync(), DeliveryJson.Default.SetupMessage));
+                else if (message.Kind is "finished" or "cancelled") { completed = true; break; }
+                else if (message.Kind == "failed") throw new IOException("Setup engine reported failure. See last-engine.log.");
+                else throw new IOException("Unexpected setup message.");
+            }
             await process.WaitForExitAsync();
+            if (!completed || process.ExitCode != 0) throw new IOException("Setup did not finish successfully.");
             return process.ExitCode;
         }
         catch (Exception error)
         {
             // Until handoff, the previous installation has never been touched.
             var resultFile = Option(args, "--result");
-            if (resultFile is not null)
+            if (resultFile is not null && (!handedOff || !File.Exists(resultFile)))
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(resultFile))!);
                 await File.WriteAllTextAsync(resultFile, "{\"Success\":false,\"Error\":" + JsonSerializer.Serialize(error.ToString(), DeliveryJson.Default.String) + "}");
@@ -106,7 +152,8 @@ internal static class Program
                 }
                 catch (Exception recovery) { await File.AppendAllTextAsync(Path.Combine(cache, "last-error.log"), "\nRecovery: " + recovery); }
             }
-            if (!args.Contains("--prefetch") && (error is not OperationCanceledException || !window.Cancellation.IsCancellationRequested)) window.Failure(Text("Download failed. Your installation is preserved. Details: ", "Download non riuscito. L’installazione precedente è conservata. Dettagli: ") + Path.Combine(cache, "last-error.log"));
+            if (!args.Contains("--prefetch") && (error is not OperationCanceledException || !window.Cancellation.IsCancellationRequested))
+                await window.FailureAsync(Path.Combine(cache, handedOff ? "last-engine.log" : "last-error.log"), false);
             return 1;
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }

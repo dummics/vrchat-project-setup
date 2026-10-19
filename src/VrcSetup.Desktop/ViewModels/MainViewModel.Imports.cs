@@ -182,6 +182,7 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task ClearImportHistory() => await Guard(async () => await app.Imports.ClearCompletedAsync(lifetime.Token));
     [RelayCommand] private async Task ClearImportCache() => await Guard(async () =>
     {
+        if (!RequireImportsIdle()) return;
         if (!await ui.ConfirmAsync("Clear analysis cache", "Remove cached UnityPackage analysis? Package signatures, projects, logs and recovery history are preserved.", "Clear cache")) return;
         var count = await app.Inspection.ClearObservationCacheAsync(lifetime.Token);
         Status = $"Cleared {count} cached analyses";

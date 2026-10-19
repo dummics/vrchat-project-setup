@@ -18,6 +18,11 @@ public partial class App : Application
         var arguments = e.Args;
         string? Option(string name) { var i = Array.IndexOf(arguments, name); return i >= 0 && i + 1 < arguments.Length ? arguments[i + 1] : null; }
         sourcePayload = Option("--source-payload");
+        if (Option("--ui-pipe") is { } pipeName)
+        {
+            await RunHostedAsync(arguments, pipeName);
+            return;
+        }
         UiText.LoadPreference(AppPaths.ForInstallation(Option("--home"), Option("--root") ?? InstallationManager.DefaultRoot).ConfigFile);
         if (Option("--verify-manual-installer") is { } manualEvidence)
         {
@@ -101,14 +106,14 @@ public partial class App : Application
     }
     // ZIP extraction, hashing and filesystem moves include synchronous work.
     // Keep the entire operation off WPF's dispatcher, including before the first await.
-    internal static Task<InstallationRecord> Install(string destination, string? home = null, IProgress<string>? progress = null, bool createStartMenu = true)
-        => Task.Run(() => InstallCore(destination, home, progress, createStartMenu));
-    private static async Task<InstallationRecord> InstallCore(string destination, string? home, IProgress<string>? progress, bool createStartMenu)
+    internal static Task<InstallationRecord> Install(string destination, string? home = null, IProgress<string>? progress = null, bool createStartMenu = true, IProgress<SetupProgress>? measured = null)
+        => Task.Run(() => InstallCore(destination, home, progress, createStartMenu, measured));
+    private static async Task<InstallationRecord> InstallCore(string destination, string? home, IProgress<string>? progress, bool createStartMenu, IProgress<SetupProgress>? measured)
     {
         Environment.CurrentDirectory = Path.GetTempPath();
         EnsureApplicationClosed(destination);
         if (sourcePayload is not null)
-            return await new InstallationManager(AppPaths.ForInstallation(home, Path.GetFullPath(sourcePayload))).InstallAsync(destination, progress: progress, createStartMenu: createStartMenu);
+            return await new InstallationManager(AppPaths.ForInstallation(home, Path.GetFullPath(sourcePayload))).InstallAsync(destination, progress: progress, createStartMenu: createStartMenu, measured: measured);
         var extraction = Path.Combine(Path.GetTempPath(), "VrcSetup-install-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(extraction);
         try
@@ -127,7 +132,7 @@ public partial class App : Application
             if (File.Exists(Path.Combine(extraction, DeltaUpdates.ManifestName)))
                 await DeltaUpdates.ReconstructAsync(extraction, destination);
             var paths = AppPaths.ForInstallation(home, extraction);
-            return await new InstallationManager(paths).InstallAsync(destination, progress: progress, createStartMenu: createStartMenu);
+            return await new InstallationManager(paths).InstallAsync(destination, progress: progress, createStartMenu: createStartMenu, measured: measured);
         }
         finally { if (Directory.Exists(extraction)) Directory.Delete(extraction, true); }
     }

@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using VrcSetup.Core;
 
 namespace VrcSetup.Bootstrapper;
 
@@ -11,6 +12,7 @@ public sealed record DeliveryResult(long DownloadedBytes, int DownloadedComponen
 [JsonSerializable(typeof(ComponentManifest))]
 [JsonSerializable(typeof(DeliveryResult))]
 [JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(SetupMessage))]
 internal partial class DeliveryJson : JsonSerializerContext;
 internal sealed class InlineProgress<T>(Action<T> report) : IProgress<T> { public void Report(T value) => report(value); }
 
@@ -56,53 +58,72 @@ public sealed class ComponentDelivery(HttpClient client)
         return path;
     }
     public async Task<DeliveryResult> PrepareAsync(ComponentManifest manifest, string staging, string cache, string installedRoot,
-        IProgress<(int Percent, string Step)>? progress = null, CancellationToken token = default)
+        IProgress<(int Percent, string Step)>? progress = null, CancellationToken token = default, IProgress<SetupProgress>? measured = null)
     {
         Validate(manifest);
         if (Directory.Exists(staging)) throw new IOException("Use fresh staging.");
         Directory.CreateDirectory(staging); Directory.CreateDirectory(cache);
-        // Concurrent bootstrappers cannot prune/use partial component archives together.
         await using var lease = new FileStream(Path.Combine(cache, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         foreach (var partial in Directory.GetFiles(cache, "*.partial-*"))
             if (System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(partial), "^[a-f0-9]{64}\\.zip\\.partial-[a-f0-9]{32}$")) File.Delete(partial);
-        long downloaded = 0; int received = 0, cached = 0, reused = 0;
-        var total = manifest.Components.Sum(x => x.Bytes);
-        long completedBytes = 0;
+        long downloaded = 0; int received = 0, cached = 0, reused = 0, checkedModules = 0;
+        var reuse = new HashSet<string>(); var missing = new List<Component>();
+        measured?.Report(new("prepare", 0, manifest.Components.Count));
         foreach (var module in manifest.Components)
         {
             token.ThrowIfCancellationRequested();
-            if (await ReuseAsync(module, staging, installedRoot, token)) reused++;
+            if (await CanReuseAsync(module, installedRoot, token)) { reuse.Add(module.Name); reused++; }
+            else if (await MatchesAsync(Path.Combine(cache, module.Name), module.Sha256, module.Bytes, token)) cached++;
+            else missing.Add(module);
+            measured?.Report(new("prepare", ++checkedModules, manifest.Components.Count));
+        }
+        var downloadBytes = missing.Sum(x => x.Bytes);
+        if (downloadBytes > 0) measured?.Report(new("download", 0, downloadBytes));
+        foreach (var module in missing)
+        {
+            var zip = Path.Combine(cache, module.Name);
+            if (File.Exists(zip)) File.Delete(zip);
+            var before = downloaded;
+            var count = await DownloadAsync(new Uri(new Uri(manifest.BaseUri), module.Name), zip, module,
+                new InlineProgress<long>(n => {
+                    measured?.Report(new("download", before + n, downloadBytes));
+                    progress?.Report(((int)((before + n) * 100 / downloadBytes), "Downloading components…"));
+                }), token);
+            downloaded += count; received++;
+        }
+        var totalFiles = manifest.Components.Sum(x => x.Files.Count); long readyFiles = 0;
+        measured?.Report(new("prepare-files", 0, totalFiles));
+        void Ready() { measured?.Report(new("prepare-files", ++readyFiles, totalFiles)); }
+        foreach (var module in manifest.Components)
+        {
+            token.ThrowIfCancellationRequested();
+            if (reuse.Contains(module.Name))
+            {
+                foreach (var file in module.Files)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var destination = Contained(staging, file.Key); Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                    File.Copy(Contained(installedRoot, file.Key[8..]), destination);
+                    if (!await MatchesAsync(destination, file.Value, null, token)) throw new IOException("Installed component changed during reuse.");
+                    Ready();
+                }
+            }
             else
             {
                 var zip = Path.Combine(cache, module.Name);
-                if (await MatchesAsync(zip, module.Sha256, module.Bytes, token)) cached++;
-                else
-                {
-                    if (File.Exists(zip)) File.Delete(zip);
-                    var downloadedNow = await DownloadAsync(new Uri(new Uri(manifest.BaseUri), module.Name), zip, module, new InlineProgress<long>(n =>
-                        progress?.Report(((int)Math.Min(99, (completedBytes + n) * 100 / total), "Downloading components…"))), token);
-                    downloaded += downloadedNow; received++;
-                }
-                await ExtractAsync(zip, staging, module, token);
+                await ExtractAsync(zip, staging, module, token, Ready);
                 File.SetLastWriteTimeUtc(zip, DateTime.UtcNow);
             }
-            completedBytes += module.Bytes;
-            progress?.Report(((int)(completedBytes * 100 / total), "Verifying files"));
+            progress?.Report(((int)(readyFiles * 100 / totalFiles), "Preparing setup…"));
         }
         Prune(cache, manifest.Components.Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase));
         return new(downloaded, received, cached, reused);
     }
-    private static async Task<bool> ReuseAsync(Component module, string staging, string installed, CancellationToken token)
+    private static async Task<bool> CanReuseAsync(Component module, string installed, CancellationToken token)
     {
         if (module.Files.Keys.Any(x => !x.StartsWith("payload/", StringComparison.Ordinal))) return false;
         foreach (var file in module.Files)
             if (!await MatchesAsync(Contained(installed, file.Key[8..]), file.Value, null, token)) return false;
-        foreach (var file in module.Files)
-        {
-            var destination = Contained(staging, file.Key); Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            File.Copy(Contained(installed, file.Key[8..]), destination);
-            if (!await MatchesAsync(destination, file.Value, null, token)) throw new IOException("Installed component changed during reuse.");
-        }
         return true;
     }
     private static async Task<bool> MatchesAsync(string path, string hash, long? bytes, CancellationToken token)
@@ -143,7 +164,7 @@ public sealed class ComponentDelivery(HttpClient client)
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
-    private static async Task ExtractAsync(string zip, string staging, Component module, CancellationToken token)
+    private static async Task ExtractAsync(string zip, string staging, Component module, CancellationToken token, Action ready)
     {
         using var archive = ZipFile.OpenRead(zip); var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase); long expanded = 0;
         if (archive.Entries.Count != module.Files.Count) throw new IOException("Unexpected component archive structure.");
@@ -157,6 +178,7 @@ public sealed class ComponentDelivery(HttpClient client)
             await using (var input = entry.Open())
             await using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)) await input.CopyToAsync(output, token);
             if (!await MatchesAsync(path, expected, entry.Length, token)) throw new IOException("Component file verification failed.");
+            ready();
         }
         if (found.Count != module.Files.Count) throw new IOException("Incomplete component archive.");
     }

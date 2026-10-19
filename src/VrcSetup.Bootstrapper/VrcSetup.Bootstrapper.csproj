@@ -7,4 +7,5 @@
     <ApplicationIcon>../VrcSetup.Desktop/Assets/AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup Condition="Exists('$(ComponentManifest)')"><EmbeddedResource Include="$(ComponentManifest)" LogicalName="components.json" /></ItemGroup>
+  <ItemGroup><Compile Include="../VrcSetup.Core/SetupProgress.cs" Link="SetupProgress.cs" /></ItemGroup>
 </Project>

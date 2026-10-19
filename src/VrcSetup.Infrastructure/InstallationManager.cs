@@ -11,18 +11,19 @@ public sealed class InstallationManager(AppPaths paths)
 {
     public static string DefaultRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "VrcSetup");
     private const string Marker = ".vrcsetup-install.json";
-    public async Task ValidatePayloadAsync(string root, CancellationToken token = default)
+    public async Task ValidatePayloadAsync(string root, CancellationToken token = default, Action<string>? verified = null)
     {
         var manifest = await AtomicFile.ReadJsonAsync<PayloadManifest>(Path.Combine(root, ".vrcsetup-payload.json"), token) ?? throw new IOException("This is not a published VRCSETUP payload. Build a release first.");
         foreach (var file in manifest.Files)
         {
             token.ThrowIfCancellationRequested(); var path = ProjectRules.NormalizePath(file.Key, root); ProjectRules.EnsureContained(root, path);
             if (AtomicFile.Hash(path) != file.Value) throw new IOException("Payload integrity check failed: " + file.Key);
+            verified?.Invoke(file.Key);
         }
         foreach (var required in new[] { "app/cli/vrcsetup.exe", "app/desktop/VrcSetup.Desktop.exe" })
             if (!File.Exists(Path.Combine(root, required))) throw new IOException("Payload is missing " + required);
     }
-    public async Task<InstallationRecord> InstallAsync(string? destination = null, CancellationToken token = default, IProgress<string>? progress = null, bool createStartMenu = true)
+    public async Task<InstallationRecord> InstallAsync(string? destination = null, CancellationToken token = default, IProgress<string>? progress = null, bool createStartMenu = true, IProgress<SetupProgress>? measured = null)
     {
         var source = ProjectRules.NormalizePath(paths.PayloadRoot);
         var target = ProjectRules.NormalizePath(destination ?? DefaultRoot);
@@ -32,8 +33,12 @@ public sealed class InstallationManager(AppPaths paths)
         if (target.StartsWith(source + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || source.StartsWith(target + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new IOException("Source and install destination must be separate folders.");
         if (Directory.Exists(target) && !File.Exists(Path.Combine(target, Marker)) && !File.Exists(Path.Combine(target, ".vrcsetup-installed"))) throw new IOException("Refusing to replace an unrecognized destination folder.");
         ProjectRules.EnsureContained(parent, target);
+        var manifest = await AtomicFile.ReadJsonAsync<PayloadManifest>(Path.Combine(source, ".vrcsetup-payload.json"), token) ?? throw new IOException("Payload manifest missing.");
+        long completed = 0; long total = manifest.Files.Count * 3L + 1;
+        measured?.Report(new("install", 0, total));
+        void Verified(string path) { progress?.Report("Verified: " + path); measured?.Report(new("install", ++completed, total)); }
         progress?.Report("Checking installation");
-        await ValidatePayloadAsync(source, token);
+        await ValidatePayloadAsync(source, token, Verified);
         var destinationPaths = paths.AllowLegacyImport && File.Exists(Path.Combine(source, ".vrcsetup-portable")) ? AppPaths.ForInstallation(null, source) : paths;
         var legacy = Path.Combine(target, "setup-scripts", "config", "vrcsetup.json");
         if (!File.Exists(destinationPaths.ConfigFile))
@@ -41,7 +46,6 @@ public sealed class InstallationManager(AppPaths paths)
             var configSource = File.Exists(legacy) ? legacy : paths.ConfigFile != destinationPaths.ConfigFile && File.Exists(paths.ConfigFile) ? paths.ConfigFile : null;
             if (configSource is not null) await new ConfigurationStore(destinationPaths).ImportAsync(configSource, token);
         }
-        var manifest = await AtomicFile.ReadJsonAsync<PayloadManifest>(Path.Combine(source, ".vrcsetup-payload.json"), token) ?? throw new IOException("Payload manifest missing.");
         var stage = target + ".stage-" + Guid.NewGuid().ToString("N");
         var previous = Directory.Exists(target) ? target + ".previous-" + Guid.NewGuid().ToString("N") : null;
         Directory.CreateDirectory(stage);
@@ -53,9 +57,10 @@ public sealed class InstallationManager(AppPaths paths)
                 var file = Path.Combine(source, relative); var copy = Path.Combine(stage, relative);
                 ProjectRules.EnsureContained(source, file); ProjectRules.EnsureContained(stage, copy);
                 Directory.CreateDirectory(Path.GetDirectoryName(copy)!); File.Copy(file, copy);
+                progress?.Report("Copied: " + relative); measured?.Report(new("install", ++completed, total));
             }
             progress?.Report("Verifying files");
-            await ValidatePayloadAsync(stage, token);
+            await ValidatePayloadAsync(stage, token, Verified);
             progress?.Report("Installing update");
             if (previous is not null) Directory.Move(target, previous);
             try { Directory.Move(stage, target); }
@@ -65,7 +70,9 @@ public sealed class InstallationManager(AppPaths paths)
                 var record = new InstallationRecord(manifest.Version, target, DateTime.UtcNow, previous, destinationPaths.Home);
                 await AtomicFile.WriteJsonAsync(Path.Combine(target, Marker), record, token);
                 progress?.Report("Updating shortcuts");
+                measured?.Report(new("finish", 0, 0));
                 await IntegrateAsync(target, token, createStartMenu);
+                measured?.Report(new("finish", 1, 1));
                 return record;
             }
             catch when (previous is not null)

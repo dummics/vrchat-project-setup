@@ -46,6 +46,10 @@ CI downloads the newest complete older portable release and verifies its checksu
 
 ## Verification and recovery
 
+The public EXE owns one native window throughout setup. The downloaded engine connects through a random, current-user-only named pipe and creates no window. Progress resets per phase: download counts missing archive bytes; preparation counts verified files; installation counts source verification, staging copies and staged verification. Unknown-duration integration uses an indeterminate bar. Detailed file operations go to `updates/components/last-engine.log`; download/setup diagnostics go to `last-install.log`. Manual Finish choices remain in the original window; automatic updates skip them.
+
+`tests/Test-HostedSetup.ps1 -Installer <engine.exe> -TestRoot <fresh-folder> -Version <version>` verifies the real headless engine, measured progress, shortcuts, declined reinstall/downgrade and automatic completion using isolated files and shell-folder overrides. CI requires this proof before publishing. `VrcSetupSetup.exe --render-setup <folder>` captures the actual native start/download/install/completion controls offscreen without downloading or installing.
+
 Manual installation ends on a completion page with Start (selected), desktop shortcut (optional), and launch (selected) choices, applied by Finish. Start shortcuts use the product name **VRC Project Setup** for Windows search under the current user. Reinstalling the same version or manually installing an older version requires confirmation; downgrades are not a guarantee of older settings-format compatibility. The automatic updater skips this page and reopens the app automatically.
 
 `VrcSetupInstaller.exe --verify-manual-installer <fixture> --source-payload <payload>` exercises completion, shell shortcuts, declined reinstall/downgrade and uninstall. It requires a fresh fixture with `.manual-installer-fixture`, `VRCSETUP_SKIP_PATH_UPDATE=1`, and Start/Desktop overrides pointing to its `start` and `desktop` folders. Evidence is saved inside the fixture; real user shell folders are never used by this test.

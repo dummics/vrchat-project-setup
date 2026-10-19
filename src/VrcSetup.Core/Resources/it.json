@@ -367,5 +367,12 @@
   "Share preset": "Condividi preset",
   "The selected versions are already installed.": "Le versioni selezionate sono già installate.",
   "Easy Login will be updated: ": "Easy Login verrà aggiornato: ",
-  "No email app is configured. Contact us at contact@dummics.com.": "Nessuna app email configurata. Puoi scriverci a contact@dummics.com."
+  "No email app is configured. Contact us at contact@dummics.com.": "Nessuna app email configurata. Puoi scriverci a contact@dummics.com.",
+  "No results found": "Nessun risultato trovato",
+  "Online search unavailable. Local packages remain available.": "Ricerca online non disponibile. Puoi usare i pacchetti già disponibili.",
+  "Use packages and return to import": "Usa i pacchetti e torna all'importazione",
+  "Discard package changes for this import?": "Scartare le modifiche ai pacchetti di questa importazione?",
+  "Import log": "Log dell'importazione",
+  "Wait for imports to finish before changing the app or its settings.": "Attendi la fine delle importazioni prima di modificare l'app o le impostazioni.",
+  "Update will wait until imports finish.": "L'aggiornamento attenderà la fine delle importazioni."
 }

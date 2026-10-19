@@ -17,7 +17,15 @@ public sealed partial class MainViewModel
     private HashSet<string> browserIncluded = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> projectCatalogBaseline = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> onlineMatches = new(StringComparer.OrdinalIgnoreCase);
-    public Visibility CatalogNoticeVisibility => CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string CatalogStatusText => IsSearchingPackages ? "Searching packages…" : CatalogNotice.Length > 0 ? CatalogNotice : HasPackageQuery && LibraryPackages.Count == 0 ? "No results found" : "";
+    public Visibility CatalogNoticeVisibility => CatalogStatusText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    partial void OnIsSearchingPackagesChanged(bool value) => NotifyCatalogStatus();
+    partial void OnCatalogNoticeChanged(string value) => NotifyCatalogStatus();
+    private void NotifyCatalogStatus()
+    {
+        OnPropertyChanged(nameof(CatalogStatusText)); OnPropertyChanged(nameof(CatalogNoticeVisibility));
+        OnPropertyChanged(nameof(PresetCatalogVisibility)); OnPropertyChanged(nameof(CatalogHeadingVisibility));
+    }
     public Visibility ProjectCatalogVisibility => BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
     public bool WorkspaceDirty => session?.HasPendingChanges == true;
     public Visibility WorkspaceChangesVisibility => WorkspaceDirty ? Visibility.Visible : Visibility.Collapsed;
@@ -46,11 +54,16 @@ public sealed partial class MainViewModel
         {
             if (!await ResolveSettingsAsync()) return false;
             if (WorkspaceDirty && !await ui.ConfirmAsync("Unsaved changes", "Discard pending package changes and leave?", "Discard and leave")) return false;
-            if (PresetDirty && page != "Presets")
+            if (PresetDirty && (editingImportPreset || page != "Presets") && !acceptingImportSelection)
             {
-                if (!await ui.ConfirmAsync("Unsaved preset", "Discard changes to " + PresetLabel + "?", "Discard and leave")) return false;
+                if (!await ui.ConfirmAsync(editingImportPreset ? "Unsaved packages" : "Unsaved preset", editingImportPreset ? "Discard package changes for this import?" : "Discard changes to " + PresetLabel + "?", "Discard and leave")) return false;
             }
             if (PresetDirty && page != "Presets") LoadEditingPreset();
+            if (editingImportPreset && page != "ImportPackages")
+            {
+                editingImportPreset = false; OnPropertyChanged(nameof(UseImportPresetVisibility));
+                OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility)); LoadEditingPreset();
+            }
             if (session is not null)
             {
                 session.Reset(); session = null; RenderWorkspace(); RefreshLibraryRows();
@@ -82,7 +95,7 @@ public sealed partial class MainViewModel
     private async Task SearchLibraryAsync(string query)
     {
         packageSearch?.Cancel(); var source = packageSearch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); var token = source.Token;
-        IsSearchingPackages = false; CatalogNotice = "";
+        IsSearchingPackages = query.Trim().Length >= 2; CatalogNotice = "";
         try
         {
             if (query.Trim().Length < 2) return;
@@ -94,7 +107,7 @@ public sealed partial class MainViewModel
             onlineMatches = found.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             Replace(Registry, merged.Values);
             session?.AddDefinitions(found); RefreshLibraryRows();
-            CatalogNotice = found.Length == 0 && LibraryPackages.Count == 0 ? "No matching packages" : "";
+            CatalogNotice = "";
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { if (source == packageSearch) { CatalogNotice = "Online search unavailable. Local packages remain available."; app.Diagnostics.Write("Package search", error.Message, error); } }

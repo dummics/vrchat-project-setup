@@ -17,6 +17,7 @@ public static class UserErrors
         ArgumentException => "Check the values you entered and try again.",
         IOException when error.Message.StartsWith("Choose Unity ", StringComparison.Ordinal) || error.Message.StartsWith("Select a valid Unity Editor", StringComparison.Ordinal) => "Choose the VRChat version of Unity. You can find it with Find Unity.",
         InvalidOperationException when error.Message == "Choose Unity and a projects folder to continue." => error.Message,
+        InvalidOperationException when error.Message == "Imports are in progress." => "Wait for imports to finish before changing the app or its settings.",
         InvalidDataException => "This preset file is not supported. Ask for a new export from VRC Project Setup.",
         _ => "This action could not be completed. Try again, or contact support if it happens again."
     }));

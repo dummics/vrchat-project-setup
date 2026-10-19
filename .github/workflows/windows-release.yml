@@ -171,6 +171,10 @@ jobs:
           if (-not $process.WaitForExit(120000)) { throw 'Manual installer verification timed out.' }
           if ($process.ExitCode -ne 0) { Get-Content (Join-Path $fixture 'failure.txt'); throw 'Manual installer verification failed.' }
           if (-not (Get-Content (Join-Path $fixture 'manual-installer.json') -Raw | ConvertFrom-Json).Passed) { throw 'Missing manual installer proof.' }
+      - name: Verify single-window installation engine
+        shell: pwsh
+        run: |
+          ./tests/Test-HostedSetup.ps1 -Installer (Join-Path $pwd 'release/installer-build/VrcSetupInstaller.exe') -TestRoot (Join-Path $env:RUNNER_TEMP 'hosted-setup') -Version $env:RELEASE_VERSION
       - name: Verify unified installer update and restart
         if: env.UPDATE_BASE_ARCHIVE != ''
         shell: pwsh

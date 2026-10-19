@@ -12,6 +12,13 @@ public partial class App
         {
             var automatic = new AutomaticUpdates(application.Paths);
             if (!automatic.Installed) return false;
+            var journal = Path.Combine(application.Paths.Home, "imports.json");
+            if (File.Exists(journal))
+            {
+                if (new FileInfo(journal).Length > 32 * 1024 * 1024) return false;
+                var imports = await AtomicFile.ReadJsonAsync<ImportJob[]>(journal);
+                if (imports?.Any(x => x is null || x.Active) == true) return false;
+            }
             // Another window may have unsaved work. Leave the pending update for a later launch.
             var executable = Path.GetFullPath(Environment.ProcessPath!);
             foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(executable)))

@@ -69,3 +69,11 @@ Shared ListView/GridView styles reserve a 24px trailing gutter and disable horiz
 Open project is available only for single-project management, with a command-level guard as well as UI visibility. Pending drafts survive confirmed navigation and reopening the same target set; switching to another set asks before discarding. Revert explicitly resets the draft. Review groups identical transitions for the same affected project set, retaining distinct old/new version combinations. No-op latest selections save policy without reinstalling an already-installed version; missing embedded packages remain repair operations.
 
 Package Apply uses a dedicated dimmed blocking overlay, separate from the nonblocking import workflow. It shows preparation/current project/phase, disables navigation and blocks normal app close until the awaited worker and recovery finish. Cancel requests cooperative cancellation, without claiming to undo previously completed projects; the executor restores the affected project's backup where supported. Busy editors are named before review; fresh executor preflight still protects projects opened later. Skips/failures are shown explicitly and retain pending choices. Phase progress is indeterminate rather than an invented byte percentage.
+
+## Import UI and maintenance protection
+
+Active import rows fill the bottom of the import page and grow upward into the available space. The page scrolls as a whole; the job list has no additional scrolling viewport. Expanded logs have a single fixed-height, selectable text viewport, so reading them does not move the entire job list. Rows use one outline and a subtle lighter hover.
+
+While imports are queued or running, settings replacement, repair, uninstall, cache clearing and update/restart actions are refused. Background checks recheck import state after awaiting network work. At startup, a saved active import journal defers prepared updates so import recovery can proceed first.
+
+An import preset seeds the current draft. Customize reuses the common package editor in a local import context; Use packages returns to the same files and applies the selection only to that import draft. Saved presets are unchanged. Leaving a changed selection requires the normal discard confirmation.

@@ -9,6 +9,25 @@ namespace VrcSetup.Tests;
 
 public sealed class ComponentDeliveryTests
 {
+    [Fact] public async Task MeasuredProgressCountsMissingBytesAndPreparedFiles()
+    {
+        using var fixture = new Fixture(); using var client = fixture.Client(); var delivery = new ComponentDelivery(client);
+        var reports = new List<VrcSetup.Core.SetupProgress>();
+        var progress = new InlineProgress(reports);
+        await delivery.PrepareAsync(fixture.Manifest, fixture.Stage(), fixture.Cache, fixture.Installed, measured: progress);
+        var downloads = reports.Where(x => x.Phase == "download").ToArray();
+        var bytes = fixture.Manifest.Components.Sum(x => x.Bytes);
+        Assert.NotEmpty(downloads); Assert.All(downloads, x => Assert.Equal(bytes, x.Total));
+        Assert.Equal(bytes, downloads[^1].Completed);
+        var files = reports.Last(x => x.Phase == "prepare-files");
+        Assert.Equal(fixture.Manifest.Components.Sum(x => x.Files.Count), files.Total); Assert.Equal(files.Total, files.Completed);
+        reports.Clear();
+        await delivery.PrepareAsync(fixture.Manifest, fixture.Stage(), fixture.Cache, fixture.Installed, measured: progress);
+        Assert.DoesNotContain(reports, x => x.Phase == "download");
+    }
+    private sealed class InlineProgress(List<VrcSetup.Core.SetupProgress> reports) : IProgress<VrcSetup.Core.SetupProgress>
+    { public void Report(VrcSetup.Core.SetupProgress value) => reports.Add(value); }
+
     [Fact] public async Task NextReleaseDownloadsOnlyTheChangedApplicationComponent()
     {
         using var fixture = new Fixture(); using var client = fixture.Client(); var delivery = new ComponentDelivery(client);
