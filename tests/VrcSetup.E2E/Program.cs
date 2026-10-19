@@ -4,6 +4,11 @@ using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 
+if (args is ["--verify-fresh-packages", var payload, var evidence])
+{
+    await FreshPackageVerification.RunAsync(payload, evidence);
+    return;
+}
 var arguments = args.Chunk(2).Where(x => x.Length == 2).ToDictionary(x => x[0], x => x[1]);
 var artifacts = ProjectRules.NormalizePath(arguments.GetValueOrDefault("--artifacts") ?? throw new ArgumentException("--artifacts is required."));
 var editor = ProjectRules.NormalizePath(arguments.GetValueOrDefault("--unity") ?? throw new ArgumentException("--unity is required."));

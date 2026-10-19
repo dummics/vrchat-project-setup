@@ -388,13 +388,18 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     public async Task<string?> SaveFileAsync(string name, string extension)
     {
         var picker = new FileSavePicker { SuggestedFileName = name };
-        picker.FileTypeChoices.Add(UiText.Text("Preset"), new[] { extension });
+        picker.FileTypeChoices.Add(UiText.Text(extension.Equals(".zip", StringComparison.OrdinalIgnoreCase) ? "Log archive" : "Preset"), new[] { extension });
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
         return (await picker.PickSaveFileAsync())?.Path;
     }
     public async Task<string?> ResolveSettingsAsync()
     {
-        var result = await ShowDialog(new() { Title = "Unsaved settings", Content = UiText.Text("Save your settings before leaving?"), PrimaryButtonText = "Save", SecondaryButtonText = "Discard", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
+        var result = await ShowDialog(new() { Title = "Unsaved settings", Content = UiText.Text("Save your settings before leaving?"), PrimaryButtonText = "Save", SecondaryButtonText = "Discard", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary });
+        return result == ContentDialogResult.Primary ? "Save" : result == ContentDialogResult.Secondary ? "Discard" : null;
+    }
+    public async Task<string?> ResolveChangesAsync(string title, string action)
+    {
+        var result = await ShowDialog(new() { Title = title, PrimaryButtonText = action, SecondaryButtonText = "Discard and leave", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary });
         return result == ContentDialogResult.Primary ? "Save" : result == ContentDialogResult.Secondary ? "Discard" : null;
     }
     public async Task<string?> PickFolderAsync()

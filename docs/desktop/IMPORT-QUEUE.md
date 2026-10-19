@@ -72,6 +72,8 @@ Package Apply uses a dedicated dimmed blocking overlay, separate from the nonblo
 
 ## Import UI and maintenance protection
 
+The ordinary desktop holds one lease per data home. Opening it again activates the existing window instead of starting another import queue. Preset/settings exit dialogs highlight Save, with Discard and Cancel alternatives; project-package edits offer Apply and still require the normal review. Saving is explicit. A failed save or cancelled review keeps the current edits/page.
+
 Active import rows fill the bottom of the import page and grow upward into the available space. The page scrolls as a whole; the job list has no additional scrolling viewport. Expanded logs have a single fixed-height, selectable text viewport, so reading them does not move the entire job list. Rows use one outline and a subtle lighter hover.
 
 While imports are queued or running, settings replacement, repair, uninstall, cache clearing and update/restart actions are refused. Background checks recheck import state after awaiting network work. At startup, a saved active import journal defers prepared updates so import recovery can proceed first.

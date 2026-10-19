@@ -75,6 +75,33 @@ public sealed class ApplicationUpdatesTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
+    [Theory] [InlineData(HttpStatusCode.ServiceUnavailable, 2)] [InlineData(HttpStatusCode.Forbidden, 1)]
+    public async Task TransientUpdateFailuresRetryOnceButPermissionFailuresDoNot(HttpStatusCode status, int expected)
+    {
+        var payload = Encoding.UTF8.GetBytes("verified fixture, not executed");
+        var version = "0.2.0-beta.24"; var name = $"Install-VrcSetup-{version}-win-x64.exe";
+        var hash = Convert.ToHexString(SHA256.HashData(payload)); var requests = 0;
+        using var client = new HttpClient(new FixtureHandler(request =>
+        {
+            if (request.RequestUri!.LocalPath.EndsWith(".txt"))
+            {
+                requests++;
+                if (requests == 1) return new(status);
+                return new(HttpStatusCode.OK) { Content = new StringContent(hash + "  " + name) };
+            }
+            return new(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) };
+        }));
+        var folder = Path.Combine(Path.GetTempPath(), "vrcsetup-retry-" + Guid.NewGuid().ToString("N"));
+        var basis = ApplicationUpdates.Repository + "/releases/download/v" + version + "/";
+        var release = new ApplicationRelease(version, new(basis + name), new(basis + "SHA256SUMS.txt"), new(ApplicationUpdates.Repository));
+        try
+        {
+            if (status == HttpStatusCode.Forbidden) await Assert.ThrowsAsync<HttpRequestException>(() => new ApplicationUpdates(client).DownloadAsync(release, folder));
+            else Assert.Equal(payload, await File.ReadAllBytesAsync(await new ApplicationUpdates(client).DownloadAsync(release, folder)));
+            Assert.Equal(expected, requests);
+        }
+        finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    }
     private sealed class FixtureHandler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(response(request)); }
 

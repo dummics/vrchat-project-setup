@@ -114,6 +114,11 @@ jobs:
             }
           ./scripts/Publish-Windows.ps1 -Version $env:RELEASE_VERSION -OutputDirectory release
           if ($baseArchive) { "UPDATE_BASE_ARCHIVE=$baseArchive" >> $env:GITHUB_ENV }
+      - name: Verify package sources on a fresh Windows profile
+        shell: pwsh
+        run: |
+          dotnet run --project tests/VrcSetup.E2E/VrcSetup.E2E.csproj -c Release --property:Platform=x64 -- --verify-fresh-packages (Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64") (Join-Path $env:RUNNER_TEMP 'fresh-packages')
+          if ($LASTEXITCODE -ne 0) { throw 'Fresh package verification failed.' }
       - name: Native UI smoke verification
         shell: pwsh
         run: |
@@ -149,6 +154,7 @@ jobs:
           path: |
             ${{ runner.temp }}/vrcsetup-ui
             release/release-build.json
+            ${{ runner.temp }}/fresh-packages
           if-no-files-found: ignore
           retention-days: 7
       - name: Verify install, repair and shortcut migration

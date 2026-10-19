@@ -6,6 +6,8 @@ Update checks share a local feed cache for ten minutes, including manual checks.
 
 ## Install
 
+New installations start with VRChat Resolver/Base/Avatars, Poiyomi and VRCFury. Packages are downloaded by the bundled native VPM client; no globally installed VPM CLI or SDK is needed for package operations. Existing settings, extra packages and favorites are preserved. Installed project packages are indexed locally for reuse without joining the default preset. Only a selected package with missing metadata can trigger preparation of a known source; optional packages are not preinstalled or registered at startup.
+
 Run Install-VrcSetup-<version>-win-x64.exe. This small online installer downloads verified components, installs or updates **VRC Project Setup**, preserves settings and opens the app automatically. Internet is required for uncached components; no .NET SDK or Visual Studio is required. The technical filename and installation/data paths remain compatible with existing clients. Download only the EXE; hash-named ZIPs and components.json are technical assets fetched automatically.
 
 Download the Windows installer from [GitHub Releases](https://github.com/dummics/vrchat-project-setup/releases), including prereleases while beta testing. The installer is currently unsigned, so Windows may show a publisher/reputation prompt on a browser download. SHA-256 is available alongside it. Public download and the app's full update/restart path are verified in isolated installations; avatar import acceptance on other PCs remains beta testing.
@@ -81,6 +83,6 @@ Repair rebuilds the command and shortcuts after validating payload hashes. Unins
 Report the app version, action, result and relevant diagnostic log. Avoid sharing personal paths or private avatar content unnecessarily. This package includes source, fixture and native-render verification on its development branch; interactive mouse/keyboard acceptance is a separate test.
 ## Contact and package edits
 
-The error banner opens the logs folder. Contact shows email `contact@dummics.com` and Discord `dummics`, with separate copy buttons and selectable text; no mail client is required and nothing is sent automatically.
+The error banner reveals the latest error file in Explorer. Contact shows email `contact@dummics.com` and Discord `dummics`, with copy buttons and Export logs to share. The exported `VRC-Project-Setup-Logs-<date>.zip` includes bounded app/update diagnostics and opens its folder with the ZIP selected. Settings and avatar assets are excluded; nothing is sent automatically.
 
 Package additions, removals and updates run through package tools while Unity is open. No full project copy is made for ordinary package edits; small manifest recovery files remain available. Imports that need a separate Unity batch process still require an available project. Changes are serialized per project, and Apply refuses targets with an active or queued app import.

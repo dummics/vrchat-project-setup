@@ -164,7 +164,7 @@ public sealed partial class MainViewModel
     public void CancelAllImports() => app.Imports.CancelAll();
     public Task FinishImportsAsync() => app.Imports.DisposeAsync().AsTask();
     public void OpenImportLog(UiImportRow row)
-    { if (File.Exists(row.Job.LogFile)) OpenPath(row.Job.LogFile); else OpenLogsCommand.Execute(null); }
+    { if (File.Exists(row.Job.LogFile)) RevealLog(row.Job.LogFile); else OpenLogsCommand.Execute(null); }
     public Task RecoverImportAsync(UiImportRow row) => RepairHistoryImportAsync(new(row.Job));
     public async Task RefreshImportLogAsync(UiImportRow row, bool force = false)
     {

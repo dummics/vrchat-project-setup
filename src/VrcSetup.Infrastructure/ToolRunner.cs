@@ -6,12 +6,14 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed class ToolRunner(DiagnosticLog? diagnostics = null)
+public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundledPackageTool = null,
+    Func<string, string[], CancellationToken, Task<ToolResult>>? commandOverride = null)
 {
     public async Task<ToolResult> RunAsync(string executable, IEnumerable<string> arguments, string? workingDirectory = null,
         IProgress<OperationEvent>? progress = null, string phase = "Tool", CancellationToken cancellationToken = default, TimeSpan? timeout = null,
         string? logFile = null)
     {
+        if (commandOverride is not null) return await commandOverride(executable, arguments.ToArray(), cancellationToken);
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
@@ -101,7 +103,12 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null)
         var argv = arguments.ToArray();
         return Task.Run(() =>
         {
-            var executable = FindExecutable("vpm") ?? throw new IOException("VPM CLI not found. Install the official vrchat.vpm.cli tool and its required .NET runtime.");
+            var translated = bundledPackageTool is null ? null : PackageToolArguments(argv);
+            var executable = translated is not null ? bundledPackageTool! : FindExecutable("vpm");
+            if (executable is null && argv is ["add", "project", _])
+                return new ToolResult(1, "", "Creator Companion registration is unavailable; open the project from VRC Project Setup.");
+            if (executable is null) throw new IOException("The package tool is unavailable. Reinstall VRC Project Setup.");
+            var command = translated ?? argv;
             using var mutex = new Mutex(false, OperatingSystem.IsWindows() ? @"Local\VrcSetup.Vpm.Commands" : "VrcSetup.Vpm.Commands");
             var acquired = false;
             try
@@ -116,7 +123,7 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null)
                 ToolResult result = new(1, "", "");
                 for (var attempt = 0; attempt < 4; attempt++)
                 {
-                    result = RunAsync(executable, argv, project, progress, "VPM", cancellationToken).GetAwaiter().GetResult();
+                    result = RunAsync(executable, command, project, progress, "VPM", cancellationToken).GetAwaiter().GetResult();
                     if (result.ExitCode == 0 || !Regex.IsMatch(result.Output, @"(?i)(being used by another process|sharing violation|file.*lock|locked)") || attempt == 3) break;
                     Task.Delay(500 * (1 << attempt), cancellationToken).GetAwaiter().GetResult();
                 }
@@ -125,6 +132,18 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null)
             finally { if (acquired) mutex.ReleaseMutex(); }
         }, cancellationToken);
     }
+
+    public static string[]? PackageToolArguments(string[] args) => args switch
+    {
+        ["list", "repos"] => ["repo", "list"],
+        ["add", "repo", var url] => ["repo", "add", url],
+        ["remove", "package", var id, "-p", var path] => ["remove", id, "-p", path, "-y"],
+        ["resolve", "project", var path] => ["resolve", "-p", path],
+        ["add", "package", var package, "-p", var path] when package.LastIndexOf('@') is var at && at > 0 =>
+            ["install", package[..at], package[(at + 1)..], "-p", path, "-y", "--prerelease"],
+        ["add", "project", _] => null,
+        _ => throw new NotSupportedException("Unsupported package-tool command.")
+    };
 
     public static string? FindExecutable(string name)
     {

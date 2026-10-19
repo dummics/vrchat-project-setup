@@ -5,7 +5,7 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, ConfigurationStore configuration, string? repositoryDirectory = null) : IPackageCatalog
+public sealed partial class PackageCatalog(AppPaths paths, ToolRunner runner, ConfigurationStore configuration, string? repositoryDirectory = null, bool allowRepositorySetup = true) : IPackageCatalog
 {
     private readonly ConcurrentDictionary<string, string[]> versionsCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, string> FriendlyNames = new(StringComparer.OrdinalIgnoreCase)
@@ -96,6 +96,17 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
             if (metadata.TryGetValue(packageId, out var savedVersions)) versions.UnionWith(savedVersions.Versions);
         }
         if (versions.Count == 0 && registry.TryGetValue(packageId, out var saved)) versions.UnionWith(saved.Versions);
+        if (versions.Count == 0 && await EnsurePackageSourceAsync(packageId, cancellationToken) && paths.VrcGetPath is not null)
+        {
+            var retried = await runner.RunAsync(paths.VrcGetPath, ["info", "package", packageId, "--json-format", "1"], cancellationToken: cancellationToken);
+            if (retried.ExitCode == 0)
+            {
+                using var document = JsonDocument.Parse(retried.StdOut);
+                if (document.RootElement.TryGetProperty("versions", out var list))
+                    foreach (var entry in list.EnumerateArray())
+                        if (entry.TryGetProperty("version", out var version) && version.GetString() is { } text) versions.Add(text);
+            }
+        }
         var ordered = SemanticVersion.Sort(versions);
         if (ordered.Length > 0)
         {
@@ -135,6 +146,18 @@ public sealed class PackageCatalog(AppPaths paths, ToolRunner runner, Configurat
             };
         }
         await AtomicFile.WriteJsonAsync(RegistryFile, BoundCache(known.Values, await configuration.LoadAsync(cancellationToken)), cancellationToken);
+    }
+    public async Task RememberProjectPackagesAsync(IEnumerable<ProjectSnapshot> projects, CancellationToken token = default)
+    {
+        var definitions = projects.SelectMany(project => project.InstalledVersions.Select(package =>
+            new PackageDefinition(package.Key, project.PackageDisplayNames.GetValueOrDefault(package.Key) ?? FriendlyName(package.Key), package.Value) { Versions = [package.Value] }))
+            .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase).Select(group =>
+            {
+                var versions = SemanticVersion.Sort(group.SelectMany(x => x.Versions));
+                var named = group.FirstOrDefault(x => x.DisplayName != x.Id) ?? group.First();
+                return named with { Versions = versions, LatestVersion = versions.FirstOrDefault() ?? named.LatestVersion };
+            }).ToArray();
+        if (definitions.Length > 0) await RememberAsync(definitions, token, preserveSelections: true);
     }
     private static HashSet<string> ProtectedIds(AppConfiguration config) => config.FavoritePackages.Concat(config.VpmPackages.Keys)
         .Concat(config.PackagePresets.Values.SelectMany(x => x.Keys)).ToHashSet(StringComparer.OrdinalIgnoreCase);

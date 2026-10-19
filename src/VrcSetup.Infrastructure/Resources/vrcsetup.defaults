@@ -4,20 +4,14 @@
     "com.vrchat.avatars": "latest",
     "com.vrchat.core.vpm-resolver": "latest",
     "com.vrcfury.vrcfury": "latest",
-    "gogoloco": "latest",
-    "adjerry91.vrcft.templates": "latest",
-    "com.poiyomi.toon": "latest",
-    "dev.foxscore.easy-login": "latest"
+    "com.poiyomi.toon": "latest"
   },
   "DefaultPackages": [
     "com.vrchat.base",
     "com.vrchat.avatars",
     "com.vrchat.core.vpm-resolver",
     "com.vrcfury.vrcfury",
-    "gogoloco",
-    "adjerry91.vrcft.templates",
-    "com.poiyomi.toon",
-    "dev.foxscore.easy-login"
+    "com.poiyomi.toon"
   ],
   "RequiredPackages": [
     "com.vrchat.base",
@@ -26,10 +20,7 @@
   ],
   "FavoritePackages": [
     "com.vrcfury.vrcfury",
-    "gogoloco",
-    "adjerry91.vrcft.templates",
-    "com.poiyomi.toon",
-    "dev.foxscore.easy-login"
+    "com.poiyomi.toon"
   ],
   "UnityEditorPath": "",
   "UnityProjectsRoot": "",

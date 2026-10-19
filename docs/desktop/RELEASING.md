@@ -46,6 +46,8 @@ CI downloads the newest complete older portable release and verifies its checksu
 
 ## Verification and recovery
 
+CI also resolves every fresh-default package through the published bundled client on its disposable Windows profile. This network/source check does not run against the owner's VCC profile and changes no Unity project.
+
 The native setup keeps a fixed 560 × 260 logical-pixel window for initial choices, all progress phases and completion. Phase text uses 14px Segoe UI immediately above the 24px progress bar. Shortcut choices and Finish fit the same compact window; the download/install protocol is unchanged.
 
 The public EXE owns one native window throughout setup. The downloaded engine connects through a random, current-user-only named pipe and creates no window. Progress resets per phase: download counts missing archive bytes; preparation counts verified files; installation counts source verification, staging copies and staged verification. Unknown-duration integration uses an indeterminate bar. Detailed file operations go to `updates/components/last-engine.log`; download/setup diagnostics go to `last-install.log`. Manual Finish choices remain in the original window; automatic updates skip them.

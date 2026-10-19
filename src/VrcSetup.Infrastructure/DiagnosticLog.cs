@@ -9,7 +9,7 @@ public sealed class DiagnosticLog(AppPaths paths)
     public bool DeveloperMode { get; set; }
     public bool Verbose { get; set; }
     public bool TraceTools { get; set; }
-    public string FilePath => Path.Combine(paths.Logs, "diagnostics-" + DateTime.UtcNow.ToString("yyyyMMdd") + ".jsonl");
+    public string FilePath => Path.Combine(paths.Logs, "VRC-Project-Setup-Errors-" + DateTime.UtcNow.ToString("yyyy-MM-dd") + ".jsonl");
     public void Configure(DiagnosticSettings settings)
     { DeveloperMode = settings.DeveloperMode; Verbose = settings.Verbose; TraceTools = settings.TraceTools; }
     public void Write(string area, string message, Exception? error = null)

@@ -76,9 +76,13 @@ public sealed partial class MainViewModel
         if (!Presets.Contains(newValue)) { presetSwitching = true; EditingPreset = Presets.Contains(oldValue) ? oldValue : DefaultPresetKey; presetSwitching = false; return; }
         _ = Guard(async () =>
         {
-            if (PresetDirty && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + (oldValue == DefaultPresetKey ? "Default" : oldValue) + "?", "Discard"))
-            { presetSwitching = true; EditingPreset = oldValue; presetSwitching = false; return; }
-            LoadEditingPreset();
+            presetSwitching = true;
+            try
+            {
+                if (!await ResolvePresetChangesAsync(oldValue)) { EditingPreset = oldValue; return; }
+                EditingPreset = newValue; LoadEditingPreset();
+            }
+            finally { presetSwitching = false; }
         });
     }
     private void LoadEditingPreset()
@@ -169,13 +173,28 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task SaveEditedPreset() => await Guard(async () =>
     {
         if (editingImportPreset) return;
-        var name = EditingPreset; var saved = new Dictionary<string, string>(presetWorking);
-        if (name == DefaultPresetKey) config.VpmPackages = new(saved); else config.PackagePresets[name] = new(saved);
-        await PersistConfigurationAsync();
-        await app.Catalog.RememberAsync(Registry.Where(x => saved.ContainsKey(x.Id)), lifetime.Token, preserveSelections: true);
-        if (EditingPreset == name) { presetBaseline = new(saved, StringComparer.OrdinalIgnoreCase); RenderPreset(); }
-        await LoadRegistry(); ShowSavedFeedback("Preset saved"); Status = (name == DefaultPresetKey ? "Default" : name) + " saved";
+        await SaveEditedPresetCoreAsync(EditingPreset);
     });
+    private async Task SaveEditedPresetCoreAsync(string name)
+    {
+        var saved = new Dictionary<string, string>(presetWorking);
+        var before = config.Copy();
+        try
+        {
+            if (name == DefaultPresetKey) config.VpmPackages = new(saved); else config.PackagePresets[name] = new(saved);
+            await PersistConfigurationAsync();
+        }
+        catch { config = before; throw; }
+        if (EditingPreset == name) { presetBaseline = new(saved, StringComparer.OrdinalIgnoreCase); RenderPreset(); }
+        try
+        {
+            await app.Catalog.RememberAsync(Registry.Where(x => saved.ContainsKey(x.Id)), lifetime.Token, preserveSelections: true);
+            await LoadRegistry();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { app.Diagnostics.Write("Preset index", error.Message, error); }
+        ShowSavedFeedback("Preset saved"); Status = (name == DefaultPresetKey ? "Default" : name) + " saved";
+    }
     [RelayCommand] private void DiscardPresetChanges() => LoadEditingPreset();
     [RelayCommand] private async Task ChangePresetVersion(UiPackageRow? row) => await Guard(async () =>
     {

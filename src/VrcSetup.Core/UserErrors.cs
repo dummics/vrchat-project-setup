@@ -8,6 +8,8 @@ public static class UserErrors
 {
     public static string Message(Exception error) => UiText.Text(Advice(error.Message) ?? (error switch
     {
+        ImportQueueInUseException => "Another instance is already managing imports. Return to that window or close it before continuing.",
+        InvalidOperationException when error.Message.StartsWith("Package/version not found: ", StringComparison.Ordinal) => "A selected package is unavailable. Check your connection and retry, or remove it from the preset.",
         ProjectsInUseException busy => string.Format(UiText.Text("Close Unity to import additional files into {0}. No project was changed."), string.Join(", ", busy.Projects)),
         HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden } => "The download service is busy. Please try again later.",
         HttpRequestException => "Could not connect. Check your connection and try again.",

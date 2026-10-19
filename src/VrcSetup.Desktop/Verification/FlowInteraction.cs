@@ -8,6 +8,9 @@ internal sealed class FlowInteraction(IDesktopInteraction inner) : IDesktopInter
     public bool ConfirmResult { get; set; }
     public int Confirmations { get; private set; }
     public string? SettingsChoice { get; set; }
+    public string? ChangesChoice { get; set; }
+    public Task<string?> ResolveChangesAsync(string title, string action) =>
+        Task.FromResult<string?>(ChangesChoice == "Cancel" ? null : ChangesChoice ?? (ConfirmResult ? "Discard" : null));
     public string? FileChoice { get; set; }
     public Task<string?> ResolveSettingsAsync() => Task.FromResult(SettingsChoice);
     public Task<string?> SaveFileAsync(string name, string extension) => Task.FromResult(FileChoice);

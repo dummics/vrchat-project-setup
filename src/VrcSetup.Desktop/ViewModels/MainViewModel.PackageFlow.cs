@@ -42,8 +42,7 @@ public sealed partial class MainViewModel
     public async Task<bool> ConfirmCloseAsync()
     {
         if (!await ResolveSettingsAsync()) return false;
-        if (!WorkspaceDirty && !PresetDirty) return true;
-        return await ui.ConfirmAsync("Unsaved changes", "Discard pending package changes and close?", "Discard and close");
+        return await ResolveWorkspaceChangesAsync() && await ResolvePresetChangesAsync();
     }
     public async Task<bool> NavigateAsync(string page)
     {
@@ -53,10 +52,10 @@ public sealed partial class MainViewModel
         try
         {
             if (!await ResolveSettingsAsync()) return false;
-            if (WorkspaceDirty && !await ui.ConfirmAsync("Unsaved changes", "Discard pending package changes and leave?", "Discard and leave")) return false;
+            if (!await ResolveWorkspaceChangesAsync()) return false;
             if (PresetDirty && (editingImportPreset || page != "Presets") && !acceptingImportSelection)
             {
-                if (!await ui.ConfirmAsync(editingImportPreset ? "Unsaved packages" : "Unsaved preset", editingImportPreset ? "Discard package changes for this import?" : "Discard changes to " + PresetLabel + "?", "Discard and leave")) return false;
+                if (!await ResolvePresetChangesAsync()) return false;
             }
             if (PresetDirty && page != "Presets") LoadEditingPreset();
             if (editingImportPreset && page != "ImportPackages")

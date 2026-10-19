@@ -126,7 +126,9 @@ public partial class App : Application
             return;
         }
         var normalApplication = new VrcSetup.Infrastructure.VrcSetupApplication(diagnosticFlags: arguments);
-        if (await StartPreparedUpdateAsync(normalApplication)) { Exit(); return; }
+        if (!AcquireDesktop(normalApplication)) { Exit(); return; }
+        if (await StartPreparedUpdateAsync(normalApplication)) { desktopLease?.Dispose(); Exit(); return; }
         window = new MainWindow(normalApplication); window.Activate();
+        window.Closed += (_, _) => desktopLease?.Dispose();
     }
 }

@@ -382,5 +382,12 @@
   "Copy Discord username": "Copia nome Discord",
   "Copied": "Copiato",
   "Could not copy. Select and copy the contact instead.": "Impossibile copiare. Seleziona e copia il contatto.",
-  "This action could not be completed. Open logs for details.": "Non è stato possibile completare l'operazione. Apri i log per i dettagli."
+  "This action could not be completed. Open logs for details.": "Non è stato possibile completare l'operazione. Apri i log per i dettagli.",
+  "Save and leave": "Salva ed esci",
+  "Apply and leave": "Applica ed esci",
+  "Export logs to share": "Esporta log da condividere",
+  "Logs ready to share": "Log pronti da condividere",
+  "Another instance is already managing imports. Return to that window or close it before continuing.": "Un'altra finestra sta già gestendo le importazioni. Torna a quella finestra o chiudila prima di continuare.",
+  "A selected package is unavailable. Check your connection and retry, or remove it from the preset.": "Un pacchetto selezionato non è disponibile. Controlla la connessione e riprova, oppure rimuovilo dal preset.",
+  "Log archive": "Archivio log"
 }

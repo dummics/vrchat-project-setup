@@ -94,10 +94,22 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
         if (release.DeltaInstaller is not null && release.BaseVersion is not null && installedRoot is not null
             && await DeltaUpdates.CanUseAsync(installedRoot, release.BaseVersion, token))
         {
-            try { return await DownloadInstallerAsync(release, release.DeltaInstaller, $"Update-VrcSetup-{release.Version}-from-{release.BaseVersion}-win-x64.exe", directory, progress, token); }
+                try { return await DownloadInstallerWithRetryAsync(release, release.DeltaInstaller, $"Update-VrcSetup-{release.Version}-from-{release.BaseVersion}-win-x64.exe", directory, progress, token); }
             catch (Exception error) when (error is IOException or HttpRequestException) { /* Full installer is the compatible fallback. */ }
         }
-        return await DownloadInstallerAsync(release, release.Installer, $"Install-VrcSetup-{release.Version}-win-x64.exe", directory, progress, token);
+        return await DownloadInstallerWithRetryAsync(release, release.Installer, $"Install-VrcSetup-{release.Version}-win-x64.exe", directory, progress, token);
+    }
+    private async Task<string> DownloadInstallerWithRetryAsync(ApplicationRelease release, Uri installer, string name, string directory, IProgress<int>? progress, CancellationToken token)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return await DownloadInstallerAsync(release, installer, name, directory, progress, token); }
+            catch (HttpRequestException error) when (attempt == 0 && !token.IsCancellationRequested &&
+                (error.StatusCode is null or System.Net.HttpStatusCode.RequestTimeout or System.Net.HttpStatusCode.InternalServerError or System.Net.HttpStatusCode.BadGateway or System.Net.HttpStatusCode.ServiceUnavailable or System.Net.HttpStatusCode.GatewayTimeout))
+            { await Task.Delay(1000, token); }
+            catch (TaskCanceledException) when (attempt == 0 && !token.IsCancellationRequested)
+            { await Task.Delay(1000, token); }
+        }
     }
     private async Task<string> DownloadInstallerAsync(ApplicationRelease release, Uri installer, string name, string directory, IProgress<int>? progress, CancellationToken token)
     {

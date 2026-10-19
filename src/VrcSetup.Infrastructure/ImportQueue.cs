@@ -83,7 +83,9 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         try
         {
             if (initialized) return;
-            lease = await AtomicFile.LockAsync(Path.Combine(app.Paths.Home, "imports.lock"), token, TimeSpan.FromSeconds(1));
+            try { lease = await AtomicFile.LockAsync(Path.Combine(app.Paths.Home, "imports.lock"), token, TimeSpan.FromSeconds(1)); }
+            catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+            { throw new ImportQueueInUseException(error); }
             try
             {
                 if (File.Exists(Journal) && new FileInfo(Journal).Length > 32 * 1024 * 1024) throw new IOException("Import history is too large to load safely.");

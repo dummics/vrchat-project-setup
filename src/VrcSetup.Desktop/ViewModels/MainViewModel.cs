@@ -12,6 +12,8 @@ public interface IDesktopInteraction
     Task<string?> PickFileAsync(string extension);
     Task<string?> SaveFileAsync(string name, string extension) => Task.FromResult<string?>(null);
     Task<string?> ResolveSettingsAsync() => Task.FromResult<string?>(null);
+    async Task<string?> ResolveChangesAsync(string title, string action) =>
+        await ConfirmAsync(title, "Discard pending changes?", "Discard and leave") ? "Discard" : null;
     Task<string?> PickFolderAsync();
     Task<bool> ConfirmAsync(string title, string content, string action);
     Task<bool> ReviewAsync(OperationPlan plan);
@@ -206,7 +208,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async Task RefreshProjectsCore()
     {
         IsLoadingProjects = true; ErrorMessage = "";
-        try { allProjects = await app.Projects.ScanAsync(config.UnityProjectsRoot, ProjectSort, true); FilterProjects(); Status = $"{allProjects.Length} projects"; }
+        try
+        {
+            allProjects = await app.Projects.ScanAsync(config.UnityProjectsRoot, ProjectSort, true); FilterProjects(); Status = $"{allProjects.Length} projects";
+            try { await app.Catalog.RememberProjectPackagesAsync(allProjects, lifetime.Token); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Project package index", error.Message); }
+        }
         catch when (!Directory.Exists(config.UnityProjectsRoot)) { allProjects = []; FilterProjects(); throw; }
         finally { IsLoadingProjects = false; UpdateProjectState(); }
     }
@@ -298,7 +305,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (session is not null && await ui.ConfirmAsync("Undo changes", "Discard all staged changes and extra imports?", "Discard")) { session.Reset(); RenderWorkspace(); }
     }
-    [RelayCommand] private async Task ApplyChanges() => await Guard(async () =>
+    [RelayCommand] private async Task ApplyChanges() => await Guard(ApplyChangesCoreAsync);
+    private async Task ApplyChangesCoreAsync()
     {
         if (session is null) return;
         if (ProjectImportsActive(session.Projects.Select(x => x.Path))) return;
@@ -320,7 +328,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             else { Status = "Some changes were not saved. Pending choices kept; review and retry."; ErrorMessage = report.Results.FirstOrDefault(x => x.Status is OperationStatus.Failed or OperationStatus.Cancelled or OperationStatus.Skipped)?.Message ?? Status; }
         }
         finally { operation = null; IsBusy = false; IsApplyingPackages = false; CanCancelApply = false; applyingProjects = []; }
-    });
+    }
     [RelayCommand] private async Task PickPackage()
     { if (await ui.PickFileAsync(".unitypackage") is { } file) { PackageFile = file; CurrentPage = "Create"; } }
     [RelayCommand] private async Task CustomizeCreationPackages() => await Guard(async () =>
@@ -511,8 +519,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (PresetDirty && !await ui.ConfirmAsync("Unsaved preset", "Discard changes before importing settings?", "Discard")) return;
         if (await ui.PickFileAsync(".json") is { } file && await ui.ConfirmAsync("Restore settings", "This replaces your settings and presets. Your Unity projects stay unchanged.", "Restore")) { await app.Configuration.ImportAsync(file); await ReloadConfigurationAsync(); }
     });
-    [RelayCommand] private void OpenLogs() { Directory.CreateDirectory(app.Paths.Logs); OpenPath(app.Paths.Logs); }
-    [RelayCommand] private void OpenLastLog() { if (File.Exists(LastLog)) OpenPath(LastLog); }
+    [RelayCommand] private void OpenLogs()
+    {
+        Directory.CreateDirectory(app.Paths.Logs);
+        if (SupportLogs.LatestError(app.Paths) is { } file) RevealLog(file); else OpenPath(app.Paths.Logs);
+    }
+    [RelayCommand] private void OpenLastLog() { if (File.Exists(LastLog)) RevealLog(LastLog); }
     [RelayCommand] private void OpenReport() { if (File.Exists(lastReport)) OpenPath(lastReport); }
     [RelayCommand] private void OpenProjectFolder() { if (session is not null) OpenPath(session.Projects[0].Path); }
     [RelayCommand] private async Task OpenUnity() => await Guard(async () =>

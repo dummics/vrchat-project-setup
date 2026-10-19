@@ -25,8 +25,8 @@ public sealed class VrcSetupApplication
     public VrcSetupApplication(string? home = null, string[]? diagnosticFlags = null, IUnityPackageInspector? packageInspector = null)
     {
         this.diagnosticFlags = diagnosticFlags ?? [];
-        Paths = new(home); Configuration = new(Paths); Diagnostics = new(Paths); Tools = new(Diagnostics); Projects = new(Paths, Diagnostics);
-        Catalog = new(Paths, Tools, Configuration); Inspection = new(Paths, packageInspector); Unity = new(Paths, Tools, Projects);
+        Paths = new(home); Configuration = new(Paths); Diagnostics = new(Paths); Tools = new(Diagnostics, Paths.VrcGetPath); Projects = new(Paths, Diagnostics);
+        Catalog = new(Paths, Tools, Configuration, allowRepositorySetup: AllowBackgroundCatalogRefresh); Inspection = new(Paths, packageInspector); Unity = new(Paths, Tools, Projects);
         Projects.Resolve = Unity.ResolveAsync;
         Planner = new(Projects, Catalog); Executor = new(Projects, Unity); Imports = new(this);
     }

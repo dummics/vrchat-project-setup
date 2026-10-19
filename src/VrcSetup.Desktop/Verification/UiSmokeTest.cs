@@ -41,6 +41,7 @@ public static class UiSmokeTest
         var config = await application.Configuration.LoadAsync(); config.UnityProjectsRoot = Path.GetDirectoryName(project)!;
         config.Language = "en";
         config.UnityEditorPath = Path.Combine(artifacts, "saved-editor", "Unity.exe");
+        config.VpmPackages = new(packages); // Existing user configuration; fresh defaults have a separate contract test.
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
         config.CreationRecipes["PC template"] = new() { Preset = "creator pc", Packages = packages }; await application.Configuration.SaveAsync(config);
         await application.Catalog.RememberAsync([new("com.llealloo.audiolink", "AudioLink", "2.0.0"), new("nadena.dev.modular-avatar", "Modular Avatar", "latest"),
@@ -327,6 +328,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(flow.Presets.Count == presetCount + 1 && flow.ErrorMessage.Length > 0, "A broken preset leaves existing presets intact and reports a readable error");
             decisions.FileChoice = null;
             flow.ErrorMessage = "";
+            flow.StagePresetVersion("gogoloco", "1.8.7"); decisions.ChangesChoice = "Cancel";
+            Require(!await flow.NavigateAsync("Projects") && flow.PresetDirty, "Cancel preserves the unsaved preset and page");
+            decisions.ChangesChoice = "Save"; var savedPresetName = flow.EditingPreset;
+            Require(await flow.NavigateAsync("Projects") && !flow.PresetDirty, "Save and leave persists the preset before navigation");
+            var savedPresetConfig = await flow.Application.Configuration.LoadAsync();
+            Require(savedPresetConfig.PackagePresets.GetValueOrDefault(savedPresetName)?.GetValueOrDefault("gogoloco") == "1.8.7", "Save and leave writes the selected preset version");
+            decisions.ChangesChoice = null;
             await flow.NavigateAsync("Create");
             var importFile = flow.PackageFile; var presetBefore = (await flow.Application.Configuration.LoadAsync()).VpmPackages.ToDictionary();
             await flow.CustomizeCreationPackagesCommand.ExecuteAsync(null);

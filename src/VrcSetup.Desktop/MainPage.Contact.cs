@@ -28,6 +28,7 @@ public sealed partial class MainPage
             };
             section.Children.Add(copy); content.Children.Add(section);
         }
+        content.Children.Add(new Button { Content = UiText.Text("Export logs to share"), Command = ViewModel.ExportLogsCommand });
         return new ContentDialog { Title = UiText.Text("Contact"), Content = content, CloseButtonText = UiText.Text("Close") };
     }
     public async Task ShowContactAsync()
