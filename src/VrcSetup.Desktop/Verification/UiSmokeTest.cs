@@ -61,7 +61,9 @@ public static class UiSmokeTest
         if (installedEditor is not null)
         {
             await viewModel.FindEditorCommand.ExecuteAsync(null);
-            Require(viewModel.EditorReady && viewModel.UnityEditorPath == installedEditor && (await viewModel.Application.Configuration.LoadAsync()).UnityEditorPath == installedEditor, "Installed pinned editor is discovered and saved immediately");
+            Require(viewModel.EditorReady && viewModel.UnityEditorPath == installedEditor, "Installed pinned editor is discovered");
+            if (viewModel.SettingsDirty) await viewModel.SaveSettingsCommand.ExecuteAsync(null);
+            Require((await viewModel.Application.Configuration.LoadAsync()).UnityEditorPath == installedEditor, "Discovered editor is saved with settings");
             await viewModel.ReloadConfigurationAsync();
             Require(viewModel.EditorReady && viewModel.UnityEditorPath == installedEditor, "Reload preserves the discovered editor");
         }
@@ -284,6 +286,31 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             decisions.ConfirmResult = true;
             Require(await flow.NavigateAsync("Presets") && !flow.WorkspaceDirty && flow.Packages.Count == 0, "Confirmed multi-project exit clears all staged edits");
             Require((await flow.Application.Projects.ReadAsync(firstProject.Path)).Fingerprint == firstFingerprint, "Managing and discarding a batch never writes the project");
+            flow.FavoritesOnly = true;
+            flow.LibraryFilter = "nonexistent-package-query";
+            Require(flow.PresetPackages.Count == 0 && flow.PresetIncludedVisibility == Visibility.Visible && flow.PresetCountLabel.StartsWith("0"), "Filtering keeps the preset total and explains an empty included list");
+            flow.ClearPackageFiltersCommand.Execute(null);
+            await flow.NavigateAsync("Settings");
+            var savedPrefix = flow.NamingPrefix; flow.NamingPrefix = "Unsaved fixture";
+            Require(flow.SettingsDirty && !await flow.NavigateAsync("Projects") && !await flow.ConfirmCloseAsync(), "Settings cancellation protects edits on navigation and close");
+            decisions.SettingsChoice = "Discard";
+            Require(await flow.NavigateAsync("Projects") && !flow.SettingsDirty && flow.NamingPrefix == savedPrefix, "Discard reloads saved settings");
+            await flow.NavigateAsync("Settings"); flow.UnityEditorPath = ""; flow.NamingPrefix = "Saved fixture"; decisions.SettingsChoice = "Save";
+            Require(await flow.NavigateAsync("Projects") && !flow.SettingsDirty && (await flow.Application.Configuration.LoadAsync()).Naming.DefaultPrefix == "Saved fixture", "Saving before navigation persists the settings");
+            await flow.NavigateAsync("Settings"); flow.NamingPatterns = "[";
+            Require(!await flow.NavigateAsync("Projects") && flow.SettingsDirty, "Invalid settings stay editable and prevent accidental exit");
+            Require((await flow.Application.Configuration.LoadAsync()).Naming.DefaultPrefix == "Saved fixture", "Failed validation never changes the saved configuration");
+            decisions.SettingsChoice = "Discard"; await flow.NavigateAsync("Presets");
+            decisions.FileChoice = Path.Combine(artifacts, "shared-preset.json");
+            await flow.ExportPresetCommand.ExecuteAsync(null);
+            var shared = PortablePreset.Read(await File.ReadAllTextAsync(decisions.FileChoice));
+            var presetCount = flow.Presets.Count;
+            await flow.ImportPresetCommand.ExecuteAsync(null);
+            Require(flow.Presets.Count == presetCount + 1 && !flow.PresetDirty && flow.PresetPackages.Count >= shared.Packages.Count, "Exported preset imports as a saved new preset without overwriting existing ones");
+            await File.WriteAllTextAsync(decisions.FileChoice, "{\"Name\":\"Broken\",\"Packages\":null}");
+            await flow.ImportPresetCommand.ExecuteAsync(null);
+            Require(flow.Presets.Count == presetCount + 1 && flow.ErrorMessage.Length > 0, "A broken preset leaves existing presets intact and reports a readable error");
+            decisions.FileChoice = null;
         }
         Require((await new VrcSetupApplication(Path.Combine(artifacts, "seed-check-home")).Inspection.LoadIndexAsync()).Signatures.Length > 1000, "Published bundle includes the offline dependency signature seed");
         var inspectionFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
@@ -546,8 +573,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                         var selectorBefore = ((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X;
                         page.SetPresetActions(true); await Task.Delay(260); page.UpdateLayout();
                         var strip = (FrameworkElement)page.FindName("PresetActionsClip");
-                        Require(strip.ActualWidth == 96 && Math.Abs(((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X - selectorBefore) < 1, "Inline preset actions expand without shifting the preset title");
+                        Require(strip.ActualWidth == 128 && Math.Abs(((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X - selectorBefore) < 1, "Inline preset actions expand without shifting the preset title");
                         await Render(page, Path.Combine(artifacts, "preset-inline-actions.png"));
+                        var shareButton = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetShareButton");
+                        shareButton.Flyout.ShowAt(shareButton); await Task.Delay(250);
+                        var shareMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)shareButton.Flyout;
+                        Require(shareMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Count(x => x.Command is not null) == 2, "Preset share menu exposes working Import and Export actions");
+                        await Render(page, Path.Combine(artifacts, "preset-sharing.png")); shareMenu.Hide();
                         page.SetPresetActions(false); await Task.Delay(260);
                         Require(strip.Visibility == Visibility.Collapsed, "Inline preset actions collapse cleanly");
                         var wheel = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetSelector"); wheel.Flyout.ShowAt(wheel); await Task.Delay(500);
@@ -659,6 +691,20 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         await viewModel.RefreshProjectsCommand.ExecuteAsync(null);
         Require(viewModel.EmptyProjectsVisibility == Visibility.Visible && viewModel.EmptyProjectsMessage.Contains("unavailable"), "Unavailable project root has a recovery folder prompt");
         saved.UnityProjectsRoot = availableRoot; await viewModel.Application.Configuration.SaveAsync(saved); await viewModel.ReloadConfigurationAsync(); await viewModel.RefreshProjectsCommand.ExecuteAsync(null);
+        viewModel.CurrentPage = "Settings"; var savedSuffix = viewModel.NamingSuffix; viewModel.NamingSuffix += " draft";
+        await Task.Delay(200); page.UpdateLayout();
+        Require(viewModel.SettingsChangesVisibility == Visibility.Visible, "Settings actions stay outside the scrolling form when a draft exists");
+        await Render(page, Path.Combine(artifacts, "settings-draft.png")); viewModel.NamingSuffix = savedSuffix;
+        var firstRunApp = new VrcSetupApplication(Path.Combine(artifacts, "first-run-home"), ["--no-update-check", "--no-catalog-refresh", "--no-editor-discovery"]);
+        await firstRunApp.Configuration.SaveAsync(new AppConfiguration { UnityEditorPath = "", UnityProjectsRoot = "", Language = "en" });
+        var firstRunWindow = new MainWindow(firstRunApp); firstRunWindow.AppWindow.Show(false);
+        await firstRunWindow.Page.Initialized; firstRunWindow.AppWindow.Resize(new(720, 620)); await Task.Delay(250);
+        var firstRun = firstRunWindow.Page.ViewModel;
+        Require(firstRun.CurrentPage == "Settings" && firstRun.SetupVisibility == Visibility.Visible && firstRun.SettingsOptionsVisibility == Visibility.Collapsed, "First launch shows only Unity and project folder setup");
+        await firstRun.SaveSettingsCommand.ExecuteAsync(null);
+        Require(firstRun.CurrentPage == "Settings" && firstRun.ErrorMessage.Length > 0 && (await firstRunApp.Configuration.LoadAsync()).UnityProjectsRoot == "", "Incomplete setup gives a useful prompt without saving invalid settings");
+        await Render(firstRunWindow.Page, Path.Combine(artifacts, "first-run-720.png"));
+        firstRunWindow.Close();
         await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "ui-smoke.json"), new { Passed = true, Checks = checks, page.ActualWidth, page.ActualHeight, Scale = page.XamlRoot.RasterizationScale, InputInjected = false });
         void Require(bool condition, string message) { if (!condition) throw new IOException(message); checks.Add(message); }
     }

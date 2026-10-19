@@ -1,5 +1,13 @@
 # VRCSETUP Desktop migration
 
+## Beginner usability pass (next beta)
+
+First launch now presents Unity and the projects folder before other preferences. Settings use explicit Save/Discard with a fixed action area and Save/Discard/Cancel on leaving or closing. Choosing an editor inside Settings remains a draft until Save. Invalid forms do not partially replace configuration, and updating/restarting is blocked while settings are unsaved.
+
+Preset sharing is available from the carousel options through Share preset → Import/Export. Files contain a name and package version choices only; no editor paths, application preferences or project assets. Import previews the name/count, creates a saved new preset and resolves duplicate names without replacing existing presets. Full settings restore stays separate, with an explicit replacement confirmation.
+
+Import review exposes the destination and preset/package count. Missing-file completion preserves existing files without a recovery backup. Recovery prompts, common errors and Activity outcomes use short actions instead of raw exceptions; diagnostics retain the original failure. Support opens an editable email draft with app/Windows version, never sends automatically. Empty filters retain the included total and offer Clear filters. Project management/customization share compact package surfaces, and project rows expose a text Packages action and selection on hover/focus. Carousel options move below the title at narrow widths.
+
 ## Beta.5 update recovery, adaptive shell and localization
 
 The failed beta.3 updater was reproduced: starting the base app from its installed directory makes the updater inherit that directory; Windows then refuses the directory rename. The GUI now starts the updater from data home, and the installer independently moves its current directory to Temp before waiting/installing, covering older clients. Update installs show a compact phase/progress window, reopen automatically on success, and attempt to reopen the preserved app on failure. The footer exposes short clickable failure status with technical details in a dialog/logs. The harness now starts the base from its install directory, matching the real shortcut.

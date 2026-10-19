@@ -15,7 +15,7 @@ internal sealed class NewProjectDialog
     public NewProjectDialog(MainViewModel vm, DataTemplate presetTemplate)
     {
         Preset.ItemsSource = vm.Presets; Preset.ItemTemplate = presetTemplate; Preset.SelectedItem = vm.EditingPreset;
-        var path = new TextBlock { FontSize = 12, Opacity = 0.65, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 400 };
+        var path = new TextBlock { Text = vm.ProjectsRoot, FontSize = 12, Opacity = 0.75, TextWrapping = TextWrapping.Wrap, MaxWidth = 400, IsTextSelectionEnabled = true };
         Name.TextChanged += (_, _) => path.Text = System.IO.Path.Combine(vm.ProjectsRoot, Name.Text);
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 400, Visibility = Visibility.Collapsed };
         var panel = new StackPanel { Spacing = 14 }; panel.Children.Add(Name); panel.Children.Add(path); panel.Children.Add(Platform); panel.Children.Add(Preset); panel.Children.Add(error);

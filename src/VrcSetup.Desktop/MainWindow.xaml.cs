@@ -49,7 +49,7 @@ public sealed partial class MainWindow : Window
     public async Task<bool> InstallUpdateAsync(string installer, string result)
     {
         var vm = Page.ViewModel;
-        if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty) return false;
+        if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
         vm.IsInstallingUpdate = true;
         try
         {
@@ -72,7 +72,7 @@ public sealed partial class MainWindow : Window
     public async Task<bool> RestartForLanguageAsync()
     {
         var vm = Page.ViewModel;
-        if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty) return false;
+        if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
         await vm.FinishImportsAsync();
         var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, WorkingDirectory = vm.Application.Paths.Home };
         start.Environment["VRCSETUP_HOME"] = vm.Application.Paths.Home;

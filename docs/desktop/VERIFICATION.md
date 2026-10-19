@@ -160,3 +160,9 @@ All rows below are implemented. Evidence is deliberately separated: tests prove 
 The app includes .NET and Windows App SDK runtimes; Unity/VCC/VPM and VPM's own runtime are external prerequisites. Android/iOS build modules and signing/upload flows are not bundled. Recipes reproduce setup choices and package sets; they do not clone private avatar assets or entire VCC template projects. The original PowerShell engine is retired on this branch, retained in Git history and stable main. No main merge is performed.
 
 The tester's acceptance pass should cover mouse/keyboard navigation, file pickers/drop, actual monitor DPI/accessibility, and platform modules they intend to use. Dom explicitly requested continuing without desktop input, so these checks are reported as unperformed.
+
+## Beginner usability verification — 19 October 2026
+
+219 core fixture tests pass, including portable preset round trips, preserved latest/pinned choices, duplicate and reserved names, invalid choices, unsupported/oversized files and nontechnical error messages. Native WinUI verification passes 355 checks across narrow/wide windows and dark/light themes. Added checks cover settings Save/Discard/Cancel on leaving/closing, invalid settings without partial persistence, preset sharing and corrupt imports without replacing saved presets, filtered included counts, working share-menu commands and the minimal first-run state. Screenshots include the fixed settings action area, package surfaces and Activity outcomes.
+
+Evidence: `.work/artifacts/2026-10-19-user-friendly/verified/`. These are real WinUI dispatcher/rendering checks with isolated data and no input injection, not a screen-reader study or end-to-end import of an owner's avatar. No owner installation or Unity project was changed. Installer/update compatibility is also exercised by release CI; email delivery remains under the user's mail client and is not sent by tests.

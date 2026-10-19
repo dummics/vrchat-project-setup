@@ -51,7 +51,7 @@ public sealed partial class MainPage
         PresetActionsClip.Visibility = Visibility.Visible;
         PresetActionsStrip.IsHitTestVisible = open;
         foreach (var action in PresetActionsStrip.Children.OfType<Button>()) action.IsTabStop = open;
-        var to = open ? 96d : 0d; PresetActionsClip.Width = to;
+        var to = open ? PresetActionsStrip.Children.Count * 32d : 0d; PresetActionsClip.Width = to;
         if (!MotionEnabled) { PresetActionsClip.Visibility = open ? Visibility.Visible : Visibility.Collapsed; return; }
         var motion = new Storyboard(); presetActionsMotion = motion;
         var width = new DoubleAnimation { From = from, To = to, Duration = new(TimeSpan.FromMilliseconds(220)), EnableDependentAnimation = true,

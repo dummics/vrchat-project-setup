@@ -144,10 +144,15 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ProjectSearch.Width = Math.Clamp(ProjectsView.ActualWidth - (ViewModel.SelectedProjects.Count >= 2 ? ManageSelectionAction.ActualWidth + 16 : 0), 140, 320);
         var stackProjectColumns = ProjectsView.ActualWidth < 640;
         ProjectColumnHeaders.ColumnDefinitions[1].Width = new GridLength(stackProjectColumns ? 0 : 260);
-        ProjectColumnHeaders.ColumnDefinitions[2].Width = new GridLength(stackProjectColumns ? 0 : 140);
+        ProjectColumnHeaders.ColumnDefinitions[2].Width = new GridLength(stackProjectColumns ? 0 : 170);
         Grid.SetRow(ProjectDateSortHeader, stackProjectColumns ? 1 : 0); Grid.SetColumn(ProjectDateSortHeader, stackProjectColumns ? 0 : 1);
         Grid.SetColumnSpan(ProjectDateSortHeader, stackProjectColumns ? 3 : 1);
         if (PresetEditor.ActualWidth > 0) PresetSelector.Width = Math.Clamp(PresetEditor.ActualWidth * .3, 180, 320);
+        var stackPresetActions = PresetEditor.ActualWidth < 760;
+        Grid.SetRow(PresetActionsHost, stackPresetActions ? 1 : 0);
+        Grid.SetColumn(PresetActionsHost, stackPresetActions ? 0 : 2);
+        Grid.SetColumnSpan(PresetActionsHost, stackPresetActions ? 3 : 1);
+        PresetActionsHost.HorizontalAlignment = stackPresetActions ? HorizontalAlignment.Center : HorizontalAlignment.Left;
         var stackProjectHeader = ProjectsView.ActualWidth < 560;
         Grid.SetRow(ProjectHeaderActions, stackProjectHeader ? 1 : 0);
         Grid.SetColumn(ProjectHeaderActions, stackProjectHeader ? 0 : 1);
@@ -267,6 +272,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if ((sender as FrameworkElement)?.DataContext is UiCreationPackage row) await ViewModel.AddCreationSuggestionAsync(row); }
     private async void HistoryLogClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.OpenHistoryLogAsync(row); }
+    private async void HistoryProjectClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.OpenHistoryProjectAsync(row); }
     private async void HistoryCheckClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiHistoryEntry row) await ViewModel.CheckHistoryProjectAsync(row); }
     private void HistoryHeaderLoaded(object sender, RoutedEventArgs args) => LayoutHistoryHeader(sender);
@@ -303,7 +310,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (grid.Tag is bool previous && previous == narrow) return;
         grid.Tag = narrow; grid.ColumnSpacing = narrow ? 0 : 16; grid.RowSpacing = narrow ? 8 : 0;
         grid.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(260);
-        grid.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : new GridLength(140);
+        grid.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : new GridLength(170);
         foreach (var child in grid.Children.OfType<FrameworkElement>())
         {
             if (child.Name == "ProjectDates") { Grid.SetColumn(child, narrow ? 0 : 1); Grid.SetRow(child, narrow ? 1 : 0); }
@@ -375,6 +382,18 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
         return (await picker.PickSingleFileAsync())?.Path;
     }
+    public async Task<string?> SaveFileAsync(string name, string extension)
+    {
+        var picker = new FileSavePicker { SuggestedFileName = name };
+        picker.FileTypeChoices.Add(UiText.Text("Preset"), new[] { extension });
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
+        return (await picker.PickSaveFileAsync())?.Path;
+    }
+    public async Task<string?> ResolveSettingsAsync()
+    {
+        var result = await ShowDialog(new() { Title = "Unsaved settings", Content = UiText.Text("Save your settings before leaving?"), PrimaryButtonText = "Save", SecondaryButtonText = "Discard", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
+        return result == ContentDialogResult.Primary ? "Save" : result == ContentDialogResult.Secondary ? "Discard" : null;
+    }
     public async Task<string?> PickFolderAsync()
     {
         var picker = new FolderPicker(); picker.FileTypeFilter.Add("*");
@@ -390,7 +409,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     public async Task<bool> ConfirmAsync(string title, string content, string action) => await ShowDialog(new()
     { Title = title, Content = new TextBlock { Text = UiText.Text(content), TextWrapping = TextWrapping.Wrap, MaxWidth = 500 }, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary;
     public async Task ShowErrorAsync(string message)
-    { if (!SuppressDialogs) await ShowDialog(new() { Title = "Action could not complete", Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 }, CloseButtonText = "Back" }); }
+    { if (!SuppressDialogs) await ShowDialog(new() { Title = "Action could not complete", Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 520, IsTextSelectionEnabled = true }, CloseButtonText = "Back" }); }
     public async Task ShowUpdateInfoAsync(string details)
     {
         if (SuppressDialogs) return;
@@ -446,13 +465,19 @@ public sealed partial class MainPage : Page, IDesktopInteraction
                 row.Children.Add(new TextBlock { Text = project.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
                 row.Children.Add(new TextBlock { Text = UiText.Text(project.RecoverySource is null ? "Create a new project" : "Complete existing project") + " · " + platform, Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
                 if (project.RecoverySource is not null) row.Children.Add(new TextBlock { Text = UiText.Text("Add missing assets from the package. Files already in the project stay unchanged."), Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
-                ToolTipService.SetToolTip(row, project.Path); recap.Children.Add(row);
+                var folder = new HyperlinkButton { Content = project.Path, Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = 420 };
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(folder, UiText.Text("Open project folder") + ": " + project.Path);
+                folder.Content = new TextBlock { Text = project.Path, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 420 };
+                folder.Click += async (_, _) => { var path = Directory.Exists(project.Path) ? project.Path : Path.GetDirectoryName(project.Path); if (path is not null && Directory.Exists(path)) await Windows.System.Launcher.LaunchFolderPathAsync(path); };
+                row.Children.Add(folder);
+                if (project.RecoverySource is null) row.Children.Add(new TextBlock { Text = (string.IsNullOrWhiteSpace(project.PresetName) || project.PresetName == "My default packages" ? UiText.Text("Default") : project.PresetName) + " · " + string.Format(UiText.Text("{0} packages"), project.DesiredPolicy.Count), TextWrapping = TextWrapping.Wrap });
+                recap.Children.Add(row);
             }
             var existingOnly = plan.Projects.All(x => x.RecoverySource is not null);
             return await ShowDialog(new() { Title = UiText.Text(existingOnly ? "Complete existing project" : "Import project"), Content = new ScrollViewer { Content = recap, MaxHeight = 360 }, PrimaryButtonText = UiText.Text(existingOnly ? "Complete project" : "Import"), CloseButtonText = UiText.Text("Back"), DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary;
         }
         var stack = new StackPanel { Spacing = 14, MaxWidth = 600 };
-        if (plan.Projects.All(x => !x.HasChanges)) stack.Children.Add(new TextBlock { Text = "Packages are already up to date. Save the selected version policies.", TextWrapping = TextWrapping.Wrap });
+        if (plan.Projects.All(x => !x.HasChanges)) stack.Children.Add(new TextBlock { Text = UiText.Text("The selected versions are already installed."), TextWrapping = TextWrapping.Wrap });
         foreach (var group in PackageReview.Group(plan))
         {
             var names = string.Join(", ", group.Projects.Select(x => x.Name));
@@ -466,7 +491,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
                 {
                     ChangeKind.Add => $"{UiText.Text("Add")} {name} · {change.ResolvedVersion}",
                     ChangeKind.Remove => $"{UiText.Text("Remove")} {name} · {change.InstalledVersion}",
-                    _ when change.InstalledVersion == change.ResolvedVersion => $"Repair {name} · {change.ResolvedVersion}",
+                    _ when change.InstalledVersion == change.ResolvedVersion => $"{UiText.Text("Repair")} {name} · {change.ResolvedVersion}",
                     _ => $"{name} · {change.InstalledVersion} → {change.ResolvedVersion}"
                 };
                 section.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap });
@@ -483,14 +508,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             foreach (var import in project.ExtraImports.Concat(project.Creation?.ExtraImports ?? [])) stack.Children.Add(new TextBlock { Text = project.Name + " · Import: " + Path.GetFileName(import), TextWrapping = TextWrapping.Wrap });
         }
         var legacy = plan.Projects.Where(x => x.NeedsEasyLoginRepository && Directory.Exists(Path.Combine(x.Path, "Assets", "EASY LOGIN"))).ToArray();
-        if (legacy.Length > 0) stack.Children.Add(new TextBlock { Text = "Legacy Easy Login folder will be checked and backed up before migration: " + string.Join(", ", legacy.Select(x => x.Name)), TextWrapping = TextWrapping.Wrap });
+        if (legacy.Length > 0) stack.Children.Add(new TextBlock { Text = UiText.Text("Easy Login will be updated: ") + string.Join(", ", legacy.Select(x => x.Name)), TextWrapping = TextWrapping.Wrap });
         if (plan.Projects.Any(x => x.Creation is not null) && ViewModel.InspectionReviewNote.Length > 0) stack.Children.Add(new TextBlock { Text = ViewModel.InspectionReviewNote, TextWrapping = TextWrapping.Wrap });
         var dialog = new ContentDialog { Title = "Review changes", Content = new ScrollViewer { Content = stack, MaxHeight = 430 }, PrimaryButtonText = plan.Projects.Any(x => x.Creation is not null) ? "Create project" : "Apply changes", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Close };
         return await ShowDialog(dialog) == ContentDialogResult.Primary;
     }
     public async Task<string?> PromptRecoveryAsync(string name, bool canResume)
     {
-        var result = await ShowDialog(new() { Title = name, Content = canResume ? "This import is unfinished. Resume missing steps, or prepare a new copy." : "Unity project creation was interrupted. Prepare a new copy while keeping the partial folder.", PrimaryButtonText = canResume ? "Resume" : "New copy", SecondaryButtonText = canResume ? "New copy" : "", CloseButtonText = "Later", DefaultButton = ContentDialogButton.Close });
+        var result = await ShowDialog(new() { Title = name, Content = UiText.Text(canResume ? "The import did not finish. Continue from where it stopped, or create a separate copy." : "The project was not finished. Create a separate copy without changing the existing folder."), PrimaryButtonText = canResume ? "Resume" : "New copy", SecondaryButtonText = canResume ? "New copy" : "", CloseButtonText = "Later", DefaultButton = ContentDialogButton.Close });
         return result == ContentDialogResult.Primary ? canResume ? "Resume" : "Copy" : result == ContentDialogResult.Secondary ? "Copy" : null;
     }
     public async Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,

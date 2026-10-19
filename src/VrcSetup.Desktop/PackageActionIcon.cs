@@ -10,8 +10,13 @@ public sealed class PackageActionIcon : UserControl
 {
     public static readonly DependencyProperty IsAddProperty = DependencyProperty.Register(nameof(IsAdd), typeof(bool), typeof(PackageActionIcon),
         new PropertyMetadata(false, (owner, _) => ((PackageActionIcon)owner).Update()));
+    public static readonly DependencyProperty IsRequiredProperty = DependencyProperty.Register(nameof(IsRequired), typeof(bool), typeof(PackageActionIcon),
+        new PropertyMetadata(false, (owner, _) => ((PackageActionIcon)owner).Update()));
     private readonly Rectangle vertical = new() { Width = 1.5, Height = 8, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly Grid symbols = new();
+    private readonly FontIcon requiredIcon = new() { Glyph = "\uE72E", FontSize = 16 };
     public bool IsAdd { get => (bool)GetValue(IsAddProperty); set => SetValue(IsAddProperty, value); }
+    public bool IsRequired { get => (bool)GetValue(IsRequiredProperty); set => SetValue(IsRequiredProperty, value); }
     public PackageActionIcon()
     {
         Width = Height = 18; IsHitTestVisible = false;
@@ -21,8 +26,14 @@ public sealed class PackageActionIcon : UserControl
         outline.SetBinding(Shape.StrokeProperty, new Binding { Source = this, Path = new PropertyPath(nameof(Foreground)) });
         var horizontal = new Rectangle { Width = 8, Height = 1.5, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         foreach (var line in new[] { horizontal, vertical }) line.SetBinding(Shape.FillProperty, new Binding { Source = this, Path = new PropertyPath(nameof(Foreground)) });
-        grid.Children.Add(outline); grid.Children.Add(horizontal); grid.Children.Add(vertical); Content = grid; Update();
+        symbols.Children.Add(outline); symbols.Children.Add(horizontal); symbols.Children.Add(vertical);
+        grid.Children.Add(symbols); grid.Children.Add(requiredIcon); Content = grid; Update();
         RegisterPropertyChangedCallback(IsEnabledProperty, (_, _) => Opacity = IsEnabled ? 1 : 0.35);
     }
-    private void Update() => vertical.Visibility = IsAdd ? Visibility.Visible : Visibility.Collapsed;
+    private void Update()
+    {
+        vertical.Visibility = IsAdd ? Visibility.Visible : Visibility.Collapsed;
+        symbols.Visibility = IsRequired ? Visibility.Collapsed : Visibility.Visible;
+        requiredIcon.Visibility = IsRequired ? Visibility.Visible : Visibility.Collapsed;
+    }
 }

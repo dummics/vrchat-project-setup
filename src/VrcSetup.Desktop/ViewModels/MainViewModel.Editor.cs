@@ -43,8 +43,10 @@ public sealed partial class MainViewModel
     private async Task SetEditorAsync(string editor)
     {
         if (!UnityEditorDiscovery.IsPinned(editor)) throw new IOException("Choose Unity " + UnityEditorDiscovery.PinnedVersion + ". The selected executable is a different version or is unavailable.");
+        if (CurrentPage == "Settings") { UnityEditorPath = ProjectRules.NormalizePath(editor); return; }
         config.UnityEditorPath = ProjectRules.NormalizePath(editor);
         await PersistConfigurationAsync(); UnityEditorPath = config.UnityEditorPath;
+        settingsBaseline = SettingsSnapshot(); NotifySettingsState();
         Status = "Unity editor saved";
     }
     private async Task<bool> FindEditorAsync(bool prompt)
@@ -57,7 +59,7 @@ public sealed partial class MainViewModel
         var found = await Task.Run(() => UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path, lifetime.Token);
         if (found is not null) { await SetEditorAsync(found); return true; }
         if (!prompt) return false;
-        if (!await ui.ConfirmAsync("Set up Unity " + UnityEditorDiscovery.PinnedVersion, "The VRChat editor was not found. Select Unity.exe, or install this version with Unity Hub first.", "Locate Unity.exe")) return false;
+        if (!await ui.ConfirmAsync("Unity was not found", "Install the VRChat version of Unity with Unity Hub. If it is already installed, choose its Unity.exe file.", "Choose Unity")) return false;
         if (await ui.PickFileAsync(".exe") is not { } file) return false;
         await SetEditorAsync(file); return true;
     }

@@ -27,7 +27,11 @@ public sealed partial class MainViewModel
     [RelayCommand] private Task ShowUpdateDetails() => ui.ShowUpdateInfoAsync(UiText.Text(updateDetails.Length > 0 ? updateDetails : UpdateStatus));
     [RelayCommand] private async Task UpdateAction()
     { if (HasApplicationUpdate) await InstallApplicationUpdate(); else await CheckApplicationUpdatesAsync(true); }
-    [RelayCommand] private void ContactSupport() => OpenPath("mailto:contact@dummics.com?subject=VRChat%20Project%20Setup");
+    [RelayCommand] private async Task ContactSupport() => await Guard(async () =>
+    {
+        var address = new Uri("mailto:contact@dummics.com?subject=" + Uri.EscapeDataString("VRC Project Setup " + AppVersion) + "&body=" + Uri.EscapeDataString(UiText.Text("What were you trying to do?\n\nWhat happened?\n\nSteps to reproduce:\n\n") + "VRC Project Setup " + AppVersion + " · Windows " + Environment.OSVersion.Version));
+        if (!await Windows.System.Launcher.LaunchUriAsync(address)) await ui.ShowErrorAsync(UiText.Text("No email app is configured. Contact us at contact@dummics.com."));
+    });
     public string AppVersion => ApplicationUpdates.CurrentVersion;
     public string UpdateLabel => IsDownloadingUpdate ? AppVersion : IsUpdateReady ? "Update ready" : HasApplicationUpdate ? "Update available" : AppVersion;
     [RelayCommand] private Task CheckApplicationUpdates() => CheckApplicationUpdatesAsync(true);
@@ -82,7 +86,7 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task InstallApplicationUpdate()
     {
         if (availableUpdate is null || IsDownloadingUpdate) return;
-        if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty)
+        if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
         { UpdateStatus = "Finish imports and save or revert changes before updating."; return; }
         if (!File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")))
         { UpdateStatus = "Portable copy: download the new version from Releases."; OpenPath(availableUpdate.Page.AbsoluteUri); return; }
@@ -97,7 +101,7 @@ public sealed partial class MainViewModel
             var progress = new SynchronizationProgress<int>(context, value => { if (IsDownloadingUpdate) { UpdateDownloadPercent = value; UpdateStatus = "Downloading update · " + value + "%"; } });
             var folder = Path.Combine(app.Paths.Home, "updates", availableUpdate.Version);
             var installer = await new ApplicationUpdates(client).DownloadAsync(availableUpdate, folder, progress, lifetime.Token, preferFullInstaller ? null : app.Paths.PayloadRoot);
-            if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty)
+            if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
             { UpdateStatus = "Update downloaded. Finish your work, then choose Install update."; return; }
             UpdateStatus = "Restarting to install update…";
             await new AutomaticUpdates(app.Paths).MarkAttemptAsync(availableUpdate.Version, lifetime.Token);

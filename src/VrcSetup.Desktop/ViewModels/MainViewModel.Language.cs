@@ -15,7 +15,7 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task RestartForLanguage() => await Guard(async () =>
     {
         if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty) { Status = UiText.Text("Finish current work before updating"); return; }
-        config.Language = SelectedLanguage; await PersistConfigurationAsync();
+        await SaveSettingsCoreAsync();
         await ui.RestartApplicationAsync();
     });
 }

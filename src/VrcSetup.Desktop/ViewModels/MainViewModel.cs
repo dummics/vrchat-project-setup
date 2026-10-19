@@ -10,6 +10,8 @@ namespace VrcSetup_Desktop.ViewModels;
 public interface IDesktopInteraction
 {
     Task<string?> PickFileAsync(string extension);
+    Task<string?> SaveFileAsync(string name, string extension) => Task.FromResult<string?>(null);
+    Task<string?> ResolveSettingsAsync() => Task.FromResult<string?>(null);
     Task<string?> PickFolderAsync();
     Task<bool> ConfirmAsync(string title, string content, string action);
     Task<bool> ReviewAsync(OperationPlan plan);
@@ -81,7 +83,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public VrcSetupApplication Application => app;
 
     public MainViewModel(VrcSetupApplication app, IDesktopInteraction interaction)
-    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); app.Imports.ConfigureParallelism(int.MaxValue); app.Imports.Changed += ImportsChanged; InitializeApplicationStatus(); }
+    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); app.Imports.ConfigureParallelism(int.MaxValue); app.Imports.Changed += ImportsChanged; InitializeApplicationStatus();
+        PropertyChanged += (_, e) => { if (!loadingSettings && e.PropertyName is { } name && SettingsProperties.Contains(name)) NotifySettingsState(); };
+    }
     public async Task InitializeAsync()
     {
         await Guard(async () =>
@@ -94,7 +98,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             catch (Exception error) { app.Diagnostics.Write("Import history", error.Message, error); AppendActivity(new(DateTime.UtcNow, "Imports", "Import queue unavailable: " + error.Message, EventSeverity.Warning)); }
             if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot) && Directory.Exists(config.UnityProjectsRoot)) await RefreshProjectsCore();
             UpdateProjectState();
-            if (string.IsNullOrWhiteSpace(config.UnityEditorPath) || string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) CurrentPage = "Settings";
+            setupMode = string.IsNullOrWhiteSpace(config.UnityEditorPath) || string.IsNullOrWhiteSpace(config.UnityProjectsRoot) || app.AllowEditorDiscovery && !EditorReady;
+            if (setupMode) CurrentPage = "Settings";
+            settingsBaseline = SettingsSnapshot(); NotifySettingsState();
             if (config.Diagnostics.Verbose && app.Configuration.ImportedFrom is { } imported) AppendActivity(new(DateTime.UtcNow, "Migration", "Settings imported: " + imported));
         });
         if (ErrorMessage.Length == 0) await PromptInterruptedImportAsync();
@@ -102,6 +108,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
     private void LoadSettings()
     {
+        loadingSettings = true;
         persistedConfiguration = config.Copy();
         NotifyLibraryLayout();
         UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
@@ -113,6 +120,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
         RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ProjectSort = config.ProjectLibrarySort;
         DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
+        settingsBaseline = SettingsSnapshot(); loadingSettings = false; NotifySettingsState();
     }
     private void LoadPresetNames()
     {
@@ -430,24 +438,36 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var name = await ui.ChooseAsync("Delete creation recipe", config.CreationRecipes.Keys.ToArray()); if (name is null) return;
         if (await ui.ConfirmAsync("Delete recipe", name, "Delete")) { config.CreationRecipes.Remove(name); await PersistConfigurationAsync(); LoadPresetNames(); }
     });
-    [RelayCommand] private async Task SaveSettings() => await Guard(async () =>
+    [RelayCommand] private async Task SaveSettings() => await Guard(SaveSettingsCoreAsync);
+    private async Task SaveSettingsCoreAsync()
     {
+        // Validate the entire form before changing the working configuration.
+        if (!string.IsNullOrWhiteSpace(UnityEditorPath)) UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
+        if (setupMode && (!EditorReady || string.IsNullOrWhiteSpace(ProjectsRoot))) throw new InvalidOperationException("Choose Unity and a projects folder to continue.");
+        var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var pattern in patterns) _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+        _ = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
+        _ = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? "" : ProjectRules.NormalizePath(ExtraImportsFolder);
+        var previous = config.Copy();
+        try
+        {
         config.ManualImportPath = ManualImportPath;
         config.AutoHideCompletedImports = AutoHideCompletedImports;
         config.CheckUpdatesOnStartup = CheckUpdatesOnStartup; config.IncludeBetaUpdates = IncludeBetaUpdates;
         config.AutomaticUpdates = AutomaticUpdateEnabled;
         config.Language = SelectedLanguage;
-        if (!string.IsNullOrWhiteSpace(UnityEditorPath)) UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
-        var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var pattern in patterns) _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
         config.UnityEditorPath = string.IsNullOrWhiteSpace(UnityEditorPath) ? "" : ProjectRules.NormalizePath(UnityEditorPath);
         config.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
         config.UnityPackagesFolder = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? null : ProjectRules.NormalizePath(ExtraImportsFolder);
         config.Naming = new() { DefaultPrefix = NamingPrefix, DefaultSuffix = NamingSuffix, RegexRemovePatterns = patterns.ToList(), RememberUnityPackageNames = RememberNames }; config.Theme = Theme;
         config.Diagnostics = new() { DeveloperMode = DeveloperMode, Verbose = VerboseDiagnostics, TraceTools = TraceTools }; app.Diagnostics.Configure(config.Diagnostics);
-        await PersistConfigurationAsync(); Status = "Settings saved";
+        await PersistConfigurationAsync();
+        }
+        catch { config = previous; app.Diagnostics.Configure(config.Diagnostics); throw; }
+        var wasSetup = setupMode; setupMode = false; settingsBaseline = SettingsSnapshot(); NotifySettingsState(); Status = "Settings saved";
+        if (wasSetup) CurrentPage = "Projects";
         if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) await RefreshProjectsCore();
-    });
+    }
     [RelayCommand] private async Task PickEditor() => await Guard(async () =>
     { if (await ui.PickFileAsync(".exe") is { } file) await SetEditorAsync(file); });
     [RelayCommand] private async Task PickProjectsRoot() => await Guard(async () =>
@@ -474,8 +494,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private string InstallationRoot() => File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")) ? app.Paths.PayloadRoot : InstallationManager.DefaultRoot;
     [RelayCommand] private async Task ImportSettings() => await Guard(async () =>
     {
+        if (!await ResolveSettingsAsync()) return;
         if (PresetDirty && !await ui.ConfirmAsync("Unsaved preset", "Discard changes before importing settings?", "Discard")) return;
-        if (await ui.PickFileAsync(".json") is { } file) { await app.Configuration.ImportAsync(file); await ReloadConfigurationAsync(); }
+        if (await ui.PickFileAsync(".json") is { } file && await ui.ConfirmAsync("Restore settings", "This replaces your settings and presets. Your Unity projects stay unchanged.", "Restore")) { await app.Configuration.ImportAsync(file); await ReloadConfigurationAsync(); }
     });
     [RelayCommand] private void OpenLogs() { Directory.CreateDirectory(app.Paths.Logs); OpenPath(app.Paths.Logs); }
     [RelayCommand] private void OpenLastLog() { if (File.Exists(LastLog)) OpenPath(LastLog); }
@@ -503,8 +524,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (IsBusy) return;
         await actionGate.WaitAsync();
         try { ErrorMessage = ""; await action(); }
-        catch (OperationCanceledException) { Status = "Cancelled; recovery information preserved"; }
-        catch (Exception error) { app.Diagnostics.Write(CurrentPage, error.Message, error); ErrorMessage = error.Message; Status = "Action failed"; AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : error.Message, EventSeverity.Error)); }
+        catch (OperationCanceledException) { Status = "Cancelled"; }
+        catch (Exception error) { app.Diagnostics.Write(CurrentPage, error.Message, error); ErrorMessage = UserErrors.Message(error); Status = "Action failed"; AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : ErrorMessage, EventSeverity.Error)); }
         finally { actionGate.Release(); }
     }
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items) { collection.Clear(); foreach (var item in items) collection.Add(item); }

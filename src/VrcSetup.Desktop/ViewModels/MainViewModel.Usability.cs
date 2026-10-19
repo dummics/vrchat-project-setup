@@ -32,7 +32,9 @@ public sealed partial class MainViewModel
     public bool IsCustomPreset => EditingPreset != DefaultPresetKey;
     public bool HasMultiplePresets => Presets.Count > 1;
     public Visibility PresetCatalogVisibility => LibraryPackages.Count > 0 || CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility PresetIncludedVisibility => PresetPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PresetIncludedVisibility => presetWorking.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PresetEmptyVisibility => presetWorking.Count > 0 && PresetPackages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string PresetCountLabel => PresetPackages.Count == presetWorking.Count ? presetWorking.Count.ToString() : string.Format(UiText.Text("{0} of {1}"), PresetPackages.Count, presetWorking.Count);
     [RelayCommand] private void PreviousPreset() => CyclePreset(-1);
     [RelayCommand] private void NextPreset() => CyclePreset(1);
     private void CyclePreset(int direction)
@@ -108,6 +110,7 @@ public sealed partial class MainViewModel
             }
         }
         OnPropertyChanged(nameof(PresetIncludedVisibility));
+        OnPropertyChanged(nameof(PresetEmptyVisibility)); OnPropertyChanged(nameof(PresetCountLabel));
     }
     private void RefreshLibraryRows()
     {
@@ -209,6 +212,7 @@ public sealed partial class MainViewModel
     }
     [RelayCommand] private async Task ReloadSettings() => await Guard(async () =>
     {
+        if (!await ResolveSettingsAsync()) return;
         if (PresetDirty && !await ui.ConfirmAsync("Unsaved preset", "Discard changes and reload settings?", "Discard")) return;
         await ReloadConfigurationAsync(); if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) await RefreshProjectsCore();
     });
@@ -246,6 +250,7 @@ public sealed class UiPackageRow(string id, string name, string version, bool re
     public Visibility AddVisibility => !Included || ProjectContext ? Visibility.Visible : Visibility.Collapsed;
     public Visibility IncludedVisibility => Included && !ProjectContext ? Visibility.Visible : Visibility.Collapsed;
     public bool CanRemove => !Required;
+    public string RemovalAction => Required ? "Required package" : "Remove from preset";
     public string VersionLabel => Version == "latest" ? "Latest" : Version;
     public string AddLabel => Included ? "Added" : ProjectContext ? "Add to project" : "Add";
     public string IncludedLabel => ProjectContext ? "✓ In project" : "✓ In preset";

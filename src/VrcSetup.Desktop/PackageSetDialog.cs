@@ -58,7 +58,7 @@ public sealed class PackageSetDialog : IDisposable
                 && !(x.Id == ProjectRules.WorldSdk && working.ContainsKey(ProjectRules.AvatarSdk)) && !(x.Id == ProjectRules.AvatarSdk && working.ContainsKey(ProjectRules.WorldSdk))).ToArray();
             if (recommended.Length > 0)
             {
-                var addDetected = new Button { Content = $"Add detected ({recommended.Length})", MinHeight = 30, Padding = new Thickness(10, 4, 10, 4) };
+            var addDetected = new Button { Content = string.Format(UiText.Text("Add detected ({0})"), recommended.Length), MinHeight = 30, Padding = new Thickness(10, 4, 10, 4) };
                 addDetected.Click += (_, _) => { foreach (var item in recommended) if (!session.Rows().Any(x => x.Id == item.Id && x.Included)) session.SetVersion(item.Id, DependencyAdvisor.SuggestedVersion(item)!); Render(); addDetected.Visibility = Visibility.Collapsed; };
                 panel.Children.Add(addDetected);
             }
@@ -72,7 +72,7 @@ public sealed class PackageSetDialog : IDisposable
         list.Resources["ListViewItemBackgroundSelectedPressed"] = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(28, 128, 128, 128));
         list.ItemTemplate = (DataTemplate)XamlReader.Load("""
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:VrcSetup_Desktop">
-              <Grid Padding="4,6" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+              <Grid Padding="10,6" Margin="0,0,0,3" Background="{ThemeResource AppSurfaceBrush}" BorderBrush="{ThemeResource AppSubtleStrokeBrush}" BorderThickness="1" CornerRadius="4" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
                 <CheckBox x:Name="PackageIncluded" IsChecked="{Binding Included, Mode=OneWay}" IsEnabled="{Binding CanToggle}" AutomationProperties.Name="{Binding Name}" MinWidth="20" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="PackageDetail" Text="{Binding Id}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis"/></StackPanel>
                 <local:PackageVersionSelector Grid.Column="2" PackageId="{Binding Id}" Value="{Binding SelectedVersion}" MinHeight="30" Padding="8,4" VerticalAlignment="Center"/>
@@ -115,7 +115,7 @@ public sealed class PackageSetDialog : IDisposable
             session.AddDefinitions(results); Render();
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (!token.IsCancellationRequested) ShowNotice(error.Message); }
+        catch (Exception error) { if (!token.IsCancellationRequested) ShowNotice(UserErrors.Message(error)); }
     }
     private void Render()
     {

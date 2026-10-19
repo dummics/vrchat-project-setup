@@ -59,6 +59,13 @@ public sealed partial class MainViewModel
         else OpenLogsCommand.Execute(null);
         return Task.CompletedTask;
     });
+    public async Task OpenHistoryProjectAsync(UiHistoryEntry entry) => await Guard(async () =>
+    {
+        var choices = entry.Paths.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (choices.Length == 0) throw new DirectoryNotFoundException();
+        var path = choices.Length == 1 ? choices[0] : await ui.ChooseAsync("Choose project", choices);
+        if (path is not null) OpenPath(path);
+    });
     public async Task CheckHistoryProjectAsync(UiHistoryEntry entry) => await Guard(async () =>
     {
         if (entry.Job is not { Active: false } job) return;
@@ -69,15 +76,13 @@ public sealed partial class MainViewModel
             {
                 var owner = job.Plan.Projects.Single().RecoveryOriginalSource ?? job.Source.UnityPackagePath;
                 var destination = await new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, owner, lifetime.Token);
-                if (destination.Kind is not (ImportDestinationKind.Completed or ImportDestinationKind.Recoverable)) return destination.Message;
+                if (destination.Kind is not (ImportDestinationKind.Completed or ImportDestinationKind.Recoverable)) return UserErrors.Message(new IOException(destination.Message));
                 var project = await app.Projects.ReadAsync(job.ProjectPath, lifetime.Token);
                 var missing = job.Plan.Projects.Single().DesiredPolicy.Keys.Where(id => !project.InstalledVersions.ContainsKey(id)).ToArray();
                 var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(job.ProjectPath, ".vrcsetup", "state.json"), lifetime.Token);
-                var steps = string.Join(", ", (marker?.Steps ?? []).Where(x => x.Value).Select(x => x.Key));
-                return (missing.Length == 0 ? "Selected VPM packages are installed." : "Missing installed packages: " + string.Join(", ", missing.Select(PackageCatalog.FriendlyName)) + ".")
-                    + "\n" + (marker?.Completed == true ? "Import marked complete." : "Import unfinished.")
-                    + (steps.Length > 0 ? " Finished steps: " + steps + "." : "")
-                    + (File.Exists(job.Source.UnityPackagePath) ? "\nReimport checks for missing assets and preserves existing files." : "\nOriginal package unavailable. Select it again to resume.");
+                return (missing.Length == 0 ? UiText.Text("All selected packages are installed.") : UiText.Text("Missing packages: ") + string.Join(", ", missing.Select(PackageCatalog.FriendlyName)))
+                    + "\n" + UiText.Text(marker?.Completed == true ? "Import completed." : "Choose Continue import to finish this project.")
+                    + (File.Exists(job.Source.UnityPackagePath) ? "" : "\n" + UiText.Text("You will be asked to choose the original package again."));
             }, lifetime.Token);
         }
         finally { entry.Checking = false; }
@@ -90,13 +95,13 @@ public sealed partial class MainViewModel
         if (!File.Exists(source.UnityPackagePath))
         {
             var chosen = await ui.PickFileAsync(".unitypackage"); if (chosen is null) return;
-            if (!await ui.ConfirmAsync("Resume " + job.Name, "Use this file to add missing assets to the existing project? Existing files are preserved.\n" + chosen, "Use package")) return;
+            if (!await ui.ConfirmAsync("Continue import", UiText.Text("Use this package to add missing files? Existing files stay unchanged.") + "\n" + Path.GetFileName(chosen), "Use package")) return;
             source = source with { UnityPackagePath = chosen };
         }
         var destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, original, lifetime.Token));
         if (destination.Kind is ImportDestinationKind.New or ImportDestinationKind.Partial)
         {
-            if (!await ui.ConfirmAsync("Create a new copy", destination.Message + "\nKeep the existing folder and prepare a new project?", "New copy")) return;
+            if (!await ui.ConfirmAsync("Create a new copy", "Create a separate project? The existing folder stays unchanged.", "New copy")) return;
             if (!await NavigateAsync("Create")) return;
             StageImportFiles([source.UnityPackagePath]);
             var name = job.Name + " (copy)"; var index = 2;
@@ -149,7 +154,10 @@ public sealed class UiHistoryEntry : ObservableObject
     public string BackupFile => report?.Results.FirstOrDefault(x => x.Path.Equals(ProjectPath, StringComparison.OrdinalIgnoreCase))?.BackupPath is { Length: > 0 } folder ? Path.Combine(folder, "backup.json") : "";
     public Visibility RestoreVisibility => !Checking && job?.Active != true && File.Exists(BackupFile) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportActionsVisibility => job is { Active: false, Source.EmptyProject: false } ? Visibility.Visible : Visibility.Collapsed;
-    public string RepairLabel => job?.Recoverable == true ? "Resume import" : "Reimport missing";
+    public string RepairLabel => job?.Recoverable == true ? "Continue import" : "Complete missing files";
+    public Visibility ProjectActionsVisibility => job?.Active != true && (ProjectPath.Length > 0 || report?.Results.Length > 0) ? Visibility.Visible : Visibility.Collapsed;
+    public string StateGlyph => State is "Failed" or "Partially applied" or "Not applied" ? "⚠ " : "";
+    public string StateCaption => StateGlyph + UiText.Text(State);
     private string health = "";
     public string Health { get => health; set { if (SetProperty(ref health, value)) OnPropertyChanged(nameof(HealthVisibility)); } }
     public Visibility HealthVisibility => Health.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -174,7 +182,15 @@ public sealed class UiHistoryEntry : ObservableObject
     public string Changes => IsImport || report?.Plan is not { } plan ? "" : string.Join(Environment.NewLine + Environment.NewLine,
         PackageReview.Group(plan).Select(group => (group.Projects.Length == Projects.Length ? "All projects" : string.Join(", ", group.Projects.Select(x => x.Name))) + Environment.NewLine
             + string.Join(Environment.NewLine, group.Changes.Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"))));
-    public string Result => job?.Message ?? string.Join(Environment.NewLine, report!.Results.Where(x => x.Message.Length > 0).Select(x => x.Project + ": " + x.Message));
+    public string Result => job is not null ? job.Active || job.State == "Completed" ? UiText.Text(job.Message) : UiText.Text("The import did not finish. Check the project or continue the import.")
+        : string.Join(Environment.NewLine, report!.Results.Select(x => x.Project + ": " + UiText.Text(x.Status switch
+        {
+            OperationStatus.Completed or OperationStatus.Unchanged => "Completed",
+            OperationStatus.CompletedWithWarnings => "Completed. Check the details in the log.",
+            _ when x.Message.Contains("open in Unity", StringComparison.OrdinalIgnoreCase) => "Close Unity, then try again.",
+            OperationStatus.Cancelled => "Cancelled",
+            _ => "Not completed. Open the project to review it, or try again."
+        })));
     public string LogFile => job?.LogFile ?? report!.Results.Select(x => x.LogFile).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "";
     public bool HasLog => LogFile.Length > 0;
     public Visibility PackagesVisibility => Packages.Length > 0 ? Visibility.Visible : Visibility.Collapsed;

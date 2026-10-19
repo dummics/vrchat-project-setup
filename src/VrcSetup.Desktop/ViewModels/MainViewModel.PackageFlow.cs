@@ -33,6 +33,7 @@ public sealed partial class MainViewModel
     }
     public async Task<bool> ConfirmCloseAsync()
     {
+        if (!await ResolveSettingsAsync()) return false;
         if (!WorkspaceDirty && !PresetDirty) return true;
         return await ui.ConfirmAsync("Unsaved changes", "Discard pending package changes and close?", "Discard and close");
     }
@@ -43,6 +44,7 @@ public sealed partial class MainViewModel
         navigating = true;
         try
         {
+            if (!await ResolveSettingsAsync()) return false;
             if (WorkspaceDirty && !await ui.ConfirmAsync("Unsaved changes", "Discard pending package changes and leave?", "Discard and leave")) return false;
             if (PresetDirty && page != "Presets")
             {

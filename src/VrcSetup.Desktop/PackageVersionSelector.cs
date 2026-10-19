@@ -32,9 +32,9 @@ public sealed class PackageVersionSelector : DropDownButton
         flyout.Opening += async (_, _) =>
         {
             var id = PackageId; var generation = ++request;
-            versions = CachedSource?.Invoke(id) ?? []; Render(); status.Text = versions.Length == 0 ? "Loading versions…" : "";
-            try { if (VersionSource is not null) { var loaded = await VersionSource(id); if (generation != request || PackageId != id) return; versions = loaded; Render(); status.Text = loaded.Length == 0 ? "No saved releases available" : ""; } }
-            catch (Exception) { if (generation == request) status.Text = "Versions unavailable. Saved choices are still usable."; }
+            versions = CachedSource?.Invoke(id) ?? []; Render(); status.Text = versions.Length == 0 ? UiText.Text("Loading versions…") : "";
+            try { if (VersionSource is not null) { var loaded = await VersionSource(id); if (generation != request || PackageId != id) return; versions = loaded; Render(); status.Text = loaded.Length == 0 ? UiText.Text("No saved releases available") : ""; } }
+            catch (Exception) { if (generation == request) status.Text = UiText.Text("Versions unavailable. Saved choices are still usable."); }
         };
         flyout.Closed += (_, _) => request++;
         betas.Checked += (_, _) => Render(); betas.Unchecked += (_, _) => Render();
@@ -53,7 +53,7 @@ public sealed class PackageVersionSelector : DropDownButton
         {
             var pins = SemanticVersion.Sort(versions, betas.IsChecked == true).ToList();
             if (Value != "latest" && !string.IsNullOrWhiteSpace(Value) && !Value.StartsWith("Mixed") && Value != "Not installed" && !pins.Contains(Value)) pins.Insert(0, Value);
-            var rows = new[] { new VersionItem("latest", "Latest") }.Concat(pins.Select(x => new VersionItem(x, x))).ToArray();
+            var rows = new[] { new VersionItem("latest", UiText.Text("Latest")) }.Concat(pins.Select(x => new VersionItem(x, x))).ToArray();
             choices.ItemsSource = rows; choices.SelectedItem = rows.FirstOrDefault(x => x.Value == Value);
         }
         finally { rendering = false; }
