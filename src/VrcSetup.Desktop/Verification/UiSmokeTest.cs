@@ -252,6 +252,7 @@ public static class UiSmokeTest
         using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
         {
             await flow.InitializeAsync();
+            checks.AddRange(await ConcurrencyChecks.RunAsync(flow, decisions));
             var pickerRequests = decisions.SaveFileRequests; decisions.FileChoice = null; flow.IsBusy = true;
             await flow.ExportLogsCommand.ExecuteAsync(null);
             Require(decisions.SaveFileRequests == pickerRequests + 1 && flow.IsBusy, "Diagnostic export remains accessible while busy without changing operation state");
@@ -784,11 +785,11 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             viewModel.CurrentPage = "Workspace"; viewModel.ApplyProject = "Fixture project · no operation running";
             viewModel.ApplyPosition = "Project 1 of 4"; viewModel.ApplyPhase = "Updating packages";
             viewModel.CanCancelApply = true; viewModel.IsApplyingPackages = true; await Task.Delay(150);
-            Require(!navigation.IsEnabled && viewModel.ApplyOverlayVisibility == Visibility.Visible, "Apply state blocks navigation: " + size.Width);
+            Require(navigation.IsEnabled && viewModel.ApplyOverlayVisibility == Visibility.Visible, "Package apply keeps navigation available: " + size.Width);
             Require(!((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).IsEnabled, "Updates are blocked during sensitive package operations: " + size.Width);
             await Render(page, Path.Combine(artifacts, "apply-overlay-fixture-" + size.Width + ".png"));
             viewModel.CancelApplyCommand.Execute(null);
-            Require(!viewModel.CanCancelApply && viewModel.ApplyPhase.Contains("recovery"), "Cancel keeps blocking state until worker recovery: " + size.Width);
+            Require(!viewModel.CanCancelApply && viewModel.ApplyPhase.Contains("recovery"), "Cancel keeps operation state until worker recovery: " + size.Width);
             viewModel.IsApplyingPackages = false;
         }
         await AtomicFile.WriteJsonAsync(Path.Combine(viewModel.Application.Paths.Logs, "operation-fixture-partial.json"), partial);

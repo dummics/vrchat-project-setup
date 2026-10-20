@@ -388,6 +388,8 @@
   "Apply and leave": "Applica ed esci",
   "Export logs to share": "Esporta diagnostica",
   "Export diagnostics": "Esporta diagnostica",
+  "Wait for the current operation to finish, then try again.": "Attendi che l'operazione in corso finisca, poi riprova.",
+  "These projects are being updated. You can manage other projects in the meantime.": "Questi progetti sono in aggiornamento. Nel frattempo puoi gestire altri progetti.",
   "Could not export diagnostics. Choose another folder and try again.": "Non è stato possibile esportare la diagnostica. Scegli un'altra cartella e riprova.",
   "Logs ready to share": "Log pronti da condividere",
   "Another instance is already managing imports. Return to that window or close it before continuing.": "Un'altra finestra sta già gestendo le importazioni. Torna a quella finestra o chiudila prima di continuare.",

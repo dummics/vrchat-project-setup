@@ -8,12 +8,13 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     private AppConfiguration persistedConfiguration = new();
+    private readonly SemaphoreSlim configurationGate = new(1, 1);
     public bool LibraryIsList => config.PackageLibraryView == "list";
     public Visibility LibraryListVisibility => LibraryIsList ? Visibility.Visible : Visibility.Collapsed;
     public Visibility LibraryGridVisibility => LibraryIsList ? Visibility.Collapsed : Visibility.Visible;
     public string LibraryLayoutAction => LibraryIsList ? "Grid view" : "List view";
     public string LibraryLayoutGlyph => LibraryIsList ? "\uE80A" : "\uE8FD";
-    [RelayCommand] private async Task ToggleLibraryLayout() => await Guard(async () =>
+    [RelayCommand] private async Task ToggleLibraryLayout() => await IndependentAction(async () =>
     {
         config.PackageLibraryView = LibraryIsList ? "grid" : "list";
         NotifyLibraryLayout(); await PersistConfigurationAsync();
@@ -35,8 +36,23 @@ public sealed partial class MainViewModel
     }
     private async Task PersistConfigurationAsync()
     {
-        config = await app.Configuration.MergeAsync(persistedConfiguration, config, lifetime.Token);
-        persistedConfiguration = config.Copy();
+        await configurationGate.WaitAsync(lifetime.Token);
+        try
+        {
+            var edited = config.Copy();
+            var saved = await app.Configuration.MergeAsync(persistedConfiguration.Copy(), edited, lifetime.Token);
+            persistedConfiguration = saved.Copy();
+            // A navigation prompt can save outside the command gate. Preserve changes
+            // made on the dispatcher while this immutable snapshot was being written.
+            var before = System.Text.Json.JsonSerializer.SerializeToNode(edited, JsonDefaults.Options)!.AsObject();
+            var working = System.Text.Json.JsonSerializer.SerializeToNode(config, JsonDefaults.Options)!.AsObject();
+            var merged = System.Text.Json.JsonSerializer.SerializeToNode(saved, JsonDefaults.Options)!.AsObject();
+            foreach (var item in working)
+                if (!System.Text.Json.Nodes.JsonNode.DeepEquals(before[item.Key], item.Value))
+                    merged[item.Key] = item.Value?.DeepClone();
+            config = System.Text.Json.JsonSerializer.Deserialize<AppConfiguration>(merged, JsonDefaults.Options)!;
+        }
+        finally { configurationGate.Release(); }
         NotifyLibraryLayout();
         ShowSavedFeedback("Saved");
     }

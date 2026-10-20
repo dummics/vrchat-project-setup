@@ -21,7 +21,7 @@ public sealed partial class MainViewModel
     }
     private async Task<bool> ResolveWorkspaceChangesAsync()
     {
-        if (!WorkspaceDirty) return true;
+        if (!WorkspaceDirty || WorkspaceApplying) return true;
         var choice = await ui.ResolveChangesAsync("Unsaved changes", "Apply and leave");
         if (choice == "Discard") return true;
         if (choice != "Save") return false;

@@ -53,7 +53,7 @@ public sealed partial class MainViewModel
             }
         }
     }
-    public async Task OpenHistoryLogAsync(UiHistoryEntry entry) => await Guard(() =>
+    public async Task OpenHistoryLogAsync(UiHistoryEntry entry) => await IndependentAction(() =>
     {
         if (File.Exists(entry.LogFile)) { ProjectRules.EnsureContained(app.Paths.Logs, entry.LogFile); OpenPath(entry.LogFile); }
         else OpenLogsCommand.Execute(null);
@@ -134,7 +134,7 @@ public sealed partial class MainViewModel
         if (!await app.Projects.RestoreAsync(project, backup, new SynchronizationProgress<OperationEvent>(context, AppendActivity), lifetime.Token)) throw new IOException("Restore could not complete; inspect the logs.");
         entry.Health = "Backup restored. Check the project before resuming its import.";
     });
-    [RelayCommand] private async Task OpenProjectsFolder() => await Guard(() =>
+    [RelayCommand] private async Task OpenProjectsFolder() => await IndependentAction(() =>
     {
         var folder = string.IsNullOrWhiteSpace(ProjectsRoot) ? config.UnityProjectsRoot : ProjectRules.NormalizePath(ProjectsRoot);
         if (!Directory.Exists(folder)) throw new IOException("Choose an available projects folder in Settings.");

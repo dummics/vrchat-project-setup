@@ -92,3 +92,5 @@ Activity, the error banner and import options offer **Export diagnostics**. Cont
 New project keeps name/platform fields compact and the preset selector beside the package setup. Creation and cancellation use a reserved bottom action row; saving a new preset is a secondary action available after customizing packages.
 
 Package additions, removals and updates run through package tools while Unity is open. No full project copy is made for ordinary package edits; small manifest recovery files remain available. Imports that need a separate Unity batch process still require an available project. Changes are serialized per project, and Apply refuses targets with an active or queued app import.
+
+Package apply keeps navigation and independent work available through a compact progress row. See [concurrency guarantees and verification](CONCURRENCY.md) for coordination, maintenance exclusions and remaining resource limits.

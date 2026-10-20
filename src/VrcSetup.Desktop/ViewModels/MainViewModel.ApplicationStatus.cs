@@ -26,7 +26,7 @@ public sealed partial class MainViewModel
     public Visibility ApplicationProgressVisibility => ApplicationWorking ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ApplicationStatusVisibility => ApplicationStatus.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ApplicationStopVisibility => IsBusy && !IsApplyingPackages && !IsPreparingImport ? Visibility.Visible : Visibility.Collapsed;
-    public bool CanUseUpdateAction => MainInteractionEnabled && !IsDownloadingUpdate && !IsCheckingUpdate;
+    public bool CanUseUpdateAction => MainInteractionEnabled && !IsBusy && !IsApplyingPackages && !IsDownloadingUpdate && !IsCheckingUpdate;
     public string ApplicationStatus
     {
         get

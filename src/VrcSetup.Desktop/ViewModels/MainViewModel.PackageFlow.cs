@@ -11,6 +11,7 @@ public sealed partial class MainViewModel
     private readonly CancellationTokenSource lifetime = new();
     private CancellationTokenSource? packageSearch;
     private bool navigating;
+    private long workspaceRequest;
     [ObservableProperty] public partial bool BrowsingProjectPackages { get; set; }
     [ObservableProperty] public partial bool IsSearchingPackages { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CatalogNoticeVisibility)), NotifyPropertyChangedFor(nameof(PresetCatalogVisibility))] public partial string CatalogNotice { get; set; } = "";
@@ -47,7 +48,7 @@ public sealed partial class MainViewModel
     public async Task<bool> NavigateAsync(string page)
     {
         if (page == CurrentPage) return true;
-        if (navigating || IsBusy) return false;
+        if (navigating || IsInstallingUpdate) return false;
         navigating = true;
         try
         {
@@ -63,9 +64,11 @@ public sealed partial class MainViewModel
                 editingImportPreset = false; editingNewProject = false; NotifyPackageContext(); OnPropertyChanged(nameof(UseImportPresetVisibility));
                 OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility)); LoadEditingPreset();
             }
+            workspaceRequest++; // Invalidate any manager load still awaiting disk/catalogue I/O.
             if (session is not null)
             {
-                session.Reset(); session = null; RenderWorkspace(); RefreshLibraryRows();
+                if (!ReferenceEquals(session, applyingSession)) session.Reset();
+                session = null; RenderWorkspace(); RefreshLibraryRows();
             }
             BrowsingProjectPackages = page == "Workspace"; CurrentPage = page; return true;
         }
@@ -73,10 +76,10 @@ public sealed partial class MainViewModel
     }
     [RelayCommand] private async Task BackToProjects() => await NavigateAsync("Projects");
     public void StageWorkspaceVersion(string id, string version)
-    { if (session is null || IsBusy) return; session.SetVersion(id, version); RenderWorkspace(); RefreshLibraryRows(); }
+    { if (session is null || WorkspaceApplying || IsBusy && !IsApplyingPackages) return; session.SetVersion(id, version); RenderWorkspace(); RefreshLibraryRows(); }
     public void ToggleWorkspacePackage(PackageWorkspaceRow row)
     {
-        if (session is null || IsBusy || row.Required) return;
+        if (session is null || WorkspaceApplying || IsBusy && !IsApplyingPackages || row.Required) return;
         if (session.Removed.Remove(row.Id)) session.Selected.Remove(row.Id);
         else if (row.Included && !session.Projects.Any(x => x.Packages.ContainsKey(row.Id))) session.Selected.Remove(row.Id);
         else session.Toggle(row.Id);
@@ -84,7 +87,7 @@ public sealed partial class MainViewModel
     }
     public void StagePresetVersion(string id, string version)
     {
-        if (IsBusy) return;
+        if (IsBusy && !IsApplyingPackages) return;
         var snapshot = new ProjectSnapshot { Path = Path.GetFullPath("preset"), Name = PresetLabel, Packages = new(presetWorking) };
         var edit = new PackageEditSession([snapshot], config, Registry.ToArray()); edit.SetVersion(id, version);
         presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); RenderPreset(); RefreshLibraryRows();

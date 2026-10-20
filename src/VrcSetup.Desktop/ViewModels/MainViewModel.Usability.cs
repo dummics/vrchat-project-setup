@@ -42,7 +42,7 @@ public sealed partial class MainViewModel
     [RelayCommand] private void NextPreset() => CyclePreset(1);
     private void CyclePreset(int direction)
     {
-        if (IsBusy || Presets.Count < 2) return;
+        if (IsBusy && !IsApplyingPackages || Presets.Count < 2) return;
         EditingPreset = Presets[(Presets.IndexOf(EditingPreset) + direction + Presets.Count) % Presets.Count];
     }
     public Visibility PresetChangesVisibility => PresetDirty && !BrowsingProjectPackages && !editingImportPreset ? Visibility.Visible : Visibility.Collapsed;
@@ -150,9 +150,9 @@ public sealed partial class MainViewModel
         EmptyProjectsMessage = ProjectFilter.Length > 0 ? "No projects match your search." : string.IsNullOrWhiteSpace(ProjectsRoot) ? "Choose a projects folder in Settings, or add an existing project." : !Directory.Exists(ProjectsRoot) ? "Projects folder is unavailable: " + ProjectsRoot + ". Reconnect the drive or choose another folder." : "No Unity projects found in " + ProjectsRoot;
     }
     [RelayCommand] private void DismissError() => ErrorMessage = "";
-    [RelayCommand] private async Task OpenProjectPackages(ProjectSnapshot? project) => await Guard(async () =>
+    [RelayCommand] private async Task OpenProjectPackages(ProjectSnapshot? project) => await IndependentAction(async () =>
     { if (project is not null) await OpenProjectsAsync([project]); });
-    [RelayCommand] private async Task RenamePreset() => await Guard(async () =>
+    [RelayCommand] private async Task RenamePreset() => await IndependentAction(async () =>
     {
         if (!IsCustomPreset) return;
         var name = await ui.TextAsync("Rename preset", EditingPreset); if (name is not null) await RenameEditingPresetAsync(name);
@@ -171,7 +171,7 @@ public sealed partial class MainViewModel
         finally { presetSwitching = false; }
         LoadPresetNames(); creationOverrides = overrides;
     }
-    [RelayCommand] private async Task SaveEditedPreset() => await Guard(async () =>
+    [RelayCommand] private async Task SaveEditedPreset() => await IndependentAction(async () =>
     {
         if (editingImportPreset) return;
         await SaveEditedPresetCoreAsync(EditingPreset);
@@ -197,7 +197,7 @@ public sealed partial class MainViewModel
         ShowSavedFeedback("Preset saved"); Status = (name == DefaultPresetKey ? "Default" : name) + " saved";
     }
     [RelayCommand] private void DiscardPresetChanges() => LoadEditingPreset();
-    [RelayCommand] private async Task ChangePresetVersion(UiPackageRow? row) => await Guard(async () =>
+    [RelayCommand] private async Task ChangePresetVersion(UiPackageRow? row) => await IndependentAction(async () =>
     {
         if (row is null) return;
         var version = await ui.VersionAsync(row.Id, await app.Catalog.GetVersionsAsync(row.Id), row.Version); if (version is null) return;
@@ -212,11 +212,11 @@ public sealed partial class MainViewModel
     }
     [RelayCommand] private void AddLibraryPackage(UiPackageRow? row)
     {
-        if (row is null || IsBusy) return;
+        if (row is null || IsBusy && !IsApplyingPackages) return;
         if (BrowsingProjectPackages) { session?.AddDefinitions(Registry); if (session is not null && (row.Included || session.Removed.Contains(row.Id))) ToggleWorkspacePackage(session.Rows().First(x => x.Id == row.Id)); else StageWorkspaceVersion(row.Id, "latest"); }
         else if (!presetWorking.ContainsKey(row.Id)) { presetWorking[row.Id] = "latest"; RenderPreset(); RefreshLibraryRows(); }
     }
-    [RelayCommand] private async Task TogglePackageFavorite(UiPackageRow? row) => await Guard(async () =>
+    [RelayCommand] private async Task TogglePackageFavorite(UiPackageRow? row) => await IndependentAction(async () =>
     {
         if (row is null) return;
         if (!config.FavoritePackages.Remove(row.Id)) config.FavoritePackages.Add(row.Id);

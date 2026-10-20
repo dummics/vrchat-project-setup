@@ -129,7 +129,8 @@ public sealed partial class MainViewModel
         if (plans.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plans.Count)
             throw new ArgumentException("Two files would create the same project name. Select each file and give it a different name.");
         var reviewed = new OperationPlan(Guid.NewGuid().ToString("N"), DateTime.UtcNow, plans.ToArray());
-        if (!await ui.ReviewAsync(reviewed)) return;
+        if (ProjectApplyActive(plans.Select(x => x.Path)) || !await ui.ReviewAsync(reviewed)) return;
+        if (IsInstallingUpdate || ProjectApplyActive(plans.Select(x => x.Path))) return;
         await app.Imports.EnqueueAsync(reviewed, RequestedParallelism, token: lifetime.Token);
         foreach (var item in frozen.Where(x => x.Draft.Revision == x.Revision)) ImportDrafts.Remove(item.Draft);
         if (!ImportDrafts.Contains(SelectedImportDraft!)) SelectedImportDraft = ImportDrafts.FirstOrDefault();
@@ -187,6 +188,7 @@ public sealed partial class MainViewModel
     {
         if (!RequireImportsIdle()) return;
         if (!await ui.ConfirmAsync("Clear analysis cache", "Remove cached UnityPackage analysis? Package signatures, projects, logs and recovery history are preserved.", "Clear cache")) return;
+        if (!RequireImportsIdle()) return;
         var count = await app.Inspection.ClearObservationCacheAsync(lifetime.Token);
         Status = $"Cleared {count} cached analyses";
     });

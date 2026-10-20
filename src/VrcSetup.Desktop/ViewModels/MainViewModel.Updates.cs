@@ -27,7 +27,7 @@ public sealed partial class MainViewModel
     [RelayCommand] private Task ShowUpdateDetails() => ui.ShowUpdateInfoAsync(UiText.Text(updateDetails.Length > 0 ? updateDetails : UpdateStatus));
     [RelayCommand] private async Task UpdateAction()
     { if (HasApplicationUpdate) await InstallApplicationUpdate(); else await CheckApplicationUpdatesAsync(true); }
-    [RelayCommand] private async Task ContactSupport() => await Guard(ui.ShowContactAsync);
+    [RelayCommand] private async Task ContactSupport() => await Guard(ui.ShowContactAsync, allowWhileBusy: true, serialize: false);
     public string AppVersion => ApplicationUpdates.CurrentVersion;
     public string UpdateLabel => IsDownloadingUpdate ? AppVersion : IsUpdateReady ? "Update ready" : HasApplicationUpdate ? "Update available" : AppVersion;
     [RelayCommand] private Task CheckApplicationUpdates() => CheckApplicationUpdatesAsync(true);
@@ -59,8 +59,11 @@ public sealed partial class MainViewModel
         { if (manual) { updateDetails = "Could not check updates. Please try again later."; UpdateFailed = true; UpdateStatus = "Could not check updates."; } app.Diagnostics.Write("Updates", error.Message, error); }
         finally
         {
-            IsCheckingUpdate = false;
-            if (!manual && !UpdateStatus.StartsWith("Update checks are temporarily paused")) await ReadPreviousUpdateResultAsync();
+            try
+            {
+                if (!manual && !UpdateStatus.StartsWith("Update checks are temporarily paused")) await ReadPreviousUpdateResultAsync();
+            }
+            finally { IsCheckingUpdate = false; }
         }
         return succeeded;
     }

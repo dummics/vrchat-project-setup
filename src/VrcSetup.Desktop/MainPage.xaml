@@ -287,10 +287,11 @@
                 
             </Button>
         </Grid>
-        <Grid Grid.RowSpan="3" Background="#99000000" Visibility="{Binding ApplyOverlayVisibility}" AutomationProperties.Name="Applying package changes">
-            <Border Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="10" Padding="24" MaxWidth="460" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <StackPanel Spacing="16"><TextBlock Text="{local:Loc Key='Applying changes'}" FontSize="20" FontWeight="SemiBold"/><TextBlock Text="{Binding ApplyProject}" TextWrapping="Wrap" FontWeight="SemiBold"/><TextBlock Text="{Binding ApplyPosition, Converter={StaticResource Localize}}" FontSize="12" Opacity="0.65"/><ProgressBar IsIndeterminate="True" MinWidth="200"/><TextBlock Text="{Binding ApplyPhase, Converter={StaticResource Localize}}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/><Button Content="{local:Loc Key='Export diagnostics'}" Command="{Binding ExportLogsCommand}" HorizontalAlignment="Left" Style="{StaticResource QuietButton}"/><Button Content="{local:Loc Key='Cancel'}" Command="{Binding CancelApplyCommand}" IsEnabled="{Binding CanCancelApply}" HorizontalAlignment="Right" Style="{StaticResource QuietButton}"/></StackPanel>
-            </Border>
+        <Grid x:Name="ApplyProgressPanel" Grid.Row="2" Background="{ThemeResource AppSurfaceBrush}" Visibility="{Binding ApplyOverlayVisibility}" Padding="16,8" ColumnSpacing="12" AutomationProperties.Name="{local:Loc Key='Applying changes'}">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel Spacing="4"><TextBlock Text="{Binding ApplyProject}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding ApplyPhase, Converter={StaticResource Localize}}" FontSize="12" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/><ProgressBar IsIndeterminate="True" Height="3"/></StackPanel>
+            <Button Grid.Column="1" Content="{local:Loc Key='Export diagnostics'}" Command="{Binding ExportLogsCommand}" VerticalAlignment="Center" Style="{StaticResource QuietButton}"/>
+            <Button Grid.Column="2" Content="{local:Loc Key='Cancel'}" Command="{Binding CancelApplyCommand}" IsEnabled="{Binding CanCancelApply}" VerticalAlignment="Center" Style="{StaticResource QuietButton}"/>
         </Grid>
     </Grid>
 </Page>

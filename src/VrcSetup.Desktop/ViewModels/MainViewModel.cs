@@ -204,13 +204,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         SelectedPackage = Packages.FirstOrDefault(x => x.Id == selected) ?? Packages.FirstOrDefault();
         NotifyWorkspaceChanges();
     }
-    [RelayCommand] private async Task RefreshProjects() => await Guard(RefreshProjectsCore);
+    [RelayCommand] private async Task RefreshProjects() => await Guard(RefreshProjectsCore, allowWhileBusy: true);
     private async Task RefreshProjectsCore()
     {
         IsLoadingProjects = true; ErrorMessage = "";
         try
         {
-            allProjects = await app.Projects.ScanAsync(config.UnityProjectsRoot, ProjectSort, true); FilterProjects(); Status = $"{allProjects.Length} projects";
+            var root = config.UnityProjectsRoot; var sort = ProjectSort;
+            var scanned = await Task.Run(() => app.Projects.ScanAsync(root, sort, true, cancellationToken: lifetime.Token), lifetime.Token);
+            if (root != config.UnityProjectsRoot || sort != ProjectSort) return;
+            allProjects = scanned; FilterProjects(); Status = $"{allProjects.Length} projects";
             try { await app.Catalog.RememberProjectPackagesAsync(allProjects, lifetime.Token); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Project package index", error.Message, error); }
         }
@@ -232,23 +235,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var folder = await ui.PickFolderAsync(); if (folder is null) return;
         await Guard(async () => await OpenProjectsAsync([await app.Projects.ReadAsync(folder)]));
     }
-    [RelayCommand] private async Task OpenSelectedProjects() => await Guard(async () =>
+    [RelayCommand] private async Task OpenSelectedProjects() => await IndependentAction(async () =>
     {
         if (SelectedProjects.Count == 0) throw new InvalidOperationException("Select one or more projects.");
         await OpenProjectsAsync(SelectedProjects.ToArray());
     });
     public async Task OpenProjectsAsync(ProjectSnapshot[] projects, bool reload = false)
     {
+        if (IsApplyingPackages && !(reload && ReferenceEquals(session, applyingSession)) && applyingSession?.Projects.Any(x => projects.Any(y => x.Path.Equals(y.Path, StringComparison.OrdinalIgnoreCase))) == true)
+        { Status = "These projects are being updated. You can manage other projects in the meantime."; return; }
         if (!reload && CurrentPage == "Workspace" && session?.MatchesProjects(projects) == true)
         { BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace"; return; }
-        if (session?.HasPendingChanges == true && !await ui.ConfirmAsync("Pending changes", "Discard staged package changes?", "Discard")) return;
+        var request = ++workspaceRequest; var page = CurrentPage; var previousSession = session;
+        if (session?.HasPendingChanges == true && !ReferenceEquals(session, applyingSession) && !await ui.ConfirmAsync("Pending changes", "Discard staged package changes?", "Discard")) return;
         var fresh = new List<ProjectSnapshot>(); foreach (var project in projects) fresh.Add(await app.Projects.ReadAsync(project.Path));
-        var known = await Task.Run(() => app.Catalog.KnownAsync(config, fresh.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)));
+        var choices = config.Copy();
+        var known = await Task.Run(() => app.Catalog.KnownAsync(choices, fresh.Select(x => (IReadOnlyDictionary<string, string>)x.Packages)), lifetime.Token);
+        try { await app.Catalog.RememberAsync(known, preserveSelections: true); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Package library cache", error.Message, error); }
+        if (request != workspaceRequest || page != CurrentPage || !ReferenceEquals(session, previousSession)) return;
         session = new(fresh.ToArray(), config, known); Replace(Registry, known);
         projectCatalogBaseline = session.Rows().Where(x => x.Included).Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         personalPackageIds = known.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        try { await app.Catalog.RememberAsync(known, preserveSelections: true); }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Package library cache", error.Message, error); }
         WorkspaceProfile = string.Join(Environment.NewLine, fresh.Where(x => x.ProfileStatus.Length > 0).Select(x => (fresh.Count > 1 ? x.Name + ": " : "") + x.ProfileStatus));
         SelectedProjects.Clear(); NotifyProjectSelection();
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : $"{projects.Length} projects"; PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
@@ -305,29 +313,45 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (session is not null && await ui.ConfirmAsync("Undo changes", "Discard all staged changes and extra imports?", "Discard")) { session.Reset(); RenderWorkspace(); }
     }
-    [RelayCommand] private async Task ApplyChanges() => await Guard(ApplyChangesCoreAsync);
+    [RelayCommand] private async Task ApplyChanges() => await Guard(ApplyChangesCoreAsync, serialize: false);
     private async Task ApplyChangesCoreAsync()
     {
-        if (session is null) return;
-        if (ProjectImportsActive(session.Projects.Select(x => x.Path))) return;
+        if (session is null || IsApplyingPackages) return;
+        var source = session;
+        if (ProjectImportsActive(source.Projects.Select(x => x.Path))) return;
+        // Freeze planning inputs before the first await; navigation may detach this editor.
+        var selected = new Dictionary<string, string>(source.Selected);
+        var removed = source.Removed.ToArray();
+        var targets = source.Targets.ToDictionary(x => x.Key, x => x.Value.ToArray());
+        var exact = source.Exact; var preset = source.Preset; var extraImports = source.ExtraImports.ToArray();
+        var choices = config.Copy();
+        applyingSession = source;
         using var cancellation = new CancellationTokenSource(); operation = cancellation;
         IsApplyingPackages = true; IsBusy = true; CanCancelApply = true;
         ApplyProject = ""; ApplyPosition = $"{session.Projects.Length} projects"; ApplyPhase = "Preparing review";
         try
         {
-            var busy = session.ExtraImports.Length == 0 ? [] : await Task.Run(() => session.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
+            var busy = extraImports.Length == 0 ? [] : await Task.Run(() => source.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
             if (busy.Length > 0) throw new ProjectsInUseException(busy);
-            var plan = await Task.Run(() => app.Planner.PlanBulkAsync(session.Projects.Select(x => x.Path), session.Selected, config, session.Exact, session.Removed, session.Targets, session.Preset, session.ExtraImports, cancellation.Token));
+            var plan = await Task.Run(() => app.Planner.PlanBulkAsync(source.Projects.Select(x => x.Path), selected, choices, exact, removed, targets, preset, extraImports, cancellation.Token));
             cancellation.Token.ThrowIfCancellationRequested();
             if (!await ui.ReviewAsync(plan)) return;
             cancellation.Token.ThrowIfCancellationRequested();
             if (ProjectImportsActive(plan.Projects.Select(x => x.Path))) return;
             applyingProjects = plan.Projects; ApplyPhase = "Starting changes";
             var report = await Run(plan, cancellation);
-            if (report.Success) { session.Reset(); await OpenProjectsAsync(session.Projects, reload: true); }
+            if (report.Success)
+            {
+                source.Reset();
+                if (ReferenceEquals(session, source) && CurrentPage == "Workspace")
+                {
+                    // Reload only the editor that started this operation, never a different page.
+                    await OpenProjectsAsync(source.Projects, reload: true);
+                }
+            }
             else { Status = "Some changes were not saved. Pending choices kept; review and retry."; ErrorMessage = report.Results.FirstOrDefault(x => x.Status is OperationStatus.Failed or OperationStatus.Cancelled or OperationStatus.Skipped)?.Message ?? Status; }
         }
-        finally { operation = null; IsBusy = false; IsApplyingPackages = false; CanCancelApply = false; applyingProjects = []; }
+        finally { operation = null; IsBusy = false; IsApplyingPackages = false; CanCancelApply = false; applyingProjects = []; applyingSession = null; }
     }
     [RelayCommand] private async Task PickPackage()
     { if (await ui.PickFileAsync(".unitypackage") is { } file) { PackageFile = file; CurrentPage = "Create"; } }
@@ -347,7 +371,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         ImportError = "";
         if (ImportDrafts.Count == 0 && string.IsNullOrWhiteSpace(PackageFile)) { ImportError = "Choose a UnityPackage. For an empty project, use Projects → New project."; return; }
-        if (IsBusy) { ImportError = "Wait for the current operation to finish, then try again."; return; }
+        if (IsInstallingUpdate || IsBusy && !IsApplyingPackages) { ImportError = "Wait for the current operation to finish, then try again."; return; }
         IsPreparingImport = true;
         try
         {
@@ -378,7 +402,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Status = report.Success ? "Completed" : "Recovery available";
             return report;
         }
-        finally { operation = null; IsBusy = false; }
+        finally { if (!IsApplyingPackages) { operation = null; IsBusy = false; } }
     }
     [RelayCommand] private void CancelOperation() { operation?.Cancel(); refresh?.Cancel(); }
     public void AppendActivity(OperationEvent value)
@@ -388,7 +412,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ActivityEmptyVisibility));
         Status = value.Phase;
     }
-    [RelayCommand] private async Task SavePreset() => await Guard(async () =>
+    [RelayCommand] private async Task SavePreset() => await IndependentAction(async () =>
     {
         var name = await ui.TextAsync("Save preset", session?.Preset ?? ""); if (string.IsNullOrWhiteSpace(name)) return;
         var current = session?.Projects[0].Packages ?? config.VpmPackages;
@@ -404,14 +428,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (name == "My default packages") config.VpmPackages = result; else config.PackagePresets[name] = result;
         await PersistConfigurationAsync(); await LoadRegistry();
     });
-    [RelayCommand] private async Task CreatePreset() => await Guard(async () =>
+    [RelayCommand] private async Task CreatePreset() => await IndependentAction(async () =>
     {
         var name = await ui.TextAsync("New preset"); if (string.IsNullOrWhiteSpace(name)) return;
         if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Choose a different preset name.");
         if (PresetDirty && !editingNewProject && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + PresetLabel + "?", "Discard")) return;
         config.PackagePresets[name] = new(presetWorking.Count > 0 ? presetWorking : config.VpmPackages); await PersistConfigurationAsync(); LoadPresetNames(); presetSwitching = true; EditingPreset = name; presetSwitching = false; LoadEditingPreset();
     });
-    [RelayCommand] private async Task DeletePreset() => await Guard(async () =>
+    [RelayCommand] private async Task DeletePreset() => await IndependentAction(async () =>
     {
         var name = EditingPreset; if (name == DefaultPresetKey) { Status = "Default cannot be deleted"; return; }
         if (await ui.ConfirmAsync("Delete preset", name, "Delete")) { config.PackagePresets.Remove(name); await PersistConfigurationAsync(); LoadPresetNames(); presetSwitching = true; EditingPreset = DefaultPresetKey; presetSwitching = false; LoadEditingPreset(); }
@@ -505,6 +529,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (!RequireImportsIdle()) return;
         if (!await ui.ConfirmAsync("Reset settings", "Reset defaults, presets and paths? Your Unity projects are preserved.", "Reset")) return;
+        if (!RequireImportsIdle()) return;
         await app.Configuration.ResetAsync(); await ReloadConfigurationAsync();
     });
     [RelayCommand] private async Task RepairInstallation() => await Guard(async () =>
@@ -517,6 +542,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (!RequireImportsIdle()) return;
         var root = InstallationRoot();
         if (!await ui.ConfirmAsync("Uninstall VRCSETUP", root + "\nSettings and Unity projects will be preserved.", "Uninstall")) return;
+        if (!RequireImportsIdle()) return;
         await new InstallationManager(app.Paths).UninstallAsync(root, true); ui.CloseApplication();
     });
     private string InstallationRoot() => File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")) ? app.Paths.PayloadRoot : InstallationManager.DefaultRoot;
@@ -525,7 +551,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (!RequireImportsIdle()) return;
         if (!await ResolveSettingsAsync()) return;
         if (PresetDirty && !await ui.ConfirmAsync("Unsaved preset", "Discard changes before importing settings?", "Discard")) return;
-        if (await ui.PickFileAsync(".json") is { } file && await ui.ConfirmAsync("Restore settings", "This replaces your settings and presets. Your Unity projects stay unchanged.", "Restore")) { await app.Configuration.ImportAsync(file); await ReloadConfigurationAsync(); }
+        if (await ui.PickFileAsync(".json") is { } file && await ui.ConfirmAsync("Restore settings", "This replaces your settings and presets. Your Unity projects stay unchanged.", "Restore") && RequireImportsIdle()) { await app.Configuration.ImportAsync(file); await ReloadConfigurationAsync(); }
     });
     [RelayCommand] private void OpenLogs()
     {
@@ -552,16 +578,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var start = new ProcessStartInfo(config.UnityEditorPath) { UseShellExecute = false }; start.ArgumentList.Add("-projectPath"); start.ArgumentList.Add(project); Process.Start(start); await Task.CompletedTask;
     }
     private static void OpenPath(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-    private async Task Guard(Func<Task> action)
+    private async Task Guard(Func<Task> action, bool allowWhileBusy = false, bool serialize = true)
     {
-        if (IsBusy) return;
-        await actionGate.WaitAsync();
-        try { ErrorMessage = ""; await action(); }
+        if (IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
+        var area = CurrentPage;
+        if (serialize) await actionGate.WaitAsync(lifetime.Token);
+        try
+        {
+            if (IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
+            ErrorMessage = ""; await action();
+        }
         catch (OperationCanceledException) { Status = "Cancelled"; }
-        catch (Exception error) { app.Diagnostics.Write(CurrentPage, error.Message, error); ErrorMessage = UserErrors.Message(error); Status = "Action failed"; AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : ErrorMessage, EventSeverity.Error)); }
-        finally { actionGate.Release(); }
+        catch (Exception error) { app.Diagnostics.Write(area, error.Message, error); ErrorMessage = UserErrors.Message(error); Status = "Action failed"; AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : ErrorMessage, EventSeverity.Error)); }
+        finally { if (serialize) actionGate.Release(); }
     }
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items) { collection.Clear(); foreach (var item in items) collection.Add(item); }
+    private Task IndependentAction(Func<Task> action) => Guard(action, allowWhileBusy: true);
     public void Dispose()
     {
         operation?.Cancel(); refresh?.Cancel(); packageSearch?.Cancel(); inspectionRequest?.Cancel(); lifetime.Cancel();

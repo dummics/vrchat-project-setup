@@ -73,9 +73,14 @@ public sealed partial class MainWindow : Window
     {
         var vm = Page.ViewModel;
         if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
-        await vm.FinishImportsAsync();
-        var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, WorkingDirectory = vm.Application.Paths.Home };
-        start.Environment["VRCSETUP_HOME"] = vm.Application.Paths.Home;
-        System.Diagnostics.Process.Start(start); closingConfirmed = true; Close(); return true;
+        vm.IsInstallingUpdate = true; // Reserve the restart before awaiting queue shutdown.
+        try
+        {
+            await vm.FinishImportsAsync();
+            var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, WorkingDirectory = vm.Application.Paths.Home };
+            start.Environment["VRCSETUP_HOME"] = vm.Application.Paths.Home;
+            System.Diagnostics.Process.Start(start); closingConfirmed = true; Close(); return true;
+        }
+        finally { if (!closingConfirmed) vm.IsInstallingUpdate = false; }
     }
 }
