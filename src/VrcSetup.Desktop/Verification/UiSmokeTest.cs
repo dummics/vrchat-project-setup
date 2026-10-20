@@ -115,7 +115,7 @@ public static class UiSmokeTest
         viewModel.CurrentPage = "Presets";
         viewModel.ErrorMessage = "Fixture error"; await Task.Delay(150);
         var errorBanner = (Microsoft.UI.Xaml.Controls.InfoBar)page.FindName("ErrorBanner");
-        Require(errorBanner.ActionButton is Microsoft.UI.Xaml.Controls.Button errorAction && ReferenceEquals(errorAction.Command, viewModel.OpenLogsCommand), "Error banner opens logs directly");
+        Require(errorBanner.ActionButton is Microsoft.UI.Xaml.Controls.Button errorAction && ReferenceEquals(errorAction.Command, viewModel.ExportLogsCommand), "Error banner exports a shareable diagnostic archive");
         await Render(page, Path.Combine(artifacts, "error-log-action.png")); viewModel.ErrorMessage = "";
         window.AppWindow.Resize(new(1180, 800)); await Task.Delay(100);
         var contact = page.CreateContactDialog(); contact.XamlRoot = page.XamlRoot;
@@ -156,7 +156,16 @@ public static class UiSmokeTest
         await viewModel.BeginNewProjectAsync(); viewModel.NewProjectName = "Fresh project"; await Task.Delay(350); page.UpdateLayout();
         Require(viewModel.CurrentPage == "NewProject" && viewModel.NewProjectVisibility == Visibility.Visible && viewModel.NewProjectPlatform == "StandaloneWindows64", "New project has its own page with platform, preset and editable packages");
         Require(viewModel.UseImportPresetVisibility == Visibility.Collapsed && viewModel.PresetOptionsVisibility == Visibility.Collapsed, "New project packages are local to the creation form");
-        await Render(page, Path.Combine(artifacts, "new-project.png")); await viewModel.NavigateAsync("Projects");
+        Require(viewModel.NewProjectSavePresetVisibility == Visibility.Collapsed, "Unchanged creation packages do not offer a duplicate preset");
+        Require(((FrameworkElement)page.FindName("NewProjectNameInput")).ActualWidth <= 400, "Project name remains compact on wide windows");
+        await Render(page, Path.Combine(artifacts, "new-project.png"));
+        window.AppWindow.Resize(new(720, 620)); await Task.Delay(350); page.UpdateLayout();
+        var createButton = (FrameworkElement)page.FindName("NewProjectCreate");
+        var createBounds = createButton.TransformToVisual(page).TransformBounds(new(0, 0, createButton.ActualWidth, createButton.ActualHeight));
+        Require(createBounds.Bottom <= page.ActualHeight && createBounds.Right <= page.ActualWidth, "Creation actions stay reachable on narrow windows");
+        await Render(page, Path.Combine(artifacts, "new-project-narrow.png"));
+        window.AppWindow.Resize(new(1180, 800)); await Task.Delay(250);
+        await viewModel.NavigateAsync("Projects");
         viewModel.SelectedRecipe = null!; viewModel.SelectedRecipe = "No recipe";
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
@@ -243,10 +252,15 @@ public static class UiSmokeTest
         using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
         {
             await flow.InitializeAsync();
+            var pickerRequests = decisions.SaveFileRequests; decisions.FileChoice = null; flow.IsBusy = true;
+            await flow.ExportLogsCommand.ExecuteAsync(null);
+            Require(decisions.SaveFileRequests == pickerRequests + 1 && flow.IsBusy, "Diagnostic export remains accessible while busy without changing operation state");
+            flow.IsBusy = false;
             var initialConfigText = await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile);
             var initialImportFile = flow.PackageFile;
             await flow.BeginNewProjectAsync(); flow.NewProjectName = "Local creation fixture";
             flow.StagePresetVersion("gogoloco", "latest");
+            Require(flow.NewProjectSavePresetVisibility == Visibility.Visible, "Customized creation packages offer saving a separate preset");
             Require(flow.PresetDirty && flow.NewProjectVisibility == Visibility.Visible && flow.PackageFile == initialImportFile, "New project custom packages do not change import drafts");
             decisions.ReviewResult = false;
             await flow.CreateConfiguredProjectCommand.ExecuteAsync(null);

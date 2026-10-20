@@ -18,7 +18,7 @@ public sealed partial class MainViewModel
     private HashSet<string>? libraryFavoriteSnapshot;
     private HashSet<string> personalPackageIds = new(StringComparer.OrdinalIgnoreCase);
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetLabel)), NotifyPropertyChangedFor(nameof(IsCustomPreset)), NotifyPropertyChangedFor(nameof(PresetSaveContext))] public partial string EditingPreset { get; set; } = DefaultPresetKey;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetChangesVisibility))] public partial bool PresetDirty { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetChangesVisibility)), NotifyPropertyChangedFor(nameof(NewProjectSavePresetVisibility))] public partial bool PresetDirty { get; set; }
     [ObservableProperty] public partial string LibraryFilter { get; set; } = "";
     [ObservableProperty] public partial bool FavoritesOnly { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(IsErrorVisible))] public partial string ErrorMessage { get; set; } = "";

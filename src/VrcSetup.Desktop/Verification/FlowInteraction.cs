@@ -17,7 +17,8 @@ internal sealed class FlowInteraction(IDesktopInteraction inner) : IDesktopInter
         Task.FromResult<string?>(ChangesChoice == "Cancel" ? null : ChangesChoice ?? (ConfirmResult ? "Discard" : null));
     public string? FileChoice { get; set; }
     public Task<string?> ResolveSettingsAsync() => Task.FromResult(SettingsChoice);
-    public Task<string?> SaveFileAsync(string name, string extension) => Task.FromResult(FileChoice);
+    public int SaveFileRequests { get; private set; }
+    public Task<string?> SaveFileAsync(string name, string extension) { SaveFileRequests++; return Task.FromResult(FileChoice); }
     public Task<bool> ConfirmAsync(string title, string content, string action) { Confirmations++; return Task.FromResult(ConfirmResult); }
     public Task<string?> PickFileAsync(string extension) => FileChoice is null ? inner.PickFileAsync(extension) : Task.FromResult<string?>(FileChoice);
     public Task<string?> PickFolderAsync() => inner.PickFolderAsync();

@@ -16,6 +16,8 @@ public sealed partial class MainPage
     private void NextPresetClicked(object sender, RoutedEventArgs args) { presetDirection = 1; ViewModel.NextPresetCommand.Execute(null); }
     private void PresetChoicePicked(object sender, ItemClickEventArgs args)
     { if (args.ClickedItem is string name) ViewModel.EditingPreset = name; PresetSelector.Flyout.Hide(); }
+    private void NewProjectPresetPicked(object sender, ItemClickEventArgs args)
+    { if (args.ClickedItem is string name) ViewModel.EditingPreset = name; NewProjectPresetSelector.Flyout.Hide(); }
     private void PresetChoiceKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs args)
     { if (args.Key == Windows.System.VirtualKey.Enter) PresetSelector.Flyout.Hide(); }
     private void AnimatePresetSelection()

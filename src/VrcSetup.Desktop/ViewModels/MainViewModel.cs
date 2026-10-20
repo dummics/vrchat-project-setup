@@ -212,7 +212,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             allProjects = await app.Projects.ScanAsync(config.UnityProjectsRoot, ProjectSort, true); FilterProjects(); Status = $"{allProjects.Length} projects";
             try { await app.Catalog.RememberProjectPackagesAsync(allProjects, lifetime.Token); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Project package index", error.Message); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Project package index", error.Message, error); }
         }
         catch when (!Directory.Exists(config.UnityProjectsRoot)) { allProjects = []; FilterProjects(); throw; }
         finally { IsLoadingProjects = false; UpdateProjectState(); }

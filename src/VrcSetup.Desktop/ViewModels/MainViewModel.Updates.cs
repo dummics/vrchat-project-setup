@@ -56,7 +56,7 @@ public sealed partial class MainViewModel
             app.Diagnostics.Write("Updates", "Next check after " + error.RetryAt.ToString("O"));
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException or IOException)
-        { if (manual) { updateDetails = "Could not check updates. Please try again later."; UpdateFailed = true; UpdateStatus = "Could not check updates."; } app.Diagnostics.Write("Updates", error.Message); }
+        { if (manual) { updateDetails = "Could not check updates. Please try again later."; UpdateFailed = true; UpdateStatus = "Could not check updates."; } app.Diagnostics.Write("Updates", error.Message, error); }
         finally
         {
             IsCheckingUpdate = false;
@@ -77,7 +77,7 @@ public sealed partial class MainViewModel
                     }
                 }
                 catch (Exception error) when (error is IOException or System.Text.Json.JsonException or OperationCanceledException or UnauthorizedAccessException)
-                { app.Diagnostics.Write("Update result", error.Message); }
+                { app.Diagnostics.Write("Update result", error.Message, error); }
     }
     [RelayCommand] private async Task InstallApplicationUpdate()
     {

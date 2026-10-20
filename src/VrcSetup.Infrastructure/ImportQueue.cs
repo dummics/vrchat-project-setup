@@ -106,7 +106,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                             if (marker?.Completed == true && sameSource)
                                 job = job with { State = "Recovered", Step = "Completed", Progress = 100, FinishedAt = marker.CompletedAt, Message = "Project recovery verified." };
                         }
-                        catch (Exception error) when (error is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException) { app.Diagnostics.Write("Import state", error.Message); }
+                        catch (Exception error) when (error is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException) { app.Diagnostics.Write("Import state", error.Message, error); }
                     }
                     lock (sync) jobs.Add(job);
                 }

@@ -138,6 +138,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ConstrainForms()
     {
+        NewProjectForm.Width = Math.Clamp(PresetEditor.ActualWidth, 280, 560);
         ProjectSearch.Width = Math.Clamp(ProjectsView.ActualWidth - (ViewModel.SelectedProjects.Count >= 2 ? ManageSelectionAction.ActualWidth + 16 : 0), 140, 320);
         var stackProjectColumns = ProjectsView.ActualWidth < 640;
         ProjectColumnHeaders.ColumnDefinitions[1].Width = new GridLength(stackProjectColumns ? 0 : 260);
@@ -417,9 +418,9 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     public async Task ShowUpdateInfoAsync(string details)
     {
         if (SuppressDialogs) return;
-        var result = await ShowDialog(new() { Title = "Update details", Content = new ScrollViewer { MaxHeight = 320, Content = new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, MaxWidth = 520 } }, PrimaryButtonText = "Open logs", SecondaryButtonText = "Report a bug", CloseButtonText = "Close" });
-        if (result == ContentDialogResult.Primary) ViewModel.OpenLogsCommand.Execute(null);
-        else if (result == ContentDialogResult.Secondary) ViewModel.ReportBugCommand.Execute(null);
+        var result = await ShowDialog(new() { Title = "Update details", Content = new ScrollViewer { MaxHeight = 320, Content = new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, MaxWidth = 520 } }, PrimaryButtonText = "Export diagnostics", SecondaryButtonText = "Contact", CloseButtonText = "Close" });
+        if (result == ContentDialogResult.Primary) await ViewModel.ExportLogsCommand.ExecuteAsync(null);
+        else if (result == ContentDialogResult.Secondary) ViewModel.ContactSupportCommand.Execute(null);
     }
     public async Task<string?> TextAsync(string title, string initial = "")
     {
