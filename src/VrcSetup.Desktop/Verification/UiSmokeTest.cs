@@ -250,7 +250,9 @@ public static class UiSmokeTest
             Require(flow.PresetDirty && flow.NewProjectVisibility == Visibility.Visible && flow.PackageFile == initialImportFile, "New project custom packages do not change import drafts");
             decisions.ReviewResult = false;
             await flow.CreateConfiguredProjectCommand.ExecuteAsync(null);
-            Require(decisions.LastReview?.Projects.Single().Creation?.EmptyProject == true && decisions.LastReview.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest", "New project review receives the customized package policy");
+            if (flow.EditorReady)
+                Require(decisions.LastReview?.Projects.Single().Creation?.EmptyProject == true && decisions.LastReview.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest", "New project review receives the customized package policy");
+            else Require(decisions.LastReview is null, "Missing editor selection does not proceed to a creation review");
             Require(!Directory.Exists(Path.Combine(flow.ProjectsRoot, flow.NewProjectName)), "Cancelled new project review creates no folder");
             decisions.ReviewResult = null;
             Require(await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile) == initialConfigText, "New project edits do not overwrite a saved preset");

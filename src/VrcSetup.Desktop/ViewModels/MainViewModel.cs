@@ -466,7 +466,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (!RequireImportsIdle()) throw new InvalidOperationException("Imports are in progress.");
         // Validate the entire form before changing the working configuration.
-        if (!string.IsNullOrWhiteSpace(UnityEditorPath)) UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
+        if (!string.IsNullOrWhiteSpace(UnityEditorPath) && !UnityEditorPath.Equals(config.UnityEditorPath, StringComparison.OrdinalIgnoreCase))
+            UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
         if (setupMode && (!EditorReady || string.IsNullOrWhiteSpace(ProjectsRoot))) throw new InvalidOperationException("Choose Unity and a projects folder to continue.");
         var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var pattern in patterns) _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
