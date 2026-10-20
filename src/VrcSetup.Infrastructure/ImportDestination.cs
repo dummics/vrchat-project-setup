@@ -8,9 +8,10 @@ public sealed record ImportDestination(ImportDestinationKind Kind, string Messag
 
 public sealed class ImportDestinationInspector(ProjectWorkspace workspace)
 {
-    public async Task<ImportDestination> InspectAsync(string path, string source, CancellationToken token = default)
+    public async Task<ImportDestination> InspectAsync(string path, string source, CancellationToken token = default, bool emptyProject = false)
     {
-        path = ProjectRules.NormalizePath(path); source = ProjectRules.NormalizePath(source);
+        path = ProjectRules.NormalizePath(path);
+        source = emptyProject && string.IsNullOrWhiteSpace(source) ? "" : ProjectRules.NormalizePath(source);
         if (File.Exists(path)) return new(ImportDestinationKind.Unmanaged, "The destination is a file. Choose another project name.");
         if (!Directory.Exists(path)) return new(ImportDestinationKind.New, "New project");
         if (workspace.IsBusy(path)) return new(ImportDestinationKind.Busy, "This project is currently open or importing in Unity. Wait for it to finish.");
@@ -25,6 +26,17 @@ public sealed class ImportDestinationInspector(ProjectWorkspace workspace)
             { return new(ImportDestinationKind.InvalidState, "The project state could not be read. Its files have been preserved; inspect the project before continuing."); }
             if (state is null) return new(ImportDestinationKind.Unmanaged, "This folder has no VRCSETUP import state. Open it from Projects or choose another name.");
             if (state.Steps is null || state.SchemaVersion is < 1 or > 2) return new(ImportDestinationKind.InvalidState, "The project import state is invalid or newer than this app. Its files have been preserved.");
+            if (emptyProject)
+            {
+                if (source.Length != 0 || !string.IsNullOrWhiteSpace(state.UnityPackagePath))
+                    return new(ImportDestinationKind.DifferentSource, "This project belongs to another source package. Its files have been preserved.");
+                if (string.IsNullOrWhiteSpace(state.ProjectName))
+                    return new(ImportDestinationKind.InvalidState, "The project import state is invalid or newer than this app. Its files have been preserved.");
+                if (!Directory.Exists(Path.Combine(path, "Assets")) || !File.Exists(Path.Combine(path, "Packages", "manifest.json")))
+                    return new(ImportDestinationKind.Partial, "Project creation stopped before Unity initialized it. The partial folder is preserved; review it in Activity before restarting.");
+                return new(state.Completed ? ImportDestinationKind.Completed : ImportDestinationKind.Recoverable,
+                    state.Completed ? "Import completed." : "Choose Continue import to finish this project.", true);
+            }
             if (state.Completed)
             {
                 var sameSource = false;

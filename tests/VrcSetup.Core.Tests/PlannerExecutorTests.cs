@@ -16,6 +16,11 @@ public sealed class PlannerExecutorTests
         Assert.True(plan.Creation!.EmptyProject); Assert.Empty(plan.ImportFingerprints); Assert.Contains(plan.Changes, x => x.Id == ProjectRules.AvatarSdk);
         await Assert.ThrowsAsync<IOException>(() => planner.PlanAsync(target, selected, new() { UnityProjectsRoot = root }, creation: request with { EmptyProject = false }));
         Assert.False(Directory.Exists(target));
+        var workspace = new MemoryWorkspace();
+        var driver = new MemoryDriver(workspace);
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("empty", DateTime.UtcNow, [plan]));
+        Assert.True(report.Success, string.Join("; ", report.Results.Select(x => x.Message)));
+        Assert.True(workspace.Completed); Assert.Equal(0, driver.UnityCalls);
     }
     [Fact] public async Task SdkVersionChangeIsLinkedAndResolvedBeforeApply()
     {

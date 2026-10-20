@@ -89,7 +89,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 await VerifyPackages(project, progress, cancellationToken);
                 await workspace.SetStepAsync(project.Path, "vpm", true, cancellationToken);
 
-                if (project.Creation is not null || project.ExtraImports.Length > 0)
+                if (project.RequiresUnityBatch && (project.Creation is not null || project.ExtraImports.Length > 0))
                 {
                     phase = "Import";
                     await driver.ImportAsync(project, progress, cancellationToken);
@@ -101,7 +101,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 else
                 {
-                    if (project.RecoverySource is not null)
+                    if (project.RecoverySource is not null && project.RequiresUnityBatch)
                     {
                         phase = "Post-import validation";
                         await driver.SettleAsync(project, progress, cancellationToken);

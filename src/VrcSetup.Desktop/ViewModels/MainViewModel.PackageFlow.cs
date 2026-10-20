@@ -58,9 +58,9 @@ public sealed partial class MainViewModel
                 if (!await ResolvePresetChangesAsync()) return false;
             }
             if (PresetDirty && page != "Presets") LoadEditingPreset();
-            if (editingImportPreset && page != "ImportPackages")
+            if (editingImportPreset && page != "ImportPackages" && page != "NewProject")
             {
-                editingImportPreset = false; OnPropertyChanged(nameof(UseImportPresetVisibility));
+                editingImportPreset = false; editingNewProject = false; NotifyPackageContext(); OnPropertyChanged(nameof(UseImportPresetVisibility));
                 OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility)); LoadEditingPreset();
             }
             if (session is not null)

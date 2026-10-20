@@ -12,10 +12,10 @@ public sealed partial class MainViewModel
     private static readonly HashSet<string> SettingsProperties = [nameof(UnityEditorPath), nameof(ProjectsRoot), nameof(ExtraImportsFolder), nameof(NamingPrefix), nameof(NamingSuffix), nameof(NamingPatterns), nameof(RememberNames), nameof(Theme), nameof(ManualImportPath), nameof(AutoHideCompletedImports), nameof(CheckUpdatesOnStartup), nameof(IncludeBetaUpdates), nameof(AutomaticUpdateEnabled), nameof(SelectedLanguage), nameof(DeveloperMode), nameof(VerboseDiagnostics), nameof(TraceTools)];
     private string SettingsSnapshot() => JsonSerializer.Serialize(new object[] { UnityEditorPath, ProjectsRoot, ExtraImportsFolder, NamingPrefix, NamingSuffix, NamingPatterns, RememberNames, Theme, ManualImportPath, AutoHideCompletedImports, CheckUpdatesOnStartup, IncludeBetaUpdates, AutomaticUpdateEnabled, SelectedLanguage, DeveloperMode, VerboseDiagnostics, TraceTools });
     public bool SettingsDirty => !loadingSettings && settingsBaseline.Length > 0 && settingsBaseline != SettingsSnapshot();
-    public Visibility SettingsChangesVisibility => SettingsDirty || setupMode ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SettingsChangesVisibility => SettingsDirty || setupMode || LanguageRestartVisibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SetupVisibility => setupMode ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SettingsOptionsVisibility => setupMode ? Visibility.Collapsed : Visibility.Visible;
-    public string SettingsSaveLabel => setupMode ? "Save and continue" : "Save settings";
+    public string SettingsSaveLabel => LanguageRestartVisibility == Visibility.Visible && !HasActiveImports && !WorkspaceDirty && !PresetDirty ? "Save and restart" : setupMode ? "Save and continue" : "Save settings";
     public string SettingsTitle => setupMode ? "Get started" : "Settings";
     private void NotifySettingsState()
     {

@@ -7,6 +7,10 @@ internal sealed class FlowInteraction(IDesktopInteraction inner) : IDesktopInter
 {
     public bool ConfirmResult { get; set; }
     public int Confirmations { get; private set; }
+    public int Restarts { get; private set; }
+    public bool? ReviewResult { get; set; }
+    public OperationPlan? LastReview { get; private set; }
+    public Task<bool> RestartApplicationAsync() { Restarts++; return Task.FromResult(true); }
     public string? SettingsChoice { get; set; }
     public string? ChangesChoice { get; set; }
     public Task<string?> ResolveChangesAsync(string title, string action) =>
@@ -17,7 +21,7 @@ internal sealed class FlowInteraction(IDesktopInteraction inner) : IDesktopInter
     public Task<bool> ConfirmAsync(string title, string content, string action) { Confirmations++; return Task.FromResult(ConfirmResult); }
     public Task<string?> PickFileAsync(string extension) => FileChoice is null ? inner.PickFileAsync(extension) : Task.FromResult<string?>(FileChoice);
     public Task<string?> PickFolderAsync() => inner.PickFolderAsync();
-    public Task<bool> ReviewAsync(OperationPlan plan) => inner.ReviewAsync(plan);
+    public Task<bool> ReviewAsync(OperationPlan plan) { LastReview = plan; return ReviewResult is { } result ? Task.FromResult(result) : inner.ReviewAsync(plan); }
     public Task<string?> TextAsync(string title, string initial = "") => inner.TextAsync(title, initial);
     public Task<string?> ChooseAsync(string title, string[] items) => inner.ChooseAsync(title, items);
     public Task<string[]?> ChooseManyAsync(string title, string[] items) => inner.ChooseManyAsync(title, items);

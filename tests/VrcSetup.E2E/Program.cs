@@ -4,6 +4,11 @@ using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 
+if (args is ["--verify-unity-import", var importEditor, var importEvidence])
+{
+    await UnityImportVerification.RunAsync(importEditor, importEvidence);
+    return;
+}
 if (args is ["--verify-public-update", var previousVersion, var expectedVersion, var updateEvidence])
 {
     await PublicUpdateVerification.RunAsync(previousVersion, expectedVersion, updateEvidence);

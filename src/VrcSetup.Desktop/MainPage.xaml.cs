@@ -67,13 +67,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ProjectsView.Visibility = page == "Projects" ? Visibility.Visible : Visibility.Collapsed;
         CreateView.Visibility = page == "Create" ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceView.Visibility = page == "Workspace" ? Visibility.Visible : Visibility.Collapsed;
-        PresetsView.Visibility = page is "Presets" or "ImportPackages" ? Visibility.Visible : Visibility.Collapsed;
+        PresetsView.Visibility = page is "Presets" or "ImportPackages" or "NewProject" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         ActivityNavigationMarker.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsNavigationMarker.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
-        try { Navigation.SelectedItem = Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" ? "Projects" : page == "ImportPackages" ? "Create" : page)); }
+        try { Navigation.SelectedItem = Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" or "NewProject" ? "Projects" : page == "ImportPackages" ? "Create" : page)); }
         finally { syncingNavigation = false; }
     }
     private async void NavigationInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
@@ -97,10 +97,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private async void NewProjectClicked(object sender, RoutedEventArgs args)
     {
-        if (!ViewModel.EditorReady) { await ViewModel.FindEditorCommand.ExecuteAsync(null); if (!ViewModel.EditorReady) { await ViewModel.NavigateAsync("Settings"); return; } }
-        var create = new NewProjectDialog(ViewModel, (DataTemplate)Resources["PresetChoice"]);
-        if (await ShowDialog(create.Dialog) == ContentDialogResult.Primary)
-            await ViewModel.CreateEmptyProjectAsync(create.Name.Text.Trim(), create.Preset.SelectedItem?.ToString(), create.Platform.SelectedValue?.ToString() ?? "StandaloneWindows64");
+        await ViewModel.BeginNewProjectAsync();
     }
     private async void ImportSettingsClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Settings");
     private async void ActivityClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Activity");
@@ -345,8 +342,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         PackageDropZone.BorderThickness = new Thickness(1);
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var items = await args.DataView.GetStorageItemsAsync();
-        var files = items.Where(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)).ToArray();
-        ViewModel.StageImportFiles(files.Select(x => x.Path));
+        ViewModel.StageImportFiles(items.Select(x => x.Path));
     }
     private async void ImportFilesClicked(object sender, RoutedEventArgs args)
     {

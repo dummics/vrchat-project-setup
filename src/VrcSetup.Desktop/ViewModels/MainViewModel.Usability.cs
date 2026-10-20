@@ -68,12 +68,13 @@ public sealed partial class MainViewModel
     {
         BrowsingProjectPackages = value == "Workspace" && session is not null;
         if (value == "Activity") _ = RefreshSavedHistoryAsync();
-        if (value is "Presets" or "Workspace" or "ImportPackages") { libraryFavoriteSnapshot = null; LibraryPackages.Clear(); RefreshLibraryRows(); }
+        if (value is "Presets" or "Workspace" or "ImportPackages" or "NewProject") { libraryFavoriteSnapshot = null; LibraryPackages.Clear(); RefreshLibraryRows(); }
     }
     partial void OnEditingPresetChanged(string oldValue, string newValue)
     {
         if (presetSwitching) return;
         if (!Presets.Contains(newValue)) { presetSwitching = true; EditingPreset = Presets.Contains(oldValue) ? oldValue : DefaultPresetKey; presetSwitching = false; return; }
+        if (editingNewProject) { LoadEditingPreset(); return; }
         _ = Guard(async () =>
         {
             presetSwitching = true;

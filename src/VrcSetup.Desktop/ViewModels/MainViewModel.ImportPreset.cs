@@ -7,7 +7,7 @@ public sealed partial class MainViewModel
 {
     private bool editingImportPreset;
     private bool acceptingImportSelection;
-    public Visibility UseImportPresetVisibility => editingImportPreset ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility UseImportPresetVisibility => editingImportPreset && !editingNewProject ? Visibility.Visible : Visibility.Collapsed;
     private void StoreImportSelection(string preset, Dictionary<string, string> selection)
     {
         var previous = SelectedPreset == DefaultPresetKey ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(SelectedPreset) ?? config.VpmPackages;

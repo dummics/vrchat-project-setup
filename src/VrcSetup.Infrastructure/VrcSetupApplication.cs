@@ -88,6 +88,7 @@ public sealed class VrcSetupApplication
         IReadOnlyDictionary<string, string>? packages = null, string? buildTarget = null, string[]? publishingPlatforms = null, string? recipeName = null, CancellationToken cancellationToken = default)
     {
         package = ProjectRules.NormalizePath(package);
+        await UnityPackageFormat.ValidateAsync(package, cancellationToken);
         var recipe = recipeName is null ? null : config.CreationRecipes.GetValueOrDefault(recipeName) ?? throw new ArgumentException("Creation recipe not found.");
         name ??= ProjectRules.SuggestName(package, config);
         if (recipe is not null) name = recipe.NamePrefix + name + recipe.NameSuffix;
@@ -116,14 +117,15 @@ public sealed class VrcSetupApplication
     {
         // A replacement archive is allowed only after the caller explicitly selected it.
         // Validate ownership against the recorded source, while fingerprinting the selected file.
-        var state = await new ImportDestinationInspector(Projects).InspectAsync(source.TargetPath, recordedSource ?? source.UnityPackagePath, token);
+        var state = await new ImportDestinationInspector(Projects).InspectAsync(source.TargetPath, recordedSource ?? source.UnityPackagePath, token, source.EmptyProject);
         if (state.Kind != ImportDestinationKind.Recoverable && !state.CanImportMissing) throw new IOException(state.Message);
         var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(source.TargetPath, ".vrcsetup", "state.json"), token);
+        if (source.EmptyProject && marker?.ProjectName != source.Name) throw new IOException("The project import state does not match this import. Its files have been preserved.");
         var current = await Projects.ReadAsync(source.TargetPath, token);
         var preserved = new Dictionary<string, string>(packages);
         foreach (var entry in packages)
             if ((current.InstalledVersions.GetValueOrDefault(entry.Key) ?? current.LockedPackages.GetValueOrDefault(entry.Key)) is { Length: > 0 } installed) preserved[entry.Key] = installed;
-        var missingImports = new[] { source.UnityPackagePath }.Concat(imports).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var missingImports = (source.EmptyProject ? Array.Empty<string>() : [source.UnityPackagePath]).Concat(imports).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var plan = await Planner.PlanAsync(source.TargetPath, preserved, config, exact: false, preset: preset,
             extraImports: missingImports, cancellationToken: token);
         return plan with { UnityEditorPath = source.UnityEditorPath, RecoverySource = source, RecoveryOriginalSource = recordedSource,

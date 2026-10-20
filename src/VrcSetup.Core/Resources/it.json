@@ -4,7 +4,8 @@
   "Could not download the update. Please try again later. Your current installation is unchanged.": "Non è stato possibile scaricare l’aggiornamento. Riprova più tardi. La versione installata non è stata modificata.",
   "Could not install the update. Your current installation is unchanged. Please try again later.": "Non è stato possibile installare l’aggiornamento. La versione installata non è stata modificata. Riprova più tardi.",
   "Projects": "Progetti",
-  "Import projects": "Importa progetti",
+  "Import UnityPackage": "Importa UnityPackage",
+  "Import package": "Importa package",
   "Packages": "Pacchetti",
   "Package version": "Versione del pacchetto",
   "Create a new project": "Crea un nuovo progetto",
@@ -389,5 +390,12 @@
   "Logs ready to share": "Log pronti da condividere",
   "Another instance is already managing imports. Return to that window or close it before continuing.": "Un'altra finestra sta già gestendo le importazioni. Torna a quella finestra o chiudila prima di continuare.",
   "A selected package is unavailable. Check your connection and retry, or remove it from the preset.": "Un pacchetto selezionato non è disponibile. Controlla la connessione e riprova, oppure rimuovilo dal preset.",
-  "Log archive": "Archivio log"
+  "Log archive": "Archivio log",
+  "Choose a .unitypackage file, not a folder or another file type.": "Scegli un file .unitypackage, non una cartella o un altro formato.",
+  "This file is not a valid UnityPackage. Choose the original .unitypackage file.": "Il file non è un UnityPackage valido. Scegli il file .unitypackage originale.",
+  "Choose a UnityPackage. For an empty project, use Projects → New project.": "Seleziona un UnityPackage. Per un progetto vuoto: Progetti → Nuovo progetto.",
+  "Keep editing": "Continua a modificare",
+  "Save and restart": "Salva e riavvia",
+  "Save as preset": "Salva come preset",
+  "Language saved. It will apply the next time you open the app.": "Lingua salvata. Verrà applicata al prossimo avvio."
 }

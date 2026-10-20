@@ -118,6 +118,20 @@ public sealed class ImportQueueTests : IDisposable
         Assert.Equal("Recovered", queue.Snapshot().Single(x => x.Id == "recovery0").State);
         Assert.Equal("Interrupted", queue.Snapshot().Single(x => x.Id == "recovery1").State);
     }
+    [Theory] [InlineData(true)] [InlineData(false)]
+    public async Task EmptyRecoveryCompletionRequiresTheRecordedProjectIdentity(bool matching)
+    {
+        var app = App; var original = Plan("Empty").Projects.Single();
+        var source = original.Creation! with { UnityPackagePath = "", EmptyProject = true };
+        var project = original with { Creation = source };
+        Directory.CreateDirectory(project.Path);
+        await AtomicFile.WriteJsonAsync(Path.Combine(project.Path, ".vrcsetup", "state.json"),
+            new SetupState { Completed = true, ProjectName = matching ? source.Name : "Different project", UnityPackagePath = "" });
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"),
+            new[] { new ImportJob("empty-recovery", new("empty-plan", DateTime.UtcNow, [project]), source, "Interrupted", "Import", 50, "", "") });
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        Assert.Equal(matching ? "Recovered" : "Interrupted", queue.Snapshot().Single().State);
+    }
     [Fact] public async Task ClearAnalysisCachePreservesKnowledgeAndHistory()
     {
         var app = App; var cache = Path.Combine(app.Paths.Cache, "inspection"); Directory.CreateDirectory(cache);

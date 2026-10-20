@@ -2,6 +2,10 @@
 
 The Windows app and vrcsetup command use the same C#/.NET 10 engine.
 
+Use **Projects → New project** to choose a preset and customize packages for a new project. These changes stay local unless you explicitly save a new preset. Creation and recovery use VPM without starting Unity; compilation occurs when the project is opened. **Import UnityPackage** creates a project from `.unitypackage` files and starts Unity for the asset import. Folders and invalid containers are rejected before planning the import.
+
+Language uses the same settings save action: **Save and restart** when a restart is safe. Active imports continue uninterrupted; settings maintenance/restart stays blocked until they finish.
+
 Update checks share a local feed cache for ten minutes, including manual checks. Later requests revalidate with the server's ETag when available. GitHub rate limits pause checks until `Retry-After` or an exhausted quota's reset time; secondary limits without a deadline pause for five minutes. The pause survives app restarts. No local server or GitHub credentials are required; diagnostic exceptions stay in logs, while the app shows a short localized message.
 
 ## Install

@@ -153,11 +153,10 @@ public static class UiSmokeTest
         page.ToolTips.Observe(tooltipOwner, new(1, 1)); await Task.Delay(400);
         Require(!page.ToolTips.IsOpen, "A second hover still waits instead of using native instant reshow"); page.ToolTips.Dismiss();
         window.AppWindow.Resize(new(1180, 800)); await Task.Delay(250);
-        var freshProject = new NewProjectDialog(viewModel, (Microsoft.UI.Xaml.DataTemplate)page.Resources["PresetChoice"]);
-        freshProject.Name.Text = "Fresh project"; freshProject.Dialog.XamlRoot = page.XamlRoot;
-        var newProjectShown = freshProject.Dialog.ShowAsync(); await Task.Delay(350);
-        Require(freshProject.Preset.SelectedItem?.ToString() == viewModel.EditingPreset && freshProject.Platform.SelectedValue?.ToString() == "StandaloneWindows64", "Empty project dialog selects preset and platform without a UnityPackage field");
-        await Render(freshProject.Dialog, Path.Combine(artifacts, "new-project.png")); freshProject.Dialog.Hide(); await newProjectShown;
+        await viewModel.BeginNewProjectAsync(); viewModel.NewProjectName = "Fresh project"; await Task.Delay(350); page.UpdateLayout();
+        Require(viewModel.CurrentPage == "NewProject" && viewModel.NewProjectVisibility == Visibility.Visible && viewModel.NewProjectPlatform == "StandaloneWindows64", "New project has its own page with platform, preset and editable packages");
+        Require(viewModel.UseImportPresetVisibility == Visibility.Collapsed && viewModel.PresetOptionsVisibility == Visibility.Collapsed, "New project packages are local to the creation form");
+        await Render(page, Path.Combine(artifacts, "new-project.png")); await viewModel.NavigateAsync("Projects");
         viewModel.SelectedRecipe = null!; viewModel.SelectedRecipe = "No recipe";
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
@@ -243,7 +242,37 @@ public static class UiSmokeTest
         var decisions = new FlowInteraction(page);
         using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
         {
-            await flow.InitializeAsync(); await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
+            await flow.InitializeAsync();
+            var initialConfigText = await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile);
+            var initialImportFile = flow.PackageFile;
+            await flow.BeginNewProjectAsync(); flow.NewProjectName = "Local creation fixture";
+            flow.StagePresetVersion("gogoloco", "latest");
+            Require(flow.PresetDirty && flow.NewProjectVisibility == Visibility.Visible && flow.PackageFile == initialImportFile, "New project custom packages do not change import drafts");
+            decisions.ReviewResult = false;
+            await flow.CreateConfiguredProjectCommand.ExecuteAsync(null);
+            Require(decisions.LastReview?.Projects.Single().Creation?.EmptyProject == true && decisions.LastReview.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest", "New project review receives the customized package policy");
+            Require(!Directory.Exists(Path.Combine(flow.ProjectsRoot, flow.NewProjectName)), "Cancelled new project review creates no folder");
+            decisions.ReviewResult = null;
+            Require(await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile) == initialConfigText, "New project edits do not overwrite a saved preset");
+            decisions.ChangesChoice = "Cancel";
+            Require(!await flow.NavigateAsync("Projects") && flow.CurrentPage == "NewProject", "New project cancellation preserves the custom package selection");
+            decisions.ChangesChoice = "Discard";
+            Require(await flow.NavigateAsync("Projects") && flow.NewProjectVisibility == Visibility.Collapsed, "Discarding new project edits returns to the project library");
+            decisions.ChangesChoice = null;
+            var languageBefore = flow.SelectedLanguage;
+            flow.SelectedLanguage = UiText.CurrentLanguage == "en" ? "it" : "en";
+            Require(flow.SettingsSaveLabel == "Save and restart", "Changing language uses the single settings save action");
+            await flow.SaveSettingsCommand.ExecuteAsync(null);
+            Require(decisions.Restarts == 1 && (await flow.Application.Configuration.LoadAsync()).Language == flow.SelectedLanguage, "Language is saved before the requested restart");
+            flow.SelectedLanguage = languageBefore; await flow.SaveSettingsCommand.ExecuteAsync(null);
+            await flow.NavigateAsync("Create"); flow.PackageFile = "";
+            await flow.CreateProjectCommand.ExecuteAsync(null);
+            Require(flow.ImportError.Contains("Projects → New project"), "Import without a UnityPackage directs users to New project");
+            var invalidFolder = Path.Combine(artifacts, "Folder.unitypackage"); Directory.CreateDirectory(invalidFolder);
+            flow.StageImportFiles([invalidFolder]);
+            Require(flow.ImportDrafts.Count == 0 && flow.ImportError.Contains("not a folder"), "Folders named like UnityPackages are rejected by file staging");
+            flow.ImportError = "";
+            await flow.OpenProjectPackagesCommand.ExecuteAsync(flow.Projects[0]);
             flow.StageWorkspaceVersion("gogoloco", "1.8.7");
             Require(!await flow.NavigateAsync("Settings") && flow.WorkspaceDirty && flow.CurrentPage == "Workspace", "Declining discard keeps the project, pending versions and current page intact");
             decisions.ConfirmResult = true;
@@ -684,6 +713,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             new ImportJob("visual-" + index, new OperationPlan("visual", DateTime.UtcNow, []),
                 new CreationRequest("fixture.unitypackage", name, Path.Combine(artifacts, name), "", "StandaloneWindows64", [], []),
                 "Running", "Packages", 35 + index * 20, "", "", DateTime.UtcNow.AddMinutes(-2)))).ToArray();
+        var failedEmpty = fixtureJobs[0].Job with { State = "Failed", Source = fixtureJobs[0].Job.Source with { UnityPackagePath = "", EmptyProject = true } };
+        Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedEmpty).RecoverVisibility == Visibility.Visible, "Failed empty project exposes Continue import");
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty).ImportActionsVisibility == Visibility.Visible, "Empty project recovery is available in Activity");
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Completed" }).ImportActionsVisibility == Visibility.Collapsed, "Completed empty project has no archive recovery action");
         viewModel.CurrentPage = "Activity";
         var historyList = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => ReferenceEquals(x.ItemsSource, viewModel.ImportHistory));
         var emptyHistory = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().First(x => x.Text == "No import history yet");

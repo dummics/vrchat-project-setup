@@ -58,14 +58,14 @@ public static class VrcSetupPostImport
             if (index < 0 || index + 1 >= args.Length) throw new ArgumentException("Missing import plan");
             var json = File.ReadAllText(args[index + 1]);
             var plan = JsonUtility.FromJson<ImportPlan>(json);
-            if (plan == null || plan.packages == null || plan.packages.Length == 0) throw new ArgumentException("Empty import plan");
+            if (plan == null || plan.packages == null) throw new ArgumentException("Invalid import plan: package list is missing");
             foreach (var path in plan.packages) if (!File.Exists(path)) throw new FileNotFoundException("UnityPackage missing", path);
             SessionState.SetString(Plan, json);
             SessionState.SetInt(Next, 0);
             SessionState.SetString(Started, DateTime.UtcNow.Ticks.ToString());
             SessionState.SetBool(Active, true);
             Attach();
-            Debug.Log("[vrc-setup] Import queue started.");
+            Debug.Log(plan.packages.Length == 0 ? "[vrc-setup] No files to import; finishing package setup." : "[vrc-setup] Import queue started.");
         }
         catch (Exception error) { Debug.LogException(error); Finish(1); }
     }

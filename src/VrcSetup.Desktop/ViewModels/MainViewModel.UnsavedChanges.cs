@@ -5,10 +5,11 @@ public sealed partial class MainViewModel
     private async Task<bool> ResolvePresetChangesAsync(string? name = null)
     {
         if (!PresetDirty) return true;
-        var choice = await ui.ResolveChangesAsync("Unsaved packages", "Save and leave");
+        var choice = await ui.ResolveChangesAsync("Unsaved packages", editingNewProject ? "Keep editing" : "Save and leave");
         if (choice is null) return false;
         if (choice == "Save")
         {
+            if (editingNewProject) return false;
             if (editingImportPreset)
             {
                 StoreImportSelection(name ?? EditingPreset, new(presetWorking));

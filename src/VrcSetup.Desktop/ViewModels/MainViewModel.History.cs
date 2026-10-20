@@ -75,14 +75,14 @@ public sealed partial class MainViewModel
             entry.Health = await Task.Run(async () =>
             {
                 var owner = job.Plan.Projects.Single().RecoveryOriginalSource ?? job.Source.UnityPackagePath;
-                var destination = await new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, owner, lifetime.Token);
+                var destination = await new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, owner, lifetime.Token, job.Source.EmptyProject);
                 if (destination.Kind is not (ImportDestinationKind.Completed or ImportDestinationKind.Recoverable)) return UserErrors.Message(new IOException(destination.Message));
                 var project = await app.Projects.ReadAsync(job.ProjectPath, lifetime.Token);
                 var missing = job.Plan.Projects.Single().DesiredPolicy.Keys.Where(id => !project.InstalledVersions.ContainsKey(id)).ToArray();
                 var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(job.ProjectPath, ".vrcsetup", "state.json"), lifetime.Token);
                 return (missing.Length == 0 ? UiText.Text("All selected packages are installed.") : UiText.Text("Missing packages: ") + string.Join(", ", missing.Select(PackageCatalog.FriendlyName)))
                     + "\n" + UiText.Text(marker?.Completed == true ? "Import completed." : "Choose Continue import to finish this project.")
-                    + (File.Exists(job.Source.UnityPackagePath) ? "" : "\n" + UiText.Text("You will be asked to choose the original package again."));
+                    + (job.Source.EmptyProject || File.Exists(job.Source.UnityPackagePath) ? "" : "\n" + UiText.Text("You will be asked to choose the original package again."));
             }, lifetime.Token);
         }
         finally { entry.Checking = false; }
@@ -92,15 +92,16 @@ public sealed partial class MainViewModel
         if (entry.Job is not { Active: false } job || app.Imports.Snapshot().Any(x => x.Active && x.ProjectPath.Equals(job.ProjectPath, StringComparison.OrdinalIgnoreCase))) return;
         var source = job.Source;
         var original = job.Plan.Projects.Single().RecoveryOriginalSource ?? source.UnityPackagePath;
-        if (!File.Exists(source.UnityPackagePath))
+        if (!source.EmptyProject && !File.Exists(source.UnityPackagePath))
         {
             var chosen = await ui.PickFileAsync(".unitypackage"); if (chosen is null) return;
             if (!await ui.ConfirmAsync("Continue import", UiText.Text("Use this package to add missing files? Existing files stay unchanged.") + "\n" + Path.GetFileName(chosen), "Use package")) return;
             source = source with { UnityPackagePath = chosen };
         }
-        var destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, original, lifetime.Token));
+        var destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, original, lifetime.Token, source.EmptyProject));
         if (destination.Kind is ImportDestinationKind.New or ImportDestinationKind.Partial)
         {
+            if (source.EmptyProject) throw new IOException("Project creation stopped before Unity initialized it. The partial folder is preserved; review it in Activity before restarting.");
             if (!await ui.ConfirmAsync("Create a new copy", "Create a separate project? The existing folder stays unchanged.", "New copy")) return;
             if (!await NavigateAsync("Create")) return;
             StageImportFiles([source.UnityPackagePath]);
@@ -153,7 +154,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public string ProjectPath => job?.ProjectPath ?? (report?.Results.Length == 1 ? report.Results[0].Path : "");
     public string BackupFile => report?.Results.FirstOrDefault(x => x.Path.Equals(ProjectPath, StringComparison.OrdinalIgnoreCase))?.BackupPath is { Length: > 0 } folder ? Path.Combine(folder, "backup.json") : "";
     public Visibility RestoreVisibility => !Checking && job?.Active != true && File.Exists(BackupFile) ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility ImportActionsVisibility => job is { Active: false, Source.EmptyProject: false } ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ImportActionsVisibility => job is { Active: false } && (!job.Source.EmptyProject || job.Recoverable) ? Visibility.Visible : Visibility.Collapsed;
     public string RepairLabel => job?.Recoverable == true ? "Continue import" : "Complete missing files";
     public Visibility ProjectActionsVisibility => job?.Active != true && (ProjectPath.Length > 0 || report?.Results.Length > 0) ? Visibility.Visible : Visibility.Collapsed;
     public string StateGlyph => State is "Failed" or "Partially applied" or "Not applied" ? "⚠ " : "";

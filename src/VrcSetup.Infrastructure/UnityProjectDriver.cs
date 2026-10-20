@@ -66,19 +66,34 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         if (Directory.Exists(request.TargetPath)) throw new IOException("Destination already exists.");
         Directory.CreateDirectory(Path.GetDirectoryName(request.TargetPath)!);
         var stage = request.TargetPath + ".create-" + Guid.NewGuid().ToString("N");
+        var templates = Path.Combine(Path.GetDirectoryName(request.UnityEditorPath)!, "Data", "Resources", "PackageManager", "ProjectTemplates");
+        var template = request.EmptyProject && Directory.Exists(templates) ? Directory.EnumerateFiles(templates, "com.unity.template.3d-*.tgz").OrderByDescending(x => x, StringComparer.Ordinal).FirstOrDefault() : null;
+        var version = template is null ? "" : Regex.Match(System.Diagnostics.FileVersionInfo.GetVersionInfo(request.UnityEditorPath).ProductVersion ?? "", @"\d+\.\d+\.\d+[abfp]\d+").Value;
+        var fromTemplate = template is not null && version.Length > 0;
         Directory.CreateDirectory(stage);
         try
         {
+            if (fromTemplate) await UnityProjectTemplate.ExtractAsync(template!, stage, version, cancellationToken);
+            else if (request.EmptyProject)
+            {
+                Directory.CreateDirectory(Path.Combine(stage, "Assets"));
+                Directory.CreateDirectory(Path.Combine(stage, "ProjectSettings"));
+                await AtomicFile.WriteJsonAsync(Path.Combine(stage, "Packages", "manifest.json"), new { dependencies = new Dictionary<string, string>() }, cancellationToken);
+                await File.WriteAllTextAsync(Path.Combine(stage, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: " + (version.Length > 0 ? version : UnityEditorDiscovery.PinnedVersion) + "\n", cancellationToken);
+            }
             await AtomicFile.WriteJsonAsync(Path.Combine(stage, ".vrcsetup", "state.json"), new SetupState
             { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
             Directory.Move(stage, request.TargetPath);
         }
         finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
-        var log = NewUnityLog("create");
-        var result = await runner.RunAsync(request.UnityEditorPath, ["-createProject", request.TargetPath, "-buildTarget", request.BuildTarget, "-quit", "-batchmode", "-logFile", log],
-            progress: progress, phase: "Unity create", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(15), logFile: log);
-        if (result.ExitCode != 0 || !Directory.Exists(Path.Combine(request.TargetPath, "Assets")) || !Directory.Exists(Path.Combine(request.TargetPath, "Packages")))
-            throw new IOException("Unity could not create the project. Log: " + log);
+        if (!request.EmptyProject)
+        {
+            var log = NewUnityLog("create");
+            var result = await runner.RunAsync(request.UnityEditorPath, ["-createProject", request.TargetPath, "-buildTarget", request.BuildTarget, "-quit", "-batchmode", "-logFile", log],
+                progress: progress, phase: "Unity create", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(15), logFile: log);
+            if (result.ExitCode != 0 || !Directory.Exists(Path.Combine(request.TargetPath, "Assets")) || !Directory.Exists(Path.Combine(request.TargetPath, "Packages")))
+                throw new IOException("Unity could not create the project. Log: " + log);
+        }
         await AtomicFile.WriteJsonAsync(Path.Combine(request.TargetPath, ".vrcsetup", "state.json"), new SetupState
         { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = true } }, cancellationToken);
     }
@@ -121,6 +136,7 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
 
     public async Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
+        if (!plan.RequiresUnityBatch) return;
         if (workspace.IsBusy(plan.Path)) throw new IOException("The project is open in Unity. Close it before importing.");
         var editor = plan.UnityEditorPath;
         ValidateEditor(editor);
@@ -139,7 +155,6 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
                 if (await MissingAssetArchive.CreateAsync(original, plan.Path, filtered, cancellationToken)) missing.Add(filtered);
             }
             imports = missing.ToArray();
-            if (imports.Length == 0) { await SettleAsync(plan, progress, cancellationToken); return; }
         }
         var editorFolder = Path.Combine(plan.Path, "Assets", "Editor"); Directory.CreateDirectory(editorFolder);
         var bridgeDestination = Path.Combine(editorFolder, "VrcSetupPostImport.cs");
@@ -154,7 +169,10 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         await AtomicFile.WriteJsonAsync(importPlan, new { packages = imports }, cancellationToken);
         if (plan.Creation is not null)
             await AtomicFile.WriteJsonAsync(Path.Combine(stateDirectory, "platforms.json"), new { targets = plan.Creation.PublishingPlatforms, pending = true }, cancellationToken);
-        var arguments = new List<string> { "-projectPath", plan.Path, "-executeMethod", "VrcSetupPostImport.RunImport", "-vrcsetupImportPlan", importPlan, "-batchmode" };
+        // A new empty project still needs compilation/settling after its VPM
+        // packages were installed, but has no archive queue to execute.
+        var arguments = new List<string> { "-projectPath", plan.Path, "-executeMethod", imports.Length == 0 ? "VrcSetupPostImport.Run" : "VrcSetupPostImport.RunImport", "-batchmode" };
+        if (imports.Length > 0) arguments.AddRange(["-vrcsetupImportPlan", importPlan]);
         if ((plan.Creation ?? plan.RecoverySource) is { } importSource) arguments.AddRange(["-buildTarget", importSource.BuildTarget]);
         var log = NewUnityLog("import"); arguments.AddRange(["-logFile", log]);
         var result = await runner.RunAsync(editor, arguments, progress: progress, phase: "Unity import", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(45), logFile: log);
@@ -164,6 +182,7 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
     }
     public async Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
+        if (!plan.RequiresUnityBatch) return;
         var editor = plan.UnityEditorPath;
         ValidateEditor(editor);
         var log = NewUnityLog("settle");

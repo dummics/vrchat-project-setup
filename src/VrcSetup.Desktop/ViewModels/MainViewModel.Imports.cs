@@ -48,9 +48,11 @@ public sealed partial class MainViewModel
     }
     public void StageImportFiles(IEnumerable<string> selected)
     {
+        ImportError = "";
         foreach (var path in selected.Select(x => ProjectRules.NormalizePath(x)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            if (!path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+            { ImportError = "Choose a .unitypackage file, not a folder or another file type."; continue; }
             if (ImportDrafts.Any(x => x.File.Equals(path, StringComparison.OrdinalIgnoreCase))) continue;
             ImportDrafts.Add(new(path, ProjectRules.SuggestName(path, config), ProjectRules.SuggestBuildTarget(path)));
         }
@@ -86,6 +88,7 @@ public sealed partial class MainViewModel
                 if (current != index) ImportJobs.Move(current, index);
             }
             OnPropertyChanged(nameof(HasActiveImports)); OnPropertyChanged(nameof(ImportsIdle));
+            NotifySettingsState();
             OnPropertyChanged(nameof(ResourceSummary));
             OnPropertyChanged(nameof(CanClearCompletedImports));
             OnPropertyChanged(nameof(ImportJobsVisibility)); OnPropertyChanged(nameof(ClearCompletedVisibility));
@@ -221,7 +224,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public int Progress => Job.Progress;
     public bool CanCancel => Job.Active && Job.State != "Cancelling";
     public Visibility CancelVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility RecoverVisibility => Job.Recoverable && !Job.Source.EmptyProject ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
     public void Update(ImportJob value) { OnPropertyChanged(nameof(Elapsed)); if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }
 }
 

@@ -346,6 +346,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task CreateProject()
     {
         ImportError = "";
+        if (ImportDrafts.Count == 0 && string.IsNullOrWhiteSpace(PackageFile)) { ImportError = "Choose a UnityPackage. For an empty project, use Projects → New project."; return; }
         if (IsBusy) { ImportError = "Wait for the current operation to finish, then try again."; return; }
         IsPreparingImport = true;
         try
@@ -407,7 +408,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var name = await ui.TextAsync("New preset"); if (string.IsNullOrWhiteSpace(name)) return;
         if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Choose a different preset name.");
-        if (PresetDirty && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + PresetLabel + "?", "Discard")) return;
+        if (PresetDirty && !editingNewProject && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + PresetLabel + "?", "Discard")) return;
         config.PackagePresets[name] = new(presetWorking.Count > 0 ? presetWorking : config.VpmPackages); await PersistConfigurationAsync(); LoadPresetNames(); presetSwitching = true; EditingPreset = name; presetSwitching = false; LoadEditingPreset();
     });
     [RelayCommand] private async Task DeletePreset() => await Guard(async () =>
@@ -454,7 +455,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var name = await ui.ChooseAsync("Delete creation recipe", config.CreationRecipes.Keys.ToArray()); if (name is null) return;
         if (await ui.ConfirmAsync("Delete recipe", name, "Delete")) { config.CreationRecipes.Remove(name); await PersistConfigurationAsync(); LoadPresetNames(); }
     });
-    [RelayCommand] private async Task SaveSettings() => await Guard(SaveSettingsCoreAsync);
+    [RelayCommand] private async Task SaveSettings() => await Guard(async () =>
+    {
+        var restart = LanguageRestartVisibility == Microsoft.UI.Xaml.Visibility.Visible && !HasActiveImports && !WorkspaceDirty && !PresetDirty;
+        await SaveSettingsCoreAsync();
+        if (restart) await ui.RestartApplicationAsync();
+        else if (LanguageRestartVisibility == Microsoft.UI.Xaml.Visibility.Visible) Status = "Language saved. It will apply the next time you open the app.";
+    });
     private async Task SaveSettingsCoreAsync()
     {
         if (!RequireImportsIdle()) throw new InvalidOperationException("Imports are in progress.");
