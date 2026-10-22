@@ -7,7 +7,7 @@ namespace VrcSetup.Infrastructure;
 public sealed record PayloadManifest(string Version, Dictionary<string, string> Files);
 public sealed record InstallationRecord(string Version, string Root, DateTime InstalledUtc, string? PreviousInstall, string? Home = null);
 
-public sealed class InstallationManager(AppPaths paths)
+public sealed partial class InstallationManager(AppPaths paths)
 {
     public static string DefaultRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "VrcSetup");
     private const string Marker = ".vrcsetup-install.json";
@@ -72,6 +72,7 @@ public sealed class InstallationManager(AppPaths paths)
                 progress?.Report("Updating shortcuts");
                 measured?.Report(new("finish", 0, 0));
                 await IntegrateAsync(target, token, createStartMenu);
+                await CleanupPreviousInstallsCoreAsync(target, record);
                 measured?.Report(new("finish", 1, 1));
                 return record;
             }
@@ -98,6 +99,7 @@ public sealed class InstallationManager(AppPaths paths)
         await WriteAliasAsync(target, token);
         await ValidatePayloadAsync(target, token);
         await IntegrateAsync(target, token);
+        await CleanupPreviousInstallsCoreAsync(target, marker);
     }
     private static async Task IntegrateAsync(string target, CancellationToken token, bool createStartMenu = true)
     {

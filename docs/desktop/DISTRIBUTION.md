@@ -80,7 +80,7 @@ Installed settings/cache/logs: %LOCALAPPDATA%\VrcSetup. Program: %LOCALAPPDATA%\
 
 Ordinary package changes can run while Unity is open; Unity reloads the changes. Imports that require a separate Unity batch process need the target project to be available. If an operation fails, inspect Activity or export the logs, then review and retry. Reimport does not create a project backup. A new partial project is preserved until you explicitly delete it.
 
-Repair rebuilds the command and shortcuts after validating payload hashes. Uninstall removes the program and its scoped shortcuts/PATH entry, preserving settings and Unity projects. Previous installation backups are preserved during upgrades.
+Repair rebuilds the command and shortcuts after validating payload hashes. Uninstall removes the program and its scoped shortcuts/PATH entry, preserving settings and Unity projects. Successful upgrades and repairs retain only the current installation's direct previous-program rollback. Older recognized snapshots and failed candidates are removed after successful verification/integration. A failed update restores its previous version before any pruning. Unknown folders, linked paths and portable data are preserved; locked obsolete files are logged and retried at the next successful update/repair. GitHub releases provide historical installers, rather than keeping unlimited full copies on the PC.
 
 ## Feedback
 
