@@ -184,12 +184,13 @@ public sealed class ComponentDelivery(HttpClient client)
     }
     private static void Prune(string cache, HashSet<string> current)
     {
-        var unused = new DirectoryInfo(cache).GetFiles("*.zip").Where(x => !current.Contains(x.Name)).OrderByDescending(x => x.LastWriteTimeUtc).ToArray();
-        long bytes = new DirectoryInfo(cache).GetFiles("*.zip").Where(x => current.Contains(x.Name)).Sum(x => x.Length);
+        var unused = new DirectoryInfo(cache).GetFiles("*.zip").Where(x => !current.Contains(x.Name)).ToArray();
         foreach (var file in unused)
         {
-            bytes += file.Length;
-            if (bytes > 512L * 1024 * 1024 || file.LastWriteTimeUtc < DateTime.UtcNow.AddDays(-30)) try { file.Delete(); } catch (IOException) { }
+            // Current components and the installed rollback already support
+            // repair/recovery; old component generations are not an archive.
+            if (file.Attributes.HasFlag(FileAttributes.ReparsePoint) || !System.Text.RegularExpressions.Regex.IsMatch(file.Name, "^[a-fA-F0-9]{64}\\.zip$")) continue;
+            try { file.Delete(); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
     }
 }

@@ -220,13 +220,22 @@ public sealed class OperationLog : IProgress<OperationEvent>, IDisposable
     public OperationLog(AppPaths paths, string id, IProgress<OperationEvent>? target = null)
     {
         Directory.CreateDirectory(paths.Logs);
+        LogRetention.Prune(paths);
         Path = System.IO.Path.Combine(paths.Logs, $"vrcsetup-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{id}.log");
-        writer = new StreamWriter(new FileStream(Path, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false)) { AutoFlush = true };
+        writer = new StreamWriter(new FileStream(Path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite), new UTF8Encoding(false)) { AutoFlush = true };
         this.target = target;
     }
     public void Report(OperationEvent value)
     {
-        lock (gate) writer.WriteLine($"{value.Timestamp:O} [{value.Severity}] [{value.Phase}] {value.Project} {value.RawMessage ?? value.Message}");
+        lock (gate)
+        {
+            // Unity writes its detailed output to its own bounded log. Avoid a
+            // second complete copy in the application operation summary.
+            if (!value.Phase.StartsWith("Unity ", StringComparison.OrdinalIgnoreCase) || value.Severity != EventSeverity.Info)
+                writer.WriteLine($"{value.Timestamp:O} [{value.Severity}] [{value.Phase}] {value.Project} {value.RawMessage ?? value.Message}");
+            if (writer.BaseStream.Length > LogRetention.DetailBytes)
+            { writer.Flush(); LogRetention.TrimTail((FileStream)writer.BaseStream, LogRetention.DetailBytes / 2); }
+        }
         target?.Report(value);
     }
     public void Dispose() { lock (gate) writer.Dispose(); }

@@ -94,6 +94,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await Guard(async () =>
         {
             config = await app.Configuration.LoadAsync(); app.ConfigureDiagnostics(config); LoadSettings(); LoadPresetNames();
+            _ = Task.Run(() => app.MaintainLocalStorageAsync(lifetime.Token));
             if (app.AllowEditorDiscovery) await FindEditorAsync(false);
             try { await LoadRegistry(); } catch (Exception error) { app.Diagnostics.Write("Package library", error.Message, error); AppendActivity(new(DateTime.UtcNow, "Packages", "Saved package library could not load: " + error.Message, EventSeverity.Warning)); }
             LoadEditingPreset();
@@ -259,7 +260,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         personalPackageIds = known.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         WorkspaceProfile = string.Join(Environment.NewLine, fresh.Where(x => x.ProfileStatus.Length > 0).Select(x => (fresh.Count > 1 ? x.Name + ": " : "") + x.ProfileStatus));
         SelectedProjects.Clear(); NotifyProjectSelection();
-        WorkspaceTitle = projects.Length == 1 ? projects[0].Name : $"{projects.Length} projects"; PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
+        WorkspaceTitle = projects.Length == 1 ? projects[0].Name : string.Format(UiText.Text("{0} projects"), projects.Length); PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>
     { if (session is null || SelectedPackage is null) return; ToggleWorkspacePackage(SelectedPackage); await Task.CompletedTask; });
@@ -348,8 +349,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     // Reload only the editor that started this operation, never a different page.
                     await OpenProjectsAsync(source.Projects, reload: true);
                 }
+                if (report.Results.FirstOrDefault(x => x.Status == OperationStatus.CompletedWithWarnings) is { } warning)
+                {
+                    ErrorSeverity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning; ErrorNeedsDiagnostics = false;
+                    ErrorMessage = warning.Project + ": " + UserErrors.Message(new IOException(warning.Message), PackageDisplayName);
+                }
+                else ShowSavedFeedback(report.Results.All(x => x.Status == OperationStatus.Unchanged) ? "Packages are already up to date" : "Packages updated");
             }
-            else { Status = "Some changes were not saved. Pending choices kept; review and retry."; ErrorMessage = report.Results.FirstOrDefault(x => x.Status is OperationStatus.Failed or OperationStatus.Cancelled or OperationStatus.Skipped)?.Message ?? Status; }
+            else
+            {
+                Status = "Some changes were not saved. Pending choices kept; review and retry.";
+                var failed = report.Results.FirstOrDefault(x => x.Status is OperationStatus.Failed or OperationStatus.Cancelled or OperationStatus.Skipped);
+                if (failed?.Message.Contains("Package removal blocked:", StringComparison.Ordinal) == true) { ErrorSeverity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning; ErrorNeedsDiagnostics = false; }
+                ErrorMessage = failed is null ? UiText.Text(Status) : failed.Project + ": " + UserErrors.Message(new IOException(failed.Message), PackageDisplayName);
+            }
         }
         finally { operation = null; IsBusy = false; IsApplyingPackages = false; CanCancelApply = false; applyingProjects = []; applyingSession = null; }
     }
@@ -431,7 +444,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private async Task CreatePreset() => await IndependentAction(async () =>
     {
         var name = await ui.TextAsync("New preset"); if (string.IsNullOrWhiteSpace(name)) return;
-        if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Choose a different preset name.");
+        if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new UserInputException("PresetName", "This preset name is already in use. Enter another name.");
         if (PresetDirty && !editingNewProject && !await ui.ConfirmAsync("Unsaved packages", "Discard changes to " + PresetLabel + "?", "Discard")) return;
         config.PackagePresets[name] = new(presetWorking.Count > 0 ? presetWorking : config.VpmPackages); await PersistConfigurationAsync(); LoadPresetNames(); presetSwitching = true; EditingPreset = name; presetSwitching = false; LoadEditingPreset();
     });
@@ -582,14 +595,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
         var area = CurrentPage;
+        var actionId = Guid.NewGuid().ToString("N");
         if (serialize) await actionGate.WaitAsync(lifetime.Token);
         try
         {
             if (IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
-            ErrorMessage = ""; await action();
+            ErrorMessage = ""; ErrorNeedsDiagnostics = true; ErrorSeverity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error;
+            app.Diagnostics.RecordAction(area, actionId, "Started");
+            await action();
+            app.Diagnostics.RecordAction(area, actionId, ErrorMessage.Length > 0 ? "Needs attention" : "Finished", ErrorMessage);
         }
-        catch (OperationCanceledException) { Status = "Cancelled"; }
-        catch (Exception error) { app.Diagnostics.Write(area, error.Message, error); ErrorMessage = UserErrors.Message(error); Status = "Action failed"; AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : ErrorMessage, EventSeverity.Error)); }
+        catch (OperationCanceledException) { Status = "Cancelled"; app.Diagnostics.RecordAction(area, actionId, "Cancelled"); }
+        catch (UserInputException error) { ErrorNeedsDiagnostics = false; ErrorMessage = UserErrors.Message(error); Status = error.Field == "ProjectName" ? "Check the highlighted field" : "Check the values you entered and try again."; app.Diagnostics.RecordAction(area, actionId, "Validation", ErrorMessage); }
+        catch (Exception error) { ErrorNeedsDiagnostics = !UserErrors.IsExpected(error); app.Diagnostics.Write(area, error.Message, ErrorNeedsDiagnostics ? error : null, actionId); ErrorMessage = UserErrors.Message(error, PackageDisplayName); Status = "Action failed"; app.Diagnostics.RecordAction(area, actionId, "Failed", ErrorMessage); AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : ErrorMessage, EventSeverity.Error)); }
         finally { if (serialize) actionGate.Release(); }
     }
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items) { collection.Clear(); foreach (var item in items) collection.Add(item); }

@@ -1,13 +1,38 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace VrcSetup.Core;
 
 /// <summary>Short, actionable messages for normal users. Full exceptions belong in diagnostics.</summary>
 public static class UserErrors
 {
-    public static string Message(Exception error) => UiText.Text(Advice(error.Message) ?? (error switch
+    public static bool IsExpected(Exception error) => error is UserInputException || Advice(error.Message) is not null;
+    public static string Message(Exception error, Func<string, string>? packageName = null)
     {
+        var removal = Regex.Match(error.Message, @"Package removal blocked: ([a-zA-Z0-9._-]+)");
+        if (removal.Success)
+        {
+            var id = removal.Groups[1].Value;
+            return string.Format(UiText.Text("Cannot remove {0}: another package needs it. Keep it, or remove the dependent package first."), packageName?.Invoke(id) ?? id);
+        }
+        const string needed = "Package is still required by another package: ";
+        if (error.Message.StartsWith(needed, StringComparison.Ordinal))
+        {
+            var id = error.Message[needed.Length..];
+            return string.Format(UiText.Text("{0} is still needed by another package and stays installed."), packageName?.Invoke(id) ?? id);
+        }
+        var package = Regex.Match(error.Message, @"^(?:Package/version not found: |Package operation failed: |Package repair failed: |Package metadata validation failed: )([a-zA-Z0-9._-]+)");
+        if (package.Success)
+        {
+            var id = package.Groups[1].Value.TrimEnd('.');
+            return string.Format(UiText.Text(PackagePresence.IsGenerated(id)
+                ? "{0} is generated automatically. Remove it from the preset; its tool will create it when needed."
+                : "Could not install {0}. Check that its source is available and its version works with the other packages, then retry."), packageName?.Invoke(id) ?? id);
+        }
+        return UiText.Text(Advice(error.Message) ?? (error switch
+    {
+        UserInputException => error.Message,
         ImportQueueInUseException => "Another instance is already managing imports. Return to that window or close it before continuing.",
         InvalidOperationException when error.Message.StartsWith("Package/version not found: ", StringComparison.Ordinal) => "A selected package is unavailable. Check your connection and retry, or remove it from the preset.",
         ProjectsInUseException busy => string.Format(UiText.Text("Close Unity to import additional files into {0}. No project was changed."), string.Join(", ", busy.Projects)),
@@ -24,8 +49,18 @@ public static class UserErrors
         InvalidDataException => "This preset file is not supported. Ask for a new export from VRC Project Setup.",
         _ => "This action could not be completed. Open logs for details."
     }));
+    }
     private static string? Advice(string message) => message switch
     {
+        "Choose a different preset name." => "This preset name is already in use. Enter another name.",
+        "A path is required." => "Choose a folder to continue.",
+        "A package version is required after @." or "Choose a version or latest." => "Choose a package version or Latest version.",
+        "Project name contains invalid Windows filename characters." => "Enter a valid name for the project.",
+        "Select at least one project." => "Select a project to manage its packages.",
+        "Choose the projects folder in Settings first." => "Choose the projects folder in Settings before creating a project.",
+        "A file already uses this project name. Choose another name." or "This name is already used by another folder. Choose another project name." or "The destination already exists. Choose another name." => "This name is already used by a file or folder. Enter another project name.",
+        "No compatible version is available for every linked SDK component." or "Select the same version for linked VRChat SDK components." or "Select one version policy for linked VRChat SDK components." => "Choose the same version for the VRChat SDK packages.",
+        "Project changed after review; skipped. Review again." => "This project changed while the operation was being prepared. Reopen its packages and retry.",
         "The destination is a file. Choose another project name." => "This name is already in use. Choose another project name.",
         "This project is currently open or importing in Unity. Wait for it to finish." or "Another operation is preparing this project. Wait for it to finish." => "This project is in use. Close Unity or wait for the import to finish, then try again.",
         "This folder has no VRCSETUP import state. Open it from Projects or choose another name." => "A project already exists here. Open it from Projects, or choose a new name for this import.",

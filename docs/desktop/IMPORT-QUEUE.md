@@ -1,5 +1,7 @@
 # Multiple imports
 
+Empty-project jobs use the queue engine but are excluded from persistent import-page bars. Active creations appear in the compact footer flyout; success leaves a brief notice, while interrupted/failed creations offer Retry/Dismiss and remain in Activity. Dismissal persists without deleting project files or reports. Retrying a missing destination preloads its captured one-time package choices; a partial destination offers a separate name and preserves the old folder. No startup auto-resume is introduced.
+
 ## Preview 12: state-aware imports and recovery
 
 Destination checks now distinguish new, active, completed, recoverable, partial, unrelated and invalid-state folders using the existing setup JSON, source identity and project/process locks. A same-source initialized project can resume or import missing assets; it is never deleted or recreated in place. Completed projects from another source and unmanaged folders remain protected. Partially initialized projects offer a new copy while retaining the partial folder. On reopening, one contextual prompt offers Resume/New copy/Later for the most recent eligible interrupted import. Completed markers reconcile older history as Recovered.

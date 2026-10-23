@@ -37,6 +37,24 @@ public partial class App : Application
             catch (Exception error) { System.IO.Directory.CreateDirectory(output); await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, "failure.txt"), error.ToString()); Environment.ExitCode = 1; Exit(); }
             return;
         }
+        var projectsTestIndex = Array.IndexOf(arguments, "--verify-projects-ui");
+        if (projectsTestIndex >= 0 && projectsTestIndex + 2 < arguments.Length)
+        {
+            var editor = arguments[projectsTestIndex + 1]; var evidence = arguments[projectsTestIndex + 2];
+            try
+            {
+                var application = await Verification.ProjectsFlowVerification.PrepareAsync(editor, evidence);
+                var main = new MainWindow(application); window = main; main.AppWindow.Move(new(-12000, -12000)); main.AppWindow.Show(false);
+                await Verification.ProjectsFlowVerification.RunAsync(main, editor, evidence);
+                main.Close(); Exit();
+            }
+            catch (Exception error)
+            {
+                System.IO.Directory.CreateDirectory(evidence); await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(evidence, "failure.txt"), error.ToString());
+                Environment.ExitCode = 1; Exit();
+            }
+            return;
+        }
         var updateTestIndex = Array.IndexOf(arguments, "--update-smoke-test");
         var updateVerifyIndex = Array.IndexOf(arguments, "--verify-update-smoke");
         var automaticTestIndex = Array.IndexOf(arguments, "--automatic-update-smoke");

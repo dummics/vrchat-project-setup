@@ -7,7 +7,7 @@ namespace VrcSetup_Desktop.ViewModels;
 
 public sealed partial class MainViewModel
 {
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(ApplyOverlayVisibility)), NotifyPropertyChangedFor(nameof(MainInteractionEnabled))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ApplyOverlayVisibility)), NotifyPropertyChangedFor(nameof(ShellInteractionEnabled)), NotifyPropertyChangedFor(nameof(MainInteractionEnabled))]
     public partial bool IsApplyingPackages { get; set; }
     [ObservableProperty] public partial string ApplyProject { get; set; } = "";
     [ObservableProperty] public partial string ApplyPhase { get; set; } = "";
@@ -22,6 +22,7 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial bool CanCancelApply { get; set; }
     public Visibility ApplyOverlayVisibility => IsApplyingPackages ? Visibility.Visible : Visibility.Collapsed;
     public bool MainInteractionEnabled => !IsInstallingUpdate;
+    public bool ShellInteractionEnabled => MainInteractionEnabled && !IsApplyingPackages;
     private PackageEditSession? applyingSession;
     private bool WorkspaceApplying => IsApplyingPackages && ReferenceEquals(session, applyingSession);
     private ProjectPlan[] applyingProjects = [];

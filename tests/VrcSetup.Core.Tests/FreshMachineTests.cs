@@ -7,6 +7,21 @@ namespace VrcSetup.Tests;
 
 public sealed class FreshMachineTests : IDisposable
 {
+    [Theory][InlineData(true)][InlineData(false)]
+    public async Task BundledRemovalDeclinesVpmProposalBeforeApplyingAndBlocksConflicts(bool conflict)
+    {
+        var commands = new List<string[]>();
+        var runner = new ToolRunner(bundledPackageTool: "bundled-vpm.exe", commandOverride: (_, args, _) =>
+        {
+            commands.Add(args);
+            return Task.FromResult(args.Contains("-y") ? new ToolResult(0, "Removed", "") : new ToolResult(1,
+                (conflict ? "**Those changes conflicts with the following packages**\n" : "") + "Do you want to apply those changes? [y/n]", ""));
+        });
+        var result = await runner.VpmAsync(["remove", "package", "dependency", "-p", root]);
+        Assert.Equal(conflict ? 1 : 2, commands.Count); Assert.DoesNotContain("-y", commands[0]);
+        Assert.Equal(conflict ? 1 : 0, result.ExitCode);
+        if (conflict) Assert.Contains("Package removal blocked: dependency", result.Output);
+    }
     private readonly string root = Path.Combine(Path.GetTempPath(), "vrcsetup-fresh-" + Guid.NewGuid().ToString("N"));
     [Fact] public async Task SelectedPackageWithMissingMetadataPreparesItsSourceBeforeResolvingAgain()
     {
@@ -58,6 +73,8 @@ public sealed class FreshMachineTests : IDisposable
         await runner.VpmAsync(["add", "package", "dev.example.tool@1.2.3", "-p", project], project);
         Assert.Equal("bundled-vpm.exe", executable);
         Assert.Equal(["install", "dev.example.tool", "1.2.3", "-p", project, "-y", "--prerelease"], command!);
+        await runner.VpmAsync(["add", "package", "dev.example.tool", "-p", project], project);
+        Assert.Equal(["install", "dev.example.tool", "-p", project, "-y"], command!);
         Assert.Equal(["remove", "tool", "-p", project, "-y"], ToolRunner.PackageToolArguments(["remove", "package", "tool", "-p", project])!);
         Assert.Equal(["resolve", "-p", project], ToolRunner.PackageToolArguments(["resolve", "project", project])!);
     }

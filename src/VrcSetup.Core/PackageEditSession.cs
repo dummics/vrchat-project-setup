@@ -27,11 +27,11 @@ public sealed class PackageEditSession
     public bool IsRequired(string id) => Projects.Any(x => ProjectRules.Foundation(x.Packages, config).Contains(id, StringComparer.OrdinalIgnoreCase));
     public PackageWorkspaceRow[] Rows(string query = "")
     {
-        var ids = Projects.SelectMany(x => x.Packages.Keys.Concat(ProjectRules.Foundation(x.Packages, config))).Concat(known.Keys).Concat(Selected.Keys).Concat(Removed).Distinct(StringComparer.OrdinalIgnoreCase);
+        var ids = Projects.SelectMany(x => PackagePresence.Ids(x).Concat(ProjectRules.Foundation(x.Packages, config))).Concat(known.Keys).Concat(Selected.Keys).Concat(Removed).Where(x => !PackagePresence.IsGenerated(x)).Distinct(StringComparer.OrdinalIgnoreCase);
         return ids.Select(id =>
         {
             var installed = Projects.Select(x => x.InstalledVersions.GetValueOrDefault(id) ?? x.LockedPackages.GetValueOrDefault(id) ?? x.Packages.GetValueOrDefault(id) ?? "Not installed").Distinct().ToArray();
-            var exists = Projects.Any(x => x.Packages.ContainsKey(id) || IsRequired(id) && x.LockedPackages.ContainsKey(id));
+            var exists = Projects.Any(x => PackagePresence.Contains(x, id));
             var included = !Removed.Contains(id) && (Exact ? Selected.ContainsKey(id) || IsRequired(id) : exists || Selected.ContainsKey(id));
             var policies = Projects.Select(x => x.Policy.GetValueOrDefault(id) ?? x.InstalledVersions.GetValueOrDefault(id) ?? x.Packages.GetValueOrDefault(id) ?? "Not installed").Distinct().ToArray();
             var selected = Selected.GetValueOrDefault(id) ?? (policies.Length == 1 ? policies[0] : "Mixed — unchanged");

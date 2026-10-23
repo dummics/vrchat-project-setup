@@ -153,7 +153,14 @@ public static class UiSmokeTest
         page.ToolTips.Observe(tooltipOwner, new(1, 1)); await Task.Delay(400);
         Require(!page.ToolTips.IsOpen, "A second hover still waits instead of using native instant reshow"); page.ToolTips.Dismiss();
         window.AppWindow.Resize(new(1180, 800)); await Task.Delay(250);
-        await viewModel.BeginNewProjectAsync(); viewModel.NewProjectName = "Fresh project"; await Task.Delay(350); page.UpdateLayout();
+        await viewModel.BeginNewProjectAsync(); await Task.Delay(100);
+        var nameInput = (Microsoft.UI.Xaml.Controls.TextBox)page.FindName("NewProjectNameInput");
+        Require(!viewModel.CreateConfiguredProjectCommand.CanExecute(null), "Empty project name prevents creation without an error banner");
+        nameInput.Text = "folder/name"; await Task.Delay(80);
+        Require(viewModel.NewProjectNameErrorVisibility == Visibility.Visible && !viewModel.CreateConfiguredProjectCommand.CanExecute(null) && !viewModel.IsErrorVisible, "Invalid native name input is explained beside the field");
+        nameInput.Text = "Fresh project"; await Task.Delay(350); page.UpdateLayout();
+        Require(viewModel.NewProjectName == "Fresh project" && viewModel.NewProjectNameErrorVisibility == Visibility.Collapsed && viewModel.CreateConfiguredProjectCommand.CanExecute(null), "Native input updates creation intent and clears field validation");
+        Require(viewModel.PresetCarouselVisibility == Visibility.Visible, "New project retains the centered preset wheel");
         Require(viewModel.CurrentPage == "NewProject" && viewModel.NewProjectVisibility == Visibility.Visible && viewModel.NewProjectPlatform == "StandaloneWindows64", "New project has its own page with platform, preset and editable packages");
         Require(viewModel.UseImportPresetVisibility == Visibility.Collapsed && viewModel.PresetOptionsVisibility == Visibility.Collapsed, "New project packages are local to the creation form");
         Require(viewModel.NewProjectSavePresetVisibility == Visibility.Collapsed, "Unchanged creation packages do not offer a duplicate preset");
@@ -254,6 +261,13 @@ public static class UiSmokeTest
         Require(operationsButton.IsEnabled && viewModel.RunningOperations.Count >= 2 && !viewModel.CanUseUpdateAction, "Status exposes concurrent operations while update installation stays blocked");
         operationsButton.Flyout.ShowAt(operationsButton); await Task.Delay(180);
         await Render(page, Path.Combine(artifacts, "running-operations.png"));
+        var operationsList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("RunningOperationsList");
+        var originalOperations = operationsList.ItemsSource;
+        operationsList.ItemsSource = Enumerable.Range(0, 40).Select(i => new VrcSetup_Desktop.ViewModels.RunningOperationRow("Creating project", "Long project name " + i + " with more text than the compact row can show", "Technical detail must stay hidden")).ToArray();
+        await Task.Delay(150); page.UpdateLayout();
+        Require(operationsList.Items.Count == 40 && operationsList.ActualHeight is > 0 and <= 201 && !Descendants(operationsList).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Any(x => x.Text == "Technical detail must stay hidden"), "Many operations remain compact, scroll within a bounded flyout and hide details");
+        await Render((FrameworkElement)((Microsoft.UI.Xaml.Controls.Flyout)operationsButton.Flyout).Content, Path.Combine(artifacts, "running-operations-many.png"));
+        operationsList.ItemsSource = originalOperations;
         operationsButton.Flyout.Hide();
         viewModel.IsCreatingProject = false; viewModel.IsApplyingPackages = false;
         viewModel.ApplyProject = ""; viewModel.ApplyPhase = "";
@@ -261,6 +275,25 @@ public static class UiSmokeTest
         using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
         {
             await flow.InitializeAsync();
+            foreach (var partialRetry in new[] { false, true })
+            {
+                var retryName = partialRetry ? "Partial creation retry" : "Missing creation retry";
+                var retryPath = Path.Combine(flow.ProjectsRoot, retryName);
+                if (partialRetry)
+                {
+                    await AtomicFile.WriteJsonAsync(Path.Combine(retryPath, ".vrcsetup", "state.json"), new SetupState { ProjectName = retryName });
+                    await File.WriteAllTextAsync(Path.Combine(retryPath, "preserve.txt"), "owner data");
+                }
+                var request = new CreationRequest("", retryName, retryPath, "", "StandaloneWindows64", [], [], true);
+                var retryPlan = new ProjectPlan { Name = retryName, Path = retryPath, ExpectedFingerprint = "", Changes = [], Creation = request,
+                    DesiredPolicy = new Dictionary<string, string> { ["gogoloco"] = "latest" } };
+                var retryJob = new ImportJob("retry-" + partialRetry, new("retry-" + partialRetry, DateTime.UtcNow, [retryPlan]), request, "Failed", "Create", 0, "stopped", "");
+                decisions.ConfirmResult = true;
+                await flow.RepairHistoryImportAsync(new(retryJob)).WaitAsync(TimeSpan.FromSeconds(5));
+                Require(flow.CurrentPage == "NewProject" && flow.PresetPackages.Any(x => x.Id == "gogoloco") && !flow.LibraryPackages.Any(x => x.Id == "gogoloco"), "Retry opens captured one-time choices without a nested action lock or duplicate catalogue entry: " + partialRetry);
+                if (partialRetry) Require(flow.NewProjectName != retryName && await File.ReadAllTextAsync(Path.Combine(retryPath, "preserve.txt")) == "owner data", "Partial retry preserves the old folder and suggests a separate destination");
+                await flow.NavigateAsync("Projects");
+            }
             checks.AddRange(await ConcurrencyChecks.RunAsync(flow, decisions));
             var pickerRequests = decisions.SaveFileRequests; decisions.FileChoice = null; flow.IsBusy = true;
             await flow.ExportLogsCommand.ExecuteAsync(null);
@@ -277,7 +310,7 @@ public static class UiSmokeTest
             decisions.ClearReview();
             await flow.CreateConfiguredProjectCommand.ExecuteAsync(null);
             if (flow.EditorReady)
-                Require(creationPlan?.Projects.Single().Creation?.EmptyProject == true && creationPlan.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest" && flow.CurrentPage == "Activity" && !flow.PresetDirty && decisions.LastReview is null, "Custom preset directly queues one-time packages and opens Activity without preset/review prompts");
+                Require(creationPlan?.Projects.Single().Creation?.EmptyProject == true && creationPlan.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest" && flow.CurrentPage == "Projects" && !flow.PresetDirty && decisions.LastReview is null, "Custom preset directly queues one-time packages and returns to Projects without preset/review prompts");
             else Require(decisions.LastReview is null, "Missing editor selection does not proceed to a creation review");
             Require(!Directory.Exists(Path.Combine(flow.ProjectsRoot, flow.NewProjectName)), "Intercepted creation fixture creates no real project folder");
             flow.EnqueueNewProjectForVerification = null;
@@ -751,6 +784,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         var failedEmpty = fixtureJobs[0].Job with { State = "Failed", Source = fixtureJobs[0].Job.Source with { UnityPackagePath = "", EmptyProject = true } };
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedEmpty).RecoverVisibility == Visibility.Visible, "Failed empty project exposes Continue import");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty).ImportActionsVisibility == Visibility.Visible, "Empty project recovery is available in Activity");
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Running" }).Summary.Length > 0, "Creation history summary works before its report exists");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Completed" }).ImportActionsVisibility == Visibility.Collapsed, "Completed empty project has no archive recovery action");
         viewModel.CurrentPage = "Activity";
         var historyList = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => ReferenceEquals(x.ItemsSource, viewModel.ImportHistory));
@@ -804,7 +838,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             viewModel.ApplyPosition = "Project 1 of 4"; viewModel.ApplyPhase = "Updating package";
             viewModel.ApplyPackage = "Avatar Limb Scaling"; viewModel.ApplyPackageVersion = "1.2.0 → 1.3.0";
             viewModel.CanCancelApply = true; viewModel.IsApplyingPackages = true; await Task.Delay(150);
-            Require(navigation.IsEnabled && viewModel.ApplyOverlayVisibility == Visibility.Visible, "Package apply keeps navigation available: " + size.Width);
+            Require(!navigation.IsEnabled && viewModel.ApplyOverlayVisibility == Visibility.Visible, "Package apply dims and protects the underlying editor while workers remain independent: " + size.Width);
             Require(!((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).IsEnabled, "Updates are blocked during sensitive package operations: " + size.Width);
             await Render(page, Path.Combine(artifacts, "apply-overlay-fixture-" + size.Width + ".png"));
             viewModel.CancelApplyCommand.Execute(null);

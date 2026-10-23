@@ -15,7 +15,7 @@ public sealed partial class MainViewModel
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsUpdateReady { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool HasApplicationUpdate { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsDownloadingUpdate { get; set; }
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(MainInteractionEnabled))] public partial bool IsInstallingUpdate { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(MainInteractionEnabled)), NotifyPropertyChangedFor(nameof(ShellInteractionEnabled))] public partial bool IsInstallingUpdate { get; set; }
     [ObservableProperty] public partial string UpdateStatus { get; set; } = "";
     [ObservableProperty] public partial bool UpdateFailed { get; set; }
     private string updateDetails = "";

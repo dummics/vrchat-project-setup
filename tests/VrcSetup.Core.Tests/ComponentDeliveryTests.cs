@@ -9,6 +9,16 @@ namespace VrcSetup.Tests;
 
 public sealed class ComponentDeliveryTests
 {
+    [Fact] public async Task SuccessfulPreparationPrunesOldRecognizedArchivesAndKeepsCurrentAndUnrelatedFiles()
+    {
+        using var fixture = new Fixture(); using var client = fixture.Client(); var delivery = new ComponentDelivery(client);
+        Directory.CreateDirectory(fixture.Cache);
+        var old = Path.Combine(fixture.Cache, new string('a', 64) + ".zip"); await File.WriteAllTextAsync(old, "Obsolete component");
+        var unrelated = Path.Combine(fixture.Cache, "owner-export.zip"); await File.WriteAllTextAsync(unrelated, "Owner file");
+        await delivery.PrepareAsync(fixture.Manifest, fixture.Stage(), fixture.Cache, fixture.Installed);
+        Assert.False(File.Exists(old)); Assert.Equal("Owner file", await File.ReadAllTextAsync(unrelated));
+        Assert.All(fixture.Manifest.Components, x => Assert.True(File.Exists(Path.Combine(fixture.Cache, x.Name))));
+    }
     [Fact] public async Task MeasuredProgressCountsMissingBytesAndPreparedFiles()
     {
         using var fixture = new Fixture(); using var client = fixture.Client(); var delivery = new ComponentDelivery(client);

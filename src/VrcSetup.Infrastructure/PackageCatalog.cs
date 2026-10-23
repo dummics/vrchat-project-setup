@@ -40,7 +40,7 @@ public sealed partial class PackageCatalog(AppPaths paths, ToolRunner runner, Co
         foreach (var id in known.Keys.ToArray())
             if (metadata.TryGetValue(id, out var cached) && (known[id].UpdatedUtc is null || cached.UpdatedUtc > known[id].UpdatedUtc))
                 known[id] = known[id] with { Versions = cached.Versions, UpdatedUtc = cached.UpdatedUtc };
-        return known.Values.OrderBy(x => x.DisplayName).ThenBy(x => x.Id).ToArray();
+        return known.Values.Where(x => !PackagePresence.IsGenerated(x.Id)).OrderBy(x => x.DisplayName).ThenBy(x => x.Id).ToArray();
     }
 
     public async Task<PackageDefinition[]> SearchAsync(string query, CancellationToken cancellationToken = default)
@@ -65,7 +65,7 @@ public sealed partial class PackageCatalog(AppPaths paths, ToolRunner runner, Co
         // Search metadata is a bounded local index, not a saved user selection.
         try { await RememberAsync(result.Values, cancellationToken, preserveSelections: true); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { /* Optional search index must not hide usable results. */ }
-        return result.Values.OrderBy(x => x.DisplayName).ThenBy(x => x.Id).ToArray();
+        return result.Values.Where(x => !PackagePresence.IsGenerated(x.Id)).OrderBy(x => x.DisplayName).ThenBy(x => x.Id).ToArray();
     }
 
     public async Task<string[]> GetVersionsAsync(string packageId, CancellationToken cancellationToken = default)

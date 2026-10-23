@@ -17,7 +17,7 @@ public sealed class RulesTests
     }
     [Theory]
     [InlineData("CON")][InlineData("CON.avatar")][InlineData("NUL")][InlineData("COM1")][InlineData("..")][InlineData("folder/name")][InlineData("file:")][InlineData("ends.")][InlineData("ends ")][InlineData("")]
-    public void InvalidWindowsNameIsRejected(string name) => Assert.Throws<ArgumentException>(() => ProjectRules.ValidateName(name));
+    public void InvalidWindowsNameIsRejected(string name) => Assert.Throws<UserInputException>(() => ProjectRules.ValidateName(name));
     [Theory][InlineData("Avatar [PC] & café")][InlineData("My Quest avatar")][InlineData("com10")]
     public void OrdinarySpecialCharactersAreAllowed(string name) => ProjectRules.ValidateName(name);
     [Theory][InlineData("Conquest.unitypackage", "StandaloneWindows64")][InlineData("Avatar_Quest.unitypackage", "Android")][InlineData("Quest 3", "Android")][InlineData("Android.package", "Android")]

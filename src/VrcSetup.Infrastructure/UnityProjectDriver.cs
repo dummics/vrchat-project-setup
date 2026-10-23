@@ -106,6 +106,8 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         ToolResult result;
         if (change.Kind == ChangeKind.Remove)
             result = await runner.VpmAsync(["remove", "package", change.Id, "-p", project], project, cancellationToken: cancellationToken);
+        else if (change.RequestedVersion == "latest")
+            result = await runner.VpmAsync(["add", "package", change.Id, "-p", project], project, cancellationToken: cancellationToken);
         else if (change.ResolvedVersion?.Contains('-') == true)
         {
             var executable = paths.VrcGetPath ?? throw new IOException("The bundled vrc-get tool is required for exact prerelease versions.");

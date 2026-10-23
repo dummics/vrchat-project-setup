@@ -3,7 +3,7 @@ using VrcSetup.Core;
 namespace VrcSetup.Infrastructure;
 
 // The composition root is shared; neither client has its own planner or executor.
-public sealed class VrcSetupApplication
+public sealed partial class VrcSetupApplication
 {
     public AppPaths Paths { get; }
     public ConfigurationStore Configuration { get; }
@@ -62,6 +62,7 @@ public sealed class VrcSetupApplication
         var reportFile = Path.Combine(Paths.Logs, "operation-" + plan.Id + ".json");
         report = report with { Results = report.Results.Select(x => x with { LogFile = log.Path }).ToArray(), ReportFile = reportFile, Plan = plan };
         await AtomicFile.WriteJsonAsync(reportFile, report, CancellationToken.None);
+        LogRetention.Prune(Paths, reportFile);
         return report;
     }
     public string[] ExtraImports(AppConfiguration config, string? main = null)

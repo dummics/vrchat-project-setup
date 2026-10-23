@@ -86,7 +86,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 var resolve = await driver.ResolveAsync(project.Path, progress, cancellationToken);
                 if (ProjectRules.ToolFailed(resolve)) throw new IOException("VPM resolve failed. " + resolve.Output);
                 }
-                await VerifyPackages(project, progress, cancellationToken);
+                await VerifyPackages(project, progress, cancellationToken, warnings);
                 await workspace.SetStepAsync(project.Path, "vpm", true, cancellationToken);
 
                 if (project.RequiresUnityBatch && (project.Creation is not null || project.ExtraImports.Length > 0))
@@ -96,7 +96,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                     await workspace.SetStepAsync(project.Path, "importMain", true, cancellationToken);
                     await workspace.SetStepAsync(project.Path, "importExtras", true, cancellationToken);
                     phase = "Post-import validation";
-                    var repaired = await VerifyPackages(project, progress, cancellationToken);
+                    var repaired = await VerifyPackages(project, progress, cancellationToken, warnings);
                     if (repaired) await driver.SettleAsync(project, progress, cancellationToken);
                 }
                 else
@@ -156,10 +156,12 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
         }
     }
 
-    private async Task<bool> VerifyPackages(ProjectPlan project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
+    private async Task<bool> VerifyPackages(ProjectPlan project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken, List<string>? warnings = null)
     {
         var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
-        var mismatched = project.Changes.Where(x => x.Kind != ChangeKind.Remove && fresh.InstalledVersions.GetValueOrDefault(x.Id) != x.ResolvedVersion).ToArray();
+        var mismatched = project.Changes.Where(x => x.Kind != ChangeKind.Remove &&
+            (!fresh.InstalledVersions.TryGetValue(x.Id, out var physical) ||
+             fresh.LockedPackages.TryGetValue(x.Id, out var locked) && physical != locked)).ToArray();
         if (mismatched.Length > 0)
         {
             foreach (var missing in mismatched)
@@ -177,8 +179,14 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             if (change.Kind == ChangeKind.Remove)
             {
                 if (fresh.Packages.ContainsKey(change.Id)) throw new IOException($"Removed package remains in the manifest: {change.Id}");
+                if (fresh.LockedPackages.ContainsKey(change.Id) && fresh.InstalledVersions.ContainsKey(change.Id))
+                {
+                    var warning = $"Package is still required by another package: {change.Id}";
+                    if (warnings is not null && !warnings.Contains(warning)) warnings.Add(warning);
+                    progress?.Report(new(DateTime.UtcNow, "Verify", warning, EventSeverity.Warning, project.Path));
+                }
             }
-            else if (fresh.InstalledVersions.GetValueOrDefault(change.Id) != change.ResolvedVersion ||
+            else if (!PackagePresence.Matches(change, fresh) ||
                      (!fresh.Packages.ContainsKey(change.Id) && !fresh.LockedPackages.ContainsKey(change.Id)))
                 throw new IOException($"Package metadata validation failed: {change.Id}@{change.ResolvedVersion}");
         }

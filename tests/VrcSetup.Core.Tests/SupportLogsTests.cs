@@ -6,6 +6,24 @@ namespace VrcSetup.Tests;
 
 public sealed class SupportLogsTests : IDisposable
 {
+    [Fact] public async Task SuccessfulUpdateDoesNotExportItsSupersededErrorAndLargeReportRemainsJson()
+    {
+        var paths = new AppPaths(root); Directory.CreateDirectory(paths.Logs);
+        var component = Path.Combine(root, "updates", "components"); Directory.CreateDirectory(component);
+        var error = Path.Combine(component, "last-error.log"); await File.WriteAllTextAsync(error, "Old cancelled update"); File.SetLastWriteTimeUtc(error, DateTime.UtcNow.AddDays(-1));
+        await File.WriteAllTextAsync(Path.Combine(root, "updates", "last-result.json"), "{\"Success\":true}");
+        var report = new VrcSetup.Core.OperationReport("failed", DateTime.UtcNow,
+            [new("Fixture project", root, VrcSetup.Core.OperationStatus.Failed, new string('e', 600000))], []);
+        await AtomicFile.WriteJsonAsync(Path.Combine(paths.Logs, "operation-failed.json"), report);
+        var destination = Path.Combine(root, "export.zip"); await SupportLogs.ExportAsync(paths, destination);
+        using var zip = ZipFile.OpenRead(destination);
+        Assert.Null(zip.GetEntry("Update/last-error.log"));
+        using var reader = new StreamReader(zip.GetEntry("App/operation-failed.json")!.Open());
+        using var parsed = System.Text.Json.JsonDocument.Parse(await reader.ReadToEndAsync());
+        Assert.Equal("failed", parsed.RootElement.GetProperty("Id").GetString());
+        using var summary = new StreamReader(zip.GetEntry("VRC-Project-Setup.txt")!.Open());
+        Assert.Contains("Fixture project", await summary.ReadToEndAsync());
+    }
     private readonly string root = Path.Combine(Path.GetTempPath(), "vrcsetup-support-" + Guid.NewGuid().ToString("N"));
     [Fact]
     public async Task BusyUnityLogsCannotDisplaceErrorsFromOtherSections()

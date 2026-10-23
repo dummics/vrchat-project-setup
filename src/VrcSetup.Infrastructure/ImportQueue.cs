@@ -247,6 +247,23 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         finally { journalGate.Release(); }
         Publish();
     }
+
+    public async Task DismissAsync(string id, CancellationToken token = default)
+    {
+        await InitializeAsync(token); await journalGate.WaitAsync(token);
+        try
+        {
+            lock (sync)
+            {
+                var index = jobs.FindIndex(x => x.Id == id);
+                if (index < 0 || jobs[index].Active) return;
+                jobs[index] = jobs[index] with { HiddenFromImports = true };
+            }
+            await SaveAsync(token);
+        }
+        finally { journalGate.Release(); }
+        Publish();
+    }
     private void Update(string id, Func<ImportJob, ImportJob> change)
     {
         var publish = false;

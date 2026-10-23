@@ -16,9 +16,16 @@ public sealed partial class MainPage
     private void NextPresetClicked(object sender, RoutedEventArgs args) { presetDirection = 1; ViewModel.NextPresetCommand.Execute(null); }
     private void PresetChoicePicked(object sender, ItemClickEventArgs args)
     { if (args.ClickedItem is string name) ViewModel.EditingPreset = name; PresetSelector.Flyout.Hide(); }
-    private void NewProjectPresetPicked(object sender, ItemClickEventArgs args)
-    { if (args.ClickedItem is string name) ViewModel.EditingPreset = name; NewProjectPresetSelector.Flyout.Hide(); }
     private void OperationsActivityClicked(object sender, RoutedEventArgs args) => OperationsStatusButton.Flyout.Hide();
+    private async void RetryCreationClicked(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ViewModels.RunningOperationRow row)
+        { OperationsStatusButton.Flyout.Hide(); await ViewModel.RetryCreationAsync(row.Id); }
+    }
+    private async void DismissCreationClicked(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ViewModels.RunningOperationRow row) await ViewModel.DismissCreationAsync(row.Id);
+    }
     private void PresetChoiceKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs args)
     { if (args.Key == Windows.System.VirtualKey.Enter) PresetSelector.Flyout.Hide(); }
     private void AnimatePresetSelection()

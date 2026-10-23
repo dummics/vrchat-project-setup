@@ -24,11 +24,17 @@ public static partial class ProjectRules
 
     public static void ValidateName(string name)
     {
-        if (string.IsNullOrWhiteSpace(name) || name is "." or ".." || Path.IsPathRooted(name) ||
+        if (NameError(name) is { } error) throw new UserInputException("ProjectName", error);
+    }
+    public static string? NameError(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "Enter a name for the project.";
+        if (name is "." or ".." || Path.IsPathRooted(name) ||
             name.IndexOfAny("<>:\"/\\|?*".ToCharArray()) >= 0 || name.Any(char.IsControl) || name.EndsWith('.') || name.EndsWith(' '))
-            throw new ArgumentException("Project name contains invalid Windows filename characters.");
+            return "Use a project name without these characters: < > : \" / \\ | ? * or a final dot.";
         if (Regex.IsMatch(name.Split('.')[0], @"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", RegexOptions.IgnoreCase))
-            throw new ArgumentException("This project name is reserved by Windows.");
+            return "This name is reserved by Windows. Choose another project name.";
+        return null;
     }
 
     public static string SuggestName(string package, AppConfiguration config)
@@ -153,7 +159,8 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             foreach (var target in creation.PublishingPlatforms.Append(creation.BuildTarget))
                 if (!ProjectRules.BuildTargets.Contains(target)) throw new ArgumentException($"Unsupported platform: {target}");
         }
-        var desired = ProjectRules.Merge(snapshot.Policy.Count > 0 ? snapshot.Policy : snapshot.Packages, selected, exact || creation is not null);
+        selected = PackagePresence.Selection(selected);
+        var desired = PackagePresence.Selection(ProjectRules.Merge(snapshot.Policy.Count > 0 ? snapshot.Policy : snapshot.Packages, selected, exact || creation is not null));
         var required = ProjectRules.Foundation(snapshot.Packages.Count > 0 ? snapshot.Packages : desired, config);
         foreach (var id in remove ?? [])
         {
@@ -199,11 +206,11 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             if (version is null || !versions.Contains(version, StringComparer.OrdinalIgnoreCase)) throw new InvalidOperationException($"Package/version not found: {entry.Key}@{entry.Value}");
             resolved[entry.Key] = version;
         }
-        var changes = snapshot.Packages.Keys.Union(desired.Keys, StringComparer.OrdinalIgnoreCase).Select(id =>
+        var changes = snapshot.Packages.Keys.Union(desired.Keys, StringComparer.OrdinalIgnoreCase).Union(remove ?? [], StringComparer.OrdinalIgnoreCase).Where(id => !PackagePresence.IsGenerated(id)).Select(id =>
         {
             var old = snapshot.InstalledVersions.GetValueOrDefault(id) ?? snapshot.LockedPackages.GetValueOrDefault(id) ?? snapshot.Packages.GetValueOrDefault(id);
             var version = resolved.GetValueOrDefault(id);
-            var kind = !desired.ContainsKey(id) ? ChangeKind.Remove : old is null ? ChangeKind.Add : snapshot.InstalledVersions.GetValueOrDefault(id) == version ? ChangeKind.Keep : ChangeKind.Update;
+            var kind = !desired.ContainsKey(id) ? ChangeKind.Remove : old is null || !snapshot.Packages.ContainsKey(id) ? ChangeKind.Add : snapshot.InstalledVersions.GetValueOrDefault(id) == version ? ChangeKind.Keep : ChangeKind.Update;
             return new PackageChange(id, old, desired.GetValueOrDefault(id), version, kind);
         }).OrderBy(x => x.Id == ProjectRules.BaseSdk ? 0 : ProjectRules.SdkIds.Contains(x.Id) ? 1 : x.Id == ProjectRules.Resolver ? 2 : 3).ThenBy(x => x.Id).ToArray();
         foreach (var import in (extraImports ?? []).Concat(creation?.ExtraImports ?? []))

@@ -41,6 +41,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ViewModel.PropertyChanged += (_, eventArgs) =>
         {
             if (eventArgs.PropertyName == nameof(ViewModel.CurrentPage)) ShowPage(ViewModel.CurrentPage);
+            if (eventArgs.PropertyName == nameof(ViewModel.IsApplyingPackages)) DispatcherQueue.TryEnqueue(() =>
+            {
+                if (ViewModel.IsApplyingPackages) ApplyCancelButton.Focus(FocusState.Programmatic);
+                else if (ViewModel.CurrentPage == "Workspace") WorkspacePackages.Focus(FocusState.Programmatic);
+            });
             if (eventArgs.PropertyName == nameof(ViewModel.DeveloperMode)) SyncDiagnosticsTab();
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
             if (eventArgs.PropertyName == nameof(ViewModel.CreationPackageSummary)) DispatcherQueue.TryEnqueue(ConstrainForms);

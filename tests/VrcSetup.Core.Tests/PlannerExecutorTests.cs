@@ -190,6 +190,7 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
     public bool Fail; public int Calls, UnityCalls;
+    public Action? AfterResolve;
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
     public Task<ToolResult> ChangePackageAsync(string project, PackageChange change, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
@@ -197,10 +198,10 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
         Calls++;
         if (Fail) return Task.FromResult(new ToolResult(0, "[ERR] Could not get match", ""));
         if (change.Kind == ChangeKind.Remove) { workspace.Project.Packages.Remove(change.Id); workspace.Project.InstalledVersions.Remove(change.Id); }
-        else { workspace.Project.Packages[change.Id] = change.ResolvedVersion!; workspace.Project.InstalledVersions[change.Id] = change.ResolvedVersion!; }
+        else { workspace.Project.Packages[change.Id] = change.ResolvedVersion!; workspace.Project.InstalledVersions[change.Id] = change.ResolvedVersion!; workspace.Project.LockedPackages[change.Id] = change.ResolvedVersion!; }
         return Task.FromResult(new ToolResult(0, "Added package " + change.Id, ""));
     }
-    public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.FromResult(new ToolResult(0, "Resolved", ""));
+    public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { AfterResolve?.Invoke(); return Task.FromResult(new ToolResult(0, "Resolved", "")); }
     public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.FromResult(true);

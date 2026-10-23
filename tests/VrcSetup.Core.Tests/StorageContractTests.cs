@@ -166,6 +166,17 @@ public sealed class StorageContractTests : IDisposable
         await app.Projects.SaveProfileAsync(plan, default);
         Assert.Equal("latest", (await app.Projects.ReadAsync(Project)).Policy[ProjectRules.BaseSdk]);
     }
+    [Fact] public async Task EmbeddedPackageWithoutDirectOrLockedEntryDoesNotDirtyFreshProfile()
+    {
+        var app = App;
+        await AtomicFile.WriteJsonAsync(Path.Combine(Project, "Packages", "tool", "package.json"), new { name = "tool", version = "1.0.0" });
+        await AtomicFile.WriteJsonAsync(Path.Combine(Project, "Packages", "dev.example.embedded", "package.json"), new { name = "dev.example.embedded", version = "1.0.0" });
+        var before = await app.Projects.ReadAsync(Project);
+        Assert.Contains("dev.example.embedded", before.InstalledVersions.Keys);
+        var plan = new ProjectPlan { Path = Project, Name = "test", ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(before.Packages), Changes = [] };
+        await app.Projects.SaveProfileAsync(plan, default);
+        Assert.False((await app.Projects.ReadAsync(Project)).ProfileModified);
+    }
     [Fact] public async Task CorruptConfigurationCanBeResetWithItsOriginalPreserved()
     {
         var app = App; await app.Configuration.LoadAsync(); File.WriteAllText(app.Paths.ConfigFile, "invalid-json");

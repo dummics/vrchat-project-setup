@@ -75,7 +75,8 @@ public sealed partial class MainViewModel
         {
             Interlocked.Exchange(ref importUpdateQueued, 0);
             var snapshot = app.Imports.Snapshot();
-            var jobs = snapshot.Where(x => !x.HiddenFromImports && !(AutoHideCompletedImports && x.State is ("Completed" or "Recovered"))).OrderByDescending(x => x.Active).ToArray(); var ids = jobs.Select(x => x.Id).ToHashSet();
+            ObserveCreationResults(snapshot);
+            var jobs = snapshot.Where(x => !x.Source.EmptyProject && !x.HiddenFromImports && !(AutoHideCompletedImports && x.State is ("Completed" or "Recovered"))).OrderByDescending(x => x.Active).ToArray(); var ids = jobs.Select(x => x.Id).ToHashSet();
             for (var index = ImportJobs.Count - 1; index >= 0; index--) if (!ids.Contains(ImportJobs[index].Id)) ImportJobs.RemoveAt(index);
             foreach (var job in jobs)
             {

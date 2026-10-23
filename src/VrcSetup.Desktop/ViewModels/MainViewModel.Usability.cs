@@ -21,7 +21,10 @@ public sealed partial class MainViewModel
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PresetChangesVisibility)), NotifyPropertyChangedFor(nameof(NewProjectSavePresetVisibility))] public partial bool PresetDirty { get; set; }
     [ObservableProperty] public partial string LibraryFilter { get; set; } = "";
     [ObservableProperty] public partial bool FavoritesOnly { get; set; }
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsErrorVisible))] public partial string ErrorMessage { get; set; } = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsErrorVisible)), NotifyPropertyChangedFor(nameof(ErrorDiagnosticsVisibility))] public partial string ErrorMessage { get; set; } = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ErrorDiagnosticsVisibility))] public partial bool ErrorNeedsDiagnostics { get; set; } = true;
+    public Visibility ErrorDiagnosticsVisibility => ErrorNeedsDiagnostics && ErrorMessage.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    [ObservableProperty] public partial Microsoft.UI.Xaml.Controls.InfoBarSeverity ErrorSeverity { get; set; } = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error;
     [ObservableProperty] public partial bool DeveloperMode { get; set; }
     [ObservableProperty] public partial bool VerboseDiagnostics { get; set; }
     [ObservableProperty] public partial bool TraceTools { get; set; }
@@ -88,7 +91,7 @@ public sealed partial class MainViewModel
     }
     private void LoadEditingPreset()
     {
-        presetWorking = new(EditingPreset == DefaultPresetKey ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(EditingPreset) ?? []);
+        presetWorking = PackagePresence.Selection(EditingPreset == DefaultPresetKey ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(EditingPreset) ?? []);
         foreach (var id in ProjectRules.Foundation(presetWorking, config)) presetWorking.TryAdd(id, "latest");
         presetBaseline = new(presetWorking, StringComparer.OrdinalIgnoreCase);
         RenderPreset(); RefreshLibraryRows();
@@ -162,7 +165,7 @@ public sealed partial class MainViewModel
         var old = EditingPreset; name = name.Trim();
         var overrides = creationOverrides;
         if (!IsCustomPreset || string.IsNullOrWhiteSpace(name) || name == old) return;
-        if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Choose a different preset name.");
+        if (name.Equals("Default", StringComparison.OrdinalIgnoreCase) || name.Equals(DefaultPresetKey, StringComparison.OrdinalIgnoreCase) || config.PackagePresets.Keys.Any(x => x.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new UserInputException("PresetName", "This preset name is already in use. Enter another name.");
         config.PackagePresets[name] = config.PackagePresets[old]; config.PackagePresets.Remove(old);
         foreach (var key in config.CreationRecipes.Where(x => x.Value.Preset.Equals(old, StringComparison.OrdinalIgnoreCase)).Select(x => x.Key).ToArray()) config.CreationRecipes[key] = config.CreationRecipes[key] with { Preset = name };
         await PersistConfigurationAsync();

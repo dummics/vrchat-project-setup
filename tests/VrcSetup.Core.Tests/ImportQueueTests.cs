@@ -6,6 +6,21 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task DismissFailedCreationPersistsWithItsHistory()
+    {
+        var app = App; var plan = Plan("Failed", "Active");
+        var jobs = plan.Projects.Select((p, i) => new ImportJob("job" + i, new("op" + i, plan.CreatedUtc, [p]), p.Creation! with { EmptyProject = true },
+            i == 0 ? "Failed" : "Running", "Create", 0, "message", "")).ToArray();
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), jobs);
+        await using (var queue = new ImportQueue(app))
+        {
+            await queue.InitializeAsync(); await queue.DismissAsync("job0");
+            Assert.True(queue.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
+        }
+        await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
+        Assert.True(reopened.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
+        Assert.Equal(jobs[0].Plan.Id, reopened.Snapshot().Single(x => x.Id == "job0").Plan.Id);
+    }
     [Fact] public async Task ClearCompletedHidesRowsButRetainsHistoryPlanAndLogAfterRestart()
     {
         var app = App; var plan = Plan("Complete", "Failed", "Active");
@@ -35,6 +50,8 @@ public sealed class ImportQueueTests : IDisposable
         });
         await queue.EnqueueAsync(Plan(Enumerable.Range(1, 7).Select(x => "Avatar" + x).ToArray()), int.MaxValue);
         await WaitUntil(() => Volatile.Read(ref started) == 7);
+        var active = queue.Snapshot()[0]; await queue.DismissAsync(active.Id);
+        Assert.False(queue.Snapshot().Single(x => x.Id == active.Id).HiddenFromImports);
         Assert.All(queue.Snapshot(), x => Assert.NotNull(x.StartedAt));
         release.SetResult(); await WaitUntil(() => !queue.HasActiveJobs);
         Assert.All(queue.Snapshot(), x => Assert.NotNull(x.FinishedAt));

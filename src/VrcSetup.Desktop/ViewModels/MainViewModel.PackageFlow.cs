@@ -81,7 +81,7 @@ public sealed partial class MainViewModel
     {
         if (session is null || WorkspaceApplying || IsBusy && !IsApplyingPackages || row.Required) return;
         if (session.Removed.Remove(row.Id)) session.Selected.Remove(row.Id);
-        else if (row.Included && !session.Projects.Any(x => x.Packages.ContainsKey(row.Id))) session.Selected.Remove(row.Id);
+        else if (row.Included && !session.Projects.Any(x => PackagePresence.Contains(x, row.Id))) session.Selected.Remove(row.Id);
         else session.Toggle(row.Id);
         RenderWorkspace(); RefreshLibraryRows();
     }

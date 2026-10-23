@@ -96,7 +96,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
                 var saved = ReadDependencyMap(profile.RootElement, "Installed");
                 var savedPolicy = ReadDependencyMap(profile.RootElement, "Policy");
                 var savedManifest = ReadDependencyMap(profile.RootElement, "ManifestPolicy");
-                var visibleInstalled = direct.Keys.Concat(saved.Keys.Where(locked.ContainsKey)).Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(x => x, x => installed.GetValueOrDefault(x) ?? locked.GetValueOrDefault(x) ?? direct[x], StringComparer.OrdinalIgnoreCase);
+                var visibleInstalled = direct.Keys.Concat(saved.Keys.Where(id => !PackagePresence.IsGenerated(id) && (locked.ContainsKey(id) || installed.ContainsKey(id)))).Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(x => x, x => installed.GetValueOrDefault(x) ?? locked.GetValueOrDefault(x) ?? direct[x], StringComparer.OrdinalIgnoreCase);
                 modified = !MapsEqual(saved, visibleInstalled);
                 if (savedManifest.Count > 0 && !MapsEqual(savedManifest, direct)) modified = true;
                 foreach (var entry in savedPolicy)
@@ -361,7 +361,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
     public async Task SaveProfileAsync(ProjectPlan plan, CancellationToken cancellationToken)
     {
         var installed = await ReadAsync(plan.Path, cancellationToken);
-        var visible = installed.Packages.Keys.Concat(plan.RequiredPackages).Distinct().Where(installed.InstalledVersions.ContainsKey).ToDictionary(x => x, x => installed.InstalledVersions[x]);
+        var visible = PackagePresence.Ids(installed).Concat(plan.RequiredPackages).Distinct().Where(installed.InstalledVersions.ContainsKey).ToDictionary(x => x, x => installed.InstalledVersions[x]);
         await AtomicFile.WriteJsonAsync(Path.Combine(plan.Path, ".vrcsetup", "package-profile.json"), new
         { Schema = 2, Preset = plan.PresetName ?? "Custom packages", Policy = plan.DesiredPolicy, Installed = visible, ManifestPolicy = installed.Packages, PresetDefinition = plan.PresetDefinition, UpdatedUtc = DateTime.UtcNow }, cancellationToken);
     }

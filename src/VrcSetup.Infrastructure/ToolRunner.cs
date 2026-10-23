@@ -11,12 +11,13 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
 {
     public async Task<ToolResult> RunAsync(string executable, IEnumerable<string> arguments, string? workingDirectory = null,
         IProgress<OperationEvent>? progress = null, string phase = "Tool", CancellationToken cancellationToken = default, TimeSpan? timeout = null,
-        string? logFile = null)
+        string? logFile = null, string? standardInput = null)
     {
         if (commandOverride is not null) return await commandOverride(executable, arguments.ToArray(), cancellationToken);
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        start.RedirectStandardInput = standardInput is not null;
         diagnostics?.Write(phase, "Starting " + Path.GetFileName(executable));
         using var timeoutSource = new CancellationTokenSource(timeout ?? TimeSpan.FromMinutes(10));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
@@ -24,6 +25,7 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
         try { if (!process.Start()) throw new IOException($"Could not start {executable}."); }
         catch (System.ComponentModel.Win32Exception error) { throw new IOException($"Cannot start {Path.GetFileName(executable)}. Check its installation and runtime prerequisites.", error); }
         using var guard = new WindowsJob(process);
+        if (standardInput is not null) { await process.StandardInput.WriteAsync(standardInput); process.StandardInput.Close(); }
         var stdout = new StringBuilder(); var stderr = new StringBuilder();
         var outputTask = Capture(process.StandardOutput, stdout);
         var errorTask = Capture(process.StandardError, stderr);
@@ -121,6 +123,16 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
                     if (DateTime.UtcNow > deadline) throw new TimeoutException("Timed out waiting for the shared VPM lock.");
                 }
                 ToolResult result = new(1, "", "");
+                if (translated is not null && argv is ["remove", "package", var removing, "-p", _])
+                {
+                    // Ask the bundled resolver for its proposal and decline it.
+                    // Never force a removal which VPM itself reports as conflicting.
+                    var preview = RunAsync(executable, command.Where(x => x != "-y"), project,
+                        cancellationToken: cancellationToken, standardInput: "n\n").GetAwaiter().GetResult();
+                    if (Regex.IsMatch(preview.Output, @"(?i)conflicts? with"))
+                        return new ToolResult(1, "Package removal blocked: " + removing, preview.Output);
+                    if (!preview.Output.Contains("Do you want to apply", StringComparison.Ordinal)) return preview;
+                }
                 for (var attempt = 0; attempt < 4; attempt++)
                 {
                     result = RunAsync(executable, command, project, progress, "VPM", cancellationToken).GetAwaiter().GetResult();
@@ -141,6 +153,7 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
         ["resolve", "project", var path] => ["resolve", "-p", path],
         ["add", "package", var package, "-p", var path] when package.LastIndexOf('@') is var at && at > 0 =>
             ["install", package[..at], package[(at + 1)..], "-p", path, "-y", "--prerelease"],
+        ["add", "package", var package, "-p", var path] => ["install", package, "-p", path, "-y"],
         ["add", "project", _] => null,
         _ => throw new NotSupportedException("Unsupported package-tool command.")
     };

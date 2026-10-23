@@ -14,3 +14,7 @@ The script covers registered checkouts inside this project's canonical folder. I
 Keep only essential final evidence per task. Do not create repeated full self-contained runtimes for intermediate UI attempts. Reuse a disposable output directory or clean obsolete versions at the verified boundary. Before retaining a large unresolved fixture, state its purpose and removal condition in its result report.
 
 Idle storage target: below 1 GiB; investigate growth above 2 GiB. Build/test peaks are temporary. Global NuGet/SDK caches are outside this cleanup and must not be duplicated into the project just to preserve an old run.
+
+Installed startup maintenance removes recognized obsolete `previous`/`failed` installation siblings, preserving the current marker's rollback, foreign folders and linked paths. Source/portable runs do not clean an installed application. Successful component preparation retains only archives referenced by the current manifest; unrelated files and locked downloads are preserved.
+
+Application diagnostics share a bounded daily JSONL with action IDs. Operation logs keep the useful tail (2 MiB limit); duplicated informational Unity output stays in its separate process log. Closed known logs/reports share a 20 MiB budget, with exclusive-access checks protecting active writers. Diagnostic export prioritizes recent failed operations and valid compact report JSON, includes related process logs, and omits an updater error superseded by a newer successful result. The existing 4 MiB export budget remains in effect.

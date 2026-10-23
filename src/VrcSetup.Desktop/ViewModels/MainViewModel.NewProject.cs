@@ -8,31 +8,37 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     private bool editingNewProject;
-    [ObservableProperty] public partial bool IsCreatingProject { get; set; }
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(CreateConfiguredProjectCommand))] public partial bool IsCreatingProject { get; set; }
     partial void OnIsCreatingProjectChanged(bool value) => NotifyApplicationStatus();
     internal Func<OperationPlan, Task>? EnqueueNewProjectForVerification { get; set; }
-    [ObservableProperty] public partial string NewProjectName { get; set; } = "";
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(CreateConfiguredProjectCommand))] public partial string NewProjectName { get; set; } = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(NewProjectNameErrorVisibility))] public partial string NewProjectNameError { get; set; } = "";
+    public Visibility NewProjectNameErrorVisibility => NewProjectNameError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    partial void OnNewProjectNameChanged(string value) => NewProjectNameError = value.Length == 0 ? "" : ProjectRules.NameError(value.Trim()) ?? "";
+    public bool CanCreateConfiguredProject => !IsCreatingProject && ProjectRules.NameError(NewProjectName.Trim()) is null;
     [ObservableProperty] public partial string NewProjectPlatform { get; set; } = "StandaloneWindows64";
     public DisplayOption[] NewProjectPlatforms => [new("StandaloneWindows64", "Windows"), new("Android", "Android / Quest"), new("iOS", "iOS")];
     public Visibility NewProjectVisibility => editingNewProject ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility PresetCarouselVisibility => editingNewProject ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility PresetCarouselVisibility => Visibility.Visible;
     public Visibility NewProjectSavePresetVisibility => editingNewProject && PresetDirty ? Visibility.Visible : Visibility.Collapsed;
-    public async Task BeginNewProjectAsync() => await IndependentAction(async () =>
+    public Task BeginNewProjectAsync() => IndependentAction(BeginNewProjectCoreAsync);
+    private async Task BeginNewProjectCoreAsync()
     {
         if (!await NavigateAsync("NewProject")) return;
         editingNewProject = true; editingImportPreset = true;
         NewProjectName = ""; LoadEditingPreset(); LibraryFilter = ""; FavoritesOnly = false;
         NotifyPackageContext();
-    });
+    }
     private void NotifyPackageContext()
     {
         OnPropertyChanged(nameof(NewProjectVisibility)); OnPropertyChanged(nameof(UseImportPresetVisibility));
         OnPropertyChanged(nameof(PresetCarouselVisibility)); OnPropertyChanged(nameof(NewProjectSavePresetVisibility));
         OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility));
     }
-    [RelayCommand] private async Task CreateConfiguredProject()
+    [RelayCommand(CanExecute = nameof(CanCreateConfiguredProject))] private async Task CreateConfiguredProject()
     {
         if (IsCreatingProject) return;
+        if (ProjectRules.NameError(NewProjectName.Trim()) is { } error) { NewProjectNameError = error; return; }
         IsCreatingProject = true;
         try { await CreateEmptyProjectAsync(NewProjectName.Trim(), EditingPreset, NewProjectPlatform, new(presetWorking)); }
         finally { IsCreatingProject = false; }
@@ -74,7 +80,7 @@ public sealed partial class MainViewModel
         if (request == workspaceRequest && page == CurrentPage)
         {
             presetBaseline = new(presetWorking); RenderPreset();
-            await NavigateAsync("Activity"); ShowSavedFeedback("Project creation started");
+            await NavigateAsync("Projects"); ShowSavedFeedback("Project creation started");
         }
     });
 }
