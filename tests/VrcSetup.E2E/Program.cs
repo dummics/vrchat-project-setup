@@ -3,6 +3,11 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+if (args is ["--verify-package-mix", var mixEditor, var mixEvidence])
+{
+    await PackageMixVerification.RunAsync(mixEditor, mixEvidence);
+    return;
+}
 
 if (args is ["--verify-unity-import", var importEditor, var importEvidence])
 {

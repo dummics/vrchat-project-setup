@@ -16,8 +16,9 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
     }
     private async Task PrepareCoreAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
-        if (plan.Creation is not null)
+        if (plan.Creation is not null || plan.RecoverySource is { EmptyProject: true })
         {
+            await UnityProjectTemplate.EnsureBuiltinModulesAsync(plan.Path, plan.UnityEditorPath, cancellationToken);
             var file = Path.Combine(plan.Path, "Packages", "manifest.json");
             var manifest = JsonNode.Parse(await File.ReadAllTextAsync(file, cancellationToken))?.AsObject() ?? throw new IOException("Unity package manifest is invalid.");
             var dependencies = manifest["dependencies"]?.AsObject() ?? new JsonObject();
@@ -81,6 +82,7 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
                 await AtomicFile.WriteJsonAsync(Path.Combine(stage, "Packages", "manifest.json"), new { dependencies = new Dictionary<string, string>() }, cancellationToken);
                 await File.WriteAllTextAsync(Path.Combine(stage, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: " + (version.Length > 0 ? version : UnityEditorDiscovery.PinnedVersion) + "\n", cancellationToken);
             }
+            if (request.EmptyProject) await UnityProjectTemplate.EnsureBuiltinModulesAsync(stage, request.UnityEditorPath, cancellationToken);
             await AtomicFile.WriteJsonAsync(Path.Combine(stage, ".vrcsetup", "state.json"), new SetupState
             { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
             Directory.Move(stage, request.TargetPath);

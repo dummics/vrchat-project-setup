@@ -21,7 +21,7 @@ public sealed partial class MainViewModel
     }
     private bool RequireImportsIdle()
     {
-        if (IsBusy || IsApplyingPackages || IsInstallingUpdate)
+        if (IsBusy || IsCreatingProject || IsApplyingPackages || IsInstallingUpdate)
         {
             ErrorMessage = UiText.Text("Wait for the current operation to finish, then try again.");
             Status = ErrorMessage; return false;

@@ -4,8 +4,9 @@ public sealed partial class MainViewModel
 {
     private async Task<bool> ResolvePresetChangesAsync(string? name = null)
     {
-        if (!PresetDirty) return true;
-        var choice = await ui.ResolveChangesAsync("Unsaved packages", editingNewProject ? "Keep editing" : "Save and leave");
+        // New-project choices are a disposable copy, never an unsaved preset.
+        if (editingNewProject || !PresetDirty) return true;
+        var choice = await ui.ResolveChangesAsync("Unsaved packages", "Save and leave");
         if (choice is null) return false;
         if (choice == "Save")
         {

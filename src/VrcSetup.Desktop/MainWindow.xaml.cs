@@ -31,12 +31,12 @@ public sealed partial class MainWindow : Window
             closePromptPending = true;
             try
             {
-                if (page.ViewModel.IsBusy || page.ViewModel.HasActiveImports)
+                if (page.ViewModel.IsBusy || page.ViewModel.IsCreatingProject || page.ViewModel.HasActiveImports)
                 {
                     if (await page.ConfirmAsync("Imports running", "Cancel running operations and preserve recovery information? Close again after they stop.", "Cancel operations"))
                     { page.ViewModel.CancelOperationCommand.Execute(null); page.ViewModel.CancelAllImports(); }
                 }
-                else if (await page.ViewModel.ConfirmCloseAsync() && !page.ViewModel.IsBusy && !page.ViewModel.HasActiveImports)
+                else if (await page.ViewModel.ConfirmCloseAsync() && !page.ViewModel.IsBusy && !page.ViewModel.IsCreatingProject && !page.ViewModel.HasActiveImports)
                 {
                     await page.ViewModel.FinishImportsAsync();
                     closingConfirmed = true;
@@ -49,7 +49,7 @@ public sealed partial class MainWindow : Window
     public async Task<bool> InstallUpdateAsync(string installer, string result)
     {
         var vm = Page.ViewModel;
-        if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
+        if (vm.IsBusy || vm.IsCreatingProject || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
         vm.IsInstallingUpdate = true;
         try
         {
@@ -72,7 +72,7 @@ public sealed partial class MainWindow : Window
     public async Task<bool> RestartForLanguageAsync()
     {
         var vm = Page.ViewModel;
-        if (vm.IsBusy || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
+        if (vm.IsBusy || vm.IsCreatingProject || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
         vm.IsInstallingUpdate = true; // Reserve the restart before awaiting queue shutdown.
         try
         {

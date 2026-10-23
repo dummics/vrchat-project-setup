@@ -1,5 +1,7 @@
 # Desktop concurrency
 
+The bottom status opens a live operations flyout, including concurrent creation/import jobs, current project/package apply steps and update work. Opening it never navigates away from an editor or triggers an unsaved-preset decision. Activity and diagnostic export remain reachable there. New-project planning is also protected from automatic update installation and window closure before its queued job exists.
+
 The UI remains usable while package changes run. Apply executes the staged changes directly without a second review/confirmation dialog. Preparation still validates the plan and target safety before any write. The horizontal progress panel reserves its own row instead of covering navigation, showing the project position, readable package action/name and resolved version. Structured package events keep the current action readable through VPM output; raw tool lines remain in diagnostics. Users can inspect Activity, export diagnostics, edit/save presets, change library layout, refresh projects, prepare another project and enqueue creation/imports for other destinations.
 
 | Work | Coordination |

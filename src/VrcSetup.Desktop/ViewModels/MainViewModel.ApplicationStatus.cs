@@ -20,28 +20,29 @@ public sealed partial class MainViewModel
         try { await Task.Delay(TimeSpan.FromSeconds(4), lifetime.Token); if (sequence == noticeSequence) ApplicationNotice = ""; }
         catch (OperationCanceledException) { }
     }
-    public bool ApplicationWorking => IsApplyingPackages || IsBusy || IsRefreshing || IsInspectingPackage || IsPreparingImport || IsSearchingPackages
+    public bool ApplicationWorking => IsCreatingProject || IsApplyingPackages || IsBusy || IsRefreshing || IsInspectingPackage || IsPreparingImport || IsSearchingPackages
         || HasActiveImports || IsDownloadingUpdate || IsInstallingUpdate || IsCheckingUpdate;
     public bool ApplicationProgressIndeterminate => !IsDownloadingUpdate || UpdateStatus == "Preparing update…";
     public Visibility ApplicationProgressVisibility => ApplicationWorking ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ApplicationStatusVisibility => ApplicationStatus.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ApplicationStopVisibility => IsBusy && !IsApplyingPackages && !IsPreparingImport ? Visibility.Visible : Visibility.Collapsed;
-    public bool CanUseUpdateAction => MainInteractionEnabled && !IsBusy && !IsApplyingPackages && !IsDownloadingUpdate && !IsCheckingUpdate;
+    public bool CanUseUpdateAction => MainInteractionEnabled && !IsBusy && !IsCreatingProject && !IsApplyingPackages && !IsDownloadingUpdate && !IsCheckingUpdate;
     public string ApplicationStatus
     {
         get
         {
             var parts = new List<string>();
+            if (IsCreatingProject) parts.Add(UiText.Text("Creating project"));
             if (UpdateFailed) parts.Add(UiText.Text("Update failed"));
             if (IsInstallingUpdate) parts.Add(UiText.Text("Installing update"));
             else if (IsDownloadingUpdate) parts.Add(UpdateStatus == "Preparing update…" ? UiText.Text("Preparing update…") : UiText.Text("Downloading update") + $" · {UpdateDownloadPercent}%");
             else if (IsCheckingUpdate) parts.Add(UiText.Text("Checking for updates…"));
             if (IsApplyingPackages) parts.Add(UiText.Text("Applying changes"));
-            else if (IsPreparingImport) parts.Add(UiText.Text("Preparing review…"));
+            else if (IsPreparingImport) parts.Add(UiText.Text("Preparing"));
             if (HasActiveImports)
             {
                 var count = app.Imports.Snapshot().Count(x => x.Active);
-                parts.Add(count == 1 ? UiText.Text("1 import in progress") : string.Format(UiText.Text("{0} imports in progress"), count));
+                parts.Add(string.Format(UiText.Text("{0} projects in progress"), count));
             }
             if (IsInspectingPackage) parts.Add(UiText.Text("Checking packages…"));
             if (IsSearchingPackages) parts.Add(UiText.Text("Searching packages…"));
@@ -63,6 +64,7 @@ public sealed partial class MainViewModel
     }
     private void NotifyApplicationStatus()
     {
+        RefreshRunningOperations();
         OnPropertyChanged(nameof(ApplicationStatus)); OnPropertyChanged(nameof(ApplicationStatusVisibility));
         OnPropertyChanged(nameof(ApplicationWorking)); OnPropertyChanged(nameof(ApplicationProgressVisibility));
         OnPropertyChanged(nameof(ApplicationProgressIndeterminate)); OnPropertyChanged(nameof(ApplicationStopVisibility));

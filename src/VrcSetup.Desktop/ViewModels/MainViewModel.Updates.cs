@@ -85,7 +85,7 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task InstallApplicationUpdate()
     {
         if (availableUpdate is null || IsDownloadingUpdate) return;
-        if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
+        if (IsBusy || IsCreatingProject || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
         { UpdateStatus = "Finish imports and save or revert changes before updating."; return; }
         if (!File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")))
         { UpdateStatus = "Portable copy: download the new version from Releases."; OpenPath(availableUpdate.Page.AbsoluteUri); return; }
@@ -100,7 +100,7 @@ public sealed partial class MainViewModel
             var progress = new SynchronizationProgress<int>(context, value => { if (IsDownloadingUpdate) { UpdateDownloadPercent = value; UpdateStatus = "Downloading update · " + value + "%"; } });
             var folder = Path.Combine(app.Paths.Home, "updates", availableUpdate.Version);
             var installer = await new ApplicationUpdates(client).DownloadAsync(availableUpdate, folder, progress, lifetime.Token, preferFullInstaller ? null : app.Paths.PayloadRoot);
-            if (IsBusy || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
+            if (IsBusy || IsCreatingProject || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
             { UpdateStatus = "Update downloaded. Finish your work, then choose Install update."; return; }
             UpdateStatus = "Restarting to install update…";
             await new AutomaticUpdates(app.Paths).MarkAttemptAsync(availableUpdate.Version, lifetime.Token);

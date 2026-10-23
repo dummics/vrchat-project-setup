@@ -18,6 +18,7 @@ public sealed partial class MainPage
     { if (args.ClickedItem is string name) ViewModel.EditingPreset = name; PresetSelector.Flyout.Hide(); }
     private void NewProjectPresetPicked(object sender, ItemClickEventArgs args)
     { if (args.ClickedItem is string name) ViewModel.EditingPreset = name; NewProjectPresetSelector.Flyout.Hide(); }
+    private void OperationsActivityClicked(object sender, RoutedEventArgs args) => OperationsStatusButton.Flyout.Hide();
     private void PresetChoiceKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs args)
     { if (args.Key == Windows.System.VirtualKey.Enter) PresetSelector.Flyout.Hide(); }
     private void AnimatePresetSelection()

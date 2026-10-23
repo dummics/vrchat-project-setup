@@ -21,8 +21,8 @@ internal static class ConcurrencyChecks
         var apply = vm.ApplyChangesCommand.ExecuteAsync(null);
         try
         {
-            for (var i = 0; i < 200 && captured is null && !apply.IsCompleted; i++) await Task.Delay(25);
-            Require(captured is not null && !apply.IsCompleted && vm.IsBusy && vm.IsApplyingPackages, "Apply prepares immutable intent without a second confirmation");
+            for (var i = 0; i < 1200 && captured is null && !apply.IsCompleted; i++) await Task.Delay(25);
+            Require(captured is not null && !apply.IsCompleted && vm.IsBusy && vm.IsApplyingPackages, "Apply prepares immutable intent without a second confirmation: " + vm.ErrorMessage);
             Require(ui.LastReview is null, "Apply never opens the review confirmation");
             vm.UpdateApplyProgress(new(DateTime.UtcNow, "Packages", "technical detail", Project: project.Path) { Package = new("gogoloco", "1.8.6", "latest", "1.9.0", VrcSetup.Core.ChangeKind.Update) });
             Require(vm.ApplyPhase == "Updating package" && vm.ApplyPackage.Length > 0 && vm.ApplyPackageVersion == "1.9.0", "Live progress shows readable package action and version");

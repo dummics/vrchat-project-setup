@@ -9,6 +9,18 @@ namespace VrcSetup.Tests;
 public sealed class UnityProjectTemplateTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "vrcsetup-template-" + Guid.NewGuid().ToString("N"));
+    [Fact] public async Task VpmScaffoldIncludesUnityModulesWithoutLaunchingTheEditor()
+    {
+        Directory.CreateDirectory(Path.Combine(root, "Packages"));
+        var manifest = Path.Combine(root, "Packages", "manifest.json");
+        await File.WriteAllTextAsync(manifest, """{"dependencies":{"com.unity.modules.physics":"1.0.0","custom.package":"2.3.4"}}""");
+        await UnityProjectTemplate.EnsureBuiltinModulesAsync(root, Path.Combine(root, "Editor", "Unity.exe"));
+        var text = await File.ReadAllTextAsync(manifest);
+        Assert.Contains("com.unity.modules.video", text); Assert.Contains("com.unity.modules.physics2d", text); Assert.Contains("com.unity.modules.uielements", text);
+        Assert.Contains("custom.package", text); Assert.Contains("2.3.4", text);
+        await UnityProjectTemplate.EnsureBuiltinModulesAsync(root, Path.Combine(root, "Editor", "Unity.exe"));
+        Assert.Equal(text, await File.ReadAllTextAsync(manifest));
+    }
     [Fact] public async Task TemplateCopiesOnlySourceFilesAndUsesTheSelectedEditorVersion()
     {
         var archive = Create(("Packages/manifest.json", "{\"dependencies\":{}}"), ("ProjectSettings/TagManager.asset", "fixture"), ("Assets/Scene.unity", "fixture"), ("Library/stale", "cache"));

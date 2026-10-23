@@ -248,6 +248,15 @@ public static class UiSmokeTest
         viewModel.SelectedPackage = viewModel.Packages.First(x => x.Id == "gogoloco");
         await viewModel.TogglePackageCommand.ExecuteAsync(null);
         Require(viewModel.Packages.First(x => x.Id == "gogoloco").Action == "Will be removed", "GUI command stages optional removal");
+        viewModel.IsCreatingProject = true; viewModel.IsApplyingPackages = true;
+        viewModel.ApplyProject = "Progress fixture"; viewModel.ApplyPhase = "Preparing";
+        var operationsButton = (Microsoft.UI.Xaml.Controls.Button)page.FindName("OperationsStatusButton");
+        Require(operationsButton.IsEnabled && viewModel.RunningOperations.Count >= 2 && !viewModel.CanUseUpdateAction, "Status exposes concurrent operations while update installation stays blocked");
+        operationsButton.Flyout.ShowAt(operationsButton); await Task.Delay(180);
+        await Render(page, Path.Combine(artifacts, "running-operations.png"));
+        operationsButton.Flyout.Hide();
+        viewModel.IsCreatingProject = false; viewModel.IsApplyingPackages = false;
+        viewModel.ApplyProject = ""; viewModel.ApplyPhase = "";
         var decisions = new FlowInteraction(page);
         using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
         {
@@ -259,22 +268,31 @@ public static class UiSmokeTest
             flow.IsBusy = false;
             var initialConfigText = await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile);
             var initialImportFile = flow.PackageFile;
-            await flow.BeginNewProjectAsync(); flow.NewProjectName = "Local creation fixture";
+            await flow.BeginNewProjectAsync(); flow.EditingPreset = "Creator renamed"; flow.NewProjectName = "Local creation fixture";
             flow.StagePresetVersion("gogoloco", "latest");
             Require(flow.NewProjectSavePresetVisibility == Visibility.Visible, "Customized creation packages offer saving a separate preset");
             Require(flow.PresetDirty && flow.NewProjectVisibility == Visibility.Visible && flow.PackageFile == initialImportFile, "New project custom packages do not change import drafts");
-            decisions.ReviewResult = false;
+            OperationPlan? creationPlan = null;
+            flow.EnqueueNewProjectForVerification = plan => { creationPlan = plan; return Task.CompletedTask; };
+            decisions.ClearReview();
             await flow.CreateConfiguredProjectCommand.ExecuteAsync(null);
             if (flow.EditorReady)
-                Require(decisions.LastReview?.Projects.Single().Creation?.EmptyProject == true && decisions.LastReview.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest", "New project review receives the customized package policy");
+                Require(creationPlan?.Projects.Single().Creation?.EmptyProject == true && creationPlan.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest" && flow.CurrentPage == "Activity" && !flow.PresetDirty && decisions.LastReview is null, "Custom preset directly queues one-time packages and opens Activity without preset/review prompts");
             else Require(decisions.LastReview is null, "Missing editor selection does not proceed to a creation review");
-            Require(!Directory.Exists(Path.Combine(flow.ProjectsRoot, flow.NewProjectName)), "Cancelled new project review creates no folder");
-            decisions.ReviewResult = null;
+            Require(!Directory.Exists(Path.Combine(flow.ProjectsRoot, flow.NewProjectName)), "Intercepted creation fixture creates no real project folder");
+            flow.EnqueueNewProjectForVerification = null;
             Require(await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile) == initialConfigText, "New project edits do not overwrite a saved preset");
-            decisions.ChangesChoice = "Cancel";
-            Require(!await flow.NavigateAsync("Projects") && flow.CurrentPage == "NewProject", "New project cancellation preserves the custom package selection");
-            decisions.ChangesChoice = "Discard";
-            Require(await flow.NavigateAsync("Projects") && flow.NewProjectVisibility == Visibility.Collapsed, "Discarding new project edits returns to the project library");
+            await flow.NavigateAsync("Projects"); await flow.BeginNewProjectAsync();
+            flow.StagePresetVersion("gogoloco", "latest"); decisions.ChangesChoice = "Cancel";
+            Require(await flow.NavigateAsync("Projects") && flow.NewProjectVisibility == Visibility.Collapsed, "Leaving disposable creation choices never asks to save a preset");
+            await flow.BeginNewProjectAsync(); flow.NewProjectName = flow.Projects[0].Name;
+            flow.StagePresetVersion("gogoloco", "latest"); decisions.ConfirmResult = false;
+            await flow.CreateConfiguredProjectCommand.ExecuteAsync(null);
+            Require(flow.CurrentPage == "NewProject", "Existing project is left untouched when package handoff is declined");
+            decisions.ConfirmResult = true;
+            await flow.CreateConfiguredProjectCommand.ExecuteAsync(null);
+            Require(flow.CurrentPage == "Workspace" && flow.WorkspaceDirty && flow.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "latest", "Existing project opens staged package choices without recreation or applying them");
+            decisions.ChangesChoice = "Discard"; await flow.NavigateAsync("Projects"); decisions.ConfirmResult = false;
             decisions.ChangesChoice = null;
             var languageBefore = flow.SelectedLanguage;
             flow.SelectedLanguage = UiText.CurrentLanguage == "en" ? "it" : "en";

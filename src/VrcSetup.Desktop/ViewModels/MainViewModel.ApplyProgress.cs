@@ -15,6 +15,10 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial string ApplyPackage { get; set; } = "";
     [ObservableProperty] public partial string ApplyPackageVersion { get; set; } = "";
     internal Func<OperationPlan, Task>? BeforePackageApplyForVerification { get; set; }
+    partial void OnApplyPhaseChanged(string value) => NotifyApplicationStatus();
+    partial void OnApplyPackageChanged(string value) => NotifyApplicationStatus();
+    partial void OnApplyPackageVersionChanged(string value) => NotifyApplicationStatus();
+    partial void OnApplyProjectChanged(string value) => NotifyApplicationStatus();
     [ObservableProperty] public partial bool CanCancelApply { get; set; }
     public Visibility ApplyOverlayVisibility => IsApplyingPackages ? Visibility.Visible : Visibility.Collapsed;
     public bool MainInteractionEnabled => !IsInstallingUpdate;

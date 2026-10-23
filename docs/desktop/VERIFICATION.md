@@ -197,6 +197,14 @@ Run the opt-in network check with `dotnet run --project tests/VrcSetup.E2E/VrcSe
 
 Evidence: `.work/artifacts/2026-10-19-pc-compatibility/`. See [VM acceptance](VM-ACCEPTANCE.md) for the remaining clean-machine Unity/user checks and explicit platform limits. No new application build is needed: only tests and verification documentation changed.
 
+## Mixed VPM packages and first Unity compilation (23 October 2026)
+
+`--verify-package-mix <editor> <new-evidence-directory>` is an opt-in E2E mode using an isolated project and the installed VPM client. It resolves and installs SDK Base/Avatars, Resolver, Poiyomi, VRCFury, Modular Avatar, AudioLink and Gesture Manager, verifies installed versions and setup completion, then explicitly launches Unity batch mode to compile a probe. The test does not add VPM repositories or change owner projects. Normal empty-project creation still does not launch Unity.
+
+The first real run exposed missing built-in Unity module dependencies in the extracted Hub template. New-project preparation now adds the modules supplied with the selected editor, preserving existing manifest entries; recovery of an empty-project setup also performs this preparation. The repeated run passed with Unity 2022.3.22f1, all eight requested packages plus dependencies, exit code 0 and the compiled probe marker. Evidence: `.work/artifacts/2026-10-23-creation-flow/package-mix-fixed/result.json`. This validates that combination, not every possible third-party package or PC.
+
+Native UI verification additionally covers custom-preset one-time creation without a save/review prompt, unchanged saved configuration, existing-project handoff without recreation or automatic apply, disposable navigation and the concurrent-operations flyout.
+
 ## Empty project creation and distinct import flow (20 October 2026)
 
 The supplied Unity log ended in `ArgumentException: Empty import plan` inside `VrcSetupPostImport.RunImport`; Unity's script compiler had succeeded. The empty-project path must not launch Unity at all. It now creates source files from the selected editor's installed 3D template (or a minimal source scaffold when unavailable), installs/verifies packages through native VPM and marks setup complete. Empty-project recovery preserves assets and does not request a source archive. Completion reconciliation also checks the recorded project identity.
