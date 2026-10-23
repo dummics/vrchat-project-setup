@@ -20,10 +20,26 @@ public sealed class PackagePolicyConverter : JsonConverter<Dictionary<string, st
         using var document = JsonDocument.ParseValue(ref reader);
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (document.RootElement.ValueKind == JsonValueKind.Array)
-            foreach (var value in document.RootElement.EnumerateArray()) result[value.GetString()!] = "latest";
+            foreach (var value in document.RootElement.EnumerateArray())
+            {
+                if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString())) throw new JsonException("Invalid legacy package choice.");
+                result[value.GetString()!] = "latest";
+            }
         else if (document.RootElement.ValueKind == JsonValueKind.Object)
             foreach (var entry in document.RootElement.EnumerateObject())
-                result[entry.Name] = entry.Value.ValueKind == JsonValueKind.String ? entry.Value.GetString()! : entry.Value.GetProperty("version").GetString()!;
+            {
+                string? version = null;
+                if (entry.Value.ValueKind == JsonValueKind.String) version = entry.Value.GetString();
+                else if (entry.Value.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var property in entry.Value.EnumerateObject())
+                        if (property.Name.Equals("version", StringComparison.OrdinalIgnoreCase) && property.Value.ValueKind == JsonValueKind.String)
+                            version = property.Value.GetString();
+                }
+                if (string.IsNullOrWhiteSpace(entry.Name) || string.IsNullOrWhiteSpace(version)) throw new JsonException("Invalid package version policy.");
+                result[entry.Name] = version;
+            }
+        else throw new JsonException("Unsupported package policy format.");
         return result;
     }
     public override void Write(Utf8JsonWriter writer, Dictionary<string, string> value, JsonSerializerOptions options)

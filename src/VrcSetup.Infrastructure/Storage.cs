@@ -107,6 +107,12 @@ public sealed class ConfigurationStore(AppPaths paths)
         if (File.Exists(paths.ConfigFile))
         {
             var config = await AtomicFile.ReadJsonAsync<AppConfiguration>(paths.ConfigFile, cancellationToken) ?? throw new IOException("Configuration is empty.");
+            if (config.SchemaVersion < 2)
+            {
+                var migration = Path.Combine(paths.Home, "migration"); Directory.CreateDirectory(migration);
+                var snapshot = Path.Combine(migration, "config-schema-" + config.SchemaVersion + "-" + AtomicFile.Hash(paths.ConfigFile) + ".json");
+                if (!File.Exists(snapshot)) File.Copy(paths.ConfigFile, snapshot);
+            }
             Normalize(config); config.Revision = AtomicFile.Hash(paths.ConfigFile); return config;
         }
         var legacy = paths.AllowLegacyImport ? paths.FindLegacyConfiguration() : null;
@@ -189,6 +195,8 @@ public sealed class ConfigurationStore(AppPaths paths)
 
     private static void Normalize(AppConfiguration config)
     {
+        if (config.SchemaVersion > 2) throw new IOException("These settings were saved by a newer app. Update the app before saving changes.");
+        if (config.PackagePresets?.Any(x => x.Value is null) == true) throw new IOException("A saved preset is incomplete. The original settings have been preserved.");
         config.SchemaVersion = 2;
         config.VpmPackages = new(config.VpmPackages ?? [], StringComparer.OrdinalIgnoreCase);
         config.PackagePresets = new(config.PackagePresets ?? [], StringComparer.OrdinalIgnoreCase);

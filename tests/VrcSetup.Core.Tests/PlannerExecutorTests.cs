@@ -14,7 +14,7 @@ public sealed class PlannerExecutorTests
         var events = new List<OperationEvent>();
         var report = await new ProjectExecutor(workspace, new MemoryDriver(workspace)).ApplyAsync(new("progress", DateTime.UtcNow, [project]), new CaptureProgress(events));
         Assert.True(report.Success);
-        var package = Assert.Single(events.Where(x => x.Package?.Id == "tool"));
+        var package = Assert.Single(events, x => x.Package?.Id == "tool");
         Assert.Equal(project.Path, package.Project); Assert.Equal("1.1.0", package.Package!.ResolvedVersion);
         Assert.Equal(project.Changes.Single(x => x.Id == "tool").Kind, package.Package.Kind);
     }
