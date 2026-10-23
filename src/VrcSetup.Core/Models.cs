@@ -133,7 +133,10 @@ public enum ChangeKind { Add, Update, Remove, Keep }
 public sealed record PackageChange(string Id, string? InstalledVersion, string? RequestedVersion, string? ResolvedVersion, ChangeKind Kind);
 public enum OperationStatus { Completed, CompletedWithWarnings, Failed, Cancelled, Skipped, Unchanged }
 public enum EventSeverity { Info, Warning, Error }
-public sealed record OperationEvent(DateTime Timestamp, string Phase, string Message, EventSeverity Severity = EventSeverity.Info, string? Project = null, string? RawMessage = null);
+public sealed record OperationEvent(DateTime Timestamp, string Phase, string Message, EventSeverity Severity = EventSeverity.Info, string? Project = null, string? RawMessage = null)
+{
+    public PackageChange? Package { get; init; }
+}
 public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null);
 public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOutcome[] Results, string[] NotProcessed, string? ReportFile = null)
 {

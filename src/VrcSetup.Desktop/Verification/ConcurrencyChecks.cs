@@ -15,12 +15,19 @@ internal static class ConcurrencyChecks
         var before = await File.ReadAllTextAsync(manifest);
         await vm.OpenProjectsAsync([project]);
         vm.StageWorkspaceVersion("gogoloco", "latest");
-        ui.PendingReview = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        VrcSetup.Core.OperationPlan? captured = null;
+        vm.BeforePackageApplyForVerification = plan => { captured = plan; return ready.Task; };
         var apply = vm.ApplyChangesCommand.ExecuteAsync(null);
         try
         {
-            for (var i = 0; i < 200 && ui.LastReview is null && !apply.IsCompleted; i++) await Task.Delay(25);
-            Require(ui.LastReview is not null && !apply.IsCompleted && vm.IsBusy && vm.IsApplyingPackages, "Apply holds immutable reviewed intent while its worker is pending");
+            for (var i = 0; i < 200 && captured is null && !apply.IsCompleted; i++) await Task.Delay(25);
+            Require(captured is not null && !apply.IsCompleted && vm.IsBusy && vm.IsApplyingPackages, "Apply prepares immutable intent without a second confirmation");
+            Require(ui.LastReview is null, "Apply never opens the review confirmation");
+            vm.UpdateApplyProgress(new(DateTime.UtcNow, "Packages", "technical detail", Project: project.Path) { Package = new("gogoloco", "1.8.6", "latest", "1.9.0", VrcSetup.Core.ChangeKind.Update) });
+            Require(vm.ApplyPhase == "Updating package" && vm.ApplyPackage.Length > 0 && vm.ApplyPackageVersion == "1.9.0", "Live progress shows readable package action and version");
+            vm.UpdateApplyProgress(new(DateTime.UtcNow, "VPM", "raw output", Project: project.Path));
+            Require(vm.ApplyPhase == "Updating package" && vm.ApplyPackageVersion == "1.9.0", "VPM chatter preserves readable package progress");
             vm.StageWorkspaceVersion("gogoloco", "1.0.0");
             Require(vm.Packages.First(x => x.Id == "gogoloco").SelectedVersion == "latest", "The editor being applied cannot mutate its captured intent");
             Require(await vm.NavigateAsync("Activity") && vm.CurrentPage == "Activity", "Activity remains reachable during package apply");
@@ -36,12 +43,12 @@ internal static class ConcurrencyChecks
             var confirmations = ui.Confirmations;
             await vm.ResetSettingsCommand.ExecuteAsync(null);
             Require(ui.Confirmations == confirmations && vm.IsBusy && !vm.CanUseUpdateAction, "Reset and update remain excluded while package work is active");
-            Require(ui.LastReview!.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest", "Concurrent preset changes do not rewrite the reviewed project policy");
+            Require(captured!.Projects.Single().DesiredPolicy.GetValueOrDefault("gogoloco") == "latest", "Concurrent preset changes do not rewrite the captured project policy");
         }
         finally
         {
-            ui.PendingReview.TrySetResult(false);
-            await apply; ui.PendingReview = null;
+            vm.CancelApplyCommand.Execute(null); ready.TrySetResult(true);
+            await apply; vm.BeforePackageApplyForVerification = null;
         }
         Require(!vm.IsBusy && !vm.IsApplyingPackages && vm.CurrentPage == "Presets", "Late package completion preserves the user's current page and clears busy state");
         Require(await File.ReadAllTextAsync(manifest) == before, "Concurrency review fixture never changes project files");

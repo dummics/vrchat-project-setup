@@ -5,6 +5,19 @@ namespace VrcSetup.Tests;
 
 public sealed class PlannerExecutorTests
 {
+    private sealed class CaptureProgress(List<OperationEvent> events) : IProgress<OperationEvent>
+    { public void Report(OperationEvent value) => events.Add(value); }
+    [Fact] public async Task PackageExecutionPublishesStructuredActionAndVersion()
+    {
+        var workspace = new MemoryWorkspace();
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var events = new List<OperationEvent>();
+        var report = await new ProjectExecutor(workspace, new MemoryDriver(workspace)).ApplyAsync(new("progress", DateTime.UtcNow, [project]), new CaptureProgress(events));
+        Assert.True(report.Success);
+        var package = Assert.Single(events.Where(x => x.Package?.Id == "tool"));
+        Assert.Equal(project.Path, package.Project); Assert.Equal("1.1.0", package.Package!.ResolvedVersion);
+        Assert.Equal(project.Changes.Single(x => x.Id == "tool").Kind, package.Package.Kind);
+    }
     [Fact] public async Task EmptyProjectHasNoSourceArchiveButKeepsPackagePlanning()
     {
         var root = Path.Combine(Path.GetTempPath(), "vrcsetup-empty-" + Guid.NewGuid().ToString("N"));

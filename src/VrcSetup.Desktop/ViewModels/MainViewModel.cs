@@ -328,17 +328,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         applyingSession = source;
         using var cancellation = new CancellationTokenSource(); operation = cancellation;
         IsApplyingPackages = true; IsBusy = true; CanCancelApply = true;
-        ApplyProject = ""; ApplyPosition = $"{session.Projects.Length} projects"; ApplyPhase = "Preparing review";
+        ApplyProject = ""; ApplyPosition = ""; ApplyPackage = ""; ApplyPackageVersion = ""; ApplyPhase = "Preparing";
         try
         {
             var busy = extraImports.Length == 0 ? [] : await Task.Run(() => source.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
             if (busy.Length > 0) throw new ProjectsInUseException(busy);
             var plan = await Task.Run(() => app.Planner.PlanBulkAsync(source.Projects.Select(x => x.Path), selected, choices, exact, removed, targets, preset, extraImports, cancellation.Token));
             cancellation.Token.ThrowIfCancellationRequested();
-            if (!await ui.ReviewAsync(plan)) return;
+            if (BeforePackageApplyForVerification is { } ready) await ready(plan);
             cancellation.Token.ThrowIfCancellationRequested();
             if (ProjectImportsActive(plan.Projects.Select(x => x.Path))) return;
-            applyingProjects = plan.Projects; ApplyPhase = "Starting changes";
+            applyingProjects = plan.Projects; ApplyPhase = "Preparing";
             var report = await Run(plan, cancellation);
             if (report.Success)
             {

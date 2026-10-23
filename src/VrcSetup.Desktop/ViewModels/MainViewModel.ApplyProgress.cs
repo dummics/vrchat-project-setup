@@ -12,6 +12,9 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial string ApplyProject { get; set; } = "";
     [ObservableProperty] public partial string ApplyPhase { get; set; } = "";
     [ObservableProperty] public partial string ApplyPosition { get; set; } = "";
+    [ObservableProperty] public partial string ApplyPackage { get; set; } = "";
+    [ObservableProperty] public partial string ApplyPackageVersion { get; set; } = "";
+    internal Func<OperationPlan, Task>? BeforePackageApplyForVerification { get; set; }
     [ObservableProperty] public partial bool CanCancelApply { get; set; }
     public Visibility ApplyOverlayVisibility => IsApplyingPackages ? Visibility.Visible : Visibility.Collapsed;
     public bool MainInteractionEnabled => !IsInstallingUpdate;
@@ -23,12 +26,22 @@ public sealed partial class MainViewModel
         if (!CanCancelApply) return;
         CanCancelApply = false; ApplyPhase = "Stopping safely · waiting for recovery"; operation?.Cancel();
     }
-    private void UpdateApplyProgress(OperationEvent value)
+    internal void UpdateApplyProgress(OperationEvent value)
     {
         if (!IsApplyingPackages) return;
         if (value.Project is { } path && Array.FindIndex(applyingProjects, x => x.Path.Equals(path, StringComparison.OrdinalIgnoreCase)) is var index && index >= 0)
-        { ApplyProject = applyingProjects[index].Name; ApplyPosition = $"Project {index + 1} of {applyingProjects.Length}"; }
+        { ApplyProject = applyingProjects[index].Name; ApplyPosition = string.Format(UiText.Text("Project {0} of {1}"), index + 1, applyingProjects.Length); }
         if (!CanCancelApply && value.Phase != "Recovery") return;
+        if (value.Package is { } package)
+        {
+            ApplyPhase = package.Kind switch { ChangeKind.Add => "Adding package", ChangeKind.Remove => "Removing package", _ => "Updating package" };
+            ApplyPackage = PackageDisplayName(package.Id);
+            ApplyPackageVersion = package.Kind == ChangeKind.Remove ? package.InstalledVersion ?? "" : package.ResolvedVersion ?? package.RequestedVersion ?? "";
+            return;
+        }
+        // Tool output stays in logs; preserve the readable current package through VPM chatter.
+        if (value.Phase == "VPM") return;
+        ApplyPackage = ""; ApplyPackageVersion = "";
         ApplyPhase = value.Phase switch
         {
             "Backup" => "Creating backup", "Prepare" => "Preparing project", "Packages" or "VPM" => "Updating packages",

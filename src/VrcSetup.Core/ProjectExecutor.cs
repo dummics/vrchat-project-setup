@@ -79,7 +79,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     if (project.RequiresUnityBatch && workspace.IsBusy(project.Path)) throw new IOException("Unity opened the project before the file import. Close Unity and try again.");
-                    Emit(phase, $"{change.Kind}: {change.Id}{(change.ResolvedVersion is null ? "" : " @ " + change.ResolvedVersion)}");
+                    progress?.Report(new OperationEvent(DateTime.UtcNow, phase, $"{change.Kind}: {change.Id}{(change.ResolvedVersion is null ? "" : " @ " + change.ResolvedVersion)}", Project: project.Path) { Package = change });
                     var result = await driver.ChangePackageAsync(project.Path, change, progress, cancellationToken);
                     if (ProjectRules.ToolFailed(result, change.Kind == ChangeKind.Remove ? null : change.Id)) throw new IOException($"Package operation failed: {change.Id}. {result.Output}");
                 }
