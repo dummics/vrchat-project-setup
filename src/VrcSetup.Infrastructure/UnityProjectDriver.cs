@@ -5,7 +5,7 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, ProjectWorkspace workspace) : IProjectDriver
+public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, ProjectWorkspace workspace, bool registerProjects = true) : IProjectDriver
 {
     private static readonly SemaphoreSlim preparation = new(1);
     public async Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
@@ -203,6 +203,11 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
     }
     public async Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
+        if (!registerProjects)
+        {
+            progress?.Report(new(DateTime.UtcNow, "VCC", "Project registration skipped for isolated verification.", EventSeverity.Info, project));
+            return true;
+        }
         var result = await runner.VpmAsync(["add", "project", project], progress: progress, cancellationToken: cancellationToken);
         return !ProjectRules.ToolFailed(result) && !Regex.IsMatch(result.Output, @"(?im)\b(ERR|ERROR)\b");
     }

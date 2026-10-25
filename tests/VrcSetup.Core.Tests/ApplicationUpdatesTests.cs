@@ -36,6 +36,13 @@ public sealed class ApplicationUpdatesTests
         Assert.Equal("1.1.0-beta.1", ApplicationUpdates.SelectRelease(json, "0.2.0-beta.7", true)!.Version);
         Assert.Null(ApplicationUpdates.SelectRelease(json, "1.0.0", false));
     }
+    [Fact] public void StableReplacesSameSeriesBetaAndNewerBetaRemainsOptIn()
+    {
+        var json = JsonSerializer.Serialize(new[] { Release("0.2.5", beta: false), Release("0.2.5-beta.9"), Release("0.2.6-beta.1") });
+        Assert.Equal("0.2.5", ApplicationUpdates.SelectRelease(json, "0.2.5-beta.2", false)!.Version);
+        Assert.Equal("0.2.6-beta.1", ApplicationUpdates.SelectRelease(json, "0.2.5", true)!.Version);
+        Assert.Null(ApplicationUpdates.SelectRelease(json, "0.2.6-beta.1", false));
+    }
     [Theory]
     [InlineData("https://example.org/dummics/vrchat-project-setup")]
     [InlineData("https://github.com/other/repository")]

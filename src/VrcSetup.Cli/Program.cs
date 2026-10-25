@@ -15,7 +15,7 @@ public static class Program
         {
             var command = new CommandLine(args);
             if (command.Has("help") || command.Positionals.FirstOrDefault() is "help" or "/?") { PrintHelp(); return 0; }
-            var app = new VrcSetupApplication(command.Value("home"), new[] { "--developer", "--verbose", "--trace-tools", "--no-catalog-refresh" }.Where(command.Has).ToArray());
+            var app = new VrcSetupApplication(command.Value("home"), new[] { "--developer", "--verbose", "--trace-tools", "--no-catalog-refresh", "--no-vcc-registration" }.Where(command.Has).ToArray());
             if (command.Positionals.Count == 0 && !command.Has("projectpath") || command.Has("wizard"))
             {
                 if (Console.IsInputRedirected || Console.IsOutputRedirected) { PrintHelp(); return 0; }

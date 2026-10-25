@@ -1,5 +1,32 @@
 # VRCSETUP Desktop migration
 
+## Next build: cancellation, quiet recovery and update feedback
+
+The owner subsequently authorized official beta publication with these fixes.
+Cancel import is visible
+on every collapsed active row and gives immediate Cancelling feedback. Failed
+imports expose Try again on the row and in Activity; interrupted imports retain
+Continue and a small warning icon. Startup no longer opens recovery prompts.
+The import page shows the latest attempt per destination (preferring active
+work), while Activity retains earlier attempts. Clearing the newest attempt or
+auto-hiding its success does not resurrect old failures. Details animation is
+outside this pass.
+
+Manual update checks revalidate the cached feed and show their result on the
+clicked footer button. Channel changes invalidate stale offers; new profiles use
+stable-only updates while previous implicit/explicit beta choices are preserved.
+The owner's installed beta.27 matched the newest published release during
+diagnosis, so unpublished source commits could not appear in its updater.
+The proposed import-list redesign uses a compact row with explicit actions and a
+side details panel, approved by the owner; that redesign is not implemented here.
+
+The owner's successful Cain PC/Quest reports were recovery operations: registration
+previously ran only for first-time creation, so successful retries could be absent
+from Creator Companion. Recovery now runs registration too. Eight old verification
+registrations were removed through VPM and both owner projects registered; the live
+VCC API confirmed zero fixture entries and both Cain entries. Verification drivers
+and CLI children explicitly skip VCC registration without changing user settings.
+
 ## 0.2.5-beta.1 local candidate
 
 The 25 October import failures occurred before the avatar archive import: a

@@ -42,13 +42,31 @@ public sealed class FreshMachineTests : IDisposable
     {
         var paths = new AppPaths(Path.Combine(root, "home")); var store = new ConfigurationStore(paths);
         var fresh = await store.LoadAsync();
+        Assert.False(fresh.IncludeBetaUpdates);
         Assert.Equal(5, fresh.VpmPackages.Count);
         Assert.Contains("com.poiyomi.toon", fresh.VpmPackages.Keys); Assert.Contains("com.vrcfury.vrcfury", fresh.VpmPackages.Keys);
         Assert.DoesNotContain(ProjectRules.EasyLogin, fresh.VpmPackages.Keys);
         fresh.VpmPackages[ProjectRules.EasyLogin] = "1.1.1"; fresh.FavoritePackages.Add(ProjectRules.EasyLogin);
+        fresh.IncludeBetaUpdates = true;
         await store.SaveAsync(fresh);
         var reopened = await new ConfigurationStore(paths).LoadAsync();
         Assert.Equal("1.1.1", reopened.VpmPackages[ProjectRules.EasyLogin]); Assert.Contains(ProjectRules.EasyLogin, reopened.FavoritePackages);
+        Assert.True(reopened.IncludeBetaUpdates);
+    }
+    [Theory]
+    [InlineData(null, true)] [InlineData(true, true)] [InlineData(false, false)]
+    public async Task ExistingImplicitAndExplicitUpdateChannelsSurviveUpgradeAndMerge(bool? previous, bool expected)
+    {
+        var paths = new AppPaths(Path.Combine(root, "channel"));
+        Directory.CreateDirectory(paths.Home);
+        var setting = previous is null ? "" : ",\"IncludeBetaUpdates\":" + (previous.Value ? "true" : "false");
+        await File.WriteAllTextAsync(paths.ConfigFile, "{\"SchemaVersion\":2" + setting + "}");
+        var store = new ConfigurationStore(paths);
+        var loaded = await store.LoadAsync(); Assert.Equal(expected, loaded.IncludeBetaUpdates);
+        var edited = loaded.Copy(); edited.Theme = "Light";
+        var merged = await store.MergeAsync(loaded, edited);
+        Assert.Equal(expected, merged.IncludeBetaUpdates);
+        Assert.Equal(expected, (await store.LoadAsync()).IncludeBetaUpdates);
     }
     [Fact] public async Task ExistingProjectPackagesAreIndexedWithoutJoiningTheDefaultPreset()
     {

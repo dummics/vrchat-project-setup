@@ -9,6 +9,19 @@ public sealed class UnityImportDriverTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "vrcsetup-import [PC] & città-" + Guid.NewGuid().ToString("N"));
 
+    [Fact] public async Task IsolatedVerificationNeverRegistersProjectsWithCreatorCompanion()
+    {
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var calls = 0;
+        var runner = new ToolRunner(commandOverride: (_, _, _) => { calls++; throw new IOException("No integration tool may run."); });
+        var driver = new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths), registerProjects: false);
+        Assert.True(await driver.RegisterAsync(Path.Combine(root, "Fixture"), null, default));
+        Assert.Equal(0, calls);
+        var app = new VrcSetupApplication(paths.Home, ["--no-vcc-registration"]);
+        Assert.True(await app.Unity.RegisterAsync(Path.Combine(root, "Fixture"), null, default));
+        Assert.True(new VrcSetup.Cli.CommandLine(["--no-vcc-registration"]).Has("no-vcc-registration"));
+    }
+
     [Theory]
     [InlineData("2.0.0", "1.0.0", "downgrade")]
     [InlineData("2.0.0-beta.3", "1.0.0-beta.2", "downgrade")]

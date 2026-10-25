@@ -140,6 +140,7 @@ public sealed class PlannerExecutorTests
         project = project with { RecoverySource = new("source.unitypackage", project.Name, project.Path, "Unity.exe", "StandaloneWindows64", [], []) };
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
         Assert.True(report.Success); Assert.Equal(0, workspace.Backups); Assert.Equal(0, workspace.Restores); Assert.Null(report.Results.Single().BackupPath);
+        Assert.Equal(1, driver.Registrations);
     }
     [Fact] public async Task PrereleaseSdkMustExistForEveryLinkedComponent()
     {
@@ -189,7 +190,7 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
-    public bool Fail; public int Calls, UnityCalls;
+    public bool Fail; public int Calls, UnityCalls, Registrations;
     public Action? AfterResolve;
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -204,5 +205,5 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
     public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { AfterResolve?.Invoke(); return Task.FromResult(new ToolResult(0, "Resolved", "")); }
     public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
-    public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.FromResult(true);
+    public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Registrations++; return Task.FromResult(true); }
 }

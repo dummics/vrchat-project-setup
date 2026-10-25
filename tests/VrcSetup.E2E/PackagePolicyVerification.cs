@@ -16,7 +16,7 @@ internal static class PackagePolicyVerification
         var paths = new AppPaths(Path.Combine(evidence, "home"), installedCli);
         var runner = new ToolRunner(new DiagnosticLog(paths), paths.VrcGetPath);
         var workspace = new ProjectWorkspace(paths);
-        var driver = new UnityProjectDriver(paths, runner, workspace);
+        var driver = new UnityProjectDriver(paths, runner, workspace, registerProjects: false);
         var store = new ConfigurationStore(paths);
         var config = await store.LoadAsync(token);
         config.UnityEditorPath = editor; config.UnityProjectsRoot = evidence;

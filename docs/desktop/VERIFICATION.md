@@ -1,5 +1,15 @@
 # Desktop migration verification
 
+## Isolated verification and Creator Companion
+
+Verification compositions and CLI children use `--no-vcc-registration`; direct
+Unity driver fixtures use `registerProjects: false`. This is a transient test
+option, never a saved user preference. Real user project creation retains normal
+VPM registration. Package-mix, policy, native project-flow and CLI E2E verification
+must not register disposable projects in the owner's VCC list or rely on cleanup
+after registration. Existing test registrations can be removed with the official
+`vpm remove project` command, which does not delete their project files.
+
 ## Projects regression candidate (23 October 2026, after beta.27)
 
 The supplied tester diagnostic reproduced generated `com.vrcfury.temp` requests and a coherent VPM-selected NDMF prerelease being treated as a failed stable install. The candidate excludes only known generated identities, passes `latest` unpinned to the bundled tool, accepts its coherent resolution and retains exact pin/physical-lock checks. Native field validation blocks missing/invalid names with contextual feedback.

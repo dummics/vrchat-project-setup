@@ -15,7 +15,7 @@ internal static class ProjectsFlowVerification
     {
         if (Directory.Exists(evidence)) throw new IOException("Choose unused verification evidence.");
         Directory.CreateDirectory(evidence);
-        var app = new VrcSetupApplication(Path.Combine(evidence, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery"]);
+        var app = new VrcSetupApplication(Path.Combine(evidence, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery", "--no-vcc-registration"]);
         var config = await app.Configuration.LoadAsync();
         config.UnityEditorPath = editor; config.UnityProjectsRoot = Path.Combine(evidence, "projects"); config.Language = "en";
         Directory.CreateDirectory(config.UnityProjectsRoot);

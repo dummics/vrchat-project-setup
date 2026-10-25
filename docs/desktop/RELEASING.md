@@ -34,6 +34,16 @@ Measured on hosted Windows runners on 18 October 2026: beta.18 build/checks 298 
 
 GitHub Actions owns build, tests and asset publication. Beta/RC/alpha releases are marked prerelease, while final releases are stable. Clients with beta updates disabled keep receiving stable releases only. Manual workflow runs default to draft and must use the source version from the selected ref. No VPS or client Git credentials are needed. The publishing command does not install or update the owner's local app.
 
+Fresh settings default to stable-only updates. Existing explicit preferences and
+the previous implicit beta preference are preserved on upgrade/import. Enabling
+betas selects the newest complete published version across beta and stable;
+a final version supersedes a beta of the same series. Disabling betas never
+forces a downgrade to an older stable version. Release tags/prerelease metadata,
+not separate development branches, determine update eligibility. Manual checks
+revalidate the feed immediately while respecting server retry deadlines;
+scheduled checks retain the ten-minute feed cache. Channel changes discard stale
+offers, and the footer button shows checking/no-update/blocked feedback directly.
+
 ## Build locally
 
 ```powershell

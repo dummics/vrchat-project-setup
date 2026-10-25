@@ -83,7 +83,7 @@ public sealed partial class MainViewModel
                 var missing = job.Plan.Projects.Single().DesiredPolicy.Keys.Where(id => !project.InstalledVersions.ContainsKey(id)).ToArray();
                 var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(job.ProjectPath, ".vrcsetup", "state.json"), lifetime.Token);
                 return (missing.Length == 0 ? UiText.Text("All selected packages are installed.") : UiText.Text("Missing packages: ") + string.Join(", ", missing.Select(PackageCatalog.FriendlyName)))
-                    + "\n" + UiText.Text(marker?.Completed == true ? "Import completed." : "Choose Continue import to finish this project.")
+                    + "\n" + UiText.Text(marker?.Completed == true ? "Import completed." : entry.RepairLabel == "Try again" ? "Choose Try again to retry this import." : "Choose Continue import to finish this project.")
                     + (job.Source.EmptyProject || File.Exists(job.Source.UnityPackagePath) ? "" : "\n" + UiText.Text("You will be asked to choose the original package again."));
             }, lifetime.Token);
         }
@@ -97,7 +97,7 @@ public sealed partial class MainViewModel
         if (!source.EmptyProject && !File.Exists(source.UnityPackagePath))
         {
             var chosen = await ui.PickFileAsync(".unitypackage"); if (chosen is null) return;
-            if (!await ui.ConfirmAsync("Continue import", UiText.Text("Use this package to add missing files? Existing files stay unchanged.") + "\n" + Path.GetFileName(chosen), "Use package")) return;
+            if (!await ui.ConfirmAsync(entry.RepairLabel, UiText.Text("Use this package to add missing files? Existing files stay unchanged.") + "\n" + Path.GetFileName(chosen), "Use package")) return;
             source = source with { UnityPackagePath = chosen };
         }
         var destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, original, lifetime.Token, source.EmptyProject));
@@ -173,9 +173,9 @@ public sealed class UiHistoryEntry : ObservableObject
     public string BackupFile => report?.Results.FirstOrDefault(x => x.Path.Equals(ProjectPath, StringComparison.OrdinalIgnoreCase))?.BackupPath is { Length: > 0 } folder ? Path.Combine(folder, "backup.json") : "";
     public Visibility RestoreVisibility => !Checking && job?.Active != true && File.Exists(BackupFile) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportActionsVisibility => job is { Active: false } && (!job.Source.EmptyProject || job.Recoverable) ? Visibility.Visible : Visibility.Collapsed;
-    public string RepairLabel => job?.Source.EmptyProject == true ? "Retry project creation" : job?.Recoverable == true ? "Continue import" : "Complete missing files";
+    public string RepairLabel => job?.State is "Failed" or "Cancelled" ? "Try again" : job?.Source.EmptyProject == true ? "Retry project creation" : job?.Recoverable == true ? "Continue import" : "Complete missing files";
     public Visibility ProjectActionsVisibility => job?.Active != true && (ProjectPath.Length > 0 || report?.Results.Length > 0) ? Visibility.Visible : Visibility.Collapsed;
-    public string StateGlyph => State is "Failed" or "Partially applied" or "Not applied" ? "⚠ " : "";
+    public string StateGlyph => State is "Failed" or "Interrupted" or "Partially applied" or "Not applied" ? "⚠ " : "";
     public string StateCaption => StateGlyph + UiText.Text(State);
     private string health = "";
     public string Health { get => health; set { if (SetProperty(ref health, value)) OnPropertyChanged(nameof(HealthVisibility)); } }
@@ -202,7 +202,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public string Changes => IsImport || report?.Plan is not { } plan ? "" : string.Join(Environment.NewLine + Environment.NewLine,
         PackageReview.Group(plan).Select(group => (group.Projects.Length == Projects.Length ? "All projects" : string.Join(", ", group.Projects.Select(x => x.Name))) + Environment.NewLine
             + string.Join(Environment.NewLine, group.Changes.Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"))));
-    public string Result => job is not null ? job.Active || job.State is "Completed" or "Recovered" ? UiText.Text(job.Message) : job.Source.EmptyProject ? UserErrors.Message(new IOException(job.Message)) : UiText.Text("The import did not finish. Check the project or continue the import.")
+    public string Result => job is not null ? job.Active || job.State is "Completed" or "Recovered" ? UiText.Text(job.Message) : job.Source.EmptyProject ? UserErrors.Message(new IOException(job.Message)) : UiText.Text(job.State == "Failed" ? "The import failed. Try again." : "The import did not finish. Check the project or continue the import.")
         : string.Join(Environment.NewLine, report!.Results.Select(x => x.Project + ": " + UiText.Text(x.Status switch
         {
             OperationStatus.Completed => "Completed",

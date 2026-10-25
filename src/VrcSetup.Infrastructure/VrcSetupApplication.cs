@@ -26,7 +26,7 @@ public sealed partial class VrcSetupApplication
     {
         this.diagnosticFlags = diagnosticFlags ?? [];
         Paths = new(home); Configuration = new(Paths); Diagnostics = new(Paths); Tools = new(Diagnostics, Paths.VrcGetPath); Projects = new(Paths, Diagnostics);
-        Catalog = new(Paths, Tools, Configuration, allowRepositorySetup: AllowBackgroundCatalogRefresh); Inspection = new(Paths, packageInspector); Unity = new(Paths, Tools, Projects);
+        Catalog = new(Paths, Tools, Configuration, allowRepositorySetup: AllowBackgroundCatalogRefresh); Inspection = new(Paths, packageInspector); Unity = new(Paths, Tools, Projects, registerProjects: !this.diagnosticFlags.Contains("--no-vcc-registration"));
         Projects.Resolve = Unity.ResolveAsync;
         Planner = new(Projects, Catalog); Executor = new(Projects, Unity); Imports = new(this);
     }

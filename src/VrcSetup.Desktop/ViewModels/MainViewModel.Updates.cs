@@ -8,9 +8,9 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     private ApplicationRelease? availableUpdate;
-    [ObservableProperty] public partial bool IsCheckingUpdate { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsCheckingUpdate { get; set; }
     [ObservableProperty] public partial bool CheckUpdatesOnStartup { get; set; } = true;
-    [ObservableProperty] public partial bool IncludeBetaUpdates { get; set; } = true;
+    [ObservableProperty] public partial bool IncludeBetaUpdates { get; set; }
     [ObservableProperty] public partial bool AutomaticUpdateEnabled { get; set; } = true;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsUpdateReady { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool HasApplicationUpdate { get; set; }
@@ -22,14 +22,19 @@ public sealed partial class MainViewModel
     public string UpdateSummary => UpdateFailed ? "Update failed" : IsDownloadingUpdate ? UpdateStatus : IsUpdateReady ? "Ready for next launch" : UpdateStatus.StartsWith("Update checks are temporarily paused") ? UpdateStatus : UpdateStatus.StartsWith("Finish") ? "Finish current work before updating" : UpdateStatus.StartsWith("No published") ? "Up to date" : UpdateStatus.StartsWith("Checking") ? "Checking for updates…" : "";
     partial void OnIsUpdateReadyChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); NotifyApplicationStatus(); }
     public Microsoft.UI.Xaml.Visibility UpdateSummaryVisibility => UpdateSummary.Length == 0 ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
-    partial void OnUpdateStatusChanged(string value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); }
-    partial void OnUpdateFailedChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); }
+    partial void OnUpdateStatusChanged(string value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); OnPropertyChanged(nameof(UpdateLabel)); }
+    partial void OnUpdateFailedChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); OnPropertyChanged(nameof(UpdateLabel)); }
+    partial void OnIncludeBetaUpdatesChanged(bool value)
+    {
+        availableUpdate = null; HasApplicationUpdate = false; IsUpdateReady = false;
+        if (!IsCheckingUpdate && !IsDownloadingUpdate) UpdateStatus = "";
+    }
     [RelayCommand] private Task ShowUpdateDetails() => ui.ShowUpdateInfoAsync(UiText.Text(updateDetails.Length > 0 ? updateDetails : UpdateStatus));
     [RelayCommand] private async Task UpdateAction()
     { if (HasApplicationUpdate) await InstallApplicationUpdate(); else await CheckApplicationUpdatesAsync(true); }
     [RelayCommand] private async Task ContactSupport() => await Guard(ui.ShowContactAsync, allowWhileBusy: true, serialize: false);
     public string AppVersion => ApplicationUpdates.CurrentVersion;
-    public string UpdateLabel => IsDownloadingUpdate ? AppVersion : IsUpdateReady ? "Update ready" : HasApplicationUpdate ? "Update available" : AppVersion;
+    public string UpdateLabel => IsCheckingUpdate ? "Checking for updates…" : UpdateFailed ? "Update failed" : IsDownloadingUpdate ? AppVersion : IsUpdateReady ? "Update ready" : UpdateStatus.StartsWith("Finish", StringComparison.Ordinal) ? "Finish current work" : HasApplicationUpdate ? "Update available" : UpdateStatus.StartsWith("No published", StringComparison.Ordinal) ? "Up to date" : AppVersion;
     [RelayCommand] private Task CheckApplicationUpdates() => CheckApplicationUpdatesAsync(true);
     internal async Task<bool> CheckApplicationUpdatesAsync(bool manual)
     {
@@ -42,7 +47,10 @@ public sealed partial class MainViewModel
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); timeout.CancelAfter(TimeSpan.FromSeconds(12));
             using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
             client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
-            availableUpdate = await new ApplicationUpdates(client, cacheDirectory: Path.Combine(app.Paths.Home, "updates")).CheckAsync(AppVersion, IncludeBetaUpdates, timeout.Token);
+            var includeBeta = IncludeBetaUpdates;
+            var release = await new ApplicationUpdates(client, cacheDirectory: Path.Combine(app.Paths.Home, "updates")).CheckAsync(AppVersion, includeBeta, timeout.Token, forceRefresh: manual);
+            if (includeBeta != IncludeBetaUpdates) { availableUpdate = null; HasApplicationUpdate = false; UpdateStatus = "Update channel changed. Check for updates again."; return false; }
+            availableUpdate = release;
             UpdateFailed = false; updateDetails = "";
             HasApplicationUpdate = availableUpdate is not null;
             UpdateStatus = HasApplicationUpdate ? "Version " + availableUpdate!.Version + " is available" : manual ? "No published update available" : "";
@@ -84,11 +92,14 @@ public sealed partial class MainViewModel
     }
     [RelayCommand] private async Task InstallApplicationUpdate()
     {
-        if (availableUpdate is null || IsDownloadingUpdate) return;
+        var release = availableUpdate;
+        if (release is null || IsDownloadingUpdate) return;
+        if (!IncludeBetaUpdates && new VrcSetup.Core.SemanticVersion(release.Version).IsPrerelease)
+        { availableUpdate = null; HasApplicationUpdate = false; await CheckApplicationUpdatesAsync(true); return; }
         if (IsBusy || IsCreatingProject || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
         { UpdateStatus = "Finish imports and save or revert changes before updating."; return; }
         if (!File.Exists(Path.Combine(app.Paths.PayloadRoot, ".vrcsetup-install.json")))
-        { UpdateStatus = "Portable copy: download the new version from Releases."; OpenPath(availableUpdate.Page.AbsoluteUri); return; }
+        { UpdateStatus = "Portable copy: download the new version from Releases."; OpenPath(release.Page.AbsoluteUri); return; }
         IsDownloadingUpdate = true;
         UpdateDownloadPercent = 0;
         var preferFullInstaller = UpdateFailed;
@@ -98,12 +109,14 @@ public sealed partial class MainViewModel
             using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
             client.Timeout = TimeSpan.FromMinutes(15); client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
             var progress = new SynchronizationProgress<int>(context, value => { if (IsDownloadingUpdate) { UpdateDownloadPercent = value; UpdateStatus = "Downloading update · " + value + "%"; } });
-            var folder = Path.Combine(app.Paths.Home, "updates", availableUpdate.Version);
-            var installer = await new ApplicationUpdates(client).DownloadAsync(availableUpdate, folder, progress, lifetime.Token, preferFullInstaller ? null : app.Paths.PayloadRoot);
+            var folder = Path.Combine(app.Paths.Home, "updates", release.Version);
+            var installer = await new ApplicationUpdates(client).DownloadAsync(release, folder, progress, lifetime.Token, preferFullInstaller ? null : app.Paths.PayloadRoot);
+            if (!IncludeBetaUpdates && new VrcSetup.Core.SemanticVersion(release.Version).IsPrerelease)
+            { UpdateStatus = "Update channel changed. Check for updates again."; return; }
             if (IsBusy || IsCreatingProject || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
             { UpdateStatus = "Update downloaded. Finish your work, then choose Install update."; return; }
             UpdateStatus = "Restarting to install update…";
-            await new AutomaticUpdates(app.Paths).MarkAttemptAsync(availableUpdate.Version, lifetime.Token);
+            await new AutomaticUpdates(app.Paths).MarkAttemptAsync(release.Version, lifetime.Token);
             if (!await ui.InstallApplicationUpdateAsync(installer, Path.Combine(app.Paths.Home, "updates", "last-result.json")))
                 UpdateStatus = "Update is ready. Finish current work before restarting.";
         }

@@ -426,7 +426,7 @@
   "This name is reserved by Windows. Choose another project name.": "Questo nome è riservato da Windows. Scegli un altro nome.",
   "Check the highlighted field": "Controlla il campo evidenziato",
   "Project creation stopped": "Creazione progetto interrotta",
-  "Retry project creation": "Riprendi creazione progetto",
+  "Retry project creation": "Riprova creazione progetto",
   "Project created: {0}": "Progetto creato: {0}",
   "Dismiss": "Chiudi",
   "{0} projects": "{0} progetti",
@@ -444,5 +444,11 @@
   "Cannot remove {0}: another package needs it. Keep it, or remove the dependent package first.": "Non puoi rimuovere {0}: serve a un altro pacchetto. Mantienilo oppure rimuovi prima il pacchetto che lo richiede.",
   "{0} was pinned to {1}, but dependencies resolved to {2}. Choose Automatic or compatible package versions, then retry.": "Per {0} hai scelto {1}, ma il resolver ha selezionato {2}. Scegli Automatico oppure versioni compatibili dei pacchetti, poi riprova.",
   "Clear list": "Pulisci lista",
-  "Hide finished imports; keep history and recovery in Activity": "Nascondi gli import terminati; cronologia e recupero restano in Attività"
+  "Hide finished imports; keep history and recovery in Activity": "Nascondi gli import terminati; cronologia e recupero restano in Attività",
+  "Cancelling…": "Annullamento…",
+  "Try again": "Riprova",
+  "Choose Try again to retry this import.": "Premi Riprova per tentare nuovamente l’importazione.",
+  "The import failed. Try again.": "L’importazione non è riuscita. Premi Riprova.",
+  "Finish current work": "Termina il lavoro in corso",
+  "Update channel changed. Check for updates again.": "Canale aggiornamenti cambiato. Verifica nuovamente gli aggiornamenti."
 }

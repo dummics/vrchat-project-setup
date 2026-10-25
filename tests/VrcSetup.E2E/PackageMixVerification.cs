@@ -18,7 +18,7 @@ internal static class PackageMixVerification
         var diagnostics = new DiagnosticLog(paths);
         var runner = new ToolRunner(diagnostics, tool);
         var workspace = new ProjectWorkspace(paths, diagnostics);
-        var driver = new UnityProjectDriver(paths, runner, workspace);
+        var driver = new UnityProjectDriver(paths, runner, workspace, registerProjects: false);
         var store = new ConfigurationStore(paths);
         var config = await store.LoadAsync(timeout.Token);
         config.UnityEditorPath = editor; config.UnityProjectsRoot = evidence;

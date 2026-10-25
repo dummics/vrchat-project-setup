@@ -26,7 +26,6 @@ public interface IDesktopInteraction
     Task ShowUpdateInfoAsync(string details) => ShowErrorAsync(details);
     Task ShowContactAsync() => ShowErrorAsync("Email: contact@dummics.com · Discord: dummics");
     Task<bool> RestartApplicationAsync() => Task.FromResult(false);
-    Task<string?> PromptRecoveryAsync(string name, bool canResume) => Task.FromResult<string?>(null);
     void CloseApplication();
     Task<bool> InstallApplicationUpdateAsync(string installer, string result) => Task.FromResult(false);
     Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
@@ -107,7 +106,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             settingsBaseline = SettingsSnapshot(); NotifySettingsState();
             if (config.Diagnostics.Verbose && app.Configuration.ImportedFrom is { } imported) AppendActivity(new(DateTime.UtcNow, "Migration", "Settings imported: " + imported));
         });
-        if (ErrorMessage.Length == 0) await PromptInterruptedImportAsync();
         if (app.AllowBackgroundUpdateChecks) { await ReadPreviousUpdateResultAsync(); _ = RunPeriodicUpdateChecksAsync(); }
     }
     private void LoadSettings()

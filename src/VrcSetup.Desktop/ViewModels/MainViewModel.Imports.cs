@@ -67,6 +67,12 @@ public sealed partial class MainViewModel
     }
     public bool HasActiveImports => app.Imports.HasActiveJobs;
     public bool ImportsIdle => !HasActiveImports;
+    internal static ImportJob[] VisibleImportJobs(ImportJob[] snapshot, bool hideCompleted) => snapshot
+        .Where(x => !x.Source.EmptyProject)
+        .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
+        .Select(group => group.OrderBy(x => x.Active).ThenBy(x => x.Plan.CreatedUtc).Last())
+        .Where(x => !x.HiddenFromImports && !(hideCompleted && x.State is "Completed" or "Recovered"))
+        .OrderByDescending(x => x.Active).ThenByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)
     {
@@ -76,7 +82,7 @@ public sealed partial class MainViewModel
             Interlocked.Exchange(ref importUpdateQueued, 0);
             var snapshot = app.Imports.Snapshot();
             ObserveCreationResults(snapshot);
-            var jobs = snapshot.Where(x => !x.Source.EmptyProject && !x.HiddenFromImports && !(AutoHideCompletedImports && x.State is ("Completed" or "Recovered"))).OrderByDescending(x => x.Active).ToArray(); var ids = jobs.Select(x => x.Id).ToHashSet();
+            var jobs = VisibleImportJobs(snapshot, AutoHideCompletedImports); var ids = jobs.Select(x => x.Id).ToHashSet();
             for (var index = ImportJobs.Count - 1; index >= 0; index--) if (!ids.Contains(ImportJobs[index].Id)) ImportJobs.RemoveAt(index);
             foreach (var job in jobs)
             {
@@ -141,31 +147,6 @@ public sealed partial class MainViewModel
         NotifyDrafts();
     }
     public void CancelImport(UiImportRow row) => app.Imports.Cancel(row.Id);
-    private async Task PromptInterruptedImportAsync()
-    {
-        if (string.IsNullOrWhiteSpace(ProjectsRoot)) return;
-        var candidates = app.Imports.Snapshot().Where(x => x.Recoverable && !x.Source.EmptyProject)
-            .OrderByDescending(x => File.GetLastWriteTimeUtc(Path.Combine(x.ProjectPath, ".vrcsetup", "state.json"))).ToArray();
-        foreach (var job in candidates)
-        {
-            ImportDestination destination;
-            try { destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, job.Plan.Projects[0].RecoveryOriginalSource ?? job.Source.UnityPackagePath, lifetime.Token)); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { continue; }
-            if (destination.Kind is not (ImportDestinationKind.Recoverable or ImportDestinationKind.Partial)) continue;
-            var choice = await ui.PromptRecoveryAsync(job.Name, destination.Kind == ImportDestinationKind.Recoverable);
-            if (choice == "Resume") { CurrentPage = "Create"; await RecoverImportAsync(new(job)); }
-            else if (choice == "Copy")
-            {
-                CurrentPage = "Create"; StageImportFiles([job.Source.UnityPackagePath]);
-                var name = job.Name + " (copy)"; var index = 2;
-                while (Directory.Exists(Path.Combine(ProjectsRoot, name))) name = job.Name + " (copy " + index++ + ")";
-                ProjectName = name; BuildTarget = job.Source.BuildTarget;
-                creationOverrides = new(job.Plan.Projects[0].DesiredPolicy);
-                if (SelectedImportDraft is { } draft) draft.Packages = new(creationOverrides);
-            }
-            return; // One contextual prompt per launch, never one modal per record.
-        }
-    }
     public void CancelAllImports() => app.Imports.CancelAll();
     public Task FinishImportsAsync() => app.Imports.DisposeAsync().AsTask();
     public void OpenImportLog(UiImportRow row)
@@ -226,6 +207,9 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public string Message => Job.Message.Length > 240 ? Job.Message[..240] + "…" : Job.Message;
     public int Progress => Job.Progress;
     public bool CanCancel => Job.Active && Job.State != "Cancelling";
+    public string CancelLabel => Job.State == "Cancelling" ? "Cancelling…" : "Cancel import";
+    public string RetryLabel => Job.State == "Interrupted" ? "Continue import" : "Try again";
+    public Visibility AttentionVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
     public Visibility CancelVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
     public void Update(ImportJob value) { OnPropertyChanged(nameof(Elapsed)); if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }

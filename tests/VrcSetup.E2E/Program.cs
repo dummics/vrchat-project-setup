@@ -34,9 +34,9 @@ var artifacts = ProjectRules.NormalizePath(arguments.GetValueOrDefault("--artifa
 var editor = ProjectRules.NormalizePath(arguments.GetValueOrDefault("--unity") ?? throw new ArgumentException("--unity is required."));
 Directory.CreateDirectory(artifacts);
 var home = Path.Combine(artifacts, "home"); var projects = Path.Combine(artifacts, "projects"); Directory.CreateDirectory(projects);
-var app = new VrcSetupApplication(home);
+var app = new VrcSetupApplication(home, ["--no-vcc-registration"]);
 var progress = new ImmediateProgress<OperationEvent>(x => Console.WriteLine($"[{x.Phase}] {x.Message}"));
-var checks = new List<object>(); var registered = new List<string>();
+var checks = new List<object>();
 using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(40));
 var token = timeout.Token;
 try
@@ -49,17 +49,17 @@ try
     config.PackagePresets["Foundation"] = new(config.VpmPackages); await app.Configuration.SaveAsync(config, token);
     var cli = typeof(VrcSetup.Cli.Program).Assembly.Location;
     var dotnet = ToolRunner.FindExecutable("dotnet") ?? throw new IOException("dotnet not found.");
-    async Task<ToolResult> Cli(params string[] command) => await app.Tools.RunAsync(dotnet, new[] { cli, "--home", home }.Concat(command), progress: progress, phase: "CLI", cancellationToken: token, timeout: TimeSpan.FromMinutes(20));
+    async Task<ToolResult> Cli(params string[] command) => await app.Tools.RunAsync(dotnet, new[] { cli, "--home", home, "--no-vcc-registration" }.Concat(command), progress: progress, phase: "CLI", cancellationToken: token, timeout: TimeSpan.FromMinutes(20));
     var dry = await Cli("create", package, "-Name", "CLI Native", "-Preset", "Foundation", "-DryRun");
     Check(dry.ExitCode == 0 && !Directory.Exists(Path.Combine(projects, "CLI Native")), "CLI create dry-run leaves destination absent");
     var create = await Cli("create", package, "-Name", "CLI Native", "-Preset", "Foundation");
-    var first = Path.Combine(projects, "CLI Native"); registered.Add(first);
+    var first = Path.Combine(projects, "CLI Native");
     Check(create.ExitCode == 0, "Real CLI UnityPackage creation", create.Output);
     await VerifyProject(first, app);
 
     var directPlan = await app.PlanCreationAsync(package, config, "Shared Core Native", "Foundation", cancellationToken: token);
     var direct = await app.ApplyAsync(directPlan, progress, token);
-    var second = Path.Combine(projects, "Shared Core Native"); registered.Add(second);
+    var second = Path.Combine(projects, "Shared Core Native");
     Check(direct.Success, "Direct shared-engine creation (same client-independent path as GUI)", string.Join("; ", direct.Results.Select(x => x.Message)));
     await VerifyProject(second, app);
     var firstSnapshot = await app.Projects.ReadAsync(first, token); var secondSnapshot = await app.Projects.ReadAsync(second, token);
@@ -82,15 +82,6 @@ catch (Exception error)
     checks.Add(new { Name = "Failure", Passed = false, Message = error.ToString() });
     await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "checks.json"), checks, CancellationToken.None);
     Console.Error.WriteLine(error); Environment.ExitCode = 1;
-}
-finally
-{
-    foreach (var project in registered)
-    {
-        try { await app.Tools.VpmAsync(["remove", "project", project], cancellationToken: CancellationToken.None); }
-        catch (Exception error) { Console.Error.WriteLine("VCC test registration cleanup: " + error.Message); }
-    }
-    // Keep disposable projects for evidence inspection; the root removes them after verification.
 }
 
 void Check(bool passed, string name, string? message = null)

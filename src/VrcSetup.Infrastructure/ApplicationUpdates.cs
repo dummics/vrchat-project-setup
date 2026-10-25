@@ -18,10 +18,11 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
         + Uri.EscapeDataString("App version: " + CurrentVersion + "\n\nWhat did you do?\n\nWhat happened?\n\nWhat did you expect?\n\nOptional screenshot or log excerpt (remove personal details):\n");
     private const long MaximumInstallerBytes = 1024L * 1024 * 1024;
 
-    public async Task<ApplicationRelease?> CheckAsync(string installed, bool includeBeta, CancellationToken token = default)
+    public async Task<ApplicationRelease?> CheckAsync(string installed, bool includeBeta, CancellationToken token = default, bool forceRefresh = false)
     {
         using var request = Request(Source.Feed.AbsoluteUri);
-        var json = await UpdateFeed.ReadAsync(client, request, cacheDirectory, token);
+        if (forceRefresh) request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
+        var json = await UpdateFeed.ReadAsync(client, request, cacheDirectory, token, forceRefresh);
         return json is null ? null : SelectRelease(json, installed, includeBeta, Source);
     }
 

@@ -26,7 +26,7 @@ public static class UiSmokeTest
     {
         artifacts = ProjectRules.NormalizePath(artifacts); Directory.CreateDirectory(artifacts);
         updateRequests = 0;
-        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery"])
+        var application = new VrcSetupApplication(Path.Combine(artifacts, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery", "--no-vcc-registration"])
         { UpdateHttpClientFactory = () => new HttpClient(new RateLimitedUpdateHandler()) };
         var project = Path.Combine(artifacts, "projects", "Creator [PC] & café");
         Directory.CreateDirectory(Path.Combine(project, "Assets")); Directory.CreateDirectory(Path.Combine(project, "ProjectSettings"));
@@ -73,6 +73,16 @@ public static class UiSmokeTest
         await viewModel.ToggleLibraryLayoutCommand.ExecuteAsync(null);
         Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Content?.ToString() == viewModel.AppVersion, "Application version is visible in the persistent version menu");
         Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Command is not null && ((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Flyout is null, "Footer update is a direct action without a menu");
+        viewModel.IsCheckingUpdate = true;
+        Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Content?.ToString() == "Checking for updates…", "Manual update checks have visible feedback on the clicked button");
+        viewModel.IsCheckingUpdate = false; viewModel.UpdateStatus = "No published update available";
+        Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("ApplicationVersionButton")).Content?.ToString() == "Up to date", "Manual no-update result stays visible even while imports occupy the status line");
+        viewModel.UpdateStatus = "";
+        var originalBeta = viewModel.IncludeBetaUpdates;
+        viewModel.IncludeBetaUpdates = true; viewModel.HasApplicationUpdate = true; viewModel.IsUpdateReady = true;
+        viewModel.IncludeBetaUpdates = false;
+        Require(!viewModel.HasApplicationUpdate && !viewModel.IsUpdateReady, "Changing update channel invalidates the previously offered update");
+        viewModel.IncludeBetaUpdates = originalBeta;
         viewModel.UpdateFailed = true; viewModel.UpdateStatus = new string('x', 400);
         Require(viewModel.UpdateSummary == "Update failed", "Technical update errors stay compact in the footer");
         viewModel.UpdateFailed = false; viewModel.UpdateStatus = "";
@@ -791,7 +801,17 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 new CreationRequest("fixture.unitypackage", name, Path.Combine(artifacts, name), "", "StandaloneWindows64", [], []),
                 "Running", "Packages", 35 + index * 20, "", "", DateTime.UtcNow.AddMinutes(-2)))).ToArray();
         var failedEmpty = fixtureJobs[0].Job with { State = "Failed", Source = fixtureJobs[0].Job.Source with { UnityPackagePath = "", EmptyProject = true } };
-        Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedEmpty).RecoverVisibility == Visibility.Visible, "Failed empty project exposes Continue import");
+        Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedEmpty) is { RecoverVisibility: Visibility.Visible, RetryLabel: "Try again" }, "Failed empty project exposes Try again");
+        var failedImport = fixtureJobs[0].Job with { Id = "failed-import", State = "Failed", Plan = fixtureJobs[0].Job.Plan with { CreatedUtc = DateTime.UtcNow.AddMinutes(-5) } };
+        var interruptedImport = failedImport with { State = "Interrupted" };
+        Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport) is { RetryLabel: "Try again", AttentionVisibility: Visibility.Visible }, "Failed imports have a retry action and a quiet warning marker");
+        Require(new VrcSetup_Desktop.ViewModels.UiImportRow(interruptedImport) is { RetryLabel: "Continue import", AttentionVisibility: Visibility.Visible }, "Interrupted imports retain Continue with a quiet warning marker");
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedImport).RepairLabel == "Try again", "Activity uses the same retry label for failures");
+        var attempts = new[] { failedImport, fixtureJobs[0].Job, fixtureJobs[1].Job };
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs(attempts, false).Length == 2, "Retry replaces the older failed row for the same destination");
+        var hiddenNewest = fixtureJobs[0].Job with { State = "Completed", HiddenFromImports = true };
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport, hiddenNewest], false).Length == 0, "Clearing the latest attempt does not resurrect older failures");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport, hiddenNewest with { HiddenFromImports = false }], true).Length == 0, "Auto-hiding a completed retry does not resurrect older failures");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty).ImportActionsVisibility == Visibility.Visible, "Empty project recovery is available in Activity");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Running" }).Summary.Length > 0, "Creation history summary works before its report exists");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Completed" }).ImportActionsVisibility == Visibility.Collapsed, "Completed empty project has no archive recovery action");
@@ -818,8 +838,28 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             var formOrigin = form.TransformToVisual(view).TransformPoint(new(0, 0));
             var jobsOrigin = jobSection.TransformToVisual(view).TransformPoint(new(0, 0));
             Require(jobsOrigin.Y >= formOrigin.Y + form.ActualHeight, "Import jobs never overlap the package recap: " + size.Width);
+            var row = (FrameworkElement)jobList.ContainerFromIndex(0);
+            var cancel = Descendants(row).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "CancelImportAction");
+            Require(!fixtureJobs[0].DetailsOpen && cancel.Visibility == Visibility.Visible && cancel.IsEnabled && cancel.ActualWidth >= 80,
+                "Cancel import is directly visible on a collapsed active row: " + size.Width);
+            Require(cancel.TransformToVisual(jobList).TransformPoint(new(cancel.ActualWidth, 0)).X <= jobList.ActualWidth,
+                "Cancel import remains inside the usable list width: " + size.Width);
             await Render(page, Path.Combine(artifacts, "create-jobs-fixture-" + size.Width + ".png"));
         }
+        fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Cancelling" });
+        await Task.Delay(100);
+        var firstCancel = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "CancelImportAction");
+        Require(firstCancel.Visibility == Visibility.Visible && !firstCancel.IsEnabled && Equals(firstCancel.Content, "Cancelling…"),
+            "Cancellation request stays visible with immediate disabled feedback");
+        fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Completed" });
+        await Task.Delay(100);
+        Require(firstCancel.Visibility == Visibility.Collapsed, "Finished imports do not show a cancel action");
+        fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Failed" });
+        await Task.Delay(100);
+        var retryImport = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "RetryImportAction");
+        Require(retryImport.Visibility == Visibility.Visible && Equals(retryImport.Content, "Try again") && !fixtureJobs[0].DetailsOpen, "Failed import exposes Try again without opening details");
+        await Render(page, Path.Combine(artifacts, "create-failed-retry.png"));
+        fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Running" });
         fixtureJobs[1].DetailsOpen = true;
         await Task.Delay(600);
         fixtureJobs[1].LogText = string.Join("\n", Enumerable.Range(1, 160).Select(x => "Import log line " + x));

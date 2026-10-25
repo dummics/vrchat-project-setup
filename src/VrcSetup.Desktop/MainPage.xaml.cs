@@ -481,11 +481,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         var dialog = new ContentDialog { Title = "Review changes", Content = new ScrollViewer { Content = stack, MaxHeight = 430 }, PrimaryButtonText = plan.Projects.Any(x => x.Creation is not null) ? "Create project" : "Apply changes", CloseButtonText = "Back", DefaultButton = ContentDialogButton.Close };
         return await ShowDialog(dialog) == ContentDialogResult.Primary;
     }
-    public async Task<string?> PromptRecoveryAsync(string name, bool canResume)
-    {
-        var result = await ShowDialog(new() { Title = name, Content = UiText.Text(canResume ? "The import did not finish. Continue from where it stopped, or create a separate copy." : "The project was not finished. Create a separate copy without changing the existing folder."), PrimaryButtonText = canResume ? "Resume" : "New copy", SecondaryButtonText = canResume ? "New copy" : "", CloseButtonText = "Later", DefaultButton = ContentDialogButton.Close });
-        return result == ContentDialogResult.Primary ? canResume ? "Resume" : "Copy" : result == ContentDialogResult.Secondary ? "Copy" : null;
-    }
     public async Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
         Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null)
     {

@@ -17,7 +17,7 @@ internal static class UpdateFeed
     private sealed record State(string Feed, string? Json, string? ETag, DateTimeOffset FreshUntil, DateTimeOffset RetryAt);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new();
 
-    public static async Task<string?> ReadAsync(HttpClient client, HttpRequestMessage request, string? directory, CancellationToken token)
+    public static async Task<string?> ReadAsync(HttpClient client, HttpRequestMessage request, string? directory, CancellationToken token, bool forceRefresh = false)
     {
         var key = directory is null ? Guid.NewGuid().ToString() : Path.GetFullPath(directory);
         var gate = directory is null ? new SemaphoreSlim(1) : Locks.GetOrAdd(key, _ => new(1));
@@ -33,7 +33,7 @@ internal static class UpdateFeed
             if (saved?.Feed != feed) saved = null;
             var now = DateTimeOffset.UtcNow;
             if (saved?.RetryAt > now) throw new UpdateCheckDeferredException(saved.RetryAt);
-            if (saved?.FreshUntil > now && saved.Json is not null) return saved.Json;
+            if (!forceRefresh && saved?.FreshUntil > now && saved.Json is not null) return saved.Json;
             if (saved?.ETag is { } etag) request.Headers.TryAddWithoutValidation("If-None-Match", etag);
             using var response = await client.SendAsync(request, token);
             var exhausted = response.Headers.TryGetValues("X-RateLimit-Remaining", out var remaining) && remaining.FirstOrDefault() == "0";

@@ -74,7 +74,7 @@ public sealed class AppConfiguration
     public bool AutoHideCompletedImports { get; set; }
     public bool CheckUpdatesOnStartup { get; set; } = true;
     public bool AutomaticUpdates { get; set; } = true;
-    public bool IncludeBetaUpdates { get; set; } = true;
+    public bool IncludeBetaUpdates { get; set; }
     public DiagnosticSettings Diagnostics { get; set; } = new();
     [JsonIgnore] public string? Revision { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalSettings { get; set; }

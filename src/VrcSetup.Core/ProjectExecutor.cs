@@ -112,7 +112,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 await workspace.SetStepAsync(project.Path, "finalize", true, cancellationToken);
                 await workspace.SaveProfileAsync(project, cancellationToken);
                 await workspace.CompleteAsync(project.Path, cancellationToken);
-                if (project.Creation is not null && !await driver.RegisterAsync(project.Path, progress, cancellationToken))
+                if ((project.Creation is not null || project.RecoverySource is not null) && !await driver.RegisterAsync(project.Path, progress, cancellationToken))
                     warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
                 var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;
                 results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory));

@@ -101,12 +101,23 @@ public static class AtomicFile
 public sealed class ConfigurationStore(AppPaths paths)
 {
     public string? ImportedFrom { get; private set; }
+    private static async Task<AppConfiguration?> ReadExistingAsync(string path, CancellationToken token)
+    {
+        var json = await AtomicFile.ReadJsonAsync<JsonElement>(path, token);
+        if (json.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return null;
+        var config = json.Deserialize<AppConfiguration>(JsonDefaults.Options);
+        // Previous versions opted into betas implicitly. Preserve that choice on
+        // upgrade; only genuinely fresh settings adopt the stable-only default.
+        if (config is not null && !json.EnumerateObject().Any(x => x.Name.Equals(nameof(AppConfiguration.IncludeBetaUpdates), StringComparison.OrdinalIgnoreCase)))
+            config.IncludeBetaUpdates = true;
+        return config;
+    }
     public async Task<AppConfiguration> LoadAsync(CancellationToken cancellationToken = default)
     {
         using var initializationLock = await AtomicFile.LockAsync(Path.Combine(paths.Home, "initialize.lock"), cancellationToken);
         if (File.Exists(paths.ConfigFile))
         {
-            var config = await AtomicFile.ReadJsonAsync<AppConfiguration>(paths.ConfigFile, cancellationToken) ?? throw new IOException("Configuration is empty.");
+            var config = await ReadExistingAsync(paths.ConfigFile, cancellationToken) ?? throw new IOException("Configuration is empty.");
             if (config.SchemaVersion < 2)
             {
                 var migration = Path.Combine(paths.Home, "migration"); Directory.CreateDirectory(migration);
@@ -117,7 +128,7 @@ public sealed class ConfigurationStore(AppPaths paths)
         }
         var legacy = paths.AllowLegacyImport ? paths.FindLegacyConfiguration() : null;
         var defaults = Path.Combine(paths.Resources, "vrcsetup.defaults");
-        var initial = await AtomicFile.ReadJsonAsync<AppConfiguration>(legacy ?? defaults, cancellationToken) ?? new AppConfiguration
+        var initial = (legacy is not null ? await ReadExistingAsync(legacy, cancellationToken) : await AtomicFile.ReadJsonAsync<AppConfiguration>(defaults, cancellationToken)) ?? new AppConfiguration
         {
             VpmPackages = new() { [ProjectRules.BaseSdk] = "latest", [ProjectRules.AvatarSdk] = "latest", [ProjectRules.Resolver] = "latest" }
         };
@@ -150,7 +161,7 @@ public sealed class ConfigurationStore(AppPaths paths)
     public async Task<AppConfiguration> MergeAsync(AppConfiguration baseline, AppConfiguration edited, CancellationToken cancellationToken = default)
     {
         using var configLock = await AtomicFile.LockAsync(Path.Combine(paths.Home, "config.lock"), cancellationToken);
-        var current = await AtomicFile.ReadJsonAsync<AppConfiguration>(paths.ConfigFile, cancellationToken) ?? throw new IOException("Settings are unavailable. Reload before saving.");
+        var current = await ReadExistingAsync(paths.ConfigFile, cancellationToken) ?? throw new IOException("Settings are unavailable. Reload before saving.");
         var original = JsonSerializer.SerializeToNode(baseline, JsonDefaults.Options)!.AsObject();
         var changes = JsonSerializer.SerializeToNode(edited, JsonDefaults.Options)!.AsObject();
         var merged = JsonSerializer.SerializeToNode(current, JsonDefaults.Options)!.AsObject();
@@ -168,7 +179,7 @@ public sealed class ConfigurationStore(AppPaths paths)
     public async Task<AppConfiguration> ImportAsync(string source, CancellationToken cancellationToken = default)
     {
         source = ProjectRules.NormalizePath(source);
-        var imported = await AtomicFile.ReadJsonAsync<AppConfiguration>(source, cancellationToken) ?? throw new IOException("Configuration not found.");
+        var imported = await ReadExistingAsync(source, cancellationToken) ?? throw new IOException("Configuration not found.");
         Directory.CreateDirectory(Path.Combine(paths.Home, "migration"));
         if (File.Exists(paths.ConfigFile)) File.Copy(paths.ConfigFile, Path.Combine(paths.Home, "migration", $"config-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.json"));
         imported.Revision = AtomicFile.Hash(paths.ConfigFile);
