@@ -91,8 +91,8 @@ public sealed partial class MainViewModel
             OnPropertyChanged(nameof(HasActiveImports)); OnPropertyChanged(nameof(ImportsIdle));
             NotifySettingsState();
             OnPropertyChanged(nameof(ResourceSummary));
-            OnPropertyChanged(nameof(CanClearCompletedImports));
-            OnPropertyChanged(nameof(ImportJobsVisibility)); OnPropertyChanged(nameof(ClearCompletedVisibility));
+            OnPropertyChanged(nameof(CanClearFinishedImports));
+            OnPropertyChanged(nameof(ImportJobsVisibility)); OnPropertyChanged(nameof(ClearFinishedVisibility));
             if (CurrentPage == "Activity") ReconcileHistory(snapshot);
             var resource = app.Imports.Resources;
             if (resource is not null && !ReferenceEquals(resource, lastResource))
@@ -184,7 +184,7 @@ public sealed partial class MainViewModel
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { row.LogText = "Log unavailable. Use Open log to inspect it."; }
         finally { row.LoadingLog = false; }
     }
-    [RelayCommand] private async Task ClearImportHistory() => await Guard(async () => await app.Imports.ClearCompletedAsync(lifetime.Token));
+    [RelayCommand] private async Task ClearImportHistory() => await Guard(async () => await app.Imports.ClearFinishedAsync(lifetime.Token));
     [RelayCommand] private async Task ClearImportCache() => await Guard(async () =>
     {
         if (!RequireImportsIdle()) return;

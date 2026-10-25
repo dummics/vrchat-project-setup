@@ -16,8 +16,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private bool initialized;
     private bool syncingNavigation;
     private bool informationExpanded;
-    private bool packageRecapAnimating;
-    private Microsoft.UI.Xaml.Media.Animation.Storyboard? packageRecapStoryboard;
     private readonly TaskCompletionSource initializedCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Task Initialized => initializedCompletion.Task;
     public MainViewModel ViewModel { get; }
@@ -166,12 +164,9 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             // scrolling becomes necessary, so actions never sit under the thumb.
             CreateLayout.Width = Math.Max(1, CreateView.ActualWidth - 24);
             CreateForm.Width = CreateLayout.Width;
-            if (!packageRecapAnimating)
-            {
-                var recapWidth = PackageRecapWidth();
-                CreationPackageDetails.Width = recapWidth;
-                UpdateCreationPackageItemWidth(recapWidth);
-            }
+            var recapWidth = PackageRecapWidth();
+            CreationPackageDetails.Width = recapWidth;
+            UpdateCreationPackageItemWidth(recapWidth);
             DependencyObject? header = CreationPackageHeader;
             while (header is not null && header is not Microsoft.UI.Xaml.Controls.Primitives.ToggleButton) header = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(header);
             if (header is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton toggle)
@@ -181,18 +176,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (FindVisualChild<Border>(CreationPackageDetails, "ExpanderContent") is { } contentBorder)
                 contentBorder.BorderThickness = new Thickness(0);
             ImportQueueSection.Width = CreateLayout.Width;
-            CreateLayout.MinHeight = Math.Max(0, CreateView.ActualHeight);
             var narrow = CreateForm.Width < 560;
             Grid.SetRow(ImportResourceSummary, narrow ? 1 : 0); Grid.SetColumn(ImportResourceSummary, narrow ? 0 : 1);
             Grid.SetColumnSpan(ImportResourceSummary, narrow ? 3 : 1);
-            ProjectFields.Width = Math.Min(620, CreateForm.Width);
+            ProjectFields.Width = CreateForm.Width;
             var stackFields = CreateForm.Width < 440;
             ProjectFields.ColumnDefinitions[1].Width = stackFields ? new GridLength(0) : new GridLength(160);
             Grid.SetColumn(PlatformSelector, stackFields ? 0 : 1); Grid.SetRow(PlatformSelector, stackFields ? 1 : 0);
-            var stackReview = CreateForm.Width < 720;
-            PackageSetup.ColumnDefinitions[1].Width = stackReview ? new GridLength(0) : GridLength.Auto;
-            Grid.SetColumn(ReviewAction, stackReview ? 0 : 1); Grid.SetRow(ReviewAction, stackReview ? 2 : 0);
-            ReviewAction.Width = Math.Min(260, CreateForm.Width);
+            PackageSetup.ColumnDefinitions[1].Width = new GridLength(0);
             var stackPreset = CreateForm.Width < 340;
             PresetFields.ColumnDefinitions[0].Width = new GridLength(Math.Min(220, stackPreset ? CreateForm.Width : Math.Max(120, CreateForm.Width - 120)));
             PresetFields.ColumnDefinitions[1].Width = stackPreset ? new GridLength(0) : GridLength.Auto;
@@ -227,46 +218,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private double PackageRecapWidth()
     {
-        if (CreationPackageDetails.IsExpanded) return Math.Min(560, CreateForm.Width);
-        var label = new TextBlock { Text = ViewModel.CreationPackageSummary, FontSize = 13 };
-        label.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
-        return Math.Min(CreateForm.Width, Math.Max(180, label.DesiredSize.Width + 80));
+        return Math.Max(1, CreateForm.Width);
     }
     private void AnimatePackageRecap()
     {
-        var previousWidth = CreationPackageDetails.ActualWidth;
-        packageRecapStoryboard?.Stop();
-        packageRecapStoryboard = null;
-        packageRecapAnimating = false;
+        // Keep width stable during the native height expansion. Animating width
+        // simultaneously reflowed package tiles and moved every following row.
         ConstrainForms();
-        var targetWidth = PackageRecapWidth();
-        UpdateCreationPackageItemWidth(targetWidth);
-        if (!new Windows.UI.ViewManagement.UISettings().AnimationsEnabled || Math.Abs(previousWidth - targetWidth) < 1)
-        {
-            packageRecapAnimating = false;
-            CreationPackageDetails.Width = targetWidth;
-            return;
-        }
-        packageRecapAnimating = true;
-        var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-        {
-            From = previousWidth, To = targetWidth, Duration = new Duration(TimeSpan.FromMilliseconds(380)),
-            EnableDependentAnimation = true, FillBehavior = Microsoft.UI.Xaml.Media.Animation.FillBehavior.Stop,
-            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut }
-        };
-        var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, CreationPackageDetails);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Width");
-        storyboard.Children.Add(animation);
-        storyboard.Completed += (_, _) =>
-        {
-            if (!ReferenceEquals(packageRecapStoryboard, storyboard)) return;
-            packageRecapStoryboard = null;
-            packageRecapAnimating = false;
-            ConstrainForms();
-        };
-        packageRecapStoryboard = storyboard;
-        storyboard.Begin();
     }
     private void CreationPackagesExpanded(Expander sender, ExpanderExpandingEventArgs args) => AnimatePackageRecap();
     private void CreationPackagesCollapsed(Expander sender, ExpanderCollapsedEventArgs args) => AnimatePackageRecap();

@@ -10,6 +10,27 @@ public sealed class UnityImportDriverTests : IDisposable
     private readonly string root = Path.Combine(Path.GetTempPath(), "vrcsetup-import [PC] & città-" + Guid.NewGuid().ToString("N"));
 
     [Theory]
+    [InlineData("2.0.0", "1.0.0", "downgrade")]
+    [InlineData("2.0.0-beta.3", "1.0.0-beta.2", "downgrade")]
+    [InlineData("1.0.0", "2.0.0", "install")]
+    [InlineData("1.0.0", "2.0.0-beta.2", "install")]
+    public async Task ExactVersionsUseResolverDowngradeForOlderLocks(string current, string requested, string action)
+    {
+        var project = Path.Combine(root, "Project");
+        Directory.CreateDirectory(Path.Combine(project, "Assets"));
+        Directory.CreateDirectory(Path.Combine(project, "Packages"));
+        await AtomicFile.WriteJsonAsync(Path.Combine(project, "Packages", "vpm-manifest.json"), new
+        { dependencies = new Dictionary<string, object> { ["example.tool"] = new { version = current } }, locked = new Dictionary<string, object> { ["example.tool"] = new { version = current } } });
+        string[]? command = null;
+        var runner = new ToolRunner(bundledPackageTool: "fixture-vrc-get.exe", commandOverride: (_, args, _) =>
+        { command = args; return Task.FromResult(new ToolResult(0, "", "")); });
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        await new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths)).ChangePackageAsync(project,
+            new("example.tool", null, requested, requested, ChangeKind.Update), null, default);
+        Assert.Equal([action, "example.tool", requested, "-p", project, "-y", "--prerelease"], command!);
+    }
+
+    [Theory]
     [InlineData(true, false)]
     [InlineData(true, true)]
     [InlineData(false, false)]

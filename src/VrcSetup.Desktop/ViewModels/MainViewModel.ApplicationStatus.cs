@@ -78,5 +78,5 @@ public sealed partial class MainViewModel
         else OpenLogsCommand.Execute(null);
     }
     public Visibility ImportJobsVisibility => ImportJobs.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility ClearCompletedVisibility => CanClearCompletedImports ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ClearFinishedVisibility => CanClearFinishedImports ? Visibility.Visible : Visibility.Collapsed;
 }

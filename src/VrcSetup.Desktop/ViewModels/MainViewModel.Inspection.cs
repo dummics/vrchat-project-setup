@@ -25,7 +25,13 @@ public sealed partial class MainViewModel
         {
             if (string.IsNullOrWhiteSpace(file) || !file.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)) return;
             IsInspectingPackage = true;
-            var pending = app.Inspection.InspectAsync(file, deep ? InspectionOptions.Extended : null, request.Token);
+            var partial = new Progress<PackageInspectionReport>(report =>
+            {
+                if (inspectionRequest != request || request.IsCancellationRequested) return;
+                CreationInspection = report;
+                InspectionStatus = "Checking larger package…";
+            });
+            var pending = app.Inspection.InspectForImportAsync(file, deep, partial, request.Token);
             var delay = Task.Delay(300, request.Token);
             if (await Task.WhenAny(pending, delay) == delay && inspectionRequest == request && !request.IsCancellationRequested)
             { IsInspectingPackage = true; InspectionStatus = "Checking packages…"; }

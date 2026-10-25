@@ -151,6 +151,8 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
         ["add", "repo", var url] => ["repo", "add", url],
         ["remove", "package", var id, "-p", var path] => ["remove", id, "-p", path, "-y"],
         ["resolve", "project", var path] => ["resolve", "-p", path],
+        ["downgrade", "package", var package, "-p", var path] when package.LastIndexOf('@') is var at && at > 0 =>
+            ["downgrade", package[..at], package[(at + 1)..], "-p", path, "-y", "--prerelease"],
         ["add", "package", var package, "-p", var path] when package.LastIndexOf('@') is var at && at > 0 =>
             ["install", package[..at], package[(at + 1)..], "-p", path, "-y", "--prerelease"],
         ["add", "package", var package, "-p", var path] => ["install", package, "-p", path, "-y"],

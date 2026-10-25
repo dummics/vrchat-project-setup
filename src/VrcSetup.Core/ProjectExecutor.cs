@@ -174,6 +174,19 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             if (ProjectRules.ToolFailed(resolve)) throw new IOException("Package repair resolve failed.");
             fresh = await workspace.ReadAsync(project.Path, cancellationToken);
         }
+        // Dependencies may have moved a version explicitly selected by the user.
+        // Reapply those choices through VPM after its general resolve, once only.
+        // Resolving again here would undo the requested downgrade.
+        var restoredPins = false;
+        foreach (var pin in project.Changes.Where(x => x.Kind != ChangeKind.Remove && x.RequestedVersion != "latest"))
+        {
+            if (PackagePresence.Matches(pin, fresh)) continue;
+            progress?.Report(new(DateTime.UtcNow, "Packages", $"Applying selected version: {pin.Id}@{pin.ResolvedVersion}", EventSeverity.Info, project.Path));
+            var result = await driver.ChangePackageAsync(project.Path, pin with { Kind = ChangeKind.Update }, progress, cancellationToken);
+            if (ProjectRules.ToolFailed(result, pin.Id)) throw new IOException($"Package operation failed: {pin.Id}. {result.Output}");
+            restoredPins = true;
+            fresh = await workspace.ReadAsync(project.Path, cancellationToken);
+        }
         foreach (var change in project.Changes)
         {
             if (change.Kind == ChangeKind.Remove)
@@ -188,9 +201,15 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             }
             else if (!PackagePresence.Matches(change, fresh) ||
                      (!fresh.Packages.ContainsKey(change.Id) && !fresh.LockedPackages.ContainsKey(change.Id)))
+            {
+                if (change.RequestedVersion != "latest" && fresh.InstalledVersions.TryGetValue(change.Id, out var installed) && installed != change.ResolvedVersion)
+                    throw new IOException($"Package version conflict: {change.Id}@{change.ResolvedVersion}; resolved {installed}.");
                 throw new IOException($"Package metadata validation failed: {change.Id}@{change.ResolvedVersion}");
+            }
+            else if (change.RequestedVersion == "latest" && fresh.InstalledVersions.GetValueOrDefault(change.Id) is { } actual && actual != change.ResolvedVersion)
+                progress?.Report(new(DateTime.UtcNow, "Verify", $"VPM selected {change.Id}@{actual} for this project's dependencies.", EventSeverity.Info, project.Path));
         }
-        return mismatched.Length > 0;
+        return mismatched.Length > 0 || restoredPins;
     }
 
     private sealed class ProjectSkippedException(string message) : Exception(message);

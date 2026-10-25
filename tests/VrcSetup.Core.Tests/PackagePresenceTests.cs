@@ -5,8 +5,8 @@ namespace VrcSetup.Tests;
 
 public sealed class PackagePresenceTests
 {
-    [Theory][InlineData("latest", true)][InlineData("1.14.8", false)]
-    public async Task ResolveOwnsCompatibleDependencyAndDoesNotTriggerRepeatedDowngrades(string policy, bool success)
+    [Theory][InlineData("latest", "1.15.0-beta.2", 2)][InlineData("1.14.8", "1.14.8", 3)]
+    public async Task ResolveOwnsAutomaticVersionsAndExplicitPinsAreReappliedOnce(string policy, string installed, int calls)
     {
         var workspace = new MemoryWorkspace(); var catalog = new FixtureCatalog(); catalog.Versions["nadena.dev.ndmf"] = ["1.14.8"];
         var plan = await new ProjectPlanner(workspace, catalog).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["nadena.dev.ndmf"] = policy }, new());
@@ -16,7 +16,17 @@ public sealed class PackagePresenceTests
             workspace.Project.LockedPackages["nadena.dev.ndmf"] = "1.15.0-beta.2";
         } };
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("ndmf", DateTime.UtcNow, [plan]));
-        Assert.Equal(success, report.Success); Assert.Equal(2, driver.Calls);
+        Assert.True(report.Success); Assert.Equal(calls, driver.Calls);
+        Assert.Equal(installed, workspace.Project.InstalledVersions["nadena.dev.ndmf"]);
+        Assert.Equal(policy, plan.DesiredPolicy["nadena.dev.ndmf"]);
+    }
+    [Theory]
+    [InlineData("1.1434.0", "1.1434.1-beta.13")]
+    [InlineData("3.9.0", "3.10.5")]
+    public void ConflictExplainsBothRequestedAndResolvedVersion(string requested, string resolved)
+    {
+        var message = UserErrors.Message(new IOException($"Package version conflict: example.tool@{requested}; resolved {resolved}."));
+        Assert.Contains(requested, message); Assert.Contains(resolved, message); Assert.Contains("example.tool", message);
     }
     [Fact] public async Task InstalledDependencyIsPresentAndCanBeMadeExplicitWithoutChangingVersion()
     {

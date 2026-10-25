@@ -234,14 +234,14 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [planned]);
     }
 
-    public async Task ClearCompletedAsync(CancellationToken token = default)
+    public async Task ClearFinishedAsync(CancellationToken token = default)
     {
         await InitializeAsync(token); await journalGate.WaitAsync(token);
         try
         {
             lock (sync)
                 for (var index = 0; index < jobs.Count; index++)
-                    if (jobs[index].State is "Completed" or "Recovered") jobs[index] = jobs[index] with { HiddenFromImports = true };
+                    if (!jobs[index].Active) jobs[index] = jobs[index] with { HiddenFromImports = true };
             await SaveAsync(token);
         }
         finally { journalGate.Release(); }

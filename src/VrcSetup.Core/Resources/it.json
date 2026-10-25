@@ -441,5 +441,8 @@
   "This project changed while the operation was being prepared. Reopen its packages and retry.": "Il progetto è cambiato durante la preparazione. Riapri i suoi pacchetti e riprova.",
   "{0} is generated automatically. Remove it from the preset; its tool will create it when needed.": "{0} viene generato automaticamente. Toglilo dal preset: lo creerà il suo strumento quando serve.",
   "Could not install {0}. Check that its source is available and its version works with the other packages, then retry.": "Non è stato possibile installare {0}. Controlla che la sua sorgente sia disponibile e la versione sia compatibile con gli altri pacchetti, poi riprova.",
-  "Cannot remove {0}: another package needs it. Keep it, or remove the dependent package first.": "Non puoi rimuovere {0}: serve a un altro pacchetto. Mantienilo oppure rimuovi prima il pacchetto che lo richiede."
+  "Cannot remove {0}: another package needs it. Keep it, or remove the dependent package first.": "Non puoi rimuovere {0}: serve a un altro pacchetto. Mantienilo oppure rimuovi prima il pacchetto che lo richiede.",
+  "{0} was pinned to {1}, but dependencies resolved to {2}. Choose Automatic or compatible package versions, then retry.": "Per {0} hai scelto {1}, ma il resolver ha selezionato {2}. Scegli Automatico oppure versioni compatibili dei pacchetti, poi riprova.",
+  "Clear list": "Pulisci lista",
+  "Hide finished imports; keep history and recovery in Activity": "Nascondi gli import terminati; cronologia e recupero restano in Attività"
 }

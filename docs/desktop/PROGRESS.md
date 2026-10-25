@@ -1,5 +1,27 @@
 # VRCSETUP Desktop migration
 
+## 0.2.5-beta.1 local candidate
+
+The 25 October import failures occurred before the avatar archive import: a
+transitive dependency selected a prerelease VRCFury, while the installed beta.27
+still tried to repair it to the catalogue's stable suggestion. The feature branch
+already accepted coherent resolver-selected versions for Automatic. This candidate
+also uses real downgrade commands for explicit stable/prerelease pins, reapplies
+explicit choices after general resolution, and verifies the resulting installed
+files/lock. No package-specific production versions were added.
+
+Import inspection automatically extends a budget-limited scan once. The import
+form now aligns fields, package details and its separate action row; package
+expansion keeps a stable width and the queue flows below the form without
+competing reposition animations. Clear list hides all inactive imports, including
+failures, while Activity retains recovery and logs. New-project creation continues
+through the shared executor and its existing compact form.
+
+Source remains on `feature/winui-desktop`; this candidate is intended for owner
+PC/Quest import acceptance before main integration and official beta publication.
+Evidence and the local offline update launcher are in
+`.work/artifacts/2026-10-26-detect-import/`.
+
 ## Beginner usability pass (next beta)
 
 First launch now presents Unity and the projects folder before other preferences. Settings use explicit Save/Discard with a fixed action area and Save/Discard/Cancel on leaving or closing. Choosing an editor inside Settings remains a draft until Save. Invalid forms do not partially replace configuration, and updating/restarting is blocked while settings are unsaved.

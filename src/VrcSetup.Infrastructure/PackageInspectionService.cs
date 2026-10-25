@@ -39,6 +39,21 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
         public int Consumers;
         public Task<PackageInspectionReport>? Running;
     }
+    public async Task<PackageInspectionReport> InspectForImportAsync(string file, bool deep = false,
+        IProgress<PackageInspectionReport>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var report = await InspectAsync(file, deep ? InspectionOptions.Extended : null, cancellationToken);
+        // A budget limit is not a missing dependency. Retry once with a larger,
+        // still bounded scan; invalid archives and I/O errors are not retried.
+        if (!deep && report.Observation.Limitations.Any(x => x is "Analysis time limit reached" or "Expanded archive limit reached"
+            or "Archive entry limit reached" or "Asset limit reached" or "Reference limit reached"
+            or "Some asset text exceeded the analysis budget"))
+        {
+            progress?.Report(report);
+            report = await InspectAsync(file, InspectionOptions.Extended, cancellationToken);
+        }
+        return report;
+    }
     public async Task<PackageInspectionReport> InspectAsync(string file, InspectionOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new(); file = ProjectRules.NormalizePath(file);

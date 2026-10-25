@@ -21,7 +21,7 @@ public sealed class ImportQueueTests : IDisposable
         Assert.True(reopened.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
         Assert.Equal(jobs[0].Plan.Id, reopened.Snapshot().Single(x => x.Id == "job0").Plan.Id);
     }
-    [Fact] public async Task ClearCompletedHidesRowsButRetainsHistoryPlanAndLogAfterRestart()
+    [Fact] public async Task ClearFinishedHidesCompletedFailedAndInterruptedRowsButRetainsRecoveryAfterRestart()
     {
         var app = App; var plan = Plan("Complete", "Failed", "Active");
         var log = Path.Combine(app.Paths.Logs, "kept.log"); Directory.CreateDirectory(app.Paths.Logs); await File.WriteAllTextAsync(log, "evidence");
@@ -30,10 +30,10 @@ public sealed class ImportQueueTests : IDisposable
         await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), jobs);
         await using (var queue = new ImportQueue(app))
         {
-            await queue.InitializeAsync(); await queue.ClearCompletedAsync();
+            await queue.InitializeAsync(); await queue.ClearFinishedAsync();
             Assert.Equal(3, queue.Snapshot().Length);
             Assert.True(queue.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
-            Assert.All(queue.Snapshot().Where(x => x.Id != "job0"), x => Assert.False(x.HiddenFromImports));
+            Assert.All(queue.Snapshot(), x => Assert.True(x.HiddenFromImports));
         }
         await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
         var kept = reopened.Snapshot().Single(x => x.Id == "job0");
@@ -50,6 +50,8 @@ public sealed class ImportQueueTests : IDisposable
         });
         await queue.EnqueueAsync(Plan(Enumerable.Range(1, 7).Select(x => "Avatar" + x).ToArray()), int.MaxValue);
         await WaitUntil(() => Volatile.Read(ref started) == 7);
+        await queue.ClearFinishedAsync();
+        Assert.All(queue.Snapshot(), job => { Assert.True(job.Active); Assert.False(job.HiddenFromImports); });
         var active = queue.Snapshot()[0]; await queue.DismissAsync(active.Id);
         Assert.False(queue.Snapshot().Single(x => x.Id == active.Id).HiddenFromImports);
         Assert.All(queue.Snapshot(), x => Assert.NotNull(x.StartedAt));

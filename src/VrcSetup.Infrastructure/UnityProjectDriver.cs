@@ -108,19 +108,19 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
             result = await runner.VpmAsync(["remove", "package", change.Id, "-p", project], project, cancellationToken: cancellationToken);
         else if (change.RequestedVersion == "latest")
             result = await runner.VpmAsync(["add", "package", change.Id, "-p", project], project, cancellationToken: cancellationToken);
-        else if (change.ResolvedVersion?.Contains('-') == true)
+        else
         {
-            var executable = paths.VrcGetPath ?? throw new IOException("The bundled vrc-get tool is required for exact prerelease versions.");
             var current = (await workspace.ReadAsync(project, cancellationToken)).LockedPackages.GetValueOrDefault(change.Id) ?? change.InstalledVersion;
-            var action = "install";
+            var action = "add";
             if (!string.IsNullOrWhiteSpace(current))
             {
-                try { action = new SemanticVersion(change.ResolvedVersion).CompareTo(new(current)) < 0 ? "downgrade" : "upgrade"; } catch (ArgumentException) { }
+                try { if (new SemanticVersion(change.ResolvedVersion!).CompareTo(new(current)) < 0) action = "downgrade"; } catch (ArgumentException) { }
             }
-            result = await runner.RunAsync(executable, [action, change.Id, change.ResolvedVersion, "--prerelease", "-p", project, "-y"], project, cancellationToken: cancellationToken);
+            // install does not downgrade an already locked dependency. Use the
+            // resolver's explicit operation for stable and prerelease pins alike.
+            // Keep both paths under the shared VPM command lock.
+            result = await runner.VpmAsync([action, "package", change.Id + "@" + change.ResolvedVersion, "-p", project], project, cancellationToken: cancellationToken);
         }
-        else
-            result = await runner.VpmAsync(["add", "package", change.Id + "@" + change.ResolvedVersion, "-p", project], project, cancellationToken: cancellationToken);
         await EmitPackageOutput(result, project, change.Id, progress, cancellationToken);
         return result;
     }

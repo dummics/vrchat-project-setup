@@ -3,6 +3,11 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+if (args is ["--verify-package-policy", var policyEditor, var policyEvidence])
+{
+    await PackagePolicyVerification.RunAsync(policyEditor, policyEvidence);
+    return;
+}
 if (args is ["--verify-package-mix", var mixEditor, var mixEvidence])
 {
     await PackageMixVerification.RunAsync(mixEditor, mixEvidence);

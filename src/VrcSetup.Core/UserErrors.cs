@@ -10,6 +10,10 @@ public static class UserErrors
     public static bool IsExpected(Exception error) => error is UserInputException || Advice(error.Message) is not null;
     public static string Message(Exception error, Func<string, string>? packageName = null)
     {
+        var conflict = Regex.Match(error.Message, @"^Package version conflict: ([a-zA-Z0-9._-]+)@([^;]+); resolved (\S+)\.$");
+        if (conflict.Success)
+            return string.Format(UiText.Text("{0} was pinned to {1}, but dependencies resolved to {2}. Choose Automatic or compatible package versions, then retry."),
+                packageName?.Invoke(conflict.Groups[1].Value) ?? conflict.Groups[1].Value, conflict.Groups[2].Value, conflict.Groups[3].Value);
         var removal = Regex.Match(error.Message, @"Package removal blocked: ([a-zA-Z0-9._-]+)");
         if (removal.Success)
         {

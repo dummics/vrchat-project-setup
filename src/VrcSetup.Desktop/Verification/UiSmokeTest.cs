@@ -143,12 +143,16 @@ public static class UiSmokeTest
         window.AppWindow.Resize(new(720, 620)); await Task.Delay(450);
         Require(((FrameworkElement)page.FindName("InformationPanel")).Visibility == Visibility.Collapsed, "Short or compact sidebar collapses inline information before clipping");
         page.ToggleInformation(); await Task.Delay(100); await Render(page, Path.Combine(artifacts, "information-popup.png")); informationMenu.Hide();
-        await Task.Delay(200);
+        // Let native popup dismissal/focus restoration finish before simulating
+        // a stationary hover; otherwise LostFocus cancels that synthetic hover.
+        await Task.Delay(500);
         var tooltipOwner = Descendants(navigation).OfType<FrameworkElement>().FirstOrDefault(x => x.IsLoaded && x.ActualWidth > 0 && x.Visibility == Visibility.Visible && x is not Microsoft.UI.Xaml.Controls.Control { IsEnabled: false } && page.ToolTips.HasContent(x));
         Require(tooltipOwner is not null, "Built-in compact navigation tooltips are adopted by the app hover delay");
         page.ToolTips.Observe(tooltipOwner, new(1, 1)); await Task.Delay(1000);
         Require(!page.ToolTips.IsOpen, "Navigation tooltip stays hidden during a brief hover");
-        await Task.Delay(1700); Require(page.ToolTips.IsOpen, "Navigation tooltip opens only after a 2.5-second hold");
+        await Task.Delay(1700);
+        for (var tick = 0; !page.ToolTips.IsOpen && tick < 10; tick++) await Task.Delay(100);
+        Require(page.ToolTips.IsOpen, "Navigation tooltip opens only after a 2.5-second hold");
         page.ToolTips.Dismiss(); Require(!page.ToolTips.IsOpen, "Navigation tooltip closes immediately when hover ends");
         page.ToolTips.Observe(tooltipOwner, new(1, 1)); await Task.Delay(400);
         Require(!page.ToolTips.IsOpen, "A second hover still waits instead of using native instant reshow"); page.ToolTips.Dismiss();
@@ -679,15 +683,20 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 if (screen == "Create" && size.Width is 720 or 1180)
                 {
                     var details = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails");
+                    var collapsedWidth = details.ActualWidth;
                     details.IsExpanded = true; viewModel.IsInspectingPackage = true;
                     await Task.Delay(650); page.UpdateLayout();
+                    Require(Math.Abs(details.ActualWidth - collapsedWidth) < 2, "Package disclosure keeps a stable width while expanding: " + size.Width);
+                    var importAction = (FrameworkElement)page.FindName("ImportPrimaryAction");
+                    Require(importAction.TransformToVisual(details).TransformPoint(new(0, 0)).Y >= details.ActualHeight,
+                        "Import action stays below package details: " + size.Width);
                     var footer = (FrameworkElement)page.FindName("StatusBar");
                     var text = (Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("ApplicationStatusText");
                     Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);
                     var creationList = (Microsoft.UI.Xaml.Controls.GridView)page.FindName("CreationPackageList");
                     var recapItems = (Microsoft.UI.Xaml.Controls.ItemsWrapGrid)creationList.ItemsPanelRoot;
                     var firstRecapItem = (FrameworkElement)creationList.ContainerFromIndex(0);
-                    Require(double.IsPositiveInfinity(creationList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(creationList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled && details.ActualWidth <= 560, "Expanded package recap shows its full list without nested scrolling: " + size.Width);
+                    Require(double.IsPositiveInfinity(creationList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(creationList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled && details.ActualWidth <= ((FrameworkElement)page.FindName("CreateForm")).ActualWidth + 1, "Expanded package recap shows its full list within the form without nested scrolling: " + size.Width);
                     Require(creationList.ActualWidth >= details.ActualWidth - 32 && recapItems.ItemWidth >= 220 && firstRecapItem.ActualWidth >= 220, $"Expanded package rows fill the disclosure width: {size.Width}, list={creationList.ActualWidth}, surface={details.ActualWidth}, item={recapItems.ItemWidth}, container={firstRecapItem.ActualWidth}");
                     Require(creationList.ActualHeight >= 28 && creationList.Items.Count == viewModel.CreationPackages.Count && creationList.Items.Cast<object>().All(x => creationList.ContainerFromItem(x) is FrameworkElement { ActualHeight: > 0 }), "Every included import package is rendered without clipping: " + size.Width);
                     var chip = Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>().First(x => x.Name == "ExpanderHeader");

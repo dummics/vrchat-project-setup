@@ -12,6 +12,29 @@ public sealed class PackageInspectionTests : IDisposable
     private readonly string root = Path.Combine(Path.GetTempPath(), "VrcSetup.Inspection.Tests", Guid.NewGuid().ToString("N"));
     private const string A = "11111111111111111111111111111111", B = "22222222222222222222222222222222", C = "33333333333333333333333333333333";
     private PackageInspectionService Service(IUnityPackageInspector? reader = null) => new(new AppPaths(Path.Combine(root, "home")), reader);
+    private sealed class LimitedReader(string limitation) : IUnityPackageInspector
+    {
+        public readonly List<bool> Passes = [];
+        public Task<ArchiveObservation> ReadAsync(string path, InspectionOptions options, CancellationToken token)
+        {
+            Passes.Add(options.Deep);
+            var info = new FileInfo(path);
+            return Task.FromResult(new ArchiveObservation(1, info.Length, info.LastWriteTimeUtc.Ticks, options.Deep, options.Deep,
+                options.Deep ? [] : [limitation], [], 1));
+        }
+    }
+    [Theory]
+    [InlineData("Analysis time limit reached", true)]
+    [InlineData("Some asset text exceeded the analysis budget", true)]
+    [InlineData("Archive is incomplete or invalid: broken gzip", false)]
+    public async Task ImportInspectionAutomaticallyExtendsBudgetButDoesNotRetryInvalidArchives(string limitation, bool retries)
+    {
+        var path = Archive(($"{A}/pathname", "Assets/Main.prefab"));
+        var reader = new LimitedReader(limitation);
+        var report = await Service(reader).InspectForImportAsync(path);
+        Assert.Equal(retries, report.Observation.ArchiveComplete);
+        Assert.Equal(retries ? new[] { false, true } : new[] { false }, reader.Passes);
+    }
     private string Archive(params (string Path, string Text)[] members)
     {
         Directory.CreateDirectory(root); var path = Path.Combine(root, Guid.NewGuid() + ".unitypackage");
