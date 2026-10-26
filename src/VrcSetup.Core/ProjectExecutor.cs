@@ -33,7 +33,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 foreach (var import in project.ImportFingerprints)
                     if (ProjectRules.FileIdentity(import.Key) != import.Value) throw new ProjectSkippedException("UnityPackage changed after review. Review again before importing.");
-                if (project.RequiresUnityBatch && workspace.IsBusy(project.Path)) throw new ProjectSkippedException("Close Unity before importing additional files. No project was changed.");
+                if (workspace.IsBusy(project.Path)) throw new ProjectSkippedException("Close Unity for this project before applying changes. No project was changed.");
                 if (project.Creation is null)
                 {
                     var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
@@ -75,15 +75,8 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 await driver.PrepareAsync(project, progress, cancellationToken);
                 await workspace.SetStepAsync(project.Path, "nunit", true, cancellationToken);
                 phase = "Packages";
-                foreach (var change in project.Changes.Where(x => x.Kind != ChangeKind.Keep).OrderBy(x => x.Kind == ChangeKind.Remove ? 0 : 1))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (project.RequiresUnityBatch && workspace.IsBusy(project.Path)) throw new IOException("Unity opened the project before the file import. Close Unity and try again.");
-                    progress?.Report(new OperationEvent(DateTime.UtcNow, phase, $"{change.Kind}: {change.Id}{(change.ResolvedVersion is null ? "" : " @ " + change.ResolvedVersion)}", Project: project.Path) { Package = change });
-                    var result = await driver.ChangePackageAsync(project.Path, change, progress, cancellationToken);
-                    if (ProjectRules.ToolFailed(result, change.Kind == ChangeKind.Remove ? null : change.Id)) throw new IOException($"Package operation failed: {change.Id}. {result.Output}");
-                }
-                var resolve = await driver.ResolveAsync(project.Path, progress, cancellationToken);
+                if (workspace.IsBusy(project.Path)) throw new IOException("Unity opened this project. Close it before applying changes.");
+                var resolve = await driver.ApplyPackagePlanAsync(project, progress, cancellationToken);
                 if (ProjectRules.ToolFailed(resolve)) throw new IOException("VPM resolve failed. " + resolve.Output);
                 }
                 await VerifyPackages(project, progress, cancellationToken, warnings);
@@ -112,6 +105,9 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 await workspace.SetStepAsync(project.Path, "finalize", true, cancellationToken);
                 await workspace.SaveProfileAsync(project, cancellationToken);
                 await workspace.CompleteAsync(project.Path, cancellationToken);
+                if (backup is not null) await workspace.ConfirmBackupAsync(backup);
+                if (project.Changes.Any(x => x.Id == "com.poiyomi.pro" && x.Kind is ChangeKind.Add or ChangeKind.Update))
+                    warnings.Add("Poiyomi Pro installer is ready. Open the project in Unity and complete Poiyomi's Patreon sign-in if requested.");
                 if ((project.Creation is not null || project.RecoverySource is not null) && !await driver.RegisterAsync(project.Path, progress, cancellationToken))
                     warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
                 var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;

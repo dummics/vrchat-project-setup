@@ -309,6 +309,11 @@ public static class UiSmokeTest
                 if (partialRetry) Require(flow.NewProjectName != retryName && await File.ReadAllTextAsync(Path.Combine(retryPath, "preserve.txt")) == "owner data", "Partial retry preserves the old folder and suggests a separate destination");
                 await flow.NavigateAsync("Projects");
             }
+            await flow.OpenProjectsAsync([flow.Projects[0]]);
+            flow.StageWorkspaceVersion("com.poiyomi.pro", "11.0.38");
+            Require(flow.PoiyomiNoticeVisibility == Visibility.Visible, "Selecting Pro explains replacements and the official Unity sign-in");
+            await flow.UndoChangesCommand.ExecuteAsync(null);
+            Require(flow.PoiyomiNoticeVisibility == Visibility.Collapsed, "Pro guidance disappears after discarding the selection");
             checks.AddRange(await ConcurrencyChecks.RunAsync(flow, decisions));
             var pickerRequests = decisions.SaveFileRequests; decisions.FileChoice = null; flow.IsBusy = true;
             await flow.ExportLogsCommand.ExecuteAsync(null);

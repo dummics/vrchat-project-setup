@@ -5,7 +5,7 @@ using VrcSetup.Core;
 
 namespace VrcSetup.Infrastructure;
 
-public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, ProjectWorkspace workspace, bool registerProjects = true) : IProjectDriver
+public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner, ProjectWorkspace workspace, bool registerProjects = true) : IProjectDriver
 {
     private static readonly SemaphoreSlim preparation = new(1);
     public async Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
@@ -105,12 +105,17 @@ public sealed class UnityProjectDriver(AppPaths paths, ToolRunner runner, Projec
         ProjectRules.ValidatePackageId(change.Id);
         ToolResult result;
         if (change.Kind == ChangeKind.Remove)
+        {
+            var fresh = await workspace.ReadAsync(project, cancellationToken);
+            if (!fresh.LockedPackages.ContainsKey(change.Id) && !fresh.Packages.ContainsKey(change.Id) && !fresh.InstalledVersions.ContainsKey(change.Id))
+                return new(0, "Package is already absent.", "");
             result = await runner.VpmAsync(["remove", "package", change.Id, "-p", project], project, cancellationToken: cancellationToken);
+        }
         else if (change.RequestedVersion == "latest")
             result = await runner.VpmAsync(["add", "package", change.Id, "-p", project], project, cancellationToken: cancellationToken);
         else
         {
-            var current = (await workspace.ReadAsync(project, cancellationToken)).LockedPackages.GetValueOrDefault(change.Id) ?? change.InstalledVersion;
+            var current = (await workspace.ReadAsync(project, cancellationToken)).LockedPackages.GetValueOrDefault(change.Id);
             var action = "add";
             if (!string.IsNullOrWhiteSpace(current))
             {

@@ -1,5 +1,11 @@
 # Desktop concurrency
 
+Package apply requires Unity to be closed for each target. The UI checks before
+planning, and execution checks again before backup/mutation. This protects shader
+replacement, recovery and possible migrations performed by indirect dependencies.
+It does not close Unity or prevent work on other projects. Package recovery uses
+the local snapshot without another resolver or account login.
+
 The bottom status opens a live operations flyout for concurrent creation/import jobs, package apply and update work. Each operation occupies a compact name/state row, with ellipsis and a 200-pixel scrolling list limit; detailed messages stay in Activity. Opening it never navigates away or triggers an unsaved-preset decision. New-project planning is protected from automatic update installation and window closure before its queued job exists.
 
 Apply executes staged changes directly without a second confirmation. A compact central progress dialog dims the editor and temporarily disables navigation, showing project position and readable package action/name/version. Cancellation remains available. Preparation validates the plan and target safety before any write. Structured package events keep the current action readable through VPM output; raw tool lines remain in diagnostics. Already queued imports and independent background work continue; the dialog does not acquire a global project lock.

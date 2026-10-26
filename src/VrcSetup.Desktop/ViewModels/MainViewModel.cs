@@ -330,7 +330,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ApplyProject = ""; ApplyPosition = ""; ApplyPackage = ""; ApplyPackageVersion = ""; ApplyPhase = "Preparing";
         try
         {
-            var busy = extraImports.Length == 0 ? [] : await Task.Run(() => source.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
+            var busy = await Task.Run(() => source.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
             if (busy.Length > 0) throw new ProjectsInUseException(busy);
             var plan = await Task.Run(() => app.Planner.PlanBulkAsync(source.Projects.Select(x => x.Path), selected, choices, exact, removed, targets, preset, extraImports, cancellation.Token));
             cancellation.Token.ThrowIfCancellationRequested();

@@ -450,5 +450,12 @@
   "Choose Try again to retry this import.": "Premi Riprova per tentare nuovamente l’importazione.",
   "The import failed. Try again.": "L’importazione non è riuscita. Premi Riprova.",
   "Finish current work": "Termina il lavoro in corso",
-  "Update channel changed. Check for updates again.": "Canale aggiornamenti cambiato. Verifica nuovamente gli aggiornamenti."
+  "Update channel changed. Check for updates again.": "Canale aggiornamenti cambiato. Verifica nuovamente gli aggiornamenti.",
+  "Close Unity for this project before applying changes. No project was changed.": "Chiudi Unity per questo progetto prima di applicare le modifiche. Il progetto non è stato modificato.",
+  "Close Unity for this project before applying changes.": "Chiudi Unity per questo progetto prima di applicare le modifiche.",
+  "Poiyomi Pro installer is ready. Open the project in Unity and complete Poiyomi's Patreon sign-in if requested.": "Il programma di installazione di Poiyomi Pro è pronto. Apri il progetto in Unity e completa l’accesso Patreon di Poiyomi, se richiesto.",
+  "Poiyomi Pro replaces conflicting shader packages. Complete Patreon sign-in in Unity if requested.": "Poiyomi Pro sostituisce i pacchetti shader incompatibili. Completa l’accesso Patreon in Unity, se richiesto.",
+  "{0} replaces {1}. Choose which package to keep before applying changes.": "{0} sostituisce {1}. Scegli quale pacchetto mantenere prima di applicare le modifiche.",
+  "Close Unity for {0} before applying changes. No project was changed.": "Chiudi Unity per {0} prima di applicare le modifiche. Il progetto non è stato modificato.",
+  "A newer successful change replaced this recovery copy. Use the latest backup in Activity.": "Una modifica riuscita più recente ha sostituito questa copia di recupero. Usa l’ultimo backup in Attività."
 }

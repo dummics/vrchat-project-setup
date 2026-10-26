@@ -96,12 +96,12 @@ public sealed class PlannerExecutorTests
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
         Assert.Equal(OperationStatus.Skipped, report.Results.Single().Status); Assert.Equal(0, driver.Calls);
     }
-    [Fact] public async Task PackageChangesCanRunWhileUnityIsOpen()
+    [Fact] public async Task PackageChangesWaitForUnityBeforeAnyBackupOrMutation()
     {
         var workspace = new MemoryWorkspace { Busy = true }; var driver = new MemoryDriver(workspace);
         var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
-        Assert.True(report.Success); Assert.True(driver.Calls > 0); Assert.Equal("1.1.0", workspace.Project.InstalledVersions["tool"]);
+        Assert.Equal(OperationStatus.Skipped, report.Results.Single().Status); Assert.Equal(0, driver.Calls); Assert.Equal(0, workspace.Backups);
         Assert.Equal(0, driver.UnityCalls); Assert.False(workspace.LeaseHeld);
     }
     [Fact] public async Task AdditionalFileImportsStillNeedAnAvailableUnityProject()
@@ -160,6 +160,8 @@ public sealed class PlannerExecutorTests
 
 internal sealed class FixtureCatalog : IPackageCatalog
 {
+    public Dictionary<string, PackageVersionMetadata> Metadata { get; } = new();
+    public Task<PackageVersionMetadata> GetMetadataAsync(string id, string version, CancellationToken cancellationToken = default) => Task.FromResult(Metadata.GetValueOrDefault(id + "@" + version) ?? PackageVersionMetadata.Empty);
     public Dictionary<string, string[]> Versions { get; } = new()
     {
         [ProjectRules.BaseSdk] = ["3.10.5", "3.10.6"], [ProjectRules.AvatarSdk] = ["3.10.5", "3.10.6"], [ProjectRules.WorldSdk] = ["3.10.5", "3.10.6"],

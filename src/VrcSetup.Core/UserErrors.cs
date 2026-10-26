@@ -7,9 +7,14 @@ namespace VrcSetup.Core;
 /// <summary>Short, actionable messages for normal users. Full exceptions belong in diagnostics.</summary>
 public static class UserErrors
 {
-    public static bool IsExpected(Exception error) => error is UserInputException || Advice(error.Message) is not null;
+    public static bool IsExpected(Exception error) => error is UserInputException or ProjectsInUseException || Advice(error.Message) is not null || error.Message.StartsWith("These packages cannot be installed together: ", StringComparison.Ordinal);
     public static string Message(Exception error, Func<string, string>? packageName = null)
     {
+        var replacement = Regex.Match(error.Message, @"^These packages cannot be installed together: ([a-zA-Z0-9._-]+), ([a-zA-Z0-9._-]+)\.");
+        if (replacement.Success)
+            return string.Format(UiText.Text("{0} replaces {1}. Choose which package to keep before applying changes."),
+                packageName?.Invoke(replacement.Groups[1].Value) ?? replacement.Groups[1].Value,
+                packageName?.Invoke(replacement.Groups[2].Value) ?? replacement.Groups[2].Value);
         var conflict = Regex.Match(error.Message, @"^Package version conflict: ([a-zA-Z0-9._-]+)@([^;]+); resolved (\S+)\.$");
         if (conflict.Success)
             return string.Format(UiText.Text("{0} was pinned to {1}, but dependencies resolved to {2}. Choose Automatic or compatible package versions, then retry."),
@@ -39,7 +44,7 @@ public static class UserErrors
         UserInputException => error.Message,
         ImportQueueInUseException => "Another instance is already managing imports. Return to that window or close it before continuing.",
         InvalidOperationException when error.Message.StartsWith("Package/version not found: ", StringComparison.Ordinal) => "A selected package is unavailable. Check your connection and retry, or remove it from the preset.",
-        ProjectsInUseException busy => string.Format(UiText.Text("Close Unity to import additional files into {0}. No project was changed."), string.Join(", ", busy.Projects)),
+        ProjectsInUseException busy => string.Format(UiText.Text("Close Unity for {0} before applying changes. No project was changed."), string.Join(", ", busy.Projects)),
         HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden } => "The download service is busy. Please try again later.",
         HttpRequestException => "Could not connect. Check your connection and try again.",
         TimeoutException or TaskCanceledException => "This is taking longer than expected. Please try again.",
@@ -56,6 +61,8 @@ public static class UserErrors
     }
     private static string? Advice(string message) => message switch
     {
+        "Close Unity for this project before applying changes." or "Close Unity for this project before applying changes. No project was changed." or "Unity opened this project. Close it before applying changes." => "Close Unity for this project before applying changes. No project was changed.",
+        "A newer successful change replaced this recovery copy. Use the latest backup in Activity." => message,
         "Choose a different preset name." => "This preset name is already in use. Enter another name.",
         "A path is required." => "Choose a folder to continue.",
         "A package version is required after @." or "Choose a version or latest." => "Choose a package version or Latest version.",

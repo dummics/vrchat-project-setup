@@ -171,7 +171,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public ImportJob? Job => job;
     public string ProjectPath => job?.ProjectPath ?? (report?.Results.Length == 1 ? report.Results[0].Path : "");
     public string BackupFile => report?.Results.FirstOrDefault(x => x.Path.Equals(ProjectPath, StringComparison.OrdinalIgnoreCase))?.BackupPath is { Length: > 0 } folder ? Path.Combine(folder, "backup.json") : "";
-    public Visibility RestoreVisibility => !Checking && job?.Active != true && File.Exists(BackupFile) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RestoreVisibility => !Checking && job?.Active != true && File.Exists(BackupFile) && !File.Exists(Path.Combine(Path.GetDirectoryName(BackupFile)!, "superseded")) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportActionsVisibility => job is { Active: false } && (!job.Source.EmptyProject || job.Recoverable) ? Visibility.Visible : Visibility.Collapsed;
     public string RepairLabel => job?.State is "Failed" or "Cancelled" ? "Try again" : job?.Source.EmptyProject == true ? "Retry project creation" : job?.Recoverable == true ? "Continue import" : "Complete missing files";
     public Visibility ProjectActionsVisibility => job?.Active != true && (ProjectPath.Length > 0 || report?.Results.Length > 0) ? Visibility.Visible : Visibility.Collapsed;

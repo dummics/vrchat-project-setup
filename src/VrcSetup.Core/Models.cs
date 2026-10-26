@@ -147,6 +147,10 @@ public sealed record PackageDefinition(string Id, string DisplayName, string Lat
 
 public enum ChangeKind { Add, Update, Remove, Keep }
 public sealed record PackageChange(string Id, string? InstalledVersion, string? RequestedVersion, string? ResolvedVersion, ChangeKind Kind);
+public sealed record PackageVersionMetadata(string[] Replaces, string[] LegacyAssets)
+{
+    public static PackageVersionMetadata Empty { get; } = new([], []);
+}
 public enum OperationStatus { Completed, CompletedWithWarnings, Failed, Cancelled, Skipped, Unchanged }
 public enum EventSeverity { Info, Warning, Error }
 public sealed record OperationEvent(DateTime Timestamp, string Phase, string Message, EventSeverity Severity = EventSeverity.Info, string? Project = null, string? RawMessage = null)
@@ -178,6 +182,7 @@ public sealed record ProjectPlan
     public string[] ExtraImports { get; init; } = [];
     public bool NeedsEasyLoginRepository { get; init; }
     public string[] RequiredPackages { get; init; } = [];
+    public string[] LegacyAssetPaths { get; init; } = [];
     public string UnityEditorPath { get; init; } = "";
     public IReadOnlyDictionary<string, string> ImportFingerprints { get; init; } = new Dictionary<string, string>();
     public bool HasChanges => Creation is not null || RecoverySource is not null || ExtraImports.Length > 0 || Changes.Any(x => x.Kind != ChangeKind.Keep);
@@ -190,12 +195,13 @@ public sealed record ToolResult(int ExitCode, string StdOut, string StdErr)
 {
     public string Output => string.Join(Environment.NewLine, new[] { StdOut, StdErr }.Where(x => !string.IsNullOrWhiteSpace(x)));
 }
-public sealed record BackupRecord(string Directory, IReadOnlyDictionary<string, string?> ManifestFiles, string? AssetArchive = null);
+public sealed record BackupRecord(string Directory, IReadOnlyDictionary<string, string?> ManifestFiles, string? AssetArchive = null, string? PackageArchive = null);
 
 public interface IPackageCatalog
 {
     Task<PackageDefinition[]> SearchAsync(string query, CancellationToken cancellationToken = default);
     Task<string[]> GetVersionsAsync(string packageId, CancellationToken cancellationToken = default);
+    Task<PackageVersionMetadata> GetMetadataAsync(string packageId, string version, CancellationToken cancellationToken = default) => Task.FromResult(PackageVersionMetadata.Empty);
 }
 
 public interface IProjectWorkspace
@@ -208,6 +214,7 @@ public interface IProjectWorkspace
     Task SaveProfileAsync(ProjectPlan plan, CancellationToken cancellationToken);
     Task SetStepAsync(string path, string step, bool done, CancellationToken cancellationToken);
     Task CompleteAsync(string path, CancellationToken cancellationToken);
+    Task ConfirmBackupAsync(BackupRecord backup) => Task.CompletedTask;
 }
 
 public interface IProjectDriver
@@ -215,6 +222,16 @@ public interface IProjectDriver
     Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task<ToolResult> ChangePackageAsync(string project, PackageChange change, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
+    async Task<ToolResult> ApplyPackagePlanAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token)
+    {
+        foreach (var change in plan.Changes.Where(x => x.Kind != ChangeKind.Keep).OrderBy(x => x.Kind == ChangeKind.Remove ? 0 : 1))
+        {
+            progress?.Report(new(DateTime.UtcNow, "Packages", $"{change.Kind}: {change.Id}", Project: plan.Path) { Package = change });
+            var result = await ChangePackageAsync(plan.Path, change, progress, token);
+            if (ProjectRules.ToolFailed(result, change.Kind == ChangeKind.Remove ? null : change.Id)) return result;
+        }
+        return await ResolveAsync(plan.Path, progress, token);
+    }
     Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);

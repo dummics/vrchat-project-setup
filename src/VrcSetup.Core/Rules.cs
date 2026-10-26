@@ -206,7 +206,24 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             if (version is null || !versions.Contains(version, StringComparer.OrdinalIgnoreCase)) throw new InvalidOperationException($"Package/version not found: {entry.Key}@{entry.Value}");
             resolved[entry.Key] = version;
         }
-        var changes = snapshot.Packages.Keys.Union(desired.Keys, StringComparer.OrdinalIgnoreCase).Union(remove ?? [], StringComparer.OrdinalIgnoreCase).Where(id => !PackagePresence.IsGenerated(id)).Select(id =>
+        var metadata = new Dictionary<string, PackageVersionMetadata>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in resolved) metadata[entry.Key] = await catalog.GetMetadataAsync(entry.Key, entry.Value, cancellationToken);
+        var removed = new HashSet<string>(remove ?? [], StringComparer.OrdinalIgnoreCase);
+        foreach (var id in desired.Keys.OrderByDescending(selected.ContainsKey).ToArray())
+        {
+            if (!desired.ContainsKey(id)) continue;
+            foreach (var replaced in metadata[id].Replaces.Where(desired.ContainsKey).ToArray())
+            {
+                if (replaced.Equals(id, StringComparison.OrdinalIgnoreCase)) continue;
+                if (selected.ContainsKey(replaced))
+                {
+                    throw new InvalidOperationException($"These packages cannot be installed together: {id}, {replaced}. Choose the package you want to keep.");
+                }
+                if (required.Contains(replaced, StringComparer.OrdinalIgnoreCase)) throw new InvalidOperationException("A selected package replaces required infrastructure: " + replaced);
+                desired.Remove(replaced); resolved.Remove(replaced); removed.Add(replaced);
+            }
+        }
+        var changes = snapshot.Packages.Keys.Union(desired.Keys, StringComparer.OrdinalIgnoreCase).Union(removed.Where(id => PackagePresence.Contains(snapshot, id)), StringComparer.OrdinalIgnoreCase).Where(id => !PackagePresence.IsGenerated(id)).Select(id =>
         {
             var old = snapshot.InstalledVersions.GetValueOrDefault(id) ?? snapshot.LockedPackages.GetValueOrDefault(id) ?? snapshot.Packages.GetValueOrDefault(id);
             var version = resolved.GetValueOrDefault(id);
@@ -220,6 +237,7 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             Path = project, Name = snapshot.Name, ExpectedFingerprint = snapshot.Fingerprint, DesiredPolicy = ProjectRules.Freeze(desired), Changes = changes,
             PresetName = preset, PresetDefinition = selected.Count > 0 ? ProjectRules.Freeze(selected) : null, Creation = creation,
             ExtraImports = extraImports ?? [], RequiredPackages = required,
+            LegacyAssetPaths = changes.Where(x => x.Kind is ChangeKind.Add or ChangeKind.Update).SelectMany(x => metadata[x.Id].LegacyAssets).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             UnityEditorPath = creation?.UnityEditorPath ?? config.UnityEditorPath,
             ImportFingerprints = ProjectRules.Freeze((extraImports ?? []).Concat(creation?.ExtraImports ?? []).Concat(creation is null || creation.EmptyProject ? [] : new[] { creation.UnityPackagePath }).Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(x => x, ProjectRules.FileIdentity)),
             NeedsEasyLoginRepository = desired.ContainsKey(ProjectRules.EasyLogin)

@@ -14,7 +14,9 @@ public sealed partial class PackageCatalog
         ["com.vrcfury.vrcfury"] = "https://vcc.vrcfury.com/",
         ["gogoloco"] = "https://spokeek.github.io/goloco/index.json",
         ["adjerry91.vrcft.templates"] = "https://adjerry91.github.io/VRCFaceTracking-Templates/index.json",
-        ["com.poiyomi.toon"] = "https://poiyomi.github.io/vpm/index.json"
+        ["com.poiyomi.toon"] = "https://poiyomi.github.io/vpm/index.json",
+        ["com.poiyomi.pro"] = "https://poiyomi.github.io/vpm/index.json",
+        ["com.poiyomi.thryeditor"] = "https://poiyomi.github.io/vpm/index.json"
     };
     private async Task<bool> EnsurePackageSourceAsync(string id, CancellationToken token)
     {

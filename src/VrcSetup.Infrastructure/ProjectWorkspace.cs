@@ -237,19 +237,29 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             if (File.Exists(file)) { File.Copy(file, saved); manifests[relative] = saved; } else manifests[relative] = null;
         }
         string? assets = null;
-        if (plan.Creation is null && (plan.ExtraImports.Length > 0 || plan.NeedsEasyLoginRepository && Directory.Exists(Path.Combine(plan.Path, "Assets", "EASY LOGIN"))))
+        // Indirect dependencies can migrate legacy Assets too. Until VPM exposes
+        // its full pending migration closure, protect those files for every
+        // package transaction, not only roots with known migration metadata.
+        if (plan.Creation is null && (plan.Changes.Any(x => x.Kind != ChangeKind.Keep) || plan.ExtraImports.Length > 0 || plan.LegacyAssetPaths.Length > 0 || plan.NeedsEasyLoginRepository && Directory.Exists(Path.Combine(plan.Path, "Assets", "EASY LOGIN"))))
         {
             assets = Path.Combine(folder, "assets.zip");
             await Task.Run(() => CreateAssetBackup(plan.Path, assets, cancellationToken), cancellationToken);
         }
-        var record = new BackupRecord(folder, manifests, assets);
+        string? packages = null;
+        if (plan.Creation is null && plan.Changes.Any(x => x.Kind != ChangeKind.Keep))
+        {
+            packages = Path.Combine(folder, "packages.zip");
+            await Task.Run(() => CreateAssetBackup(plan.Path, packages, cancellationToken, ["Packages"]), cancellationToken);
+        }
+        var record = new BackupRecord(folder, manifests, assets, packages);
         await AtomicFile.WriteJsonAsync(Path.Combine(folder, "backup.json"), record, cancellationToken);
         return record;
     }
-    private static void CreateAssetBackup(string project, string archivePath, CancellationToken cancellationToken)
+    public Task ConfirmBackupAsync(BackupRecord backup) => PackageBackupRetention.ConfirmAsync(backup);
+    private static void CreateAssetBackup(string project, string archivePath, CancellationToken cancellationToken, string[]? roots = null)
     {
         using var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create);
-        foreach (var root in new[] { "Assets", "ProjectSettings" })
+        foreach (var root in roots ?? ["Assets", "ProjectSettings"])
         {
             var pending = new Queue<string>(); pending.Enqueue(Path.Combine(project, root));
             while (pending.TryDequeue(out var folder))
@@ -271,6 +281,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
     {
         project = ProjectRules.NormalizePath(project);
         ProjectRules.EnsureContained(Path.Combine(project, ".vrcsetup", "backups"), backup.Directory);
+        if (File.Exists(Path.Combine(backup.Directory, "superseded"))) throw new IOException("A newer successful change replaced this recovery copy. Use the latest backup in Activity.");
         if (IsBusy(project)) return false;
         if (backup.ManifestFiles.Keys.Any(x => !ManifestNames.Contains(x))) throw new IOException("Backup contains an unexpected manifest destination.");
         foreach (var file in backup.ManifestFiles)
@@ -286,16 +297,18 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
         var manifestsMutated = false;
         try
         {
-        if (backup.AssetArchive is not null)
+        foreach (var archiveFile in new[] { backup.AssetArchive, backup.PackageArchive }.OfType<string>())
         {
-            ProjectRules.EnsureContained(backup.Directory, backup.AssetArchive);
-            using var archive = ZipFile.OpenRead(backup.AssetArchive);
+            ProjectRules.EnsureContained(backup.Directory, archiveFile);
+            using var archive = ZipFile.OpenRead(archiveFile);
             // Validate every entry before touching either original tree.
             foreach (var entry in archive.Entries)
             {
                 var destination = ProjectRules.NormalizePath(entry.FullName, stage); ProjectRules.EnsureContained(stage, destination);
                 var relative = Path.GetRelativePath(stage, destination).Replace('\\', '/');
-                if (!relative.StartsWith("Assets/", StringComparison.Ordinal) && !relative.StartsWith("ProjectSettings/", StringComparison.Ordinal)) throw new IOException("Unexpected path in asset backup.");
+                var allowed = archiveFile == backup.PackageArchive ? relative.StartsWith("Packages/", StringComparison.Ordinal)
+                    : relative.StartsWith("Assets/", StringComparison.Ordinal) || relative.StartsWith("ProjectSettings/", StringComparison.Ordinal);
+                if (!allowed) throw new IOException("Unexpected path in project backup.");
                 if (((entry.ExternalAttributes >> 16) & 0xF000) == 0xA000) throw new IOException("Linked files are not allowed in an asset backup.");
             }
             foreach (var entry in archive.Entries)
@@ -304,7 +317,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
                 var destination = ProjectRules.NormalizePath(entry.FullName, stage);
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!); entry.ExtractToFile(destination, false);
             }
-            foreach (var name in new[] { "Assets", "ProjectSettings" }) Directory.CreateDirectory(Path.Combine(stage, name));
+            foreach (var name in archiveFile == backup.PackageArchive ? new[] { "Packages" } : new[] { "Assets", "ProjectSettings" }) Directory.CreateDirectory(Path.Combine(stage, name));
         }
         cancellationToken.ThrowIfCancellationRequested();
         if (IsBusy(project)) return false;
@@ -313,10 +326,10 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             var destination = Path.Combine(project, file.Key); var original = Path.Combine(displaced, Path.GetFileName(file.Key));
             if (File.Exists(destination)) { File.Copy(destination, original); originals[file.Key] = original; } else originals[file.Key] = null;
         }
-        if (backup.AssetArchive is not null)
+        if (backup.AssetArchive is not null || backup.PackageArchive is not null)
         {
             // Keep displaced assets until recovery is verified; cancellation cannot remove them.
-            foreach (var name in new[] { "Assets", "ProjectSettings" })
+            foreach (var name in (backup.AssetArchive is null ? Array.Empty<string>() : new[] { "Assets", "ProjectSettings" }).Concat(backup.PackageArchive is null ? [] : new[] { "Packages" }))
             {
                 var original = Path.Combine(project, name); ProjectRules.EnsureContained(project, original);
                 if (Directory.Exists(original)) Directory.Move(original, Path.Combine(displaced, name));
@@ -331,9 +344,12 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             if (file.Value is null) { if (File.Exists(destination)) File.Delete(destination); }
             else File.Copy(file.Value, destination, true);
         }
-        if (Resolve is null) throw new IOException("Recovery resolver is unavailable.");
-        var result = await Resolve(project, progress, cancellationToken);
-        if (ProjectRules.ToolFailed(result)) throw new IOException("VPM resolve did not complete during recovery.");
+        if (backup.PackageArchive is null)
+        {
+            if (Resolve is null) throw new IOException("Recovery resolver is unavailable.");
+            var result = await Resolve(project, progress, cancellationToken);
+            if (ProjectRules.ToolFailed(result)) throw new IOException("VPM resolve did not complete during recovery.");
+        }
         progress?.Report(new(DateTime.UtcNow, "Recovery", "Backup restored. Previous trees preserved at " + displaced, Project: project));
         return true;
         }

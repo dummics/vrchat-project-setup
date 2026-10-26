@@ -1,5 +1,17 @@
 # Desktop migration verification
 
+## 0.2.6 package migration
+
+`dotnet run --project tests/VrcSetup.E2E -c Release -- --verify-package-migration <fresh-evidence>`
+uses public VPM packages in an isolated project: Toon 10.0.27 → Pro downloader
+11.0.38 → remove already-absent Toon → Pro 10.0.11 → Toon. It verifies actual
+embedded and locked results, preserving exact downgrade choices. It never starts
+Unity, signs into Patreon or registers fixtures with Creator Companion. Core
+regressions cover conflicting explicit choices, missing locks, phantom removals,
+version-specific migration metadata, physical/offline rollback and backup retention.
+Historical Unity-open behavior documented below is superseded by the closed-target
+requirement in 0.2.6. Backup of shader-heavy Assets may take additional time.
+
 The unattended `FlowInteraction` file picker treats a null choice as cancellation.
 It must not delegate to a native picker: hosted release runners have no Unity
 editor, and the creation check would otherwise wait for desktop input until the

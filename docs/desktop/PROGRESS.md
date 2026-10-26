@@ -1,5 +1,21 @@
 # VRCSETUP Desktop migration
 
+## 0.2.6-beta.1 package transactions
+
+Selected-version VPM migration metadata now drives package replacements. Absent
+removals are satisfied without invoking removal; conflicting explicit selections
+fail before mutation. Package apply publishes retained root intent, removes only
+still-present requested replacements and explicitly installs changed versions
+before resolving. This avoids both legacy-provider no-ops and resurrecting the
+previous shader. Downgrades use the current lock, never historical UI state.
+
+Unity must be closed for package mutations. Physical Packages plus Assets and
+ProjectSettings are backed up (including indirect dependency migrations), with
+offline rollback. Only the latest successful new snapshot retains large archives;
+failed and old manifest-only recovery data remain available. Pro selection shows
+the official Unity/Patreon next step. Real Toon/Pro/older-Pro/Toon verification
+runs without launching Unity, authenticating or registering fixture projects.
+
 ## Next build: cancellation, quiet recovery and update feedback
 
 The owner subsequently authorized official beta publication with these fixes.

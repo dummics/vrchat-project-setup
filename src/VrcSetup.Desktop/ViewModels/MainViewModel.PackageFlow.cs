@@ -93,7 +93,8 @@ public sealed partial class MainViewModel
         presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); RenderPreset(); RefreshLibraryRows();
     }
     private void NotifyWorkspaceChanges()
-    { OnPropertyChanged(nameof(WorkspaceFriendlySummary)); OnPropertyChanged(nameof(WorkspaceFriendlyNames)); OnPropertyChanged(nameof(LibraryPendingVisibility)); OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); }
+    { OnPropertyChanged(nameof(PoiyomiNoticeVisibility)); OnPropertyChanged(nameof(WorkspaceFriendlySummary)); OnPropertyChanged(nameof(WorkspaceFriendlyNames)); OnPropertyChanged(nameof(LibraryPendingVisibility)); OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); }
+    public Visibility PoiyomiNoticeVisibility => session?.Selected.ContainsKey("com.poiyomi.pro") == true && !session.Removed.Contains("com.poiyomi.pro") ? Visibility.Visible : Visibility.Collapsed;
     private async Task SearchLibraryAsync(string query)
     {
         packageSearch?.Cancel(); var source = packageSearch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); var token = source.Token;
