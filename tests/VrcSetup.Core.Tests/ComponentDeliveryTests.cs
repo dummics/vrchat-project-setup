@@ -31,6 +31,8 @@ public sealed class ComponentDeliveryTests
         Assert.Equal(bytes, downloads[^1].Completed);
         var files = reports.Last(x => x.Phase == "prepare-files");
         Assert.Equal(fixture.Manifest.Components.Sum(x => x.Files.Count), files.Total); Assert.Equal(files.Total, files.Completed);
+        var prepared = reports.Where(x => x.Phase == "prepare-files").Select(x => x.Completed).ToArray();
+        Assert.Equal(prepared.Order(), prepared);
         reports.Clear();
         await delivery.PrepareAsync(fixture.Manifest, fixture.Stage(), fixture.Cache, fixture.Installed, measured: progress);
         Assert.DoesNotContain(reports, x => x.Phase == "download");
@@ -133,6 +135,15 @@ public sealed class ComponentDeliveryTests
         var obsolete = Path.Combine(fixture.Cache, new string('f', 64) + ".zip"); await File.WriteAllTextAsync(obsolete, "obsolete"); File.SetLastWriteTimeUtc(obsolete, DateTime.UtcNow.AddDays(-40));
         using var client = fixture.Client(); await new ComponentDelivery(client).PrepareAsync(fixture.Manifest, fixture.Stage(), fixture.Cache, fixture.Installed);
         Assert.False(File.Exists(obsolete)); Assert.Equal(2, Directory.GetFiles(fixture.Cache, "*.zip").Length);
+    }
+    [Fact] public async Task ValidArchiveWithWrongFileChecksumCannotFinishPreparation()
+    {
+        using var fixture = new Fixture(); using var client = fixture.Client();
+        var module = fixture.Manifest.Components[0] with { Files = new(fixture.Manifest.Components[0].Files) };
+        module.Files["payload/app.txt"] = new string('0', 64);
+        var manifest = fixture.Manifest with { Components = [module, fixture.Manifest.Components[1]] };
+        await Assert.ThrowsAsync<IOException>(() => new ComponentDelivery(client).PrepareAsync(manifest, fixture.Stage(), fixture.Cache, fixture.Installed));
+        Assert.False(Directory.Exists(fixture.Installed));
     }
     private sealed class Fixture : IDisposable
     {

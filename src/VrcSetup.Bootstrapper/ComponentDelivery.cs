@@ -93,29 +93,32 @@ public sealed class ComponentDelivery(HttpClient client)
         }
         var totalFiles = manifest.Components.Sum(x => x.Files.Count); long readyFiles = 0;
         measured?.Report(new("prepare-files", 0, totalFiles));
-        void Ready() { measured?.Report(new("prepare-files", ++readyFiles, totalFiles)); }
-        foreach (var module in manifest.Components)
+        var reporting = new object();
+        void Ready() { lock (reporting) { readyFiles++; measured?.Report(new("prepare-files", readyFiles, totalFiles)); } }
+        // Component paths are disjoint (validated above). Bound disk/Defender work
+        // rather than serializing hundreds of independent runtime files.
+        await Parallel.ForEachAsync(manifest.Components, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = token }, async (module, componentToken) =>
         {
-            token.ThrowIfCancellationRequested();
+            componentToken.ThrowIfCancellationRequested();
             if (reuse.Contains(module.Name))
             {
                 foreach (var file in module.Files)
                 {
-                    token.ThrowIfCancellationRequested();
+                    componentToken.ThrowIfCancellationRequested();
                     var destination = Contained(staging, file.Key); Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                     File.Copy(Contained(installedRoot, file.Key[8..]), destination);
-                    if (!await MatchesAsync(destination, file.Value, null, token)) throw new IOException("Installed component changed during reuse.");
+                    if (!await MatchesAsync(destination, file.Value, null, componentToken)) throw new IOException("Installed component changed during reuse.");
                     Ready();
                 }
             }
             else
             {
                 var zip = Path.Combine(cache, module.Name);
-                await ExtractAsync(zip, staging, module, token, Ready);
+                await ExtractAsync(zip, staging, module, componentToken, Ready);
                 File.SetLastWriteTimeUtc(zip, DateTime.UtcNow);
             }
-            progress?.Report(((int)(readyFiles * 100 / totalFiles), "Preparing setup…"));
-        }
+            lock (reporting) progress?.Report(((int)(readyFiles * 100 / totalFiles), "Preparing setup…"));
+        });
         Prune(cache, manifest.Components.Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase));
         return new(downloaded, received, cached, reused);
     }
@@ -168,6 +171,7 @@ public sealed class ComponentDelivery(HttpClient client)
     {
         using var archive = ZipFile.OpenRead(zip); var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase); long expanded = 0;
         if (archive.Entries.Count != module.Files.Count) throw new IOException("Unexpected component archive structure.");
+        var buffer = new byte[81920];
         foreach (var entry in archive.Entries)
         {
             if (!module.Files.TryGetValue(entry.FullName, out var expected) || !found.Add(entry.FullName)
@@ -175,9 +179,21 @@ public sealed class ComponentDelivery(HttpClient client)
                 throw new IOException("Unexpected component archive entry.");
             expanded += entry.Length; if (expanded > 2L * 1024 * 1024 * 1024) throw new IOException("Expanded component is too large.");
             var path = Contained(staging, entry.FullName); Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             await using (var input = entry.Open())
-            await using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)) await input.CopyToAsync(output, token);
-            if (!await MatchesAsync(path, expected, entry.Length, token)) throw new IOException("Component file verification failed.");
+            await using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                long written = 0; int count;
+                while ((count = await input.ReadAsync(buffer, token)) > 0)
+                {
+                    written += count;
+                    if (written > entry.Length) throw new IOException("Oversized component entry.");
+                    hash.AppendData(buffer, 0, count);
+                    await output.WriteAsync(buffer.AsMemory(0, count), token);
+                }
+                if (written != entry.Length || !Convert.ToHexString(hash.GetHashAndReset()).Equals(expected, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Component file verification failed.");
+            }
             ready();
         }
         if (found.Count != module.Files.Count) throw new IOException("Incomplete component archive.");

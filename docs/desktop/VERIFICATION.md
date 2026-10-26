@@ -5,6 +5,14 @@ It must not delegate to a native picker: hosted release runners have no Unity
 editor, and the creation check would otherwise wait for desktop input until the
 workflow timeout. A smoke assertion covers this cancellation before creation.
 
+For update performance, `--measure-component-update <components.json> <installed-root> <isolated-cache> <fresh-evidence>` on the E2E runner reads the installed root,
+prepares verified components, then installs to its evidence folder with shortcuts
+and PATH changes disabled. It records preparation/install phase timings and actual
+network bytes in `timings.json`. Never point the cache or evidence at owner data.
+Component preparation runs at most four disjoint components concurrently and
+checks extracted bytes while writing; the installer still validates its staged
+payload before replacement. Corruption/cancellation tests cover failure.
+
 ## Isolated verification and Creator Companion
 
 Verification compositions and CLI children use `--no-vcc-registration`; direct

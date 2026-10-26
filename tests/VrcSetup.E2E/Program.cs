@@ -19,6 +19,11 @@ if (args is ["--verify-unity-import", var importEditor, var importEvidence])
     await UnityImportVerification.RunAsync(importEditor, importEvidence);
     return;
 }
+if (args is ["--measure-component-update", var manifestFile, var installedFiles, var cacheFiles, var performanceEvidence])
+{
+    await DeliveryPerformanceVerification.RunAsync(manifestFile, installedFiles, cacheFiles, performanceEvidence);
+    return;
+}
 if (args is ["--verify-public-update", var previousVersion, var expectedVersion, var updateEvidence])
 {
     await PublicUpdateVerification.RunAsync(previousVersion, expectedVersion, updateEvidence);
