@@ -21,7 +21,9 @@ internal sealed class FlowInteraction(IDesktopInteraction inner) : IDesktopInter
     public int SaveFileRequests { get; private set; }
     public Task<string?> SaveFileAsync(string name, string extension) { SaveFileRequests++; return Task.FromResult(FileChoice); }
     public Task<bool> ConfirmAsync(string title, string content, string action) { Confirmations++; return Task.FromResult(ConfirmResult); }
-    public Task<string?> PickFileAsync(string extension) => FileChoice is null ? inner.PickFileAsync(extension) : Task.FromResult<string?>(FileChoice);
+    // Null is a simulated cancellation, including when CI has no Unity editor.
+    // Never open a native picker from an unattended verification run.
+    public Task<string?> PickFileAsync(string extension) => Task.FromResult<string?>(FileChoice);
     public Task<string?> PickFolderAsync() => inner.PickFolderAsync();
     public Task<bool> ReviewAsync(OperationPlan plan) { LastReview = plan; return ReviewResult is { } result ? Task.FromResult(result) : inner.ReviewAsync(plan); }
     public Task<string?> TextAsync(string title, string initial = "") => inner.TextAsync(title, initial);

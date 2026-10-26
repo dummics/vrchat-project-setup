@@ -1,5 +1,10 @@
 # Desktop migration verification
 
+The unattended `FlowInteraction` file picker treats a null choice as cancellation.
+It must not delegate to a native picker: hosted release runners have no Unity
+editor, and the creation check would otherwise wait for desktop input until the
+workflow timeout. A smoke assertion covers this cancellation before creation.
+
 ## Isolated verification and Creator Companion
 
 Verification compositions and CLI children use `--no-vcc-registration`; direct

@@ -286,6 +286,7 @@ public static class UiSmokeTest
         viewModel.IsCreatingProject = false; viewModel.IsApplyingPackages = false;
         viewModel.ApplyProject = ""; viewModel.ApplyPhase = "";
         var decisions = new FlowInteraction(page);
+        Require(await decisions.PickFileAsync(".exe") is null, "Unattended file selection cancels without opening a native picker");
         using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
         {
             await flow.InitializeAsync();
