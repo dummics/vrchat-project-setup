@@ -1,5 +1,28 @@
 [
   {
+    "tag_name": "v0.2.6-beta.1",
+    "draft": false,
+    "prerelease": true,
+    "assets": [
+      {
+        "name": "components.json",
+        "browser_download_url": "https://github.com/dummics/vrchat-project-setup/releases/download/v0.2.6-beta.1/components.json"
+      },
+      {
+        "name": "Install-VrcSetup-0.2.6-beta.1-win-x64.exe",
+        "browser_download_url": "https://github.com/dummics/vrchat-project-setup/releases/download/v0.2.6-beta.1/Install-VrcSetup-0.2.6-beta.1-win-x64.exe"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "browser_download_url": "https://github.com/dummics/vrchat-project-setup/releases/download/v0.2.6-beta.1/SHA256SUMS.txt"
+      },
+      {
+        "name": "VrcSetup-0.2.6-beta.1-win-x64.zip",
+        "browser_download_url": "https://github.com/dummics/vrchat-project-setup/releases/download/v0.2.6-beta.1/VrcSetup-0.2.6-beta.1-win-x64.zip"
+      }
+    ]
+  },
+  {
     "tag_name": "v0.2.5-beta.4",
     "draft": false,
     "prerelease": true,
