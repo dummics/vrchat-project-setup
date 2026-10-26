@@ -6,7 +6,7 @@ Create and manage VRChat Unity projects on Windows.
 
 ## Download
 
-**[⬇ Download for Windows](https://github.com/dummics/vrchat-project-setup/releases/tag/v0.2.5-beta.3)**
+**[⬇ Download for Windows](https://github.com/dummics/vrchat-project-setup/releases/tag/v0.2.5-beta.4)**
 
 Open the newest release and click **Download this version**. Run the installer; the same EXE installs or updates the app.
 
