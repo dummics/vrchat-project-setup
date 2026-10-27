@@ -231,6 +231,16 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         }
         return null;
     }
+    private static T? FindFirstVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is T match) return match;
+            if (FindFirstVisualChild<T>(child) is { } nested) return nested;
+        }
+        return null;
+    }
     private double PackageRecapWidth()
     {
         return Math.Max(1, CreateForm.Width);
@@ -348,7 +358,22 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void RemoveImportDraftClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportDraft draft) ViewModel.RemoveImportDraft(draft); }
     private async void ImportDetailsExpanded(Expander sender, ExpanderExpandingEventArgs args)
-    { if (sender.DataContext is UiImportRow row) { row.DetailsOpen = true; ConstrainForms(); await ViewModel.RefreshImportLogAsync(row, true); } }
+    {
+        if (sender.DataContext is UiImportRow row)
+        {
+            row.DetailsOpen = true; ConstrainForms();
+            await ViewModel.RefreshImportLogAsync(row, true);
+            // Wait for the native expander to finish arranging its upward content,
+            // then keep its header visible at the bottom of the bounded queue.
+            await Task.Delay(350);
+            if (row.DetailsOpen && FindFirstVisualChild<ScrollViewer>(ImportQueueList) is { } queue)
+            {
+                var bottom = sender.TransformToVisual(queue).TransformPoint(new(0, sender.ActualHeight)).Y;
+                var target = Math.Clamp(queue.VerticalOffset + bottom - queue.ViewportHeight, 0, queue.ScrollableHeight);
+                queue.ChangeView(null, target, null, true);
+            }
+        }
+    }
     private void ImportExpanderLoaded(object sender, RoutedEventArgs args)
     {
         if (sender is Expander expander && FindVisualChild<Border>(expander, "ExpanderContent") is { } border) border.BorderThickness = new Thickness(0);

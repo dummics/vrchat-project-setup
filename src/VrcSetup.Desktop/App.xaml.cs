@@ -131,6 +131,7 @@ public partial class App : Application
                 var artifacts = arguments[smokeIndex + 1];
                 var application = await Verification.UiSmokeTest.PrepareAsync(artifacts);
                 var main = new MainWindow(application); window = main;
+                if (arguments.Contains("--smoke-offscreen")) main.AppWindow.Move(new(-12000, -12000));
                 main.AppWindow.Show(false);
                 await Verification.UiSmokeTest.RunAsync(main, artifacts);
                 main.Close(); Exit();
