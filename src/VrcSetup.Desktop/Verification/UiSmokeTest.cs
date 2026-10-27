@@ -846,15 +846,16 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         {
             window.AppWindow.Resize(size); await Task.Delay(600); page.UpdateLayout();
             var view = (FrameworkElement)page.FindName("CreateView");
-            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 2, "Imports remain below the form at every window size: " + size.Width);
+            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 1, "Imports stay in the bottom area at every window size: " + size.Width);
             Require(jobList.ActualHeight >= 100, "Active job rows are visible in the adaptive import area: " + size.Width);
-            var form = (FrameworkElement)page.FindName("CreateForm");
-            var formOrigin = form.TransformToVisual(view).TransformPoint(new(0, 0));
-            var jobsOrigin = jobSection.TransformToVisual(view).TransformPoint(new(0, 0));
-            Require(jobsOrigin.Y >= formOrigin.Y + form.ActualHeight, "Import jobs never overlap the package recap: " + size.Width);
+            var host = (FrameworkElement)page.FindName("CreateHost");
+            var viewOrigin = view.TransformToVisual(host).TransformPoint(new(0, 0));
+            var jobsOrigin = jobSection.TransformToVisual(host).TransformPoint(new(0, 0));
+            Require(jobsOrigin.Y >= viewOrigin.Y + view.ActualHeight - 1, "Import jobs do not overlap the form viewport: " + size.Width);
+            Require(Math.Abs(jobsOrigin.Y + jobSection.ActualHeight - host.ActualHeight) < 2, "Imports are anchored to the bottom: " + size.Width);
             var row = (FrameworkElement)jobList.ContainerFromIndex(0);
             var cancel = Descendants(row).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "CancelImportAction");
-            Require(!fixtureJobs[0].DetailsOpen && cancel.Visibility == Visibility.Visible && cancel.IsEnabled && cancel.ActualWidth >= 80,
+            Require(!fixtureJobs[0].DetailsOpen && cancel.Visibility == Visibility.Visible && cancel.IsEnabled && cancel.ActualWidth >= 32 && cancel.ActualWidth <= 40,
                 "Cancel import is directly visible on a collapsed active row: " + size.Width);
             Require(cancel.TransformToVisual(jobList).TransformPoint(new(cancel.ActualWidth, 0)).X <= jobList.ActualWidth,
                 "Cancel import remains inside the usable list width: " + size.Width);
@@ -863,7 +864,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Cancelling" });
         await Task.Delay(100);
         var firstCancel = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "CancelImportAction");
-        Require(firstCancel.Visibility == Visibility.Visible && !firstCancel.IsEnabled && Equals(firstCancel.Content, "Cancelling…"),
+        Require(firstCancel.Visibility == Visibility.Visible && !firstCancel.IsEnabled && Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(firstCancel) == "Cancelling…",
             "Cancellation request stays visible with immediate disabled feedback");
         fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Completed" });
         await Task.Delay(100);
@@ -878,7 +879,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         await Task.Delay(600);
         fixtureJobs[1].LogText = string.Join("\n", Enumerable.Range(1, 160).Select(x => "Import log line " + x));
         page.UpdateLayout(); await Task.Delay(180);
-        Require(Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(jobList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled, "Import rows have no intermediate scrolling viewport");
+        Require(Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(jobList) == Microsoft.UI.Xaml.Controls.ScrollMode.Enabled, "Import queue scrolls within its bounded bottom area");
         var importLog = Descendants(jobList).OfType<Microsoft.UI.Xaml.Controls.ScrollViewer>().First(x => x.Height == 260);
         Require(importLog.ScrollableHeight > 0, "Expanded import log has its own readable scroll range");
         importLog.ChangeView(null, 160, null, true); await Task.Delay(180);

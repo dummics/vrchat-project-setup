@@ -258,6 +258,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         personalPackageIds = known.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         WorkspaceProfile = string.Join(Environment.NewLine, fresh.Where(x => x.ProfileStatus.Length > 0).Select(x => (fresh.Count > 1 ? x.Name + ": " : "") + x.ProfileStatus));
         SelectedProjects.Clear(); NotifyProjectSelection();
+        WorkspaceAttention = fresh.FirstOrDefault(x => x.Incomplete || x.Status != "Ready" || x.MissingPackages.Length > 0) is { } attention ? ProjectAttentionConverter.Description(attention) : "";
+        OnPropertyChanged(nameof(WorkspaceAttention)); OnPropertyChanged(nameof(WorkspaceAttentionVisibility));
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : string.Format(UiText.Text("{0} projects"), projects.Length); PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>
@@ -334,6 +336,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (busy.Length > 0) throw new ProjectsInUseException(busy);
             var plan = await Task.Run(() => app.Planner.PlanBulkAsync(source.Projects.Select(x => x.Path), selected, choices, exact, removed, targets, preset, extraImports, cancellation.Token));
             cancellation.Token.ThrowIfCancellationRequested();
+            if (PackageDowngrades.RequiresConfirmation(plan) && !await ui.ConfirmAsync("Review older versions", RiskyVersionSummary(plan), "Apply anyway")) return;
+            cancellation.Token.ThrowIfCancellationRequested();
             if (BeforePackageApplyForVerification is { } ready) await ready(plan);
             cancellation.Token.ThrowIfCancellationRequested();
             if (ProjectImportsActive(plan.Projects.Select(x => x.Path))) return;
@@ -363,6 +367,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
         }
         finally { operation = null; IsBusy = false; IsApplyingPackages = false; CanCancelApply = false; applyingProjects = []; applyingSession = null; }
+    }
+    private string RiskyVersionSummary(OperationPlan plan)
+    {
+        var lines = new List<string> { UiText.Text("These older versions can affect your project. Review the changes before continuing.") };
+        foreach (var project in plan.Projects)
+        {
+            var downgrades = project.Changes.Where(x => PackageDowngrades.RequiresConfirmation(x) || x.Kind != ChangeKind.Remove && PackageDowngrades.Classify(x.Id, x.InstalledVersion, x.ResolvedVersion) == VersionChangeRisk.Downgrade).ToArray();
+            if (downgrades.Length == 0) continue;
+            var sdkChanged = downgrades.Any(x => ProjectRules.SdkIds.Contains(x.Id));
+            var listed = project.Changes.Where(x => downgrades.Contains(x) || sdkChanged && ProjectRules.SdkIds.Contains(x.Id) && x.Kind != ChangeKind.Remove).ToArray();
+            lines.Add(""); lines.Add(project.Name);
+            foreach (var change in listed)
+                lines.Add("• " + PackageDisplayName(change.Id) + ": " + (change.InstalledVersion ?? UiText.Text("Not installed")) + " → " + (change.ResolvedVersion ?? "?"));
+        }
+        lines.Add(""); lines.Add(UiText.Text("Other packages may need a newer version. Compatibility cannot always be checked in advance."));
+        return string.Join("\n", lines);
     }
     [RelayCommand] private async Task PickPackage()
     { if (await ui.PickFileAsync(".unitypackage") is { } file) { PackageFile = file; CurrentPage = "Create"; } }

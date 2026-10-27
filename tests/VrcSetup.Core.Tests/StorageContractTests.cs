@@ -25,6 +25,14 @@ public sealed class StorageContractTests : IDisposable
         Assert.Equal("3.10.5", snapshot.Packages[ProjectRules.BaseSdk]); Assert.Equal("1.0.0", snapshot.Packages["tool"]);
         Assert.Equal("2022.3.22f1", snapshot.UnityVersion); Assert.Equal("3.10.5", snapshot.InstalledVersions[ProjectRules.BaseSdk]);
     }
+    [Fact] public async Task ProjectAttentionIdentifiesIncompletePackageStepAndMissingDeclaredPackage()
+    {
+        Directory.CreateDirectory(Path.Combine(Project, ".vrcsetup"));
+        await File.WriteAllTextAsync(Path.Combine(Project, ".vrcsetup", "state.json"), "{\"completed\":false,\"steps\":{\"created\":true,\"vpm\":false}}" );
+        var snapshot = await App.Projects.ReadAsync(Project);
+        Assert.True(snapshot.Incomplete); Assert.Equal("vpm", snapshot.IncompleteStep);
+        Assert.Contains("tool", snapshot.MissingPackages); Assert.DoesNotContain(ProjectRules.BaseSdk, snapshot.MissingPackages);
+    }
     [Fact] public void InstallerDataHomeDoesNotFollowThePortableExtractionMarker()
     {
         var payload = Path.Combine(root, "installer-extraction"); Directory.CreateDirectory(payload);

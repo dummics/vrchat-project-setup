@@ -72,7 +72,7 @@ public sealed partial class MainViewModel
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
         .Select(group => group.OrderBy(x => x.Active).ThenBy(x => x.Plan.CreatedUtc).Last())
         .Where(x => !x.HiddenFromImports && !(hideCompleted && x.State is "Completed" or "Recovered"))
-        .OrderByDescending(x => x.Active).ThenByDescending(x => x.Plan.CreatedUtc).ToArray();
+        .OrderByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)
     {

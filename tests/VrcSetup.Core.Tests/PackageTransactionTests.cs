@@ -25,7 +25,8 @@ public sealed class PackageTransactionTests : IDisposable
         {
             commands.Add(args);
             using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(project, "Packages", "vpm-manifest.json")));
-            Assert.False(manifest.RootElement.GetProperty("dependencies").TryGetProperty("shader.toon", out _));
+            if (args[0] == "remove") Assert.True(manifest.RootElement.GetProperty("dependencies").TryGetProperty("shader.toon", out _));
+            else Assert.False(manifest.RootElement.GetProperty("dependencies").TryGetProperty("shader.toon", out _));
             Assert.False(manifest.RootElement.GetProperty("dependencies").TryGetProperty("shader.pro", out _));
             return Task.FromResult(new ToolResult(0, "", ""));
         });

@@ -79,9 +79,17 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
         var kind = avatar && world ? "Avatar + World" : avatar ? "Avatar" : world ? "World" : direct.ContainsKey(ProjectRules.BaseSdk) ? "VRChat" : "Unity";
         var stateFile = Path.Combine(path, ".vrcsetup", "state.json");
         var incomplete = false;
+        string? incompleteStep = null;
         if (File.Exists(stateFile))
         {
-            try { using var state = JsonDocument.Parse(File.ReadAllText(stateFile)); incomplete = TryProperty(state.RootElement, "completed") is not { ValueKind: JsonValueKind.True }; }
+            try
+            {
+                using var state = JsonDocument.Parse(File.ReadAllText(stateFile));
+                incomplete = TryProperty(state.RootElement, "completed") is not { ValueKind: JsonValueKind.True };
+                if (incomplete && TryProperty(state.RootElement, "steps") is { ValueKind: JsonValueKind.Object } steps)
+                    foreach (var step in steps.EnumerateObject())
+                        if (step.Value.ValueKind == JsonValueKind.False) { incompleteStep = step.Name; break; }
+            }
             catch (JsonException) { incomplete = true; }
         }
         string? preset = null; var modified = false; var presetChanged = false;
@@ -114,7 +122,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
         }
         return new() { Path = path, Name = Path.GetFileName(path), Kind = kind, UnityVersion = unityVersion, UnityVersionSource = versionSource, PackageMetadataSource = source,
             Status = status, LastUpdatedUtc = updated, CreatedUtc = Directory.GetCreationTimeUtc(path), Fingerprint = Fingerprint(path), Packages = direct, LockedPackages = locked, InstalledVersions = installed, PackageDisplayNames = displayNames,
-            Incomplete = incomplete, PresetName = preset, ProfileModified = modified, PresetChanged = presetChanged, Policy = policy, ConfigurationFingerprint = AtomicFile.Hash(paths.ConfigFile) };
+            Incomplete = incomplete, IncompleteStep = incompleteStep, MissingPackages = direct.Keys.Where(id => !PackagePresence.IsGenerated(id) && !installed.ContainsKey(id)).ToArray(), PresetName = preset, ProfileModified = modified, PresetChanged = presetChanged, Policy = policy, ConfigurationFingerprint = AtomicFile.Hash(paths.ConfigFile) };
     }
 
     public static JsonElement? TryProperty(JsonElement element, string property)

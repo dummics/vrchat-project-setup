@@ -29,6 +29,8 @@ public sealed partial class MainViewModel
     }
     public Visibility ProjectCatalogVisibility => BrowsingProjectPackages ? Visibility.Visible : Visibility.Collapsed;
     public bool WorkspaceDirty => session?.HasPendingChanges == true;
+    public string WorkspaceAttention { get; private set; } = "";
+    public Visibility WorkspaceAttentionVisibility => WorkspaceAttention.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility WorkspaceChangesVisibility => WorkspaceDirty ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SingleProjectLaunchVisibility => session?.Projects.Length == 1 ? Visibility.Visible : Visibility.Collapsed;
     public string WorkspaceChangeContext => session is null ? "" : "Pending changes · " + session.Projects.Length + (session.Projects.Length == 1 ? " project" : " projects");

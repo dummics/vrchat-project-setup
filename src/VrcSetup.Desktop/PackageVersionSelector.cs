@@ -10,9 +10,11 @@ public sealed class PackageVersionSelector : DropDownButton
     public static readonly DependencyProperty PackageIdProperty = DependencyProperty.Register(nameof(PackageId), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata(""));
     public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(nameof(Value), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata("latest", Changed));
     public static readonly DependencyProperty DisplayVersionProperty = DependencyProperty.Register(nameof(DisplayVersion), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata("", Changed));
+    public static readonly DependencyProperty InstalledVersionProperty = DependencyProperty.Register(nameof(InstalledVersion), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata(""));
     public string PackageId { get => (string)GetValue(PackageIdProperty); set => SetValue(PackageIdProperty, value); }
     public string Value { get => (string)GetValue(ValueProperty); set => SetValue(ValueProperty, value); }
     public string DisplayVersion { get => (string)GetValue(DisplayVersionProperty); set => SetValue(DisplayVersionProperty, value); }
+    public string InstalledVersion { get => (string)GetValue(InstalledVersionProperty); set => SetValue(InstalledVersionProperty, value); }
     public Func<string, Task<string[]>>? VersionSource { get; set; }
     public Func<string, string[]>? CachedSource { get; set; }
     public event EventHandler<string>? VersionPicked;
@@ -53,7 +55,9 @@ public sealed class PackageVersionSelector : DropDownButton
         {
             var pins = SemanticVersion.Sort(versions, betas.IsChecked == true).ToList();
             if (Value != "latest" && !string.IsNullOrWhiteSpace(Value) && !Value.StartsWith("Mixed") && Value != "Not installed" && !pins.Contains(Value)) pins.Insert(0, Value);
-            var rows = new[] { new VersionItem("latest", UiText.Text("Latest")) }.Concat(pins.Select(x => new VersionItem(x, x))).ToArray();
+            var rows = new[] { new VersionItem("latest", UiText.Text("Latest")) }.Concat(pins.Select(x => new VersionItem(x,
+                PackageDowngrades.Classify(PackageId, InstalledVersion, x) is VersionChangeRisk.Downgrade or VersionChangeRisk.RiskyDowngrade
+                    ? x + " ↓ " + UiText.Text("Older version") : x))).ToArray();
             choices.ItemsSource = rows; choices.SelectedItem = rows.FirstOrDefault(x => x.Value == Value);
         }
         finally { rendering = false; }

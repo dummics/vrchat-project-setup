@@ -135,6 +135,8 @@ public sealed record ProjectSnapshot
     public string ProfileStatus => string.Join(" · ", new[] { PresetName, ProfileModified ? "Project packages modified" : null, PresetChanged ? "Preset definition changed" : null }.Where(x => !string.IsNullOrWhiteSpace(x)));
     public string ConfigurationFingerprint { get; init; } = "";
     public bool Incomplete { get; init; }
+    public string? IncompleteStep { get; init; }
+    public string[] MissingPackages { get; init; } = [];
     public int PackageCount => Packages.Count;
 }
 

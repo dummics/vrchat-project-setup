@@ -28,6 +28,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         this.window = window;
         InitializeComponent(); ViewModel = new(app, this); DataContext = ViewModel;
+        AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(DismissInformationOnOutsideClick), true);
+        window.Activated += (_, args) => { if (args.WindowActivationState == WindowActivationState.Deactivated && informationExpanded) SetInformationExpanded(false); };
         ToolTips = new(this);
         SizeChanged += (_, _) => ConstrainContent();
         Navigation.DisplayModeChanged += (_, _) => ConstrainContent();
@@ -66,9 +68,10 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ShowPage(string page)
     {
+        if (informationExpanded) SetInformationExpanded(false);
         if (page != "Projects") ProjectList.SelectedItems.Clear();
         ProjectsView.Visibility = page == "Projects" ? Visibility.Visible : Visibility.Collapsed;
-        CreateView.Visibility = page == "Create" ? Visibility.Visible : Visibility.Collapsed;
+        CreateHost.Visibility = page == "Create" ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceView.Visibility = page == "Workspace" ? Visibility.Visible : Visibility.Collapsed;
         PresetsView.Visibility = page is "Presets" or "ImportPackages" or "NewProject" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
@@ -126,6 +129,17 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         else { SetInformationExpanded(false); Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(InformationItem); }
     }
     private void InformationClicked(object sender, RoutedEventArgs args) => ToggleInformation();
+    private void DismissInformationOnOutsideClick(object sender, PointerRoutedEventArgs args)
+    {
+        if (!informationExpanded) return;
+        var element = args.OriginalSource as DependencyObject;
+        while (element is not null)
+        {
+            if (ReferenceEquals(element, InformationItem) || ReferenceEquals(element, InformationPanel)) return;
+            element = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(element);
+        }
+        SetInformationExpanded(false);
+    }
     private bool CanExpandInformationInline()
     {
         if (!Navigation.IsPaneOpen || Navigation.DisplayMode != NavigationViewDisplayMode.Expanded) return false;
@@ -176,6 +190,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (FindVisualChild<Border>(CreationPackageDetails, "ExpanderContent") is { } contentBorder)
                 contentBorder.BorderThickness = new Thickness(0);
             ImportQueueSection.Width = CreateLayout.Width;
+            ImportQueueList.MaxHeight = Math.Max(80, Math.Min(320, CreateHost.ActualHeight * .42 - 42));
             var narrow = CreateForm.Width < 560;
             Grid.SetRow(ImportResourceSummary, narrow ? 1 : 0); Grid.SetColumn(ImportResourceSummary, narrow ? 0 : 1);
             Grid.SetColumnSpan(ImportResourceSummary, narrow ? 3 : 1);
@@ -259,6 +274,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void ManageSelectionResized(object sender, SizeChangedEventArgs args) => ConstrainForms();
     private async void ProjectPackagesClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project); }
+    private async void ProjectAttentionClicked(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ProjectSnapshot project) return;
+        var choice = await ShowDialog(new() { Title = "Project needs attention", Content = ProjectAttentionConverter.Description(project), PrimaryButtonText = "Manage packages", SecondaryButtonText = "Activity", CloseButtonText = "Close" });
+        if (choice == ContentDialogResult.Primary) await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project);
+        else if (choice == ContentDialogResult.Secondary) await ViewModel.NavigateAsync("Activity");
+    }
     private async void ProjectOpenClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.LaunchProjectCommand.ExecuteAsync(project); }
     private void ProjectRowLoaded(object sender, RoutedEventArgs args) => LayoutProjectRow(sender);
@@ -375,7 +397,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         finally { dialogGate.Release(); }
     }
     public async Task<bool> ConfirmAsync(string title, string content, string action) => await ShowDialog(new()
-    { Title = title, Content = new TextBlock { Text = UiText.Text(content), TextWrapping = TextWrapping.Wrap, MaxWidth = 500 }, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary;
+    { Title = title, Content = new ScrollViewer { MaxHeight = 360, Content = new TextBlock { Text = UiText.Text(content), TextWrapping = TextWrapping.Wrap, MaxWidth = 500 } }, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary;
     public async Task ShowErrorAsync(string message)
     { if (!SuppressDialogs) await ShowDialog(new() { Title = "Action could not complete", Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 520, IsTextSelectionEnabled = true }, CloseButtonText = "Back" }); }
     public async Task ShowUpdateInfoAsync(string details)

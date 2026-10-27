@@ -11,7 +11,7 @@ public sealed partial class PackageCatalog(AppPaths paths, ToolRunner runner, Co
     private static readonly Dictionary<string, string> FriendlyNames = new(StringComparer.OrdinalIgnoreCase)
     {
         [ProjectRules.BaseSdk] = "VRChat SDK Base", [ProjectRules.AvatarSdk] = "VRChat SDK Avatars", [ProjectRules.WorldSdk] = "VRChat SDK Worlds", [ProjectRules.Resolver] = "VRChat Package Resolver",
-        [ProjectRules.EasyLogin] = "Easy Login", ["com.vrcfury.vrcfury"] = "VRCFury", ["com.poiyomi.toon"] = "Poiyomi Toon Shader", ["gogoloco"] = "GoGo Loco", ["adjerry91.vrcft.templates"] = "VRCFury Templates", ["nadena.dev.modular-avatar"] = "Modular Avatar", ["nadena.dev.ndmf"] = "NDMF"
+        [ProjectRules.EasyLogin] = "Easy Login", ["com.vrcfury.vrcfury"] = "VRCFury", ["com.poiyomi.toon"] = "Poiyomi Toon Shader", ["com.poiyomi.pro"] = "Poiyomi Pro", ["gogoloco"] = "GoGo Loco", ["adjerry91.vrcft.templates"] = "VRCFury Templates", ["nadena.dev.modular-avatar"] = "Modular Avatar", ["nadena.dev.ndmf"] = "NDMF"
     };
     public static string FriendlyName(string id) => FriendlyNames.GetValueOrDefault(id) ?? id switch
     {
