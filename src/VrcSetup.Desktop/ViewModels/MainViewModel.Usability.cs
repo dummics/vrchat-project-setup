@@ -38,7 +38,7 @@ public sealed partial class MainViewModel
     public bool HasPackageQuery => !string.IsNullOrWhiteSpace(LibraryFilter);
     public Visibility CatalogHeadingVisibility => HasPackageQuery ? Visibility.Collapsed : Visibility.Visible;
     public Visibility PresetCatalogVisibility => HasPackageQuery || IsSearchingPackages || LibraryPackages.Count > 0 || CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility PresetIncludedVisibility => !HasPackageQuery && presetWorking.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PresetIncludedVisibility => PresetPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PresetEmptyVisibility => presetWorking.Count > 0 && PresetPackages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public string PresetCountLabel => PresetPackages.Count == presetWorking.Count ? presetWorking.Count.ToString() : string.Format(UiText.Text("{0} of {1}"), PresetPackages.Count, presetWorking.Count);
     [RelayCommand] private void PreviousPreset() => CyclePreset(-1);
@@ -103,6 +103,7 @@ public sealed partial class MainViewModel
         PresetDirty = presetWorking.Count != presetBaseline.Count || presetWorking.Any(x => !presetBaseline.TryGetValue(x.Key, out var version) || version != x.Value);
         var required = ProjectRules.Foundation(presetWorking, config);
         var desired = presetWorking.Select(x => MakeRow(x.Key, x.Value, required.Contains(x.Key)))
+            .Where(x => (!FavoritesOnly || x.Favorite) && (onlineMatches.Contains(x.Id) || PackageSearch.Matches(LibraryFilter, x.Id, x.Name)))
             .OrderBy(x => x.Id == ProjectRules.Resolver ? 0 : x.Id == ProjectRules.BaseSdk ? 1 : ProjectRules.SdkIds.Contains(x.Id) ? 2 : x.Required ? 3 : 4).ThenBy(x => x.Name).ToArray();
         var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var i = PresetPackages.Count - 1; i >= 0; i--) if (!ids.Contains(PresetPackages[i].Id)) PresetPackages.RemoveAt(i);
@@ -130,7 +131,7 @@ public sealed partial class MainViewModel
         var desired = Registry.Where(x => (BrowsingProjectPackages ? !projectCatalogBaseline.Contains(x.Id) : !presetWorking.ContainsKey(x.Id)) && (tokens.Length > 0 || personalPackageIds.Contains(x.Id) ||
             config.FavoritePackages.Contains(x.Id, StringComparer.OrdinalIgnoreCase) || presetWorking.ContainsKey(x.Id) ||
             BrowsingProjectPackages && browserIncluded.Contains(x.Id)) &&
-        (!FavoritesOnly || libraryFavoriteSnapshot.Contains(x.Id)) && (onlineMatches.Contains(x.Id) || tokens.All(token => (x.Id + " " + x.DisplayName).Contains(token, StringComparison.OrdinalIgnoreCase))))
+        (!FavoritesOnly || libraryFavoriteSnapshot.Contains(x.Id)) && (onlineMatches.Contains(x.Id) || PackageSearch.Matches(LibraryFilter, x.Id, x.DisplayName)))
         .Select(x => MakeRow(x.Id, "latest")).OrderByDescending(x => libraryFavoriteSnapshot.Contains(x.Id)).ThenBy(x => x.Name).ToArray();
         var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var index = LibraryPackages.Count - 1; index >= 0; index--) if (!ids.Contains(LibraryPackages[index].Id)) LibraryPackages.RemoveAt(index);

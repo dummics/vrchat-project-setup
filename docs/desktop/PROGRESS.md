@@ -1,5 +1,20 @@
 # VRCSETUP Desktop migration
 
+## Package search iteration (local, not released)
+
+The shared package search filters included preset entries as well as addable
+catalogue entries; matching results remain in their original section. A search
+with only an included match no longer displays a false empty result. Project
+package search uses the same case-insensitive multiword name/ID matching. The
+favorite filter also applies to included preset rows. Clearing filters restores
+the full list without changing the staged preset or project selection.
+
+The import preset recap uses a flat two-column list (one column when narrow)
+inside the disclosure, without boxed package tiles. Every row shows the chosen
+version, including Latest, and its full value remains available in the tooltip.
+Suggested packages retain their Add/Review action. Native UI and core regression
+checks are prepared but must run with the next authorized build.
+
 ## 0.2.6-beta.1 package transactions
 
 Selected-version VPM migration metadata now drives package replacements. Absent

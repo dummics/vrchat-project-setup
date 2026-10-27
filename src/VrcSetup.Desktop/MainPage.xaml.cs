@@ -203,7 +203,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             CreationPackageList.Width = listWidth;
         if (CreationPackageList.ItemsPanelRoot is not ItemsWrapGrid items) return;
         var available = Math.Max(1, listWidth - CreationPackageList.Padding.Left - CreationPackageList.Padding.Right - 8);
-        var itemWidth = available / (available >= 480 ? 2 : 1);
+        var itemWidth = available / (available >= 600 ? 2 : 1);
         if (double.IsNaN(items.ItemWidth) || Math.Abs(items.ItemWidth - itemWidth) > 0.5) items.ItemWidth = itemWidth;
     }
     private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement

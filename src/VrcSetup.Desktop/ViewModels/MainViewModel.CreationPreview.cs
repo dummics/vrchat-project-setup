@@ -63,7 +63,8 @@ public sealed class UiCreationPackage(PackageSelectionPreview data, string name)
     public string Id => Data.Id;
     public string Name { get; private set; } = name;
     public bool Selected => Data.Selected;
-    public string Version => Data.Version == "latest" ? "Latest" : Data.Version;
+    public string Version => Data.Version is "latest" ? "Latest" : string.IsNullOrWhiteSpace(Data.Version) ? "Choose version" : Data.Version;
+    public string AccessibilityLabel => Name + ", " + UiText.Text(Version);
     public string Hint => Data.Evidence?.Confidence switch
     {
         DependencyConfidence.Included => "In file", DependencyConfidence.Declared => Selected ? "Required" : "Required · not selected",
@@ -71,8 +72,7 @@ public sealed class UiCreationPackage(PackageSelectionPreview data, string name)
     };
     public string Action => Data.Evidence is { } hint && DependencyAdvisor.SuggestedVersion(hint) is not null ? "Add" : "Review";
     public Visibility ActionVisibility => Selected ? Visibility.Collapsed : Visibility.Visible;
-    public Visibility PinVisibility => Data.Version is "latest" or "" ? Visibility.Collapsed : Visibility.Visible;
-    public string Tooltip => Id + (Data.Evidence?.VersionConstraint is { Length: > 0 } constraint ? "\nRequires " + constraint : "");
+    public string Tooltip => Id + "\n" + UiText.Text(Version) + (Data.Evidence?.VersionConstraint is { Length: > 0 } constraint ? "\nRequires " + constraint : "");
     public void Update(PackageSelectionPreview value, string displayName)
     { if (Data == value && Name == displayName) return; Data = value; Name = displayName; OnPropertyChanged(string.Empty); }
 }

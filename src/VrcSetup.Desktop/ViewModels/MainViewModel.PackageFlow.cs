@@ -18,7 +18,7 @@ public sealed partial class MainViewModel
     private HashSet<string> browserIncluded = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> projectCatalogBaseline = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> onlineMatches = new(StringComparer.OrdinalIgnoreCase);
-    public string CatalogStatusText => IsSearchingPackages ? "Searching packages…" : CatalogNotice.Length > 0 ? CatalogNotice : HasPackageQuery && LibraryPackages.Count == 0 ? "No results found" : "";
+    public string CatalogStatusText => IsSearchingPackages ? "Searching packages…" : CatalogNotice.Length > 0 ? CatalogNotice : HasPackageQuery && LibraryPackages.Count == 0 && (BrowsingProjectPackages ? Packages.Count == 0 : PresetPackages.Count == 0) ? "No results found" : "";
     public Visibility CatalogNoticeVisibility => CatalogStatusText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     partial void OnIsSearchingPackagesChanged(bool value) => NotifyCatalogStatus();
     partial void OnCatalogNoticeChanged(string value) => NotifyCatalogStatus();
@@ -109,7 +109,9 @@ public sealed partial class MainViewModel
             foreach (var item in found) merged[item.Id] = item;
             onlineMatches = found.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             Replace(Registry, merged.Values);
-            session?.AddDefinitions(found); RefreshLibraryRows();
+            session?.AddDefinitions(found);
+            if (BrowsingProjectPackages) RenderWorkspace(); else RenderPreset();
+            RefreshLibraryRows();
             CatalogNotice = "";
         }
         catch (OperationCanceledException) { }
