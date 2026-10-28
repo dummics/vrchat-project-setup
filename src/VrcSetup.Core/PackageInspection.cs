@@ -13,7 +13,10 @@ public sealed record InspectionOptions
     public static InspectionOptions Extended => new() { Deep = true, Timeout = TimeSpan.FromSeconds(45), ExpandedBytes = 8L * 1024 * 1024 * 1024, EntryTextBytes = 16 * 1024 * 1024, TotalTextBytes = 256L * 1024 * 1024, MaxEntries = 200_000, MaxAssets = 100_000, MaxReferences = 500_000 };
 }
 public sealed record AssetReference(string Guid, string Kind);
-public sealed record ObservedManifest(string Name, string Version, Dictionary<string, string> Dependencies);
+public sealed record ObservedManifest(string Name, string Version, Dictionary<string, string> Dependencies)
+{
+    public Dictionary<string, string> UpmDependencies { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}
 public sealed record InspectedAsset(string Guid, string Path, AssetReference[] References, string[] Hints, bool TextPartial, ObservedManifest? Manifest = null);
 public sealed record ArchiveObservation(int Schema, long Length, long ModifiedTicks, bool ArchiveComplete, bool TextComplete, string[] Limitations, InspectedAsset[] Assets, double ScanMilliseconds);
 public sealed record PackageSignature(string Guid, string PackageId, string Version, string Kind, string Source);
@@ -29,6 +32,13 @@ public interface IUnityPackageInspector
 
 public static class DependencyAdvisor
 {
+    public static bool IsEmbeddedPackage(InspectedAsset asset)
+    {
+        if (asset.Manifest is null) return false;
+        var parts = asset.Path.Replace('\\', '/').Split('/');
+        return parts.Length == 3 && parts[0].Equals("Packages", StringComparison.OrdinalIgnoreCase) &&
+            parts[1].Equals(asset.Manifest.Name, StringComparison.OrdinalIgnoreCase) && parts[2].Equals("package.json", StringComparison.OrdinalIgnoreCase);
+    }
     public static PackageSelectionPreview[] CombineSelection(IReadOnlyDictionary<string, string> selected, PackageInspectionReport? inspection)
     {
         var hints = (inspection?.Suggestions ?? []).GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
@@ -62,7 +72,7 @@ public static class DependencyAdvisor
         var byGuid = snapshot.Signatures.GroupBy(x => x.Guid, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.ToArray(), StringComparer.OrdinalIgnoreCase);
         var internalIds = observation.Assets.Select(x => x.Guid).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var assets = observation.Assets.ToDictionary(x => x.Guid, StringComparer.OrdinalIgnoreCase);
-        var included = observation.Assets.Where(x => x.Manifest is not null).Select(x => x.Manifest!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var included = observation.Assets.Where(IsEmbeddedPackage).Select(x => x.Manifest!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roots = observation.Assets.Where(x => (x.Path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase) || x.Path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)) && !Optional(x.Path) &&
             x.References.Any(r => r.Kind == "script" && byGuid.GetValueOrDefault(r.Guid)?.Any(s => s.PackageId == ProjectRules.AvatarSdk) == true)).Take(9).ToArray();
         var manyRoots = roots.Length > 8;
@@ -97,7 +107,7 @@ public static class DependencyAdvisor
             token.ThrowIfCancellationRequested();
             if (asset.Manifest is { } manifest)
             {
-                Add(manifest.Name, DependencyConfidence.Included, new(asset.Path, "manifest"), manifest.Version);
+                if (IsEmbeddedPackage(asset)) Add(manifest.Name, DependencyConfidence.Included, new(asset.Path, "manifest"), manifest.Version);
                 foreach (var dep in manifest.Dependencies)
                     Add(dep.Key, Optional(asset.Path) ? DependencyConfidence.Possible : DependencyConfidence.Declared, new(asset.Path, "declared dependency"), dep.Value);
             }

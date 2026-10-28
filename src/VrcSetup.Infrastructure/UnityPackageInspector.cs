@@ -71,7 +71,7 @@ public sealed partial class UnityPackageInspector : IUnityPackageInspector
                 if (kind == "asset" && data.TrimStart().StartsWith('{'))
                 {
                     asset.Manifest = ParseManifest(data);
-                    references += asset.Manifest?.Dependencies.Count ?? 0;
+                    references += (asset.Manifest?.Dependencies.Count ?? 0) + (asset.Manifest?.UpmDependencies.Count ?? 0);
                     if (references > options.MaxReferences) throw new InspectionLimitException("Reference limit reached");
                 }
             }
@@ -91,7 +91,7 @@ public sealed partial class UnityPackageInspector : IUnityPackageInspector
         { asset.Partial = true; limitations.Add("Some package manifests could not be interpreted"); }
         var result = assets.Values.Select(x => new InspectedAsset(x.Guid, x.Path, x.References.ToArray(), x.Hints.ToArray(), x.Partial,
             x.Path.EndsWith("/package.json", StringComparison.OrdinalIgnoreCase) ? x.Manifest : null)).ToArray();
-        return new(1, length, modified, complete, !assets.Values.Any(x => x.Partial) && complete, limitations.ToArray(), result, timer.Elapsed.TotalMilliseconds);
+        return new(2, length, modified, complete, !assets.Values.Any(x => x.Partial) && complete, limitations.ToArray(), result, timer.Elapsed.TotalMilliseconds);
     }
     private static ObservedManifest? ParseManifest(string data)
     {
@@ -101,12 +101,13 @@ public sealed partial class UnityPackageInspector : IUnityPackageInspector
             if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String) return null;
             var id = name.GetString()!; if (id.Length > 200) return null; ProjectRules.ValidatePackageId(id);
             var dependencies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var upmDependencies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var key in new[] { "dependencies", "vpmDependencies" })
                 if (doc.RootElement.TryGetProperty(key, out var map) && map.ValueKind == JsonValueKind.Object)
                     foreach (var property in map.EnumerateObject())
                         if (property.Value.ValueKind == JsonValueKind.String)
-                        { if (dependencies.Count >= 2048 || property.Name.Length > 200 || property.Value.GetString()!.Length > 1024) return null; ProjectRules.ValidatePackageId(property.Name); dependencies[property.Name] = property.Value.GetString()!; }
-            return new(id, doc.RootElement.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String ? version.GetString()! : "", dependencies);
+                        { if (dependencies.Count + upmDependencies.Count >= 2048 || property.Name.Length > 200 || property.Value.GetString()!.Length > 1024) return null; ProjectRules.ValidatePackageId(property.Name); (key == "vpmDependencies" ? dependencies : upmDependencies)[property.Name] = property.Value.GetString()!; }
+            return new(id, doc.RootElement.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String ? version.GetString()! : "", dependencies) { UpmDependencies = upmDependencies };
         }
         catch (Exception error) when (error is JsonException or ArgumentException) { return null; }
     }

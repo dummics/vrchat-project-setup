@@ -62,7 +62,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
         return await Task.Run(async () =>
         {
             var info = new FileInfo(file); if (!info.Exists) throw new IOException("UnityPackage not found.");
-            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.ToUpperInvariant() + ":" + info.Length + ":" + info.LastWriteTimeUtc.Ticks + ":v2:" + JsonSerializer.Serialize(options))));
+            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.ToUpperInvariant() + ":" + info.Length + ":" + info.LastWriteTimeUtc.Ticks + ":v3:" + JsonSerializer.Serialize(options))));
             SharedJob job;
             while (true)
             {
@@ -104,7 +104,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
             var observation = await (reader ?? new UnityPackageInspector()).ReadAsync(file, options, token);
             if (observation.ArchiveComplete)
             {
-                var manifests = observation.Assets.Where(x => x.Manifest is not null).Select(x => x.Manifest!).DistinctBy(x => x.Name).ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
+                var manifests = observation.Assets.Where(DependencyAdvisor.IsEmbeddedPackage).Select(x => x.Manifest!).DistinctBy(x => x.Name).ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
                 var learned = observation.Assets.Select(asset =>
                 {
                     var parts = asset.Path.Split('/');
@@ -201,7 +201,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
     }
     private static bool Usable(ArchiveObservation? value)
     {
-        if (value is not { Schema: 1, ArchiveComplete: true, Assets: not null, Limitations: not null }) return false;
+        if (value is not { Schema: 2, ArchiveComplete: true, Assets: not null, Limitations: not null }) return false;
         if (value.Assets.Select(x => x?.Guid).Distinct(StringComparer.OrdinalIgnoreCase).Count() != value.Assets.Length) return false;
         try
         {
@@ -215,6 +215,8 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
                     ProjectRules.ValidatePackageId(manifest.Name);
                     if (manifest.Dependencies is null) return false;
                     foreach (var dependency in manifest.Dependencies) { ProjectRules.ValidatePackageId(dependency.Key); if (dependency.Value is null) return false; }
+                    if (manifest.UpmDependencies is null) return false;
+                    foreach (var dependency in manifest.UpmDependencies) { ProjectRules.ValidatePackageId(dependency.Key); if (dependency.Value is null) return false; }
                 }
             }
             return true;

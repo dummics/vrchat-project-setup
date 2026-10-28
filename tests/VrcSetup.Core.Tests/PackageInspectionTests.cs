@@ -19,7 +19,7 @@ public sealed class PackageInspectionTests : IDisposable
         {
             Passes.Add(options.Deep);
             var info = new FileInfo(path);
-            return Task.FromResult(new ArchiveObservation(1, info.Length, info.LastWriteTimeUtc.Ticks, options.Deep, options.Deep,
+            return Task.FromResult(new ArchiveObservation(2, info.Length, info.LastWriteTimeUtc.Ticks, options.Deep, options.Deep,
                 options.Deep ? [] : [limitation], [], 1));
         }
     }
@@ -93,6 +93,24 @@ public sealed class PackageInspectionTests : IDisposable
         Assert.Equal(DependencyConfidence.Included, report.Suggestions.Single(x => x.Id == "example.embedded").Confidence);
         var dependency = report.Suggestions.Single(x => x.Id == "example.required");
         Assert.Equal(">=2.0.0", dependency.VersionConstraint); Assert.Null(DependencyAdvisor.SuggestedVersion(dependency));
+    }
+    [Fact] public async Task UnityDependenciesAreNotSuggestedAsVpmPackages()
+    {
+        var json = "{\"name\":\"example.embedded\",\"version\":\"1.2.3\",\"dependencies\":{\"com.unity.nuget.newtonsoft-json\":\"3.2.1\"},\"vpmDependencies\":{\"nadena.dev.ndmf\":\">=1.0.0\"}}";
+        var file = Archive(($"{A}/asset", json), ($"{A}/pathname", "Packages/example.embedded/package.json"));
+        var report = await Service().InspectAsync(file);
+        var manifest = report.Observation.Assets.Single(x => x.Manifest is not null).Manifest!;
+        Assert.Equal("3.2.1", manifest.UpmDependencies["com.unity.nuget.newtonsoft-json"]);
+        Assert.DoesNotContain(report.Suggestions, x => x.Id == "com.unity.nuget.newtonsoft-json");
+        Assert.Equal(">=1.0.0", report.Suggestions.Single(x => x.Id == "nadena.dev.ndmf").VersionConstraint);
+    }
+    [Fact] public async Task ManifestUnderAssetsDoesNotImplyAnInstalledVpmPackageOrTeachItsSignatures()
+    {
+        var json = "{\"name\":\"example.embedded\",\"version\":\"1.2.3\"}";
+        var file = Archive(($"{A}/asset", json), ($"{A}/pathname", "Assets/Example/package.json"), ($"{B}/pathname", "Packages/example.embedded/Test.cs"));
+        var service = Service(); var report = await service.InspectAsync(file);
+        Assert.DoesNotContain(report.Suggestions, x => x.Id == "example.embedded" && x.Confidence == DependencyConfidence.Included);
+        Assert.DoesNotContain((await service.LoadIndexAsync()).Signatures, x => x.PackageId == "example.embedded");
     }
     [Fact] public async Task EntryAndTextLimitsAreReportedAndDeepHasItsOwnCache()
     {
