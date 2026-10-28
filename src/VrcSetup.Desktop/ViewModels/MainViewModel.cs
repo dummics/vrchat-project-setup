@@ -239,6 +239,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (SelectedProjects.Count == 0) throw new InvalidOperationException("Select one or more projects.");
         await OpenProjectsAsync(SelectedProjects.ToArray());
     });
+    private readonly HashSet<string> automaticPackageRetries = new(StringComparer.OrdinalIgnoreCase);
+    public void ReserveExplicitPackageRetry(ProjectSnapshot project) => automaticPackageRetries.Add(project.Path);
     public async Task OpenProjectsAsync(ProjectSnapshot[] projects, bool reload = false)
     {
         if (IsApplyingPackages && !(reload && ReferenceEquals(session, applyingSession)) && applyingSession?.Projects.Any(x => projects.Any(y => x.Path.Equals(y.Path, StringComparison.OrdinalIgnoreCase))) == true)
@@ -261,6 +263,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         WorkspaceAttention = fresh.FirstOrDefault(x => x.Incomplete || x.Status != "Ready" || x.MissingPackages.Length > 0) is { } attention ? ProjectAttentionConverter.Description(attention) : "";
         OnPropertyChanged(nameof(WorkspaceAttention)); OnPropertyChanged(nameof(WorkspaceAttentionVisibility)); OnPropertyChanged(nameof(MissingPackagesActionVisibility));
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : string.Format(UiText.Text("{0} projects"), projects.Length); PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
+        if (!reload && fresh.Count == 1 && fresh[0].Incomplete && fresh[0].PackageRetrySafe && fresh[0].MissingPackages.Length > 0 &&
+            !IsBusy && !IsApplyingPackages && !ProjectImportsActive([fresh[0].Path]) && !app.Projects.IsBusy(fresh[0].Path) && automaticPackageRetries.Add(fresh[0].Path))
+            await RetryMissingPackages();
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>
     { if (session is null || SelectedPackage is null) return; ToggleWorkspacePackage(SelectedPackage); await Task.CompletedTask; });
@@ -314,8 +319,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         if (session is not null && await ui.ConfirmAsync("Undo changes", "Discard all staged changes and extra imports?", "Discard")) { session.Reset(); RenderWorkspace(); }
     }
-    [RelayCommand] private async Task ApplyChanges() => await Guard(ApplyChangesCoreAsync, serialize: false);
-    private async Task ApplyChangesCoreAsync()
+    [RelayCommand] private async Task ApplyChanges() => await Guard(() => ApplyChangesCoreAsync(), serialize: false);
+    private async Task ApplyChangesCoreAsync(bool missingPackagesOnly = false)
     {
         if (session is null || IsApplyingPackages) return;
         var source = session;
@@ -336,6 +341,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (busy.Length > 0) throw new ProjectsInUseException(busy);
             var plan = await Task.Run(() => app.Planner.PlanBulkAsync(source.Projects.Select(x => x.Path), selected, choices, exact, removed, targets, preset, extraImports, cancellation.Token));
             cancellation.Token.ThrowIfCancellationRequested();
+            if (missingPackagesOnly && plan.Projects.Any(p => p.Changes.Any(c => c.Kind != ChangeKind.Keep && !source.Projects.Single(x => x.Path.Equals(p.Path, StringComparison.OrdinalIgnoreCase)).MissingPackages.Contains(c.Id, StringComparer.OrdinalIgnoreCase))))
+                throw new InvalidOperationException("Retry needs additional package changes. Review the project before continuing.");
             if (PackageDowngrades.RequiresConfirmation(plan) && !await ui.ConfirmAsync("Review older versions", RiskyVersionSummary(plan), "Apply anyway")) return;
             cancellation.Token.ThrowIfCancellationRequested();
             if (BeforePackageApplyForVerification is { } ready) await ready(plan);

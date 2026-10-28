@@ -31,15 +31,19 @@ public sealed partial class MainViewModel
     public bool WorkspaceDirty => session?.HasPendingChanges == true;
     public string WorkspaceAttention { get; private set; } = "";
     public Visibility WorkspaceAttentionVisibility => WorkspaceAttention.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility MissingPackagesActionVisibility => session?.Projects.Length == 1 && session.Projects[0].MissingPackages.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    [RelayCommand] private void PrepareMissingPackages()
+    public Visibility MissingPackagesActionVisibility => session?.Projects.Length == 1 && session.Projects[0].PackageRetrySafe && session.Projects[0].MissingPackages.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public bool WorkspaceMatchesProject(ProjectSnapshot project) => CurrentPage == "Workspace" && session?.MatchesProjects([project]) == true;
+    [RelayCommand] private async Task RetryMissingPackages()
     {
         if (session?.Projects.Length != 1 || WorkspaceApplying || IsBusy && !IsApplyingPackages) return;
+        if (session.HasPendingChanges) { ErrorMessage = UiText.Text("Finish or discard pending package changes before retrying."); return; }
         var project = session.Projects[0];
+        if (!project.PackageRetrySafe || project.MissingPackages.Length == 0) return;
         foreach (var id in project.MissingPackages)
             if (!session.Selected.ContainsKey(id) && !session.Removed.Contains(id))
                 session.SetVersion(id, project.Packages.GetValueOrDefault(id) ?? "latest");
         RenderWorkspace(); RefreshLibraryRows();
+        await Guard(() => ApplyChangesCoreAsync(missingPackagesOnly: true), serialize: false);
     }
     public Visibility WorkspaceChangesVisibility => WorkspaceDirty ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SingleProjectLaunchVisibility => session?.Projects.Length == 1 ? Visibility.Visible : Visibility.Collapsed;

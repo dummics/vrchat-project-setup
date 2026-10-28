@@ -32,6 +32,16 @@ public sealed class StorageContractTests : IDisposable
         var snapshot = await App.Projects.ReadAsync(Project);
         Assert.True(snapshot.Incomplete); Assert.Equal("vpm", snapshot.IncompleteStep);
         Assert.Contains("tool", snapshot.MissingPackages); Assert.DoesNotContain(ProjectRules.BaseSdk, snapshot.MissingPackages);
+        Assert.False(snapshot.PackageRetrySafe);
+    }
+    [Fact] public async Task PackageRetryRequiresAllOtherImportStepsToHaveFinished()
+    {
+        Directory.CreateDirectory(Path.Combine(Project, ".vrcsetup"));
+        var state = Path.Combine(Project, ".vrcsetup", "state.json");
+        await File.WriteAllTextAsync(state, "{\"completed\":false,\"steps\":{\"created\":true,\"vpm\":false,\"nunit\":true,\"importMain\":true,\"importExtras\":true,\"finalize\":true}}");
+        Assert.True((await App.Projects.ReadAsync(Project)).PackageRetrySafe);
+        await File.WriteAllTextAsync(state, "{\"completed\":false,\"steps\":{\"created\":true,\"vpm\":false,\"nunit\":true,\"importMain\":false,\"importExtras\":true,\"finalize\":true}}");
+        Assert.False((await App.Projects.ReadAsync(Project)).PackageRetrySafe);
     }
     [Fact] public void InstallerDataHomeDoesNotFollowThePortableExtractionMarker()
     {

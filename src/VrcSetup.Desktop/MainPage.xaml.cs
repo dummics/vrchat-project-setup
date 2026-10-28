@@ -287,9 +287,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void ProjectAttentionClicked(object sender, RoutedEventArgs args)
     {
         if ((sender as FrameworkElement)?.DataContext is not ProjectSnapshot project) return;
-        var choice = await ShowDialog(new() { Title = "Project needs attention", Content = ProjectAttentionConverter.Description(project), PrimaryButtonText = "Manage packages", SecondaryButtonText = "Activity", CloseButtonText = "Close" });
-        if (choice == ContentDialogResult.Primary) await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project);
-        else if (choice == ContentDialogResult.Secondary) await ViewModel.NavigateAsync("Activity");
+        var choice = await ShowDialog(new() { Title = "Project needs attention", Content = ProjectAttentionConverter.Description(project), PrimaryButtonText = project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
+        if (choice == ContentDialogResult.Primary)
+        {
+            ViewModel.ReserveExplicitPackageRetry(project);
+            await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project);
+            if (ViewModel.WorkspaceMatchesProject(project)) await ViewModel.RetryMissingPackagesCommand.ExecuteAsync(null);
+        }
     }
     private async void ProjectOpenClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.LaunchProjectCommand.ExecuteAsync(project); }

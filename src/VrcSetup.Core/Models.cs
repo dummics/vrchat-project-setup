@@ -136,6 +136,7 @@ public sealed record ProjectSnapshot
     public string ConfigurationFingerprint { get; init; } = "";
     public bool Incomplete { get; init; }
     public string? IncompleteStep { get; init; }
+    public bool PackageRetrySafe { get; init; }
     public string[] MissingPackages { get; init; } = [];
     public int PackageCount => Packages.Count;
 }

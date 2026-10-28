@@ -1,4 +1,7 @@
 {
+  "Retry needs additional package changes. Review the project before continuing.": "Per riprovare servono altre modifiche ai pacchetti. Controlla il progetto prima di continuare.",
+  "Finish or discard pending package changes before retrying.": "Applica o annulla le modifiche ai pacchetti prima di riprovare.",
+  "Not installed: {0}. Try again to restore the missing packages.": "Non installati: {0}. Seleziona Riprova per ripristinare i pacchetti mancanti.",
   "Not installed: {0}. Prepare the missing packages, then apply the changes.": "Non installati: {0}. Prepara i pacchetti mancanti, poi applica le modifiche.",
   "Poiyomi Pro also needs Patreon sign-in in Unity to download the shader.": "Per scaricare lo shader Poiyomi Pro, accedi anche a Patreon in Unity.",
   "Prepare missing packages": "Prepara i pacchetti mancanti",
