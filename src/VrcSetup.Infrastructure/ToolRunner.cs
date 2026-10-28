@@ -95,7 +95,7 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
         void Emit(string line)
         {
             if (diagnostics?.TraceTools == true) diagnostics.Write(phase, line);
-            var severity = Regex.IsMatch(line, @"(?i)\b(ERR|ERROR|FAILED|FAILURE)\b") ? EventSeverity.Error : Regex.IsMatch(line, @"(?i)\b(WRN|WARN|WARNING)\b") ? EventSeverity.Warning : EventSeverity.Info;
+            var severity = ToolOutputSeverity.Classify(line);
             progress?.Report(new(DateTime.UtcNow, phase, line, severity, workingDirectory));
         }
     }

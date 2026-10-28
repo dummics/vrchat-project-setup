@@ -108,8 +108,13 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 if (backup is not null) await workspace.ConfirmBackupAsync(backup);
                 if (project.Changes.Any(x => x.Id == "com.poiyomi.pro" && x.Kind is ChangeKind.Add or ChangeKind.Update))
                     Emit("Packages", "Poiyomi Pro installer is ready. Open the project in Unity and complete Poiyomi's Patreon sign-in if requested.");
-                if ((project.Creation is not null || project.RecoverySource is not null) && !await driver.RegisterAsync(project.Path, progress, cancellationToken))
-                    warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
+                if (project.Creation is not null || project.RecoverySource is not null)
+                {
+                    var registered = false;
+                    try { registered = await driver.RegisterAsync(project.Path, progress, cancellationToken); }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { /* The project is already complete; only optional registration was interrupted. */ }
+                    if (!registered) warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
+                }
                 var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;
                 results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory));
                 Emit("Completed", warnings.Count > 0 ? warnings[0] : "Project saved.", warnings.Count > 0 ? EventSeverity.Warning : EventSeverity.Info);

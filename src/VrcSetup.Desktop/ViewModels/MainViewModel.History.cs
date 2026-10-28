@@ -189,8 +189,8 @@ public sealed class UiHistoryEntry : ObservableObject
     public DateTime Timestamp => job?.Plan.CreatedUtc ?? report!.CompletedUtc;
     public string Date => Timestamp.ToLocalTime().ToString("g");
     public string Name => job?.Name ?? (report!.Results.Length == 1 ? report.Results[0].Project : string.Format(UiText.Text("{0} projects"), report.Results.Length));
-    public string State => job?.State is { } state ? state == "Queued" ? "Starting…" : state
-        : report!.Success ? "Completed" : report.Cancelled ? "Cancelled"
+    public string State => job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
+        : report!.Success ? report.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) ? "Completed with a notice" : "Completed" : report.Cancelled ? "Cancelled"
         : report.Results.Length > 0 && report.Results.All(x => x.Status == OperationStatus.Skipped) ? "Not applied"
         : report.Results.Any(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings) ? "Partially applied" : "Failed";
     public string Summary => job?.Source.EmptyProject == true ? string.Join(" · ", new[] { Platform, UiText.Text("Creating project"), string.Format(UiText.Text("{0} packages"), Projects.Sum(x => x.DesiredPolicy.Count)) })
@@ -207,6 +207,7 @@ public sealed class UiHistoryEntry : ObservableObject
         {
             OperationStatus.Completed => "Completed",
             OperationStatus.Unchanged => "Packages are already up to date",
+            OperationStatus.CompletedWithWarnings when x.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC." => x.Message,
             OperationStatus.CompletedWithWarnings => "Completed. Check the details in the log.",
             _ when x.Message.Contains("open in Unity", StringComparison.OrdinalIgnoreCase) => "Close Unity, then try again.",
             OperationStatus.Cancelled => "Cancelled",

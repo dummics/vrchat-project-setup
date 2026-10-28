@@ -147,6 +147,18 @@ public sealed class PlannerExecutorTests
         var catalog = new FixtureCatalog(); catalog.Versions[ProjectRules.BaseSdk] = ["3.10.5-beta.1"];
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ProjectPlanner(new MemoryWorkspace(), catalog).PlanAsync(Path.GetFullPath("avatar"), new Dictionary<string, string> { [ProjectRules.BaseSdk] = "3.10.5-beta.1" }, new()));
     }
+    [Fact] public async Task CancelledOptionalRegistrationKeepsCreatedProjectSuccessful()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var root = Path.Combine(Path.GetTempPath(), "vrcsetup-reg-" + Guid.NewGuid().ToString("N"));
+        var target = Path.Combine(root, "project");
+        var request = new CreationRequest("", "project", target, "Unity.exe", "StandaloneWindows64", ["StandaloneWindows64"], [], EmptyProject: true);
+        var workspace = new MemoryWorkspace { CancelOnComplete = cancellation };
+        var driver = new MemoryDriver(workspace) { CancelRegistration = true };
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(target, new Dictionary<string, string> { [ProjectRules.BaseSdk] = "latest", [ProjectRules.Resolver] = "latest" }, new() { UnityProjectsRoot = root }, creation: request);
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [plan]), cancellationToken: cancellation.Token);
+        Assert.True(report.Success); Assert.Equal(OperationStatus.CompletedWithWarnings, Assert.Single(report.Results).Status);
+    }
     [Fact] public async Task CancellationBetweenProjectsDoesNotReportFullSuccess()
     {
         using var cancellation = new CancellationTokenSource();
@@ -192,7 +204,7 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
-    public bool Fail; public int Calls, UnityCalls, Registrations;
+    public bool Fail, CancelRegistration; public int Calls, UnityCalls, Registrations;
     public Action? AfterResolve;
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -207,5 +219,5 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
     public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { AfterResolve?.Invoke(); return Task.FromResult(new ToolResult(0, "Resolved", "")); }
     public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
-    public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Registrations++; return Task.FromResult(true); }
+    public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Registrations++; return CancelRegistration && cancellationToken.IsCancellationRequested ? Task.FromCanceled<bool>(cancellationToken) : Task.FromResult(true); }
 }

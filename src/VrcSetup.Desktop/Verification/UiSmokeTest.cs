@@ -92,6 +92,8 @@ public static class UiSmokeTest
             "Manual update rate limits show a quiet pause and repeated checks do not hit the server");
         viewModel.UpdateStatus = "";
         var skipped = new OperationReport("fixture-skipped", DateTime.UtcNow, [new("Fixture", "fixture", OperationStatus.Skipped, "Open in Unity")], []);
+        var completedWithNotice = new OperationReport("fixture-notice", DateTime.UtcNow, [new("Fixture", "fixture", OperationStatus.CompletedWithWarnings, "Project ready; Creator Companion registration failed. Add the existing project in VCC.")], []);
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(completedWithNotice).State == "Completed with a notice", "Completed project with a secondary notice is not shown as failed");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(skipped).State == "Not applied", "Skipped projects are not labelled failed");
         var partial = skipped with { Results = [new("Done", "done", OperationStatus.Completed, ""), new("Skipped", "skip", OperationStatus.Skipped, "Open in Unity")] };
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(partial).State == "Partially applied", "Mixed batch outcomes remain explicit");

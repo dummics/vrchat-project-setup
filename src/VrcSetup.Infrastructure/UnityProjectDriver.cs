@@ -138,7 +138,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             var match = Regex.Match(line, @"(?i)Failed to remove package ([a-zA-Z0-9._-]+)");
             if (added && match.Success && !snapshot.Packages.ContainsKey(match.Groups[1].Value) && !snapshot.LockedPackages.ContainsKey(match.Groups[1].Value) && !Directory.Exists(Path.Combine(project, "Packages", match.Groups[1].Value)))
                 progress?.Report(new(DateTime.UtcNow, "VPM", $"Legacy cleanup: {match.Groups[1].Value} is already absent; nothing to remove.", EventSeverity.Info, project, line));
-            else progress?.Report(new(DateTime.UtcNow, "VPM", line.TrimEnd('\r'), Regex.IsMatch(line, @"(?i)\b(ERR|ERROR)\b") ? EventSeverity.Error : EventSeverity.Info, project));
+            else progress?.Report(new(DateTime.UtcNow, "VPM", line.TrimEnd('\r'), ToolOutputSeverity.Classify(line), project));
         }
     }
     public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => runner.VpmAsync(["resolve", "project", project], project, progress, cancellationToken);
@@ -213,8 +213,18 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             progress?.Report(new(DateTime.UtcNow, "VCC", "Project registration skipped for isolated verification.", EventSeverity.Info, project));
             return true;
         }
-        var result = await runner.VpmAsync(["add", "project", project], progress: progress, cancellationToken: cancellationToken);
-        return !ProjectRules.ToolFailed(result) && !Regex.IsMatch(result.Output, @"(?im)\b(ERR|ERROR)\b");
+        try
+        {
+            var result = await runner.VpmAsync(["add", "project", project], progress: progress, cancellationToken: cancellationToken);
+            var success = !ProjectRules.ToolFailed(result) && !Regex.IsMatch(result.Output, @"(?im)\b(ERR|ERROR)\b");
+            if (!success) progress?.Report(new(DateTime.UtcNow, "VCC", "Creator Companion registration did not complete.", EventSeverity.Warning, project, result.Output));
+            return success;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or TimeoutException)
+        {
+            progress?.Report(new(DateTime.UtcNow, "VCC", "Creator Companion registration did not complete.", EventSeverity.Warning, project, error.Message));
+            return false;
+        }
     }
     private string NewUnityLog(string phase)
     {
