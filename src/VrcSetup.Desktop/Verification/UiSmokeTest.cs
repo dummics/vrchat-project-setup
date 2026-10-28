@@ -506,6 +506,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         var proof = new DependencyEvidence("Assets/Test.prefab", "script");
         var advice = new PackageInspectionReport(new(1, 0, 0, true, true, [], [], 0), "fixture", "Avatar prefab", 0,
             [new("com.vrcfury.vrcfury", DependencyConfidence.Detected, null, [proof]), new("com.poiyomi.toon", DependencyConfidence.Detected, null, [proof]), new(ProjectRules.WorldSdk, DependencyConfidence.Detected, null, [proof]), new("example.range", DependencyConfidence.Declared, ">=2.0.0", [proof])], false);
+        viewModel.CurrentPage = "Create"; viewModel.CreationInspection = advice; await Task.Delay(150);
+        Require(viewModel.DetectedCreationPackagesVisibility == Visibility.Visible && viewModel.DetectedCreationPackages.Any(x => x.Id == "example.range"), "Strong package suggestions appear before the import review");
+        Require(!viewModel.DetectedCreationPackages.Any(x => x.Id == ProjectRules.WorldSdk), "Avatar suggestions exclude the world SDK");
+        viewModel.CreationInspection = null;
         using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0", [ProjectRules.AvatarSdk] = "3.10.5" }, new(), viewModel.Registry.ToArray(),
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>()), advice))
         {

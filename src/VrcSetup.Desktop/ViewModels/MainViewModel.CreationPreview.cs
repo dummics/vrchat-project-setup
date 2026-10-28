@@ -9,6 +9,8 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     public ObservableCollection<UiCreationPackage> CreationPackages { get; } = [];
+    public ObservableCollection<UiCreationPackage> DetectedCreationPackages { get; } = [];
+    public Visibility DetectedCreationPackagesVisibility => DetectedCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     private readonly Dictionary<string, int> creationPreviewOrder = new(StringComparer.OrdinalIgnoreCase);
     private string creationPreviewContext = "";
     public string CreationPackageSummary
@@ -42,6 +44,15 @@ public sealed partial class MainViewModel
             if (current is null) CreationPackages.Insert(i, new(item, name));
             else { current.Update(item, name); var old = CreationPackages.IndexOf(current); if (old != i) CreationPackages.Move(old, i); }
         }
+        var suggestions = CreationPackages.Where(x => !x.Selected && x.Data.Evidence?.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared).ToArray();
+        for (var i = DetectedCreationPackages.Count - 1; i >= 0; i--) if (!suggestions.Contains(DetectedCreationPackages[i])) DetectedCreationPackages.RemoveAt(i);
+        for (var i = 0; i < suggestions.Length; i++)
+        {
+            var position = DetectedCreationPackages.IndexOf(suggestions[i]);
+            if (position < 0) DetectedCreationPackages.Insert(i, suggestions[i]);
+            else if (position != i) DetectedCreationPackages.Move(position, i);
+        }
+        OnPropertyChanged(nameof(DetectedCreationPackagesVisibility));
         OnPropertyChanged(nameof(CreationPackageSummary));
     }
     public async Task AddCreationSuggestionAsync(UiCreationPackage row)

@@ -1,4 +1,5 @@
 {
+  "Detected for this avatar": "Rilevati per questo avatar",
   "The automatic retry did not finish. You can try again from the project warning.": "Il tentativo automatico non è terminato. Puoi riprovare dall'avviso sul progetto.",
   "Retry needs additional package changes. Review the project before continuing.": "Per riprovare servono altre modifiche ai pacchetti. Controlla il progetto prima di continuare.",
   "Finish or discard pending package changes before retrying.": "Applica o annulla le modifiche ai pacchetti prima di riprovare.",
