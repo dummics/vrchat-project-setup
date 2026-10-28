@@ -1,6 +1,9 @@
 namespace VrcSetup.Core;
 
-public sealed record PackageWorkspaceRow(string Id, string Name, string InstalledVersion, string SelectedVersion, string Action, bool Required, bool Included, int TargetCount);
+public sealed record PackageWorkspaceRow(string Id, string Name, string InstalledVersion, string SelectedVersion, string Action, bool Required, bool Included, int TargetCount)
+{
+    public bool Missing { get; init; }
+}
 
 // Presentation-independent staged intent used by both the terminal and Windows editor.
 public sealed class PackageEditSession
@@ -39,7 +42,8 @@ public sealed class PackageEditSession
             var displayName = known.GetValueOrDefault(id)?.DisplayName;
             if (string.IsNullOrWhiteSpace(displayName) || displayName.Equals(id, StringComparison.OrdinalIgnoreCase))
                 displayName = Projects.Select(x => x.PackageDisplayNames.GetValueOrDefault(id)).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x) && !x.Equals(id, StringComparison.OrdinalIgnoreCase)) ?? id;
-            return new PackageWorkspaceRow(id, displayName, installed.Length == 1 ? installed[0] : "Mixed", selected, action, IsRequired(id), included, Targets.GetValueOrDefault(id)?.Length ?? Projects.Length);
+            return new PackageWorkspaceRow(id, displayName, installed.Length == 1 ? installed[0] : "Mixed", selected, action, IsRequired(id), included, Targets.GetValueOrDefault(id)?.Length ?? Projects.Length)
+            { Missing = Projects.Any(x => x.MissingPackages.Contains(id, StringComparer.OrdinalIgnoreCase)) };
         }).Where(x => PackageSearch.Matches(query, x.Id, x.Name))
           .OrderBy(x => x.Id == ProjectRules.Resolver ? 0 : x.Id == ProjectRules.BaseSdk ? 1 : x.Id == ProjectRules.AvatarSdk || x.Id == ProjectRules.WorldSdk ? 2 : x.Required ? 3 : x.Included || Removed.Contains(x.Id) ? 4 : 5).ThenBy(x => x.Name).ToArray();
     }

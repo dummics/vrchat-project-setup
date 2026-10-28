@@ -259,7 +259,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         WorkspaceProfile = string.Join(Environment.NewLine, fresh.Where(x => x.ProfileStatus.Length > 0).Select(x => (fresh.Count > 1 ? x.Name + ": " : "") + x.ProfileStatus));
         SelectedProjects.Clear(); NotifyProjectSelection();
         WorkspaceAttention = fresh.FirstOrDefault(x => x.Incomplete || x.Status != "Ready" || x.MissingPackages.Length > 0) is { } attention ? ProjectAttentionConverter.Description(attention) : "";
-        OnPropertyChanged(nameof(WorkspaceAttention)); OnPropertyChanged(nameof(WorkspaceAttentionVisibility));
+        OnPropertyChanged(nameof(WorkspaceAttention)); OnPropertyChanged(nameof(WorkspaceAttentionVisibility)); OnPropertyChanged(nameof(MissingPackagesActionVisibility));
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : string.Format(UiText.Text("{0} projects"), projects.Length); PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>

@@ -1,4 +1,7 @@
 {
+  "Not installed: {0}. Prepare the missing packages, then apply the changes.": "Non installati: {0}. Prepara i pacchetti mancanti, poi applica le modifiche.",
+  "Poiyomi Pro also needs Patreon sign-in in Unity to download the shader.": "Per scaricare lo shader Poiyomi Pro, accedi anche a Patreon in Unity.",
+  "Prepare missing packages": "Prepara i pacchetti mancanti",
   "Project needs attention": "Progetto da controllare",
   "Packages not found: {0}": "Pacchetti non trovati: {0}",
   "The last package change did not finish. Check the packages and recent activity.": "L'ultima modifica ai pacchetti non è terminata. Controlla i pacchetti e l'attività recente.",

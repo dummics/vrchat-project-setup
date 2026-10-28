@@ -15,6 +15,7 @@ public sealed class PackageRowConverter : IValueConverter
             "Action" => UiText.Text(row.Required ? "Required package" : row.Included ? "Remove package" : "Keep package"),
             "PendingVisibility" => row.Action.StartsWith("Will be") && !IsDowngrade(row) ? Visibility.Visible : Visibility.Collapsed,
             "DowngradeVisibility" => row.Action == "Will be changed" && IsDowngrade(row) ? Visibility.Visible : Visibility.Collapsed,
+            "MissingVisibility" => row.Missing && !row.Action.StartsWith("Will be") ? Visibility.Visible : Visibility.Collapsed,
             "Version" => row.Action is "Will be added" or "Will be changed" ? UiText.Text(row.SelectedVersion == "latest" ? "Latest" : row.SelectedVersion) : row.InstalledVersion,
             _ => row.Action == "Will be changed" && IsDowngrade(row)
                 ? string.Format(UiText.Text("Downgrade · {0} → {1}"), row.InstalledVersion, row.SelectedVersion)
