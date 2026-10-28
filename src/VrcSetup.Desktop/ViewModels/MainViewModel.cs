@@ -107,6 +107,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (config.Diagnostics.Verbose && app.Configuration.ImportedFrom is { } imported) AppendActivity(new(DateTime.UtcNow, "Migration", "Settings imported: " + imported));
         });
         if (app.AllowBackgroundUpdateChecks) { await ReadPreviousUpdateResultAsync(); _ = RunPeriodicUpdateChecksAsync(); }
+        _ = RetryInterruptedPackagesAtStartupAsync();
     }
     private void LoadSettings()
     {
@@ -241,6 +242,41 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     private readonly HashSet<string> automaticPackageRetries = new(StringComparer.OrdinalIgnoreCase);
     public void ReserveExplicitPackageRetry(ProjectSnapshot project) => automaticPackageRetries.Add(project.Path);
+    private async Task RetryInterruptedPackagesAtStartupAsync()
+    {
+        foreach (var initial in allProjects.Where(x => x.Incomplete && x.PackageRetrySafe && x.MissingPackages.Length > 0).ToArray())
+        {
+            if (lifetime.IsCancellationRequested || IsBusy || IsApplyingPackages || IsInstallingUpdate) return;
+            if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(initial.Path, StringComparison.OrdinalIgnoreCase))) || app.Projects.IsBusy(initial.Path)) continue;
+            if (!automaticPackageRetries.Add(initial.Path)) continue;
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            applyingSession = new PackageEditSession([initial], config, []); operation = cancellation;
+            IsApplyingPackages = true; IsBusy = true; CanCancelApply = true; ApplyProject = initial.Name; ApplyPhase = "Preparing";
+            try
+            {
+                var fresh = await app.Projects.ReadAsync(initial.Path, cancellation.Token);
+                if (!fresh.Incomplete || !fresh.PackageRetrySafe || fresh.MissingPackages.Length == 0 || app.Projects.IsBusy(fresh.Path)) continue;
+                if (fresh.MissingPackages.Contains("com.poiyomi.pro", StringComparer.OrdinalIgnoreCase) && Directory.Exists(Path.Combine(fresh.Path, "Assets", "_PoiyomiShaders"))) continue;
+                if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(fresh.Path, StringComparison.OrdinalIgnoreCase)))) continue;
+                var selected = fresh.MissingPackages.ToDictionary(id => id, id => fresh.Packages.GetValueOrDefault(id) ?? "latest", StringComparer.OrdinalIgnoreCase);
+                var plan = await Task.Run(() => app.Planner.PlanBulkAsync([fresh.Path], selected, config.Copy(), cancellationToken: cancellation.Token));
+                if (plan.Projects.Any(p => p.Changes.Any(c => c.Kind != ChangeKind.Keep && !fresh.MissingPackages.Contains(c.Id, StringComparer.OrdinalIgnoreCase)) || p.LegacyAssetPaths.Any(x => File.Exists(Path.Combine(p.Path, x)) || Directory.Exists(Path.Combine(p.Path, x)))) || PackageDowngrades.RequiresConfirmation(plan))
+                    throw new InvalidOperationException("Retry needs additional package changes. Review the project before continuing.");
+                if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(fresh.Path, StringComparison.OrdinalIgnoreCase)))) continue;
+                applyingProjects = plan.Projects;
+                var report = await Run(plan, cancellation);
+                if (report.Success)
+                {
+                    var updated = await app.Projects.ReadAsync(fresh.Path, cancellation.Token);
+                    allProjects = allProjects.Select(p => p.Path.Equals(updated.Path, StringComparison.OrdinalIgnoreCase) ? updated : p).ToArray(); FilterProjects();
+                }
+                else ErrorMessage = UiText.Text("The automatic retry did not finish. You can try again from the project warning.");
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { app.Diagnostics.Write("Automatic package retry", error.Message, error); ErrorMessage = UiText.Text("The automatic retry did not finish. You can try again from the project warning."); }
+            finally { operation = null; IsBusy = false; IsApplyingPackages = false; CanCancelApply = false; applyingProjects = []; applyingSession = null; }
+        }
+    }
     public async Task OpenProjectsAsync(ProjectSnapshot[] projects, bool reload = false)
     {
         if (IsApplyingPackages && !(reload && ReferenceEquals(session, applyingSession)) && applyingSession?.Projects.Any(x => projects.Any(y => x.Path.Equals(y.Path, StringComparison.OrdinalIgnoreCase))) == true)
@@ -342,6 +378,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             var plan = await Task.Run(() => app.Planner.PlanBulkAsync(source.Projects.Select(x => x.Path), selected, choices, exact, removed, targets, preset, extraImports, cancellation.Token));
             cancellation.Token.ThrowIfCancellationRequested();
             if (missingPackagesOnly && plan.Projects.Any(p => p.Changes.Any(c => c.Kind != ChangeKind.Keep && !source.Projects.Single(x => x.Path.Equals(p.Path, StringComparison.OrdinalIgnoreCase)).MissingPackages.Contains(c.Id, StringComparer.OrdinalIgnoreCase))))
+                throw new InvalidOperationException("Retry needs additional package changes. Review the project before continuing.");
+            if (missingPackagesOnly && plan.Projects.Any(p => p.LegacyAssetPaths.Any(x => File.Exists(Path.Combine(p.Path, x)) || Directory.Exists(Path.Combine(p.Path, x))) ||
+                p.Changes.Any(c => c.Id.Equals("com.poiyomi.pro", StringComparison.OrdinalIgnoreCase) && c.Kind != ChangeKind.Keep) && Directory.Exists(Path.Combine(p.Path, "Assets", "_PoiyomiShaders"))))
                 throw new InvalidOperationException("Retry needs additional package changes. Review the project before continuing.");
             if (PackageDowngrades.RequiresConfirmation(plan) && !await ui.ConfirmAsync("Review older versions", RiskyVersionSummary(plan), "Apply anyway")) return;
             cancellation.Token.ThrowIfCancellationRequested();
@@ -611,6 +650,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async Task LaunchUnityAsync(string project)
     {
         if (!Directory.Exists(project)) throw new IOException("Project folder is unavailable: " + project);
+        if (ProjectApplyActive([project]) || ProjectImportsActive([project])) return;
         if (!await FindEditorAsync(true)) return;
         if (app.Projects.IsBusy(project)) { Status = "Project is already open in Unity"; return; }
         var start = new ProcessStartInfo(config.UnityEditorPath) { UseShellExecute = false }; start.ArgumentList.Add("-projectPath"); start.ArgumentList.Add(project); Process.Start(start); await Task.CompletedTask;
