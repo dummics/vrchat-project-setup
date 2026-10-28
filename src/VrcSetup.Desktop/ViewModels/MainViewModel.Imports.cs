@@ -181,7 +181,18 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     private bool detailsOpen;
     private string logText = "";
     public bool DetailsOpen { get => detailsOpen; set => SetProperty(ref detailsOpen, value); }
-    public string LogText { get => logText; set => SetProperty(ref logText, value); }
+    public string LogText
+    {
+        get => logText;
+        set
+        {
+            if (!SetProperty(ref logText, value)) return;
+            OnPropertyChanged(nameof(PreviousLogText)); OnPropertyChanged(nameof(LatestLogText));
+        }
+    }
+    public string LatestLogText => LogLines().LastOrDefault() ?? "";
+    public string PreviousLogText { get { var lines = LogLines(); return string.Join("\n", lines.Take(Math.Max(0, lines.Length - 1))); } }
+    private string[] LogLines() => logText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     public bool LoadingLog { get; set; }
     public string LogStamp { get; set; } = "";
     public ImportJob Job { get; private set; } = job;
