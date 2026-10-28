@@ -107,7 +107,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 await workspace.CompleteAsync(project.Path, cancellationToken);
                 if (backup is not null) await workspace.ConfirmBackupAsync(backup);
                 if (project.Changes.Any(x => x.Id == "com.poiyomi.pro" && x.Kind is ChangeKind.Add or ChangeKind.Update))
-                    warnings.Add("Poiyomi Pro installer is ready. Open the project in Unity and complete Poiyomi's Patreon sign-in if requested.");
+                    Emit("Packages", "Poiyomi Pro installer is ready. Open the project in Unity and complete Poiyomi's Patreon sign-in if requested.");
                 if ((project.Creation is not null || project.RecoverySource is not null) && !await driver.RegisterAsync(project.Path, progress, cancellationToken))
                     warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
                 var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;
