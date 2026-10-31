@@ -169,7 +169,11 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             {
                 progress?.Report(new(DateTime.UtcNow, "Repair", $"Restoring package {missing.Id}@{missing.ResolvedVersion}", EventSeverity.Warning, project.Path));
                 var result = await driver.ChangePackageAsync(project.Path, missing with { Kind = ChangeKind.Update }, progress, cancellationToken);
-                if (ProjectRules.ToolFailed(result, missing.Id)) throw new IOException($"Package repair failed: {missing.Id}");
+                if (ProjectRules.ToolFailed(result, missing.Id))
+                {
+                    progress?.Report(new(DateTime.UtcNow, "Repair", $"Package tool exited with code {result.ExitCode} while restoring {missing.Id}. {result.Output.Trim()}", EventSeverity.Error, project.Path));
+                    throw new IOException($"Package repair failed: {missing.Id}");
+                }
             }
             var resolve = await driver.ResolveAsync(project.Path, progress, cancellationToken);
             if (ProjectRules.ToolFailed(resolve)) throw new IOException("Package repair resolve failed.");

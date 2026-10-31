@@ -35,6 +35,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         Navigation.DisplayModeChanged += (_, _) => ConstrainContent();
         Navigation.RegisterPropertyChangedCallback(NavigationView.IsPaneOpenProperty, (_, _) => ConstrainContent());
         CreateView.SizeChanged += (_, _) => ConstrainForms(); SettingsView.SizeChanged += (_, _) => ConstrainForms();
+        ImportQueueList.SizeChanged += (_, _) => DispatcherQueue.TryEnqueue(async () => { await Task.Delay(80); KeepExpandedImportVisible(); });
         CreateForm.SizeChanged += (_, _) => ConstrainForms();
         ProjectsView.SizeChanged += (_, _) => ConstrainForms();
         PresetEditor.SizeChanged += (_, _) => ConstrainForms();
@@ -48,6 +49,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             });
             if (eventArgs.PropertyName == nameof(ViewModel.DeveloperMode)) SyncDiagnosticsTab();
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
+            if (eventArgs.PropertyName is nameof(ViewModel.CanvasColor) or nameof(ViewModel.SurfaceColor) or nameof(ViewModel.AccentColor)) ApplyColorPalette();
             if (eventArgs.PropertyName == nameof(ViewModel.CreationPackageSummary)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.ImportJobsVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.PresetCatalogVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
@@ -57,7 +59,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         Loaded += async (_, _) =>
         {
             if (initialized) return; initialized = true;
-            try { await ViewModel.InitializeAsync(); SyncDiagnosticsTab(); ShowPage(ViewModel.CurrentPage); initializedCompletion.TrySetResult(); }
+            try { await ViewModel.InitializeAsync(); ApplyColorPalette(); SyncDiagnosticsTab(); ShowPage(ViewModel.CurrentPage); initializedCompletion.TrySetResult(); }
             catch (Exception error) { initializedCompletion.TrySetException(error); }
         };
     }
@@ -190,7 +192,10 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (FindVisualChild<Border>(CreationPackageDetails, "ExpanderContent") is { } contentBorder)
                 contentBorder.BorderThickness = new Thickness(0);
             ImportQueueSection.Width = CreateLayout.Width;
-            ImportQueueList.MaxHeight = Math.Max(80, Math.Min(320, CreateHost.ActualHeight * .42 - 42));
+            // An expanded row must fit its header and log at common window heights;
+            // otherwise aligning the header to the bottom clips the details above it.
+            ImportQueueList.MaxHeight = Math.Max(120, Math.Min(360, CreateHost.ActualHeight * .65 - 42));
+            foreach (var row in ImportQueueList.Items.OfType<UiImportRow>()) row.LogHeight = Math.Clamp(ImportQueueList.MaxHeight - 170, 40, 105);
             var narrow = CreateForm.Width < 560;
             Grid.SetRow(ImportResourceSummary, narrow ? 1 : 0); Grid.SetColumn(ImportResourceSummary, narrow ? 0 : 1);
             Grid.SetColumnSpan(ImportResourceSummary, narrow ? 3 : 1);
@@ -370,12 +375,20 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             // Wait for the native expander to finish arranging its upward content,
             // then keep its header visible at the bottom of the bounded queue.
             await Task.Delay(350);
-            if (row.DetailsOpen && FindFirstVisualChild<ScrollViewer>(ImportQueueList) is { } queue)
-            {
-                var bottom = sender.TransformToVisual(queue).TransformPoint(new(0, sender.ActualHeight)).Y;
-                var target = Math.Clamp(queue.VerticalOffset + bottom - queue.ViewportHeight, 0, queue.ScrollableHeight);
-                queue.ChangeView(null, target, null, true);
-            }
+            if (row.DetailsOpen) KeepExpandedImportVisible();
+        }
+    }
+    private void KeepExpandedImportVisible()
+    {
+        if (FindFirstVisualChild<ScrollViewer>(ImportQueueList) is not { } queue) return;
+        for (var i = 0; i < ImportQueueList.Items.Count; i++)
+        {
+            if (ImportQueueList.Items[i] is not UiImportRow { DetailsOpen: true } || ImportQueueList.ContainerFromIndex(i) is not DependencyObject container) continue;
+            if (FindFirstVisualChild<Expander>(container) is not { } expander) continue;
+            var bottom = expander.TransformToVisual(queue).TransformPoint(new(0, expander.ActualHeight)).Y;
+            var target = Math.Clamp(queue.VerticalOffset + bottom - queue.ViewportHeight, 0, queue.ScrollableHeight);
+            if (Math.Abs(queue.VerticalOffset - target) > 1) queue.ChangeView(null, target, null, true);
+            break;
         }
     }
     private void ImportExpanderLoaded(object sender, RoutedEventArgs args)

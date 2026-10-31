@@ -68,6 +68,10 @@ public sealed class AppConfiguration
     public string LastUnityPackagePath { get; set; } = "";
     public string ProjectLibrarySort { get; set; } = "recent";
     public string Theme { get; set; } = "Dark";
+    public string ColorPalette { get; set; } = "Mint";
+    public string CanvasColor { get; set; } = "#25272A";
+    public string SurfaceColor { get; set; } = "#303338";
+    public string AccentColor { get; set; } = "#50CDBB";
     public string Language { get; set; } = "system";
     public string PackageLibraryView { get; set; } = "grid";
     public bool ManualImportPath { get; set; }

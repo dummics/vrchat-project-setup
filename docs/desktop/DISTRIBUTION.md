@@ -72,6 +72,8 @@ Activity separates imports and operations. Check, resume/reimport and associated
 
 The desktop uses the system UI language (Italian or English; other languages fall back to English). Settings → Language overrides this. Apply language and restart saves that choice and restarts only when imports and pending package/preset changes are finished. New installs default to Dark; existing theme choices remain unchanged. Package names/IDs, paths, versions and provider logs are not translated.
 
+Settings also provides Mint, Ocean and Violet palettes and custom background, surface and accent colors. Colors preview immediately and follow the normal Save/Discard settings flow. Surface shades are adjusted for light/dark readability.
+
 The main window has a 720×580 minimum, an always-accessible compact sidebar, and full-width Import/Settings views. Information is a popup with downloads, bug reports, contact@dummics.com and logs. Footer Update available starts the update directly; Update failed opens details.
 
 ## Data and recovery

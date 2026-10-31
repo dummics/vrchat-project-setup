@@ -180,6 +180,8 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
 {
     private bool detailsOpen;
     private string logText = "";
+    private double logHeight = 105;
+    public double LogHeight { get => logHeight; set => SetProperty(ref logHeight, value); }
     public bool DetailsOpen { get => detailsOpen; set => SetProperty(ref detailsOpen, value); }
     public string LogText
     {
@@ -191,7 +193,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         }
     }
     public string LatestLogText => LogLines().LastOrDefault() ?? "";
-    public string PreviousLogText { get { var lines = LogLines(); return string.Join("\n", lines.Take(Math.Max(0, lines.Length - 1))); } }
+    public string PreviousLogText { get { var lines = LogLines(); return string.Join("\n", lines.Take(Math.Max(0, lines.Length - 1)).Reverse()); } }
     private string[] LogLines() => logText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     public bool LoadingLog { get; set; }
     public string LogStamp { get; set; } = "";

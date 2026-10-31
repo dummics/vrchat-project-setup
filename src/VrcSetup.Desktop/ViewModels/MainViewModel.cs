@@ -77,6 +77,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial string NamingPatterns { get; set; } = "";
     [ObservableProperty] public partial bool RememberNames { get; set; } = true;
     [ObservableProperty] public partial string Theme { get; set; } = "Dark";
+    [ObservableProperty] public partial string ColorPalette { get; set; } = "Mint";
+    [ObservableProperty] public partial string CanvasColor { get; set; } = "#25272A";
+    [ObservableProperty] public partial string SurfaceColor { get; set; } = "#303338";
+    [ObservableProperty] public partial string AccentColor { get; set; } = "#50CDBB";
     [ObservableProperty] public partial string LastLog { get; set; } = "";
     public string[] PlatformChoices => ProjectRules.BuildTargets;
     public PlatformOption[] PlatformOptions => [new("Windows", "StandaloneWindows64"), new("Android / Quest", "Android"), new("iOS", "iOS")];
@@ -121,7 +125,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         AutomaticUpdateEnabled = config.AutomaticUpdates;
         SelectedLanguage = config.Language;
         NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
-        RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ProjectSort = config.ProjectLibrarySort;
+        RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ColorPalette = config.ColorPalette; CanvasColor = config.CanvasColor; SurfaceColor = config.SurfaceColor; AccentColor = config.AccentColor; ProjectSort = config.ProjectLibrarySort;
         DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
         settingsBaseline = SettingsSnapshot(); loadingSettings = false; NotifySettingsState();
     }
@@ -586,6 +590,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         config.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
         config.UnityPackagesFolder = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? null : ProjectRules.NormalizePath(ExtraImportsFolder);
         config.Naming = new() { DefaultPrefix = NamingPrefix, DefaultSuffix = NamingSuffix, RegexRemovePatterns = patterns.ToList(), RememberUnityPackageNames = RememberNames }; config.Theme = Theme;
+        config.ColorPalette = ColorPalette; config.CanvasColor = CanvasColor; config.SurfaceColor = SurfaceColor; config.AccentColor = AccentColor;
         config.Diagnostics = new() { DeveloperMode = DeveloperMode, Verbose = VerboseDiagnostics, TraceTools = TraceTools }; app.Diagnostics.Configure(config.Diagnostics);
         await PersistConfigurationAsync();
         }
