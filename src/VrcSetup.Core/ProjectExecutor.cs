@@ -14,8 +14,10 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             BackupRecord? backup = null;
             var phase = "Preflight";
             var mutated = false;
+            var editorWasOpen = false;
             var warnings = new List<string>();
             IDisposable? projectLock = null;
+            IAsyncDisposable? editorSession = null;
             Emit(phase, $"Project: {project.Name}");
             try
             {
@@ -33,7 +35,10 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 foreach (var import in project.ImportFingerprints)
                     if (ProjectRules.FileIdentity(import.Key) != import.Value) throw new ProjectSkippedException("UnityPackage changed after review. Review again before importing.");
-                if (workspace.IsBusy(project.Path)) throw new ProjectSkippedException("Close Unity for this project before applying changes. No project was changed.");
+                // VPM edits are consumed by the running editor. Only operations
+                // launching another Unity instance need exclusive editor access.
+                if (project.RequiresUnityBatch && workspace.IsBusy(project.Path))
+                    throw new ProjectsInUseException([project.Name]);
                 if (project.Creation is null)
                 {
                     var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
@@ -60,6 +65,8 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                     results.Add(new(project.Name, project.Path, OperationStatus.Unchanged, "Already up to date."));
                     continue;
                 }
+                editorWasOpen = workspace.IsBusy(project.Path);
+                editorSession = await driver.BeginPackageChangesAsync(project, progress, cancellationToken);
                 if (project.RecoverySource is null)
                 {
                     phase = "Backup";
@@ -75,12 +82,12 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 await driver.PrepareAsync(project, progress, cancellationToken);
                 await workspace.SetStepAsync(project.Path, "nunit", true, cancellationToken);
                 phase = "Packages";
-                if (workspace.IsBusy(project.Path)) throw new IOException("Unity opened this project. Close it before applying changes.");
                 var resolve = await driver.ApplyPackagePlanAsync(project, progress, cancellationToken);
                 if (ProjectRules.ToolFailed(resolve)) throw new IOException("VPM resolve failed. " + resolve.Output);
                 }
                 await VerifyPackages(project, progress, cancellationToken, warnings);
                 await workspace.SetStepAsync(project.Path, "vpm", true, cancellationToken);
+                if (editorSession is not null) { await editorSession.DisposeAsync(); editorSession = null; }
 
                 if (project.RequiresUnityBatch && (project.Creation is not null || project.ExtraImports.Length > 0))
                 {
@@ -126,7 +133,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                var recovered = !mutated || backup is null || await TryRestore(project, backup);
+                var recovered = !mutated || backup is null || await TryRestore(project, backup, editorWasOpen);
                 results.Add(new(project.Name, project.Path, OperationStatus.Cancelled,
                     "Operation interrupted. " + (recovered ? "Project and recovery information preserved." : "Automatic restore incomplete; use recovery."), BackupPath: backup?.Directory));
                 Emit("Cancelled", "Operation interrupted; remaining projects were not processed.", EventSeverity.Warning);
@@ -134,20 +141,27 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             }
             catch (Exception error)
             {
-                var recovered = !mutated || backup is null || await TryRestore(project, backup);
+                var recovered = !mutated || backup is null || await TryRestore(project, backup, editorWasOpen);
                 var message = error.Message + (recovered ? "" : " Automatic restore incomplete; use recovery.");
                 results.Add(new(project.Name, project.Path, OperationStatus.Failed, message, BackupPath: backup?.Directory));
                 Emit(phase, message, EventSeverity.Error);
             }
-            finally { projectLock?.Dispose(); }
+            finally
+            {
+                try { if (editorSession is not null) await editorSession.DisposeAsync(); }
+                finally { projectLock?.Dispose(); }
+            }
             void Emit(string eventPhase, string message, EventSeverity severity = EventSeverity.Info) => progress?.Report(new(DateTime.UtcNow, eventPhase, message, severity, project.Path));
         }
         return new(plan.Id, DateTime.UtcNow, results.ToArray(), plan.Projects.Select(x => x.Path).Except(results.Select(x => x.Path), StringComparer.OrdinalIgnoreCase).ToArray());
 
-        async Task<bool> TryRestore(ProjectPlan project, BackupRecord record)
+        async Task<bool> TryRestore(ProjectPlan project, BackupRecord record, bool editorWasOpen)
         {
             // A created project's asset import cannot be undone by manifest restore.
             if (project.Creation is not null) return true;
+            // Never replace Assets/ProjectSettings while the editor may have
+            // unsaved work. Retain the recovery copy and allow a package retry.
+            if (editorWasOpen || workspace.IsBusy(project.Path)) return false;
             try
             {
                 using var recoveryTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));

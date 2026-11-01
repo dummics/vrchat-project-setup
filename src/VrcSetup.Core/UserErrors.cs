@@ -44,7 +44,7 @@ public static class UserErrors
         UserInputException => error.Message,
         ImportQueueInUseException => "Another instance is already managing imports. Return to that window or close it before continuing.",
         InvalidOperationException when error.Message.StartsWith("Package/version not found: ", StringComparison.Ordinal) => "A selected package is unavailable. Check your connection and retry, or remove it from the preset.",
-        ProjectsInUseException busy => string.Format(UiText.Text("Close Unity for {0} before applying changes. No project was changed."), string.Join(", ", busy.Projects)),
+        ProjectsInUseException busy => string.Format(UiText.Text("Close Unity to import additional files into {0}. No project was changed."), string.Join(", ", busy.Projects)),
         HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden } => "The download service is busy. Please try again later.",
         HttpRequestException => "Could not connect. Check your connection and try again.",
         TimeoutException or TaskCanceledException => "This is taking longer than expected. Please try again.",
@@ -61,6 +61,9 @@ public static class UserErrors
     }
     private static string? Advice(string message) => message switch
     {
+        "Unity is still preparing scripts. Wait for it to finish, then retry the package changes." => message,
+        "Package refresh helper is missing. Repair the application and retry." => message,
+        "A different editor script uses the package helper filename. Rename that script and retry." => message,
         "Close Unity for this project before applying changes." or "Close Unity for this project before applying changes. No project was changed." or "Unity opened this project. Close it before applying changes." => "Close Unity for this project before applying changes. No project was changed.",
         "A newer successful change replaced this recovery copy. Use the latest backup in Activity." => message,
         "Choose a different preset name." => "This preset name is already in use. Enter another name.",

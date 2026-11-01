@@ -226,6 +226,7 @@ public interface IProjectWorkspace
 
 public interface IProjectDriver
 {
+    Task<IAsyncDisposable?> BeginPackageChangesAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) => Task.FromResult<IAsyncDisposable?>(null);
     Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task<ToolResult> ChangePackageAsync(string project, PackageChange change, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);

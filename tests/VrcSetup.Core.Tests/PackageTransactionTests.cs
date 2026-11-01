@@ -34,6 +34,14 @@ public sealed class PackageTransactionTests : IDisposable
         var install = Assert.Single(commands, x => x[0] == "install"); Assert.Equal("shader.pro", install[1]);
         Assert.Equal("remove", commands[0][0]); Assert.Equal("resolve", commands[^1][0]);
     }
+    [Fact] public async Task UnityGeneratedLockDoesNotInvalidateReviewButVpmIntentStillDoes()
+    {
+        var project = await Project(); var before = ProjectWorkspace.Fingerprint(project);
+        await File.WriteAllTextAsync(Path.Combine(project, "Packages", "packages-lock.json"), "{\"dependencies\":{}}");
+        Assert.Equal(before, ProjectWorkspace.Fingerprint(project));
+        await File.WriteAllTextAsync(Path.Combine(project, "Packages", "vpm-manifest.json"), "{\"dependencies\":{}}");
+        Assert.NotEqual(before, ProjectWorkspace.Fingerprint(project));
+    }
     [Fact] public async Task RecoveryRestoresPhysicalPackagesAndLegacyAssetsWithoutNetworkOrLogin()
     {
         var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
@@ -50,6 +58,25 @@ public sealed class PackageTransactionTests : IDisposable
         Assert.True(File.Exists(Path.Combine(project, "Packages", "shader.toon", "package.json")));
         Assert.False(Directory.Exists(Path.Combine(project, "Packages", "shader.pro")));
         Assert.Equal("licensed local shader", await File.ReadAllTextAsync(shader));
+    }
+    [Fact] public async Task VpmReplacementRunsWithAHeldUnityLockfileAndPreservesUnrelatedAssets()
+    {
+        var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
+        Directory.CreateDirectory(Path.Combine(project, "Temp"));
+        using var editor = new FileStream(Path.Combine(project, "Temp", "UnityLockfile"), FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+        var asset = Path.Combine(project, "Assets", "user-work.txt"); await File.WriteAllTextAsync(asset, "editor work");
+        var workspace = new ProjectWorkspace(paths); Assert.True(workspace.IsBusy(project));
+        var commands = new List<string[]>();
+        var runner = new ToolRunner(bundledPackageTool: "fixture-vrc-get.exe", commandOverride: (_, args, _) =>
+        {
+            commands.Add(args);
+            Assert.True(workspace.IsBusy(project));
+            return Task.FromResult(new ToolResult(0, "", ""));
+        });
+        var result = await new UnityProjectDriver(paths, runner, workspace).ApplyPackagePlanAsync(Plan(project), null, default);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("remove", commands[0][0]); Assert.Contains(commands, x => x[0] == "install"); Assert.Equal("resolve", commands[^1][0]);
+        Assert.Equal("editor work", await File.ReadAllTextAsync(asset));
     }
     [Fact] public async Task RepositoryMigrationRulesAreReadForTheExactVersion()
     {
@@ -72,6 +99,34 @@ public sealed class PackageTransactionTests : IDisposable
         Assert.False(File.Exists(first.PackageArchive)); Assert.True(File.Exists(second.PackageArchive)); Assert.True(File.Exists(failed.PackageArchive));
         Assert.True(File.Exists(Path.Combine(first.Directory, "superseded")));
         await Assert.ThrowsAsync<IOException>(() => workspace.RestoreAsync(project, first, null, default));
+    }
+    [Fact] public async Task OpenEditorMustAcknowledgeRefreshPauseAndLeaseIsReleasedAfterUse()
+    {
+        var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
+        Directory.CreateDirectory(Path.Combine(project, "Temp"));
+        using var editor = new FileStream(Path.Combine(project, "Temp", "UnityLockfile"), FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var driver = new UnityProjectDriver(paths, new ToolRunner(), new ProjectWorkspace(paths));
+        var pending = driver.BeginPackageChangesAsync(Plan(project), null, timeout.Token);
+        var leaseFile = Path.Combine(project, ".vrcsetup", "editor-package-lease.json");
+        while (!File.Exists(leaseFile)) await Task.Delay(20, timeout.Token);
+        Assert.False(pending.IsCompleted);
+        using var request = JsonDocument.Parse(await File.ReadAllTextAsync(leaseFile, timeout.Token));
+        Assert.True(request.RootElement.GetProperty("expiresUtcTicks").GetInt64() > DateTime.UtcNow.Ticks);
+        await File.WriteAllTextAsync(Path.Combine(project, ".vrcsetup", "editor-package-ack.txt"), request.RootElement.GetProperty("id").GetString(), timeout.Token);
+        await using (var lease = await pending) Assert.NotNull(lease);
+        Assert.False(File.Exists(leaseFile));
+    }
+    [Fact] public async Task CancelBeforeEditorAcknowledgesLeavesPackagesUntouchedAndRemovesLease()
+    {
+        var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
+        Directory.CreateDirectory(Path.Combine(project, "Temp"));
+        using var editor = new FileStream(Path.Combine(project, "Temp", "UnityLockfile"), FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+        var manifest = await File.ReadAllTextAsync(Path.Combine(project, "Packages", "vpm-manifest.json"));
+        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new UnityProjectDriver(paths, new ToolRunner(), new ProjectWorkspace(paths)).BeginPackageChangesAsync(Plan(project), null, cancel.Token));
+        Assert.False(File.Exists(Path.Combine(project, ".vrcsetup", "editor-package-lease.json")));
+        Assert.Equal(manifest, await File.ReadAllTextAsync(Path.Combine(project, "Packages", "vpm-manifest.json")));
     }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

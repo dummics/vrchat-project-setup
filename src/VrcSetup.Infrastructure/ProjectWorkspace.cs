@@ -151,7 +151,9 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
     private static bool MapsEqual(IReadOnlyDictionary<string, string> left, IReadOnlyDictionary<string, string> right) => left.Count == right.Count && left.All(x => right.TryGetValue(x.Key, out var value) && value == x.Value);
     public static string Fingerprint(string path)
     {
-        var files = ManifestNames.Concat(new[] { "ProjectSettings/ProjectVersion.txt", ".vrcsetup/state.json", ".vrcsetup/package-profile.json" }).Select(x => Path.Combine(path, x)).ToList();
+        // Unity regenerates its UPM lock during refresh. User intent lives in
+        // manifest.json/VPM metadata; lock-only churn must not invalidate review.
+        var files = ManifestNames.Where(x => x != "Packages/packages-lock.json").Concat(new[] { "ProjectSettings/ProjectVersion.txt", ".vrcsetup/state.json", ".vrcsetup/package-profile.json" }).Select(x => Path.Combine(path, x)).ToList();
         if (Directory.Exists(Path.Combine(path, "Packages"))) files.AddRange(Directory.EnumerateDirectories(Path.Combine(path, "Packages")).Where(x => !new DirectoryInfo(x).Attributes.HasFlag(FileAttributes.ReparsePoint)).Select(x => Path.Combine(x, "package.json")));
         if (!File.Exists(Path.Combine(path, "ProjectSettings", "ProjectVersion.txt"))) files.AddRange(Directory.EnumerateFiles(path, "*.csproj"));
         var text = string.Join("|", files.Order(StringComparer.OrdinalIgnoreCase).Select(x => Path.GetRelativePath(path, x) + ":" + AtomicFile.Hash(x)));

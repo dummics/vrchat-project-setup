@@ -7,7 +7,6 @@ public sealed partial class UnityProjectDriver
 {
     public async Task<ToolResult> ApplyPackagePlanAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token)
     {
-        if (workspace.IsBusy(plan.Path)) throw new IOException("Close Unity for this project before applying changes.");
         // vrc-get removes declared roots. Removing them from the manifest first
         // makes the CLI report "not installed" and leaves replacement half done.
         foreach (var change in plan.Changes.Where(x => x.Kind == ChangeKind.Remove))

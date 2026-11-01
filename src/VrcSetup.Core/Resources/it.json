@@ -484,5 +484,9 @@
   "Background": "Sfondo",
   "Surface": "Superfici",
   "Accent": "Colore principale",
-  "Custom": "Personalizzata"
+  "Custom": "Personalizzata",
+  "Waiting for Unity to finish preparing scripts.": "Attendo che Unity finisca di preparare gli script.",
+  "Unity is still preparing scripts. Wait for it to finish, then retry the package changes.": "Unity sta ancora preparando gli script. Attendi che finisca e riprova le modifiche ai pacchetti.",
+  "Package refresh helper is missing. Repair the application and retry.": "Manca il componente per aggiornare i pacchetti con Unity aperto. Ripara l’app e riprova.",
+  "A different editor script uses the package helper filename. Rename that script and retry.": "Uno script del progetto usa lo stesso nome del componente per i pacchetti. Rinomina quello script e riprova."
 }

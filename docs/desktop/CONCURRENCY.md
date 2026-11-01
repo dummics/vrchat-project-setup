@@ -1,10 +1,21 @@
 # Desktop concurrency
 
-Package apply requires Unity to be closed for each target. The UI checks before
-planning, and execution checks again before backup/mutation. This protects shader
-replacement, recovery and possible migrations performed by indirect dependencies.
-It does not close Unity or prevent work on other projects. Package recovery uses
-the local snapshot without another resolver or account login.
+VPM package additions, updates, downgrades and removals work while Unity is open.
+The editor helper pauses automatic refresh and assembly reload before VPM writes,
+then requests resolve/refresh once the verified package set is ready. A short
+heartbeat lease expires after 20 seconds if the app exits unexpectedly; resolve
+and refresh resume automatically with a bounded twenty-second fallback. Refresh
+waits until Unity's registered embedded packages match their physical metadata.
+First use installs the helper and waits for Unity to compile it; an editor still
+compiling cannot acknowledge yet, so cancellation remains available without VPM
+mutation. Unity consumes the package changes on its resolve/asset refresh cycle;
+successful VPM verification does not mean editor compilation has finished.
+The executor retains its per-project lease, reviewed-state validation and backup.
+On failure or cancellation when Unity was open, it preserves the backup without
+replacing Assets, Packages or ProjectSettings under the running editor. Retrying
+package changes remains available; full snapshot restoration still needs Unity
+closed to protect unsaved editor work. File imports/recovery that launch a second
+Unity batch instance require the target editor to be closed, checked before mutation.
 
 The bottom status opens a live operations flyout for concurrent creation/import jobs, package apply and update work. Each operation occupies a compact name/state row, with ellipsis and a 200-pixel scrolling list limit; detailed messages stay in Activity. Opening it never navigates away or triggers an unsaved-preset decision. New-project planning is protected from automatic update installation and window closure before its queued job exists.
 

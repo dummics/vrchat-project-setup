@@ -96,12 +96,13 @@ public sealed class PlannerExecutorTests
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
         Assert.Equal(OperationStatus.Skipped, report.Results.Single().Status); Assert.Equal(0, driver.Calls);
     }
-    [Fact] public async Task PackageChangesWaitForUnityBeforeAnyBackupOrMutation()
+    [Fact] public async Task PackageChangesCompleteWhileUnityIsOpenWithoutLaunchingAnotherEditor()
     {
         var workspace = new MemoryWorkspace { Busy = true }; var driver = new MemoryDriver(workspace);
         var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
-        Assert.Equal(OperationStatus.Skipped, report.Results.Single().Status); Assert.Equal(0, driver.Calls); Assert.Equal(0, workspace.Backups);
+        Assert.True(report.Success); Assert.True(driver.Calls > 0); Assert.Equal(1, workspace.Backups);
+        Assert.Equal("1.1.0", workspace.Project.InstalledVersions["tool"]);
         Assert.Equal(0, driver.UnityCalls); Assert.False(workspace.LeaseHeld);
     }
     [Fact] public async Task AdditionalFileImportsStillNeedAnAvailableUnityProject()
@@ -110,7 +111,17 @@ public sealed class PlannerExecutorTests
         var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
         project = project with { ExtraImports = ["extra.unitypackage"] };
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
-        Assert.Equal(OperationStatus.Skipped, report.Results.Single().Status); Assert.Equal(0, workspace.Backups); Assert.Equal(0, driver.Calls);
+        Assert.Equal(OperationStatus.Failed, report.Results.Single().Status); Assert.Equal(0, workspace.Backups); Assert.Equal(0, driver.Calls);
+    }
+    [Fact] public async Task FailedPackageChangeWithUnityOpenPreservesBackupWithoutRestoringEditorFiles()
+    {
+        var workspace = new MemoryWorkspace { Busy = true }; var driver = new MemoryDriver(workspace) { Fail = true };
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("open-failure", DateTime.UtcNow, [project]));
+        var result = Assert.Single(report.Results);
+        Assert.Equal(OperationStatus.Failed, result.Status); Assert.NotNull(result.BackupPath);
+        Assert.Equal(1, workspace.Backups); Assert.Equal(0, workspace.Restores); Assert.False(workspace.LeaseHeld);
+        Assert.Equal(0, driver.UnityCalls);
     }
     [Fact] public async Task BackupFailurePreventsToolMutations()
     {
@@ -118,6 +129,32 @@ public sealed class PlannerExecutorTests
         var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
         Assert.Equal(OperationStatus.Failed, report.Results.Single().Status); Assert.Equal(0, driver.Calls);
+    }
+    private sealed class EditorSession : IAsyncDisposable
+    {
+        public int Releases;
+        public ValueTask DisposeAsync() { Releases++; return ValueTask.CompletedTask; }
+    }
+    [Fact] public async Task EditorExitDuringPackageFailureDoesNotRestoreOverConcurrentWork()
+    {
+        var workspace = new MemoryWorkspace { Busy = true };
+        var driver = new MemoryDriver(workspace) { AfterResolve = () => { workspace.Busy = false; throw new IOException("Editor exited during package operation"); } };
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("editor-exit", DateTime.UtcNow, [project]));
+        Assert.Equal(OperationStatus.Failed, Assert.Single(report.Results).Status);
+        Assert.NotNull(report.Results[0].BackupPath); Assert.Equal(0, workspace.Restores); Assert.False(workspace.LeaseHeld);
+    }
+    [Theory] [InlineData(false)] [InlineData(true)]
+    public async Task OpenEditorSessionIsReleasedOnFailureAndCancellation(bool cancel)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var workspace = new MemoryWorkspace { Busy = true }; var editor = new EditorSession();
+        var driver = new MemoryDriver(workspace) { EditorSession = editor, Fail = !cancel };
+        if (cancel) driver.AfterResolve = () => { cancellation.Cancel(); throw new OperationCanceledException(cancellation.Token); };
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("lease-failure", DateTime.UtcNow, [project]), cancellationToken: cancellation.Token);
+        Assert.Equal(cancel ? OperationStatus.Cancelled : OperationStatus.Failed, Assert.Single(report.Results).Status);
+        Assert.Equal(1, editor.Releases); Assert.Equal(0, workspace.Restores); Assert.False(workspace.LeaseHeld);
     }
     [Fact] public async Task FailedToolTriggersRestoreAndPreservesFailure()
     {
@@ -204,6 +241,8 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
+    public IAsyncDisposable? EditorSession;
+    public Task<IAsyncDisposable?> BeginPackageChangesAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) => Task.FromResult(EditorSession);
     public bool Fail, CancelRegistration; public int Calls, UnityCalls, Registrations;
     public Action? AfterResolve;
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }

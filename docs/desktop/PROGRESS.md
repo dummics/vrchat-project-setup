@@ -1,5 +1,19 @@
 # VRCSETUP Desktop migration
 
+## 0.2.6-beta.4 open-editor package management
+
+Package add/update/downgrade/remove and safe missing-package retries now run with
+Unity open. The editor helper coordinates refresh and assembly reload through an
+acknowledged heartbeat lease; it releases automatically after interruption. Full
+snapshot restore is deferred when the editor was open, including if it exits
+during a failed operation, preserving concurrent user work. Operations launching
+a second Unity instance for asset import retain their exclusive-editor check.
+This supersedes the package-mutation restriction described under beta.1 below.
+
+The release also includes the previously committed import log layout/theme
+palette changes and clearer completed-project/optional-registration outcomes.
+An empty queued import plan no longer crashes the live status list.
+
 ## Package search iteration (local, not released)
 
 The shared package search filters included preset entries as well as addable

@@ -214,7 +214,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public string Step => Job.State == "Running" ? Job.Step switch
     {
         "Create" => "Creating project", "Prepare" => "Preparing project", "Packages" => "Adding packages",
-        "Import" => Job.Plan.Projects[0].RecoverySource is null ? "Importing assets" : "Reimporting assets",
+        "Import" => Job.Plan.Projects.FirstOrDefault()?.RecoverySource is null ? "Importing assets" : "Reimporting assets",
         "Validate" => "Checking project", "Finish" => "Finishing", "Starting" => "Starting…", _ => Job.Step
     } : Job.State == "Queued" ? "Starting…" : Job.State;
     public string Message => Job.Message.Length > 240 ? Job.Message[..240] + "…" : Job.Message;

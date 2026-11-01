@@ -10,5 +10,6 @@
     <Content Include="Resources/**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Tools/**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../VrcSetup.UnityBridge/VrcSetupPostImport.cs" Link="Resources/VrcSetupPostImport.cs" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../VrcSetup.UnityBridge/VrcSetupPackageSession.cs" Link="Resources/VrcSetupPackageSession.cs" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
