@@ -49,17 +49,17 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             });
             if (eventArgs.PropertyName == nameof(ViewModel.DeveloperMode)) SyncDiagnosticsTab();
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
-            if (eventArgs.PropertyName is nameof(ViewModel.CanvasColor) or nameof(ViewModel.SurfaceColor) or nameof(ViewModel.AccentColor)) ApplyColorPalette();
+            if (eventArgs.PropertyName is nameof(ViewModel.CanvasColor) or nameof(ViewModel.SurfaceColor) or nameof(ViewModel.AccentColor) or nameof(ViewModel.IsLoadingSettings)) QueueAppearanceUpdate();
             if (eventArgs.PropertyName == nameof(ViewModel.CreationPackageSummary)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.ImportJobsVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.PresetCatalogVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
-            if (eventArgs.PropertyName == nameof(ViewModel.EditingPreset)) DispatcherQueue.TryEnqueue(AnimatePresetSelection);
+            if (eventArgs.PropertyName == nameof(ViewModel.EditingPreset)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.LibraryIsList)) DispatcherQueue.TryEnqueue(ConstrainForms);
         };
         Loaded += async (_, _) =>
         {
             if (initialized) return; initialized = true;
-            try { await ViewModel.InitializeAsync(); ApplyColorPalette(); SyncDiagnosticsTab(); ShowPage(ViewModel.CurrentPage); initializedCompletion.TrySetResult(); }
+            try { await ViewModel.InitializeAsync(); ApplyAppearanceResources(); SyncDiagnosticsTab(); ShowPage(ViewModel.CurrentPage); initializedCompletion.TrySetResult(); }
             catch (Exception error) { initializedCompletion.TrySetException(error); }
         };
     }
@@ -78,8 +78,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         PresetsView.Visibility = page is "Presets" or "ImportPackages" or "NewProject" ? Visibility.Visible : Visibility.Collapsed;
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
-        ActivityNavigationMarker.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
-        SettingsNavigationMarker.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
         try { Navigation.SelectedItem = Navigation.MenuItems.Concat(Navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(x => x.Tag?.ToString() == (page is "Workspace" or "Catalog" or "NewProject" ? "Projects" : page == "ImportPackages" ? "Create" : page)); }
         finally { syncingNavigation = false; }
@@ -87,20 +85,9 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void NavigationInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
         if (ViewModel is null || syncingNavigation) return;
-        if ((args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() is { } tag)
-        {
-            if (tag == "About") { ToggleInformation(); return; }
-            if (tag == "InfoGroup") return;
-            if (tag.StartsWith("Info:", StringComparison.Ordinal))
-            {
-                if (tag == "Info:Releases") ViewModel.OpenReleasesCommand.Execute(null);
-                else if (tag == "Info:Bug") ViewModel.ReportBugCommand.Execute(null);
-                else if (tag == "Info:Contact") ViewModel.ContactSupportCommand.Execute(null);
-                else if (tag == "Info:Logs") ViewModel.OpenLogsCommand.Execute(null);
-                return;
-            }
-        }
-        await ViewModel.NavigateAsync(args.IsSettingsInvoked ? "Settings" : (args.InvokedItemContainer as NavigationViewItem)?.Tag?.ToString() ?? "Projects");
+        var target = args.IsSettingsInvoked ? "Settings" : (args.InvokedItemContainer as NavigationViewItem)?.Tag as string;
+        if (target is null) return;
+        await ViewModel.NavigateAsync(target);
         ShowPage(ViewModel.CurrentPage);
     }
     private async void NewProjectClicked(object sender, RoutedEventArgs args)
@@ -109,7 +96,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private async void ImportSettingsClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Settings");
     private async void ActivityClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Activity");
-    private async void SettingsClicked(object sender, RoutedEventArgs args) => await ViewModel.NavigateAsync("Settings");
     private void ConstrainContent()
     {
         var expanded = ActualWidth >= 900;
@@ -120,8 +106,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             ? Navigation.OpenPaneLength : Navigation.CompactPaneLength;
         PageContent.MaxWidth = Math.Max(1, ActualWidth - pane);
         InformationLabel.Visibility = Navigation.IsPaneOpen && Navigation.DisplayMode == NavigationViewDisplayMode.Expanded ? Visibility.Visible : Visibility.Collapsed;
-        ActivityNavigationLabel.Visibility = InformationLabel.Visibility;
-        SettingsNavigationLabel.Visibility = InformationLabel.Visibility;
         if (informationExpanded && !CanExpandInformationInline()) SetInformationExpanded(false);
         ConstrainForms();
     }
@@ -146,7 +130,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         if (!Navigation.IsPaneOpen || Navigation.DisplayMode != NavigationViewDisplayMode.Expanded) return false;
         var menus = Navigation.MenuItems.OfType<FrameworkElement>().Sum(x => x.ActualHeight);
-        var footer = ActivityNavigationItem.ActualHeight + SettingsNavigationItem.ActualHeight + InformationItem.ActualHeight + 16;
+        var footer = Navigation.FooterMenuItems.OfType<FrameworkElement>().Sum(x => x.ActualHeight) + InformationItem.ActualHeight + 16;
         var extra = 4 * Math.Max(36, InformationItem.ActualHeight) + 14;
         return Navigation.ActualHeight >= menus + footer + extra + 96;
     }
@@ -197,8 +181,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             ImportQueueList.MaxHeight = Math.Max(120, Math.Min(360, CreateHost.ActualHeight * .65 - 42));
             foreach (var row in ImportQueueList.Items.OfType<UiImportRow>()) row.LogHeight = Math.Clamp(ImportQueueList.MaxHeight - 170, 40, 105);
             var narrow = CreateForm.Width < 560;
-            Grid.SetRow(ImportResourceSummary, narrow ? 1 : 0); Grid.SetColumn(ImportResourceSummary, narrow ? 0 : 1);
-            Grid.SetColumnSpan(ImportResourceSummary, narrow ? 3 : 1);
             ProjectFields.Width = CreateForm.Width;
             var stackFields = CreateForm.Width < 440;
             ProjectFields.ColumnDefinitions[1].Width = stackFields ? new GridLength(0) : new GridLength(160);
@@ -302,22 +284,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private async void ProjectOpenClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.LaunchProjectCommand.ExecuteAsync(project); }
-    private void ProjectRowLoaded(object sender, RoutedEventArgs args) => LayoutProjectRow(sender);
-    private void ProjectRowSizeChanged(object sender, SizeChangedEventArgs args) => LayoutProjectRow(sender);
-    private static void LayoutProjectRow(object sender)
-    {
-        if (sender is not Grid grid) return;
-        var narrow = grid.ActualWidth < 640;
-        if (grid.Tag is bool previous && previous == narrow) return;
-        grid.Tag = narrow; grid.ColumnSpacing = narrow ? 0 : 16; grid.RowSpacing = narrow ? 8 : 0;
-        grid.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(260);
-        grid.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : new GridLength(140);
-        foreach (var child in grid.Children.OfType<FrameworkElement>())
-        {
-            if (child.Name == "ProjectDates") { Grid.SetColumn(child, narrow ? 0 : 1); Grid.SetRow(child, narrow ? 1 : 0); }
-            if (child.Name == "ProjectActions") { Grid.SetColumn(child, narrow ? 0 : 2); Grid.SetRow(child, narrow ? 2 : 0); }
-        }
-    }
     private async void PackageDoubleTapped(object sender, DoubleTappedRoutedEventArgs args) => await ViewModel.ChooseVersionCommand.ExecuteAsync(null);
     private async void ProjectSortClicked(object sender, RoutedEventArgs args)
     {

@@ -34,20 +34,12 @@ public sealed partial class MainViewModel
     public string PresetLabel => EditingPreset == DefaultPresetKey ? "Default" : EditingPreset;
     public bool IsCustomPreset => !editingImportPreset && EditingPreset != DefaultPresetKey;
     public Visibility PresetOptionsVisibility => editingImportPreset ? Visibility.Collapsed : Visibility.Visible;
-    public bool HasMultiplePresets => Presets.Count > 1;
     public bool HasPackageQuery => !string.IsNullOrWhiteSpace(LibraryFilter);
     public Visibility CatalogHeadingVisibility => HasPackageQuery ? Visibility.Collapsed : Visibility.Visible;
     public Visibility PresetCatalogVisibility => HasPackageQuery || IsSearchingPackages || LibraryPackages.Count > 0 || CatalogNotice.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PresetIncludedVisibility => PresetPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PresetEmptyVisibility => presetWorking.Count > 0 && PresetPackages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public string PresetCountLabel => PresetPackages.Count == presetWorking.Count ? presetWorking.Count.ToString() : string.Format(UiText.Text("{0} of {1}"), PresetPackages.Count, presetWorking.Count);
-    [RelayCommand] private void PreviousPreset() => CyclePreset(-1);
-    [RelayCommand] private void NextPreset() => CyclePreset(1);
-    private void CyclePreset(int direction)
-    {
-        if (IsBusy && !IsApplyingPackages || Presets.Count < 2) return;
-        EditingPreset = Presets[(Presets.IndexOf(EditingPreset) + direction + Presets.Count) % Presets.Count];
-    }
     public Visibility PresetChangesVisibility => PresetDirty && !BrowsingProjectPackages && !editingImportPreset ? Visibility.Visible : Visibility.Collapsed;
     public string PresetSaveContext => "Unsaved changes · " + PresetLabel;
     public Visibility ActivityEmptyVisibility => Activity.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -152,6 +144,13 @@ public sealed partial class MainViewModel
     {
         EmptyProjectsVisibility = !IsLoadingProjects && Projects.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyProjectsMessage = ProjectFilter.Length > 0 ? "No projects match your search." : string.IsNullOrWhiteSpace(ProjectsRoot) ? "Choose a projects folder in Settings, or add an existing project." : !Directory.Exists(ProjectsRoot) ? "Projects folder is unavailable: " + ProjectsRoot + ". Reconnect the drive or choose another folder." : "No Unity projects found in " + ProjectsRoot;
+        OnPropertyChanged(nameof(EmptyProjectsActionLabel));
+    }
+    public string EmptyProjectsActionLabel => ProjectFilter.Length > 0 ? "Clear search" : "Choose projects folder";
+    [RelayCommand] private async Task ResolveEmptyProjects()
+    {
+        if (ProjectFilter.Length > 0) ProjectFilter = "";
+        else await PickProjectsRootCommand.ExecuteAsync(null);
     }
     [RelayCommand] private void DismissError() => ErrorMessage = "";
     [RelayCommand] private async Task OpenProjectPackages(ProjectSnapshot? project) => await IndependentAction(async () =>

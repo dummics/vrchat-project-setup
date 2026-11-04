@@ -40,6 +40,8 @@ public static class UiSmokeTest
         await File.WriteAllTextAsync(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
         var config = await application.Configuration.LoadAsync(); config.UnityProjectsRoot = Path.GetDirectoryName(project)!;
         config.Language = "en";
+        config.ColorPalette = "Custom";
+        config.CanvasColor = "#17212B"; // Distinct startup color, below the dark-theme brightness clamp.
         config.UnityEditorPath = Path.Combine(artifacts, "saved-editor", "Unity.exe");
         config.VpmPackages = new(packages); // Existing user configuration; fresh defaults have a separate contract test.
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
@@ -57,6 +59,7 @@ public static class UiSmokeTest
         Require(window.AppWindow.Size.Width >= 720 && window.AppWindow.Size.Height >= 580, "Native window enforces a usable minimum size");
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
         Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
+        await AppearanceVerification.RunAsync(page, Require);
         Require(viewModel.UnityEditorPath == Path.Combine(artifacts, "saved-editor", "Unity.exe"), "Startup preserves a saved editor path even when its drive is unavailable");
         var installedEditor = UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path;
         if (installedEditor is not null)
@@ -100,7 +103,7 @@ public static class UiSmokeTest
         Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 2, "Diagnostics tab is absent in normal mode");
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
         viewModel.CurrentPage = "Presets"; await Task.Delay(100); page.UpdateLayout();
-        Require(((Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("PresetWheelTitle")).Text == "Default", "Preset wheel has a visible selection after binding");
+        Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == viewModel.EditingPreset, "Preset selector reflects the current preset");
         Require(viewModel.ApplicationProgressVisibility == Visibility.Collapsed, "Idle application progress is hidden");
         Require(!((Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails")).IsExpanded, "Creation packages start as a compact summary");
         viewModel.IsInspectingPackage = true;
@@ -116,13 +119,16 @@ public static class UiSmokeTest
         var retryCache = new AsyncVersionCache((_, _) => Task.FromResult(Interlocked.Increment(ref retries) == 1 ? Array.Empty<string>() : new[] { "1.0.0" }));
         Require((await retryCache.GetAsync("retry.package")).Length == 0 && (await retryCache.GetAsync("retry.package")).Length == 1, "Empty version responses can retry after recovery");
         var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)page.FindName("Navigation");
-        Require(page.FindName("ActivityNavigationItem") is Microsoft.UI.Xaml.Controls.Button, "Activity is in the navigation footer");
+        Require(page.FindName("ActivityNavigationItem") is Microsoft.UI.Xaml.Controls.NavigationViewItem activityItem && ((Microsoft.UI.Xaml.Controls.NavigationView)page.FindName("Navigation")).FooterMenuItems.Contains(activityItem), "Activity uses native footer navigation");
         foreach (var footerPage in new[] { "Activity", "Settings" })
         {
-            var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer((Microsoft.UI.Xaml.Controls.Button)page.FindName(footerPage + "NavigationItem"));
-            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            var item = (Microsoft.UI.Xaml.Controls.NavigationViewItem)page.FindName(footerPage + "NavigationItem");
+            var peer = new Microsoft.UI.Xaml.Automation.Peers.NavigationViewItemAutomationPeer(item);
+            if (peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke) is Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider invoke) invoke.Invoke();
+            else if (peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.SelectionItem) is Microsoft.UI.Xaml.Automation.Provider.ISelectionItemProvider select) select.Select();
+            else throw new IOException("Native navigation exposes no activation pattern: " + footerPage);
             await Task.Delay(200);
-            Require(viewModel.CurrentPage == footerPage && ((FrameworkElement)page.FindName(footerPage + "NavigationMarker")).Visibility == Visibility.Visible, "Footer button navigates and marks the active page: " + footerPage);
+            Require(viewModel.CurrentPage == footerPage && ReferenceEquals(navigation.SelectedItem, item) && item.IsSelected, "Native footer activation navigates and selects the active page: " + footerPage);
         }
         viewModel.CurrentPage = "Presets";
         viewModel.ErrorMessage = "Fixture error"; await Task.Delay(150);
@@ -176,7 +182,7 @@ public static class UiSmokeTest
         Require(viewModel.NewProjectNameErrorVisibility == Visibility.Visible && !viewModel.CreateConfiguredProjectCommand.CanExecute(null) && !viewModel.IsErrorVisible, "Invalid native name input is explained beside the field");
         nameInput.Text = "Fresh project"; await Task.Delay(350); page.UpdateLayout();
         Require(viewModel.NewProjectName == "Fresh project" && viewModel.NewProjectNameErrorVisibility == Visibility.Collapsed && viewModel.CreateConfiguredProjectCommand.CanExecute(null), "Native input updates creation intent and clears field validation");
-        Require(viewModel.PresetCarouselVisibility == Visibility.Visible, "New project retains the centered preset wheel");
+        Require(((FrameworkElement)page.FindName("PresetHeader")).Visibility == Visibility.Visible, "New project exposes preset selection");
         Require(viewModel.CurrentPage == "NewProject" && viewModel.NewProjectVisibility == Visibility.Visible && viewModel.NewProjectPlatform == "StandaloneWindows64", "New project has its own page with platform, preset and editable packages");
         Require(viewModel.UseImportPresetVisibility == Visibility.Collapsed && viewModel.PresetOptionsVisibility == Visibility.Collapsed, "New project packages are local to the creation form");
         Require(viewModel.NewProjectSavePresetVisibility == Visibility.Collapsed, "Unchanged creation packages do not offer a duplicate preset");
@@ -193,13 +199,13 @@ public static class UiSmokeTest
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
         var currentPreset = viewModel.EditingPreset;
-        var arrowButtons = Descendants((DependencyObject)page.FindName("PresetCarousel")).OfType<Microsoft.UI.Xaml.Controls.Button>().Where(x => x.Content is Microsoft.UI.Xaml.Controls.FontIcon).ToArray();
-        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(arrowButtons[1]).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
-        await Task.Delay(300);
-        Require(viewModel.EditingPreset != currentPreset, "Preset next arrow changes the selection through the native button");
-        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(arrowButtons[0]).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
-        await Task.Delay(300);
-        Require(viewModel.EditingPreset == currentPreset, "Preset arrows cycle and wrap without losing the selected preset");
+        var presetSelector = (Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector");
+        presetSelector.SelectedItem = viewModel.Presets.First(x => x != currentPreset);
+        await Task.Delay(100);
+        Require(viewModel.EditingPreset == presetSelector.SelectedItem?.ToString() && viewModel.EditingPreset != currentPreset, "Native preset selection updates the editing context");
+        presetSelector.SelectedItem = currentPreset;
+        await Task.Delay(100);
+        Require(viewModel.EditingPreset == currentPreset, "Native preset selection can restore the previous context");
         var stablePresetRows = viewModel.PresetPackages.ToArray();
         viewModel.StagePresetVersion("gogoloco", "1.8.7");
         Require(stablePresetRows.SequenceEqual(viewModel.PresetPackages) && viewModel.PresetPackages.First(x => x.Id == "gogoloco").Version == "1.8.7", "Changing one preset version preserves every row instance");
@@ -264,6 +270,10 @@ public static class UiSmokeTest
         Require(viewModel.BuildTarget == "StandaloneWindows64" && viewModel.DestinationPreview.Contains("My avatar"), "Single platform and editable name bind to creation: " + viewModel.BuildTarget);
         Require(viewModel.Projects.Count == 1, "Native project library loaded");
         viewModel.ProjectFilter = "Quest"; Require(viewModel.Projects.Count == 0, "Project filter empty state");
+        Require(viewModel.EmptyProjectsActionLabel == "Clear search", "No search results offer search recovery instead of changing the project root");
+        var searchRoot = viewModel.ProjectsRoot;
+        await viewModel.ResolveEmptyProjectsCommand.ExecuteAsync(null);
+        Require(viewModel.ProjectFilter.Length == 0 && viewModel.ProjectsRoot == searchRoot && viewModel.Projects.Count > 0, "Clearing an empty search restores projects without changing folders");
         viewModel.ProjectFilter = "PC"; Require(viewModel.Projects.Count == 1, "Project filter recovers matches");
         await viewModel.OpenProjectPackagesCommand.ExecuteAsync(viewModel.Projects[0]);
         Require(viewModel.CurrentPage == "Workspace", "Project package action opens the shared workspace");
@@ -738,7 +748,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 }
                 if (screen == "Presets")
                 {
-                    var carousel = (FrameworkElement)page.FindName("PresetCarousel");
+                    var presetHeader = (FrameworkElement)page.FindName("PresetHeader");
                     var pageScroll = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("PresetPageScroll");
                     var includedList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("PresetPackageList");
                     Require(double.IsPositiveInfinity(includedList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(includedList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled, "Included packages have no height cap or nested scrolling: " + size.Width);
@@ -747,7 +757,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     Require(pageScroll.ScrollableHeight == 0 || pageScroll.VerticalOffset > 0, "Catalog is reachable with the shared page scroll: " + size.Width);
                     await Render(page, Path.Combine(artifacts, "presets-scrolled-" + size.Width + ".png"));
                     pageScroll.ChangeView(null, 0, null, true); await Task.Delay(100);
-                    Require(carousel.ActualWidth > 0 && page.FindName("PackageTabs") is null, "Preset editor is one unified page without duplicate tabs: " + size.Width);
+                    Require(presetHeader.ActualWidth > 0 && page.FindName("PackageTabs") is null, "Preset editor is one unified page without duplicate tabs: " + size.Width);
                     var editorBounds = (FrameworkElement)page.FindName("PresetEditor");
                     var editorRight = editorBounds.TransformToVisual(page).TransformPoint(new(editorBounds.ActualWidth, 0)).X;
                     Require(Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<PackageActionIcon>().All(x => x.TransformToVisual(page).TransformPoint(new(x.ActualWidth, 0)).X <= editorRight + 1), "Preset minus icons fit without right-edge clipping: " + size.Width);
@@ -765,23 +775,20 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     if (size.Width == 1180)
                     {
                         var selectorBefore = ((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X;
-                        page.SetPresetActions(true); await Task.Delay(260); page.UpdateLayout();
-                        var strip = (FrameworkElement)page.FindName("PresetActionsClip");
-                        Require(strip.ActualWidth == 128 && Math.Abs(((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X - selectorBefore) < 1, "Inline preset actions expand without shifting the preset title");
-                        await Render(page, Path.Combine(artifacts, "preset-inline-actions.png"));
-                        var shareButton = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetShareButton");
-                        shareButton.Flyout.ShowAt(shareButton); await Task.Delay(250);
-                        var shareMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)shareButton.Flyout;
-                        Require(shareMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Count(x => x.Command is not null) == 2, "Preset share menu exposes working Import and Export actions");
-                        await Render(page, Path.Combine(artifacts, "preset-sharing.png")); shareMenu.Hide();
-                        page.SetPresetActions(false); await Task.Delay(260);
-                        Require(strip.Visibility == Visibility.Collapsed, "Inline preset actions collapse cleanly");
-                        var wheel = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetSelector"); wheel.Flyout.ShowAt(wheel); await Task.Delay(500);
-                        var choices = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("PresetChoices");
-                        Require(choices.ActualHeight >= 36 && choices.Items.Count == viewModel.Presets.Count, "Preset wheel opens the complete choice list");
-                        var presenter = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(choices) as FrameworkElement ?? choices;
-                        await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "preset-wheel-bounds.json"), new { choices.ActualWidth, choices.ActualHeight, DesiredHeight = choices.DesiredSize.Height, ParentWidth = presenter.ActualWidth, ParentHeight = presenter.ActualHeight, Items = choices.Items.Select(x => { var row = (FrameworkElement)choices.ContainerFromItem(x); return new { Name = x.ToString(), row.ActualHeight, Top = row.TransformToVisual(choices).TransformPoint(new(0, 0)).Y }; }).ToArray() });
-                        await Render(presenter, Path.Combine(artifacts, "preset-wheel-choices.png")); wheel.Flyout.Hide();
+                        var options = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetActionsToggle");
+                        options.Flyout.ShowAt(options); await Task.Delay(250); page.UpdateLayout();
+                        var menu = (Microsoft.UI.Xaml.Controls.MenuFlyout)options.Flyout;
+                        var actions = menu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().ToArray();
+                        Require(actions.Length == 5 && actions.All(x => x.Command is not null), "Preset menu exposes all five commands");
+                        Require(actions[0].Command == viewModel.CreatePresetCommand && actions[1].Command == viewModel.RenamePresetCommand && actions[2].Command == viewModel.DeletePresetCommand && actions[3].Command == viewModel.ImportPresetCommand && actions[4].Command == viewModel.ExportPresetCommand, "Preset menu retains creation, rename, delete, import and export behavior");
+                        Require(actions[1].IsEnabled == viewModel.IsCustomPreset && actions[2].IsEnabled == viewModel.IsCustomPreset, "Preset menu protects the default preset from rename and deletion");
+                        Require(Math.Abs(((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X - selectorBefore) < 1, "Opening preset options does not shift the selection");
+                        await Render(page, Path.Combine(artifacts, "preset-options.png")); menu.Hide();
+                        var choices = (Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector");
+                        Require(choices.Items.Count == viewModel.Presets.Count, "Preset selector exposes every saved preset");
+                        choices.IsDropDownOpen = true; await Task.Delay(500);
+                        await Render(page, Path.Combine(artifacts, "preset-choices.png"));
+                        choices.IsDropDownOpen = false;
                     }
                     if (size.Width == 1180)
                     {

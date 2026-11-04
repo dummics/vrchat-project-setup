@@ -113,22 +113,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (app.AllowBackgroundUpdateChecks) { await ReadPreviousUpdateResultAsync(); _ = RunPeriodicUpdateChecksAsync(); }
         _ = RetryInterruptedPackagesAtStartupAsync();
     }
-    private void LoadSettings()
-    {
-        loadingSettings = true;
-        persistedConfiguration = config.Copy();
-        NotifyLibraryLayout();
-        UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
-        ManualImportPath = config.ManualImportPath;
-        AutoHideCompletedImports = config.AutoHideCompletedImports;
-        CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates;
-        AutomaticUpdateEnabled = config.AutomaticUpdates;
-        SelectedLanguage = config.Language;
-        NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
-        RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ColorPalette = config.ColorPalette; CanvasColor = config.CanvasColor; SurfaceColor = config.SurfaceColor; AccentColor = config.AccentColor; ProjectSort = config.ProjectLibrarySort;
-        DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
-        settingsBaseline = SettingsSnapshot(); loadingSettings = false; NotifySettingsState();
-    }
     private void LoadPresetNames()
     {
         var names = new[] { DefaultPresetKey }.Concat(config.PackagePresets.Keys.Order()).ToArray();
@@ -145,7 +129,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         foreach (var name in Recipes.Where(x => !recipeNames.Contains(x)).ToArray()) Recipes.Remove(name);
         SelectedRecipe = recipe;
         OnPropertyChanged(nameof(EditingPreset)); OnPropertyChanged(nameof(SelectedPreset));
-        OnPropertyChanged(nameof(HasMultiplePresets));
     }
     private async Task LoadRegistry()
     {
@@ -570,38 +553,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (restart) await ui.RestartApplicationAsync();
         else if (LanguageRestartVisibility == Microsoft.UI.Xaml.Visibility.Visible) Status = "Language saved. It will apply the next time you open the app.";
     });
-    private async Task SaveSettingsCoreAsync()
-    {
-        if (!RequireImportsIdle()) throw new InvalidOperationException("Imports are in progress.");
-        // Validate the entire form before changing the working configuration.
-        if (!string.IsNullOrWhiteSpace(UnityEditorPath) && !UnityEditorPath.Equals(config.UnityEditorPath, StringComparison.OrdinalIgnoreCase))
-            UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
-        if (setupMode && (!EditorReady || string.IsNullOrWhiteSpace(ProjectsRoot))) throw new InvalidOperationException("Choose Unity and a projects folder to continue.");
-        var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var pattern in patterns) _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
-        _ = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
-        _ = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? "" : ProjectRules.NormalizePath(ExtraImportsFolder);
-        var previous = config.Copy();
-        try
-        {
-        config.ManualImportPath = ManualImportPath;
-        config.AutoHideCompletedImports = AutoHideCompletedImports;
-        config.CheckUpdatesOnStartup = CheckUpdatesOnStartup; config.IncludeBetaUpdates = IncludeBetaUpdates;
-        config.AutomaticUpdates = AutomaticUpdateEnabled;
-        config.Language = SelectedLanguage;
-        config.UnityEditorPath = string.IsNullOrWhiteSpace(UnityEditorPath) ? "" : ProjectRules.NormalizePath(UnityEditorPath);
-        config.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
-        config.UnityPackagesFolder = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? null : ProjectRules.NormalizePath(ExtraImportsFolder);
-        config.Naming = new() { DefaultPrefix = NamingPrefix, DefaultSuffix = NamingSuffix, RegexRemovePatterns = patterns.ToList(), RememberUnityPackageNames = RememberNames }; config.Theme = Theme;
-        config.ColorPalette = ColorPalette; config.CanvasColor = CanvasColor; config.SurfaceColor = SurfaceColor; config.AccentColor = AccentColor;
-        config.Diagnostics = new() { DeveloperMode = DeveloperMode, Verbose = VerboseDiagnostics, TraceTools = TraceTools }; app.Diagnostics.Configure(config.Diagnostics);
-        await PersistConfigurationAsync();
-        }
-        catch { config = previous; app.Diagnostics.Configure(config.Diagnostics); throw; }
-        var wasSetup = setupMode; setupMode = false; settingsBaseline = SettingsSnapshot(); NotifySettingsState(); Status = "Settings saved";
-        if (wasSetup) CurrentPage = "Projects";
-        if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) await RefreshProjectsCore();
-    }
     [RelayCommand] private async Task PickEditor() => await Guard(async () =>
     { if (await ui.PickFileAsync(".exe") is { } file) await SetEditorAsync(file); });
     [RelayCommand] private async Task PickProjectsRoot() => await Guard(async () =>

@@ -19,6 +19,7 @@ public sealed class ProjectRowSurface : Grid
     {
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+        SizeChanged += (_, _) => LayoutColumns();
         ActualThemeChanged += (_, _) => UpdateFeedback(false);
     }
     private static Border Tint(byte r, byte g, byte b) => new()
@@ -28,6 +29,7 @@ public sealed class ProjectRowSurface : Grid
     };
     private void OnLoaded(object sender, RoutedEventArgs args)
     {
+        LayoutColumns();
         if (!Children.Contains(hover))
         {
             hover.Margin = selection.Margin = new Thickness(1 - Padding.Left, 1 - Padding.Top, 1 - Padding.Right, 1 - Padding.Bottom);
@@ -52,6 +54,24 @@ public sealed class ProjectRowSurface : Grid
             row.PointerEntered -= OnEntered; row.PointerExited -= OnExited; row.PointerCanceled -= OnExited;
         }
         row = null; Hovered = false; UpdateFeedback(false);
+    }
+
+    private bool? stacked;
+    private void LayoutColumns()
+    {
+        if (ColumnDefinitions.Count < 3) return;
+        var narrow = ActualWidth < 640;
+        if (stacked == narrow) return;
+        stacked = narrow;
+        ColumnSpacing = narrow ? 0 : 16;
+        RowSpacing = narrow ? 8 : 0;
+        ColumnDefinitions[1].Width = new GridLength(narrow ? 0 : 260);
+        ColumnDefinitions[2].Width = new GridLength(narrow ? 0 : 140);
+        foreach (var child in Children.OfType<FrameworkElement>())
+        {
+            if (child.Name == "ProjectDates") { SetColumn(child, narrow ? 0 : 1); SetRow(child, narrow ? 1 : 0); }
+            if (child.Name == "ProjectActions") { SetColumn(child, narrow ? 0 : 2); SetRow(child, narrow ? 2 : 0); }
+        }
     }
     private void OnEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args) => SetHovered(true);
     private void OnExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args) => SetHovered(false);

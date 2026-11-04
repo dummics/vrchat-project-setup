@@ -1,5 +1,43 @@
 # Desktop migration verification
 
+## 0.3.0 refactor candidate — verification pending
+
+The desktop history is integrated into main at f347f1a with source version 0.3.0;
+no 0.3.0 release or tag was published. The integration passed 346 core tests and
+the Release x64 desktop build. Those results predate the refactor below.
+
+The refactor branch replaces the preset carousel with a native ComboBox and
+the animated hover actions with a labelled native menu. Appearance editing is
+extracted into its own control, with explicit subscription lifetime. Settings
+restore suppresses intermediate palette updates. Appearance
+errors are logged and surfaced through the existing banner. The reported crash
+has not yet been reproduced or attributed to a confirmed root cause.
+
+Activity and Settings now use NavigationView footer items rather than separate
+buttons and hand-maintained selection markers. Native footer activation and
+selection checks have been adapted but remain unexecuted. The palette resources
+are applied by the shell at startup, independently of loading the settings view;
+picker synchronization stays inside AppearanceEditor. The smoke fixture uses a
+distinct saved canvas color before opening Settings, then restores Mint for the
+remaining screen captures.
+
+Custom accent fills are confined to Default/Light theme dictionaries; contrast
+themes retain system highlight foreground/background resources. Appearance-only
+settings saves avoid project rescans. Empty search results offer clearing the
+query. Project rows expose their Unity version and own their responsive layout;
+import resource telemetry is available from options rather than the page header.
+Configuration normalization now preserves every supported project sort, including
+reverse and creation-date order; previously it retained only name or recent.
+Settings-only roundtrip theories cover these choices and appearance persistence
+without creating Unity project fixtures.
+
+Native smoke coverage has been updated for the new preset selector and extended
+with isolated appearance/persistence and empty-search recovery checks. These
+changes have not been built or run: native UI, Unity, installation and other
+invasive verification are deferred while the owner uses the PC. Dark/light,
+high contrast, keyboard, narrow layout and save/restart acceptance remain open.
+Historical check counts and screenshots below describe their named candidates.
+
 ## 0.2.6 package migration
 
 `dotnet run --project tests/VrcSetup.E2E -c Release -- --verify-package-migration <fresh-evidence>`
@@ -9,8 +47,10 @@ embedded and locked results, preserving exact downgrade choices. It never starts
 Unity, signs into Patreon or registers fixtures with Creator Companion. Core
 regressions cover conflicting explicit choices, missing locks, phantom removals,
 version-specific migration metadata, physical/offline rollback and backup retention.
-Historical Unity-open behavior documented below is superseded by the closed-target
-requirement in 0.2.6. Backup of shader-heavy Assets may take additional time.
+The closed-target requirement introduced earlier in 0.2.6 was superseded for
+coordinated VPM changes by 0.2.6-beta.4. Asset imports launching a second editor
+and full snapshot restores still need exclusive editor access. Backup of
+shader-heavy Assets may take additional time.
 
 The unattended `FlowInteraction` file picker treats a null choice as cancellation.
 It must not delegate to a native picker: hosted release runners have no Unity

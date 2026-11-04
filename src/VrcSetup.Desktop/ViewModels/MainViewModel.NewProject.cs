@@ -19,7 +19,6 @@ public sealed partial class MainViewModel
     [ObservableProperty] public partial string NewProjectPlatform { get; set; } = "StandaloneWindows64";
     public DisplayOption[] NewProjectPlatforms => [new("StandaloneWindows64", "Windows"), new("Android", "Android / Quest"), new("iOS", "iOS")];
     public Visibility NewProjectVisibility => editingNewProject ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility PresetCarouselVisibility => Visibility.Visible;
     public Visibility NewProjectSavePresetVisibility => editingNewProject && PresetDirty ? Visibility.Visible : Visibility.Collapsed;
     public Task BeginNewProjectAsync() => IndependentAction(BeginNewProjectCoreAsync);
     private async Task BeginNewProjectCoreAsync()
@@ -32,7 +31,7 @@ public sealed partial class MainViewModel
     private void NotifyPackageContext()
     {
         OnPropertyChanged(nameof(NewProjectVisibility)); OnPropertyChanged(nameof(UseImportPresetVisibility));
-        OnPropertyChanged(nameof(PresetCarouselVisibility)); OnPropertyChanged(nameof(NewProjectSavePresetVisibility));
+        OnPropertyChanged(nameof(NewProjectSavePresetVisibility));
         OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility));
     }
     [RelayCommand(CanExecute = nameof(CanCreateConfiguredProject))] private async Task CreateConfiguredProject()
