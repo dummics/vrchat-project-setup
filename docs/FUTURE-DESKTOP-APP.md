@@ -1,8 +1,8 @@
 # Future vision: VRChat Project Setup Desktop Companion
 
-> **Status: future product direction — not current scope.**
+> **Historical vision.** The desktop implementation is approved and implemented on `feature/winui-desktop`; the current contract is [the approved plan](desktop/IMPLEMENTATION-PLAN.md).
 >
-> This document records a possible destination for VRChat Project Setup. It does not authorize a desktop-app rewrite, packaging change, or expansion of the current script's responsibilities.
+> This original vision is retained as historical context; it does not describe the current source layout or distribution.
 
 ## North star
 

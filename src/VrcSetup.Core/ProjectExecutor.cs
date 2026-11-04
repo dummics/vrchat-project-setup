@@ -1,0 +1,235 @@
+namespace VrcSetup.Core;
+
+public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver driver)
+{
+    public async Task<OperationReport> ApplyAsync(OperationPlan plan, IProgress<OperationEvent>? progress = null, CancellationToken cancellationToken = default)
+    {
+        if (plan.Projects.Length == 0) throw new ArgumentException("The operation plan is empty.");
+        if (plan.Projects.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plan.Projects.Length)
+            throw new ArgumentException("A project can only appear once in an operation plan.");
+        var results = new List<ProjectOutcome>();
+        foreach (var project in plan.Projects)
+        {
+            if (cancellationToken.IsCancellationRequested) break;
+            BackupRecord? backup = null;
+            var phase = "Preflight";
+            var mutated = false;
+            var editorWasOpen = false;
+            var warnings = new List<string>();
+            IDisposable? projectLock = null;
+            IAsyncDisposable? editorSession = null;
+            Emit(phase, $"Project: {project.Name}");
+            try
+            {
+                projectLock = await workspace.AcquireAsync(project.Path, cancellationToken);
+                if (project.Changes.Select(x => x.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != project.Changes.Length ||
+                    project.DesiredPolicy.Keys.Except(project.Changes.Where(x => x.Kind != ChangeKind.Remove).Select(x => x.Id), StringComparer.OrdinalIgnoreCase).Any())
+                    throw new ArgumentException("The reviewed plan must contain exactly one change entry for every desired package.");
+                foreach (var change in project.Changes)
+                {
+                    ProjectRules.ValidatePackageId(change.Id);
+                    if (change.Kind != ChangeKind.Remove && (string.IsNullOrWhiteSpace(change.ResolvedVersion) || !project.DesiredPolicy.ContainsKey(change.Id)))
+                        throw new ArgumentException("The reviewed package plan is inconsistent: " + change.Id);
+                    if (change.Kind == ChangeKind.Remove && project.DesiredPolicy.ContainsKey(change.Id))
+                        throw new ArgumentException("Removed package remains in the reviewed policy: " + change.Id);
+                }
+                foreach (var import in project.ImportFingerprints)
+                    if (ProjectRules.FileIdentity(import.Key) != import.Value) throw new ProjectSkippedException("UnityPackage changed after review. Review again before importing.");
+                // VPM edits are consumed by the running editor. Only operations
+                // launching another Unity instance need exclusive editor access.
+                if (project.RequiresUnityBatch && workspace.IsBusy(project.Path))
+                    throw new ProjectsInUseException([project.Name]);
+                if (project.Creation is null)
+                {
+                    var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
+                    if (fresh.Fingerprint != project.ExpectedFingerprint) throw new ProjectSkippedException("Project changed after review; skipped. Review again.");
+                    var required = ProjectRules.Foundation(fresh.Packages, new()).Concat(project.RequiredPackages);
+                    foreach (var id in required)
+                        if (!project.DesiredPolicy.ContainsKey(id) || project.Changes.Any(x => x.Id == id && x.Kind == ChangeKind.Remove))
+                            throw new InvalidOperationException("Cannot remove required package: " + id);
+                }
+                else
+                {
+                    if (!project.Path.Equals(project.Creation.TargetPath, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Creation target does not match the reviewed project.");
+                    foreach (var id in ProjectRules.Foundation(project.DesiredPolicy, new()).Concat(project.RequiredPackages))
+                        if (!project.DesiredPolicy.ContainsKey(id)) throw new InvalidOperationException("Required package missing from creation plan: " + id);
+                    if (Directory.Exists(project.Path) || File.Exists(project.Path)) throw new ProjectSkippedException("Destination appeared after review. Choose another name.");
+                    phase = "Creating";
+                    await driver.CreateAsync(project.Creation, progress, cancellationToken);
+                    mutated = true;
+                    await workspace.SetStepAsync(project.Path, "created", true, cancellationToken);
+                }
+                if (!project.HasChanges)
+                {
+                    await workspace.SaveProfileAsync(project, cancellationToken);
+                    results.Add(new(project.Name, project.Path, OperationStatus.Unchanged, "Already up to date."));
+                    continue;
+                }
+                editorWasOpen = workspace.IsBusy(project.Path);
+                editorSession = await driver.BeginPackageChangesAsync(project, progress, cancellationToken);
+                if (project.RecoverySource is null)
+                {
+                    phase = "Backup";
+                    backup = await workspace.BackupAsync(project, cancellationToken);
+                    Emit(phase, $"Backup: {backup.Directory}");
+                }
+                mutated = true;
+                if (!(project.RecoverySource is not null && project.PreparationComplete))
+                {
+                await workspace.SetStepAsync(project.Path, "vpm", false, cancellationToken);
+                phase = "Prepare";
+                mutated = true;
+                await driver.PrepareAsync(project, progress, cancellationToken);
+                await workspace.SetStepAsync(project.Path, "nunit", true, cancellationToken);
+                phase = "Packages";
+                var resolve = await driver.ApplyPackagePlanAsync(project, progress, cancellationToken);
+                if (ProjectRules.ToolFailed(resolve)) throw new IOException("VPM resolve failed. " + resolve.Output);
+                }
+                await VerifyPackages(project, progress, cancellationToken, warnings);
+                await workspace.SetStepAsync(project.Path, "vpm", true, cancellationToken);
+                if (editorSession is not null) { await editorSession.DisposeAsync(); editorSession = null; }
+
+                if (project.RequiresUnityBatch && (project.Creation is not null || project.ExtraImports.Length > 0))
+                {
+                    phase = "Import";
+                    await driver.ImportAsync(project, progress, cancellationToken);
+                    await workspace.SetStepAsync(project.Path, "importMain", true, cancellationToken);
+                    await workspace.SetStepAsync(project.Path, "importExtras", true, cancellationToken);
+                    phase = "Post-import validation";
+                    var repaired = await VerifyPackages(project, progress, cancellationToken, warnings);
+                    if (repaired) await driver.SettleAsync(project, progress, cancellationToken);
+                }
+                else
+                {
+                    if (project.RecoverySource is not null && project.RequiresUnityBatch)
+                    {
+                        phase = "Post-import validation";
+                        await driver.SettleAsync(project, progress, cancellationToken);
+                    }
+                    await workspace.SetStepAsync(project.Path, "importMain", true, cancellationToken);
+                    await workspace.SetStepAsync(project.Path, "importExtras", true, cancellationToken);
+                }
+                await workspace.SetStepAsync(project.Path, "finalize", true, cancellationToken);
+                await workspace.SaveProfileAsync(project, cancellationToken);
+                await workspace.CompleteAsync(project.Path, cancellationToken);
+                if (backup is not null) await workspace.ConfirmBackupAsync(backup);
+                if (project.Changes.Any(x => x.Id == "com.poiyomi.pro" && x.Kind is ChangeKind.Add or ChangeKind.Update))
+                    Emit("Packages", "Poiyomi Pro installer is ready. Open the project in Unity and complete Poiyomi's Patreon sign-in if requested.");
+                if (project.Creation is not null || project.RecoverySource is not null)
+                {
+                    var registered = false;
+                    try { registered = await driver.RegisterAsync(project.Path, progress, cancellationToken); }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { /* The project is already complete; only optional registration was interrupted. */ }
+                    if (!registered) warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
+                }
+                var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;
+                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory));
+                Emit("Completed", warnings.Count > 0 ? warnings[0] : "Project saved.", warnings.Count > 0 ? EventSeverity.Warning : EventSeverity.Info);
+            }
+            catch (ProjectSkippedException error)
+            {
+                results.Add(new(project.Name, project.Path, OperationStatus.Skipped, error.Message));
+                Emit(phase, error.Message, EventSeverity.Warning);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                var recovered = !mutated || backup is null || await TryRestore(project, backup, editorWasOpen);
+                results.Add(new(project.Name, project.Path, OperationStatus.Cancelled,
+                    "Operation interrupted. " + (recovered ? "Project and recovery information preserved." : "Automatic restore incomplete; use recovery."), BackupPath: backup?.Directory));
+                Emit("Cancelled", "Operation interrupted; remaining projects were not processed.", EventSeverity.Warning);
+                break;
+            }
+            catch (Exception error)
+            {
+                var recovered = !mutated || backup is null || await TryRestore(project, backup, editorWasOpen);
+                var message = error.Message + (recovered ? "" : " Automatic restore incomplete; use recovery.");
+                results.Add(new(project.Name, project.Path, OperationStatus.Failed, message, BackupPath: backup?.Directory));
+                Emit(phase, message, EventSeverity.Error);
+            }
+            finally
+            {
+                try { if (editorSession is not null) await editorSession.DisposeAsync(); }
+                finally { projectLock?.Dispose(); }
+            }
+            void Emit(string eventPhase, string message, EventSeverity severity = EventSeverity.Info) => progress?.Report(new(DateTime.UtcNow, eventPhase, message, severity, project.Path));
+        }
+        return new(plan.Id, DateTime.UtcNow, results.ToArray(), plan.Projects.Select(x => x.Path).Except(results.Select(x => x.Path), StringComparer.OrdinalIgnoreCase).ToArray());
+
+        async Task<bool> TryRestore(ProjectPlan project, BackupRecord record, bool editorWasOpen)
+        {
+            // A created project's asset import cannot be undone by manifest restore.
+            if (project.Creation is not null) return true;
+            // Never replace Assets/ProjectSettings while the editor may have
+            // unsaved work. Retain the recovery copy and allow a package retry.
+            if (editorWasOpen || workspace.IsBusy(project.Path)) return false;
+            try
+            {
+                using var recoveryTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                return await workspace.RestoreAsync(project.Path, record, progress, recoveryTimeout.Token);
+            }
+            catch (Exception error) { progress?.Report(new(DateTime.UtcNow, "Recovery", error.Message, EventSeverity.Error, project.Path)); return false; }
+        }
+    }
+
+    private async Task<bool> VerifyPackages(ProjectPlan project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken, List<string>? warnings = null)
+    {
+        var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
+        var mismatched = project.Changes.Where(x => x.Kind != ChangeKind.Remove &&
+            (!fresh.InstalledVersions.TryGetValue(x.Id, out var physical) ||
+             fresh.LockedPackages.TryGetValue(x.Id, out var locked) && physical != locked)).ToArray();
+        if (mismatched.Length > 0)
+        {
+            foreach (var missing in mismatched)
+            {
+                progress?.Report(new(DateTime.UtcNow, "Repair", $"Restoring package {missing.Id}@{missing.ResolvedVersion}", EventSeverity.Warning, project.Path));
+                var result = await driver.ChangePackageAsync(project.Path, missing with { Kind = ChangeKind.Update }, progress, cancellationToken);
+                if (ProjectRules.ToolFailed(result, missing.Id))
+                {
+                    progress?.Report(new(DateTime.UtcNow, "Repair", $"Package tool exited with code {result.ExitCode} while restoring {missing.Id}. {result.Output.Trim()}", EventSeverity.Error, project.Path));
+                    throw new IOException($"Package repair failed: {missing.Id}");
+                }
+            }
+            var resolve = await driver.ResolveAsync(project.Path, progress, cancellationToken);
+            if (ProjectRules.ToolFailed(resolve)) throw new IOException("Package repair resolve failed.");
+            fresh = await workspace.ReadAsync(project.Path, cancellationToken);
+        }
+        // Dependencies may have moved a version explicitly selected by the user.
+        // Reapply those choices through VPM after its general resolve, once only.
+        // Resolving again here would undo the requested downgrade.
+        var restoredPins = false;
+        foreach (var pin in project.Changes.Where(x => x.Kind != ChangeKind.Remove && x.RequestedVersion != "latest"))
+        {
+            if (PackagePresence.Matches(pin, fresh)) continue;
+            progress?.Report(new(DateTime.UtcNow, "Packages", $"Applying selected version: {pin.Id}@{pin.ResolvedVersion}", EventSeverity.Info, project.Path));
+            var result = await driver.ChangePackageAsync(project.Path, pin with { Kind = ChangeKind.Update }, progress, cancellationToken);
+            if (ProjectRules.ToolFailed(result, pin.Id)) throw new IOException($"Package operation failed: {pin.Id}. {result.Output}");
+            restoredPins = true;
+            fresh = await workspace.ReadAsync(project.Path, cancellationToken);
+        }
+        foreach (var change in project.Changes)
+        {
+            if (change.Kind == ChangeKind.Remove)
+            {
+                if (fresh.Packages.ContainsKey(change.Id)) throw new IOException($"Removed package remains in the manifest: {change.Id}");
+                if (fresh.LockedPackages.ContainsKey(change.Id) && fresh.InstalledVersions.ContainsKey(change.Id))
+                {
+                    var warning = $"Package is still required by another package: {change.Id}";
+                    if (warnings is not null && !warnings.Contains(warning)) warnings.Add(warning);
+                    progress?.Report(new(DateTime.UtcNow, "Verify", warning, EventSeverity.Warning, project.Path));
+                }
+            }
+            else if (!PackagePresence.Matches(change, fresh) ||
+                     (!fresh.Packages.ContainsKey(change.Id) && !fresh.LockedPackages.ContainsKey(change.Id)))
+            {
+                if (change.RequestedVersion != "latest" && fresh.InstalledVersions.TryGetValue(change.Id, out var installed) && installed != change.ResolvedVersion)
+                    throw new IOException($"Package version conflict: {change.Id}@{change.ResolvedVersion}; resolved {installed}.");
+                throw new IOException($"Package metadata validation failed: {change.Id}@{change.ResolvedVersion}");
+            }
+            else if (change.RequestedVersion == "latest" && fresh.InstalledVersions.GetValueOrDefault(change.Id) is { } actual && actual != change.ResolvedVersion)
+                progress?.Report(new(DateTime.UtcNow, "Verify", $"VPM selected {change.Id}@{actual} for this project's dependencies.", EventSeverity.Info, project.Path));
+        }
+        return mismatched.Length > 0 || restoredPins;
+    }
+
+    private sealed class ProjectSkippedException(string message) : Exception(message);
+}

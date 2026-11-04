@@ -1,0 +1,275 @@
+# VRCSETUP Desktop migration
+
+## 0.2.6-beta.4 open-editor package management
+
+Package add/update/downgrade/remove and safe missing-package retries now run with
+Unity open. The editor helper coordinates refresh and assembly reload through an
+acknowledged heartbeat lease; it releases automatically after interruption. Full
+snapshot restore is deferred when the editor was open, including if it exits
+during a failed operation, preserving concurrent user work. Operations launching
+a second Unity instance for asset import retain their exclusive-editor check.
+This supersedes the package-mutation restriction described under beta.1 below.
+
+The release also includes the previously committed import log layout/theme
+palette changes and clearer completed-project/optional-registration outcomes.
+An empty queued import plan no longer crashes the live status list.
+
+## Package search iteration (local, not released)
+
+The shared package search filters included preset entries as well as addable
+catalogue entries; matching results remain in their original section. A search
+with only an included match no longer displays a false empty result. Project
+package search uses the same case-insensitive multiword name/ID matching. The
+favorite filter also applies to included preset rows. Clearing filters restores
+the full list without changing the staged preset or project selection.
+
+The import preset recap uses a flat two-column list (one column when narrow)
+inside the disclosure, without boxed package tiles. Every row shows the chosen
+version, including Latest, and its full value remains available in the tooltip.
+Suggested packages retain their Add/Review action. Native UI and core regression
+checks are prepared but must run with the next authorized build.
+
+## 0.2.6-beta.1 package transactions
+
+Selected-version VPM migration metadata now drives package replacements. Absent
+removals are satisfied without invoking removal; conflicting explicit selections
+fail before mutation. Package apply publishes retained root intent, removes only
+still-present requested replacements and explicitly installs changed versions
+before resolving. This avoids both legacy-provider no-ops and resurrecting the
+previous shader. Downgrades use the current lock, never historical UI state.
+
+Unity must be closed for package mutations. Physical Packages plus Assets and
+ProjectSettings are backed up (including indirect dependency migrations), with
+offline rollback. Only the latest successful new snapshot retains large archives;
+failed and old manifest-only recovery data remain available. Pro selection shows
+the official Unity/Patreon next step. Real Toon/Pro/older-Pro/Toon verification
+runs without launching Unity, authenticating or registering fixture projects.
+
+## Next build: cancellation, quiet recovery and update feedback
+
+The owner subsequently authorized official beta publication with these fixes.
+Cancel import is visible
+on every collapsed active row and gives immediate Cancelling feedback. Failed
+imports expose Try again on the row and in Activity; interrupted imports retain
+Continue and a small warning icon. Startup no longer opens recovery prompts.
+The import page shows the latest attempt per destination (preferring active
+work), while Activity retains earlier attempts. Clearing the newest attempt or
+auto-hiding its success does not resurrect old failures. Details animation is
+outside this pass.
+
+Manual update checks revalidate the cached feed and show their result on the
+clicked footer button. Channel changes invalidate stale offers; new profiles use
+stable-only updates while previous implicit/explicit beta choices are preserved.
+The owner's installed beta.27 matched the newest published release during
+diagnosis, so unpublished source commits could not appear in its updater.
+The proposed import-list redesign uses a compact row with explicit actions and a
+side details panel, approved by the owner; that redesign is not implemented here.
+
+The owner's successful Cain PC/Quest reports were recovery operations: registration
+previously ran only for first-time creation, so successful retries could be absent
+from Creator Companion. Recovery now runs registration too. Eight old verification
+registrations were removed through VPM and both owner projects registered; the live
+VCC API confirmed zero fixture entries and both Cain entries. Verification drivers
+and CLI children explicitly skip VCC registration without changing user settings.
+
+## 0.2.5-beta.1 local candidate
+
+The 25 October import failures occurred before the avatar archive import: a
+transitive dependency selected a prerelease VRCFury, while the installed beta.27
+still tried to repair it to the catalogue's stable suggestion. The feature branch
+already accepted coherent resolver-selected versions for Automatic. This candidate
+also uses real downgrade commands for explicit stable/prerelease pins, reapplies
+explicit choices after general resolution, and verifies the resulting installed
+files/lock. No package-specific production versions were added.
+
+Import inspection automatically extends a budget-limited scan once. The import
+form now aligns fields, package details and its separate action row; package
+expansion keeps a stable width and the queue flows below the form without
+competing reposition animations. Clear list hides all inactive imports, including
+failures, while Activity retains recovery and logs. New-project creation continues
+through the shared executor and its existing compact form.
+
+Source remains on `feature/winui-desktop`; this candidate is intended for owner
+PC/Quest import acceptance before main integration and official beta publication.
+Evidence and the local offline update launcher are in
+`.work/artifacts/2026-10-26-detect-import/`.
+
+## Beginner usability pass (next beta)
+
+First launch now presents Unity and the projects folder before other preferences. Settings use explicit Save/Discard with a fixed action area and Save/Discard/Cancel on leaving or closing. Choosing an editor inside Settings remains a draft until Save. Invalid forms do not partially replace configuration, and updating/restarting is blocked while settings are unsaved.
+
+Preset sharing is available from the carousel options through Share preset → Import/Export. Files contain a name and package version choices only; no editor paths, application preferences or project assets. Import previews the name/count, creates a saved new preset and resolves duplicate names without replacing existing presets. Full settings restore stays separate, with an explicit replacement confirmation.
+
+Import review exposes the destination and preset/package count. Missing-file completion preserves existing files without a recovery backup. Recovery prompts, common errors and Activity outcomes use short actions instead of raw exceptions; diagnostics retain the original failure. Contact shows selectable email/Discord details with explicit copy buttons; error banners open logs directly. Empty filters retain the included total and offer Clear filters. Project management/customization share compact package surfaces, and project rows expose a text Packages action and selection on hover/focus. Carousel options move below the title at narrow widths.
+
+## Beta.5 update recovery, adaptive shell and localization
+
+The failed beta.3 updater was reproduced: starting the base app from its installed directory makes the updater inherit that directory; Windows then refuses the directory rename. The GUI now starts the updater from data home, and the installer independently moves its current directory to Temp before waiting/installing, covering older clients. Update installs show a compact phase/progress window, reopen automatically on success, and attempt to reopen the preserved app on failure. The footer exposes short clickable failure status with technical details in a dialog/logs. The harness now starts the base from its install directory, matching the real shortcut.
+
+Title/sidebar/footer have separate surfaces and stronger dividers. The bounded adaptive sidebar becomes an always-visible icon rail; native minimum is 720×580. Import and Settings use the available width, removing both code and XAML caps. Update available is a direct action. Information is an upward adaptive menu with releases, bug report, contact@dummics.com and logs. Package management and Add package retain a friendly count/name recap; review uses readable names and omits the generic technical skip/backup paragraph. General progress uses a corner popup instead of a full-width bottom strip.
+
+Desktop English/Italian labels default to the system, with a Settings override and guarded Apply language/restart. New installs default to Dark; existing theme choices are preserved. Names, package IDs, versions, paths and provider logs are unchanged. The translation catalog and native Italian smoke entry point are versioned; CLI/TUI localization is outside this desktop pass. Evidence: .work/artifacts/2026-10-18-update-shell/.
+
+## Beta.3 editor discovery and package library
+
+The saved owner configuration still contained a valid editor path during diagnosis; loss of that file was not reproduced. Editor picking previously changed only the settings draft until Save settings; it now validates pinned executable metadata and persists immediately. Automatic discovery checks Unity Hub binary/custom-location metadata, standard directories and Windows uninstall records off the UI thread. The pinned 2022.3.22f1 is selected rather than the newest Unity. Settings and import setup expose Find/Choose/Install; Open project, import and recovery resolve configuration before executing. Missing saved paths remain intact until a replacement is found/selected.
+
+Installer relaunch now carries its explicit data home, and new installation markers preserve that home for later independent launches. Desktop preference saves merge only changed fields with current disk settings and reject conflicting edits, preserving background import-name updates. Existing strict SaveAsync revision checks remain intact.
+
+Package library supports persisted grid/list layouts, accent-colored Add/included feedback, aligned human names and package IDs. Shared project rows show IDs below names. VP dialogue-panel artwork replaces the default executable/titlebar/installer icon; the selected generated source and ICO conversion script are versioned. 130 fixture tests and 150 local native UI checks pass, including real installed-editor discovery/persistence and narrow list screenshots. Evidence: `.work/artifacts/2026-10-18-editor-release/`. Public release/download verification is recorded there after the release job completes.
+
+Beta.3 is now a public prerelease: [download](https://github.com/dummics/vrchat-project-setup/releases/tag/v0.2.0-beta.3), source 4523821, workflow 39121554963 successful. The actual app updated an isolated beta.1 installation through the public GitHub feed/download to beta.3 in 27.4 seconds: SHA-256, real installer, replacement/relaunch, all payload hashes, preserved settings and no repeated update passed. Independent installed CLI startup recovered the recorded home/editor/preferences. Four owner files remained unchanged; the active owner beta.1 app was not closed or replaced. Binary signing is not configured; this is a beta distribution, with real-project workflow acceptance remaining with Dom.
+
+## Local update pipeline verified
+
+A repeatable `Test-ApplicationUpdate.ps1` now drives the native app through update discovery, streamed SHA-256 download, real installer handoff/wait/replacement and candidate relaunch in an explicitly marked isolated installation. Only HTTP transport is substituted with file-backed GitHub-shaped responses; the production source allowlist remains unchanged. The test routes shortcuts into its fixture and disables user PATH mutation in the child process. Candidate relaunch uses direct process creation so the isolated environment is retained.
+
+The beta.1 → beta.2 runs passed in 10.3 and 10.5 seconds: version, all payload hashes, fixture settings, previous installation and no repeated update offer verified. Owner program marker/config/journal/legacy/shortcuts/PATH unchanged during the isolated tests. The refreshed beta.1 baseline was then installed normally: 759 payload hashes and 146 native UI checks passed. HTTPS Git tag pushes triggered CI; after fixing native smoke argument quoting, the beta.2 workflow passed 126 fixture tests and 146 UI checks and successfully created the draft prerelease with installer, ZIP and checksums. Source: 3bb4c25; [workflow](https://github.com/dummics/vrchat-project-setup/actions/runs/39089138768). No public release or Pages deployment. Owner remains on beta.1; publishing the draft and trying a live GitHub download are the next online steps. Reproduction: [UPDATE-TESTING.md](UPDATE-TESTING.md). Evidence: `.work/artifacts/2026-10-18-update-e2e/`.
+
+## 0.2.0-beta.1 — distribution and local installation
+
+The owner renamed the development series from 2.0 previews to 0.2 beta. Installed over preview 14 on 18 October 2026: installer exit 0, 759 installed hashes verified, settings/import journal/legacy launcher unchanged, previous program preserved. An isolated installed-app instance verified both the active-process replacement guard (exit 1 without replacing the program) and the update helper's wait-for-exit path (preview 14 remained installed while the fixture process was running; beta installed after it closed). No real Unity import or package mutation was performed.
+
+Persistent version menu, quiet asynchronous startup checks against public GitHub Releases, optional beta inclusion, verified streamed installer download, safe idle restart/update and prefilled GitHub bug reporting are implemented. Offline errors stay non-blocking; a failed helper result is visible on next startup. Portable builds link to Releases. No Git client, token or dedicated server is required by clients.
+
+126 core/CLI fixture tests pass; native UI suite has 146 checks covering seven pages/responsive layouts and the version menu. Desktop/installer builds have zero diagnostics. Feed selection, legacy numbering, draft/incomplete releases, source restriction and checksum failure paths use deterministic HTTP fixtures. Download page verified wide and 390px, with real empty-feed fallback and a clearly isolated release fixture. YAML parses locally. GitHub Actions release workflow creates drafts; Pages workflow/site are prepared. No public beta, tag or Pages deployment has been published and remote Actions has not been run. The feature branch remains separate from main. Evidence: `.work/artifacts/2026-10-18-beta1-distribution/`, final payload in `final-release/`.
+
+## Preview 14 — visual polish and batch editor
+
+Installed 18 October 2026: installer exit 0, all 759 installed hashes verified, configuration/import journal/legacy launcher hashes unchanged, previous installation preserved. 35 focused fixture tests and 142 native UI checks pass. Installed-binary smoke verification uses a separate fixture home. Final publication is `final-release/`; earlier release folders are intermediate.
+
+Shared theme resources define neutral canvas/surfaces, a teal accent, visible selection strokes and consistent compact buttons/fields. Primary actions retain emphasis; per-project Open remains neutral. Projects uses the native modern selection template with rounded rows and a header that stacks on narrow windows. Package versions remain inline, preset headers are smaller, My packages keeps responsive compact cards, and the import drop area gives more space to the package list. Settings uses flat path fields and aligned switches; Activity puts outcomes first, groups planned transitions and keeps paths in a disclosure. Diagnostics is removed from normal-mode tabs. Skipped batches read Not applied; mixed outcomes read Partially applied, with planned counts distinct from completed projects.
+
+Verification uses isolated fixture homes and the real WinUI dispatcher/renderer; no owner project is imported or modified. Native screenshots cover seven views at 520, 760, 1024, 1180 and 1366 pixels, the shared package dialog/version picker, selected project rows, light/dark themes and a fixture-only Apply overlay. Source and release evidence: `.work/artifacts/2026-10-18-preview14-polish/`. The overlay render does not claim that a live VPM update was executed.
+
+Batch management hides Open project and rejects its launch command unless exactly one project is managed. Project selection has consistent rounded rows and an explicit selected-count action. Leaving a pending project editor requires confirmation and keeps the draft; reopening the same target set reuses it. Changing target sets requires explicit discard. Successful Apply reloads fresh metadata. Revert remains the explicit discard action.
+
+Review groups each identical package transition once for its exact target set; different installed/target versions remain attributable to their projects. Already-installed resolved `latest` is Keep; a missing embedded package still requests repair even when its locked version matches. Generic Easy Login repository-check text is omitted; an existing legacy folder retains a contextual migration notice. Human package names are recovered from local repository metadata and installed package manifests without registering discovered packages.
+
+Apply has a blocking dimmed overlay from preparation through execution/recovery, showing current project, ordinal and phase. Navigation and normal window close are blocked; Cancel requests cancellation and waits for the executor's recovery before releasing the UI. Planning/execution run off the UI thread. An initial busy-project check blocks the batch with explicit project names; executor preflight remains authoritative if Unity opens afterward. Failures/skips are surfaced rather than only recorded in Activity.
+
+Read-only diagnosis: reports `4ad1879563b04ad5bbb451b30490454f` (21:38 local) and `26a3230fa7e54e6eacd5880b0af59360` (21:40 local), 17 October, reported Skipped/Open in Unity. All four target editors were then confirmed running; sampled Lulla lockfiles were exclusively held. No real project update was attempted by Codex. Original candidate evidence: `.work/artifacts/2026-10-17-batch-edit-polish/`; runtime checks and installation are covered by the preview 14 verification above.
+
+## Preview 13 installed
+
+Installed on Dom's explicit request on 17 October 2026 from implementation 09d6a68: installer exit 0, all 759 installed payload hashes verified, configuration/import journal/legacy launcher hashes unchanged. Previous installation preserved by the installer. App was closed; no active Unity project imports were found. Stale Running/Queued journal rows had completed project markers and were left unchanged for normal startup reconciliation. No application or import was launched during installation. Evidence: `installed-verification.txt` and `install-result.json` in the artifact directory below.
+
+Compact import fields and preset controls, one merged preset/detected package preview, stable suggestion rows and draft-only Add/Review actions. Clear completed now hides successful rows while retaining durable Activity history; optional auto-hide defaults off. Activity separates Imports/Operations with expandable details and individual logs, contextual project checks/resume/missing-asset reimport and associated-backup restore. Missing source selection requires confirmation and keeps recorded recovery ownership. Global recovery pickers are removed. Explorer root actions added to Imports/Projects; analysis cache clearing moved to Settings.
+
+31 isolated fixture tests pass (queue/history persistence, recognition/pins, recovery/source classification, shared logs and missing-asset preservation). Release build/publication passed without compiler diagnostics; 759 payload hashes and installer/archive SHA-256 checks verified. Final package is in `final-release/`; earlier packaging output is intermediate. No real import, application launch or desktop/TUI automation was performed. Evidence: `.work/artifacts/2026-10-17-preview13-history-preview/`.
+
+## Preview 12 installed
+
+Installed implementation ae6ab80 on 17 October 2026: installer exit 0, 759 installed hashes and release checksums verified, settings unchanged and legacy launcher preserved. Nine focused fixture tests pass, including seven simultaneous jobs and shared-log reading. Release publication has zero compiler diagnostics. No GUI/terminal input injection or interactive visual acceptance was performed.
+
+State-aware resume/missing-asset import, shared log-reader fix, startup recovery prompt, import timers, fixed header resource status and simplified controls/manual-input settings are implemented. TUI import context/progress boxes are restored without changing its shared core. No UI automation or terminal input injection was used.
+
+Dom's Lulla Quest recovery succeeded: operation 209100be64ad4bd69eeb961a16670c5a, 18:30:25–18:30:46 UTC, backup preserved, no package additions/updates/removals, no UnityPackage reimport, final Unity settle/validation successful, Completed marker verified. GIGGLES NSFW independently finished at 18:27:29 UTC and was not interrupted. Its older namesake folder remains preserved/incomplete. Original Lulla timings: create ~7 s, VPM ~65 s, Unity import/compile ~283 s. No equivalent historical CLI baseline exists; no UI-vs-CLI performance ratio is claimed. Evidence: `.work/artifacts/2026-10-17-preview12-project-state/`.
+
+## Preview 11 installed
+
+Installed on Dom's request: implementation 003cd7d, installer exit 0, all 759 installed hashes verified, configuration unchanged and legacy launcher preserved. Release publication completed without compiler diagnostics after correcting a fixture-variable collision. No application/import or automated GUI test was started. Owner performs runtime acceptance.
+
+Package selection uses stable observable rows and frozen ordering throughout the dialog session, including version edits/search results. Review and import shows immediate preparation feedback and inline failures. The local diagnostic log recorded repeated Unity-editor validation failures even though the saved editor executable now exists; the exact old in-memory value is not recorded, so this does not prove why it differed. Planning now uses visible editor/root fields and can resolve a unique installed Hub editor if the chosen executable is unavailable. No configuration is silently saved. Creation confirmation is a brief name/platform/preset/package-count recap; acceptance queues imports and leaves the same page ready for another file. Existing-project detailed reviews are unchanged.
+
+Verification boundary: static review, Release build/publish and installed-file hashes; no app launch, native automation or actual import. Native regression-check source covers stable selection/version row instances, but is not executed. Evidence: `.work/artifacts/2026-10-17-preview11-import-review/`.
+
+Previous installation: **2.0.0-preview.10**, implementation a5f0c40, superseded by preview 11. Its installation evidence remains `.work/artifacts/2026-10-17-unified-imports/installed-verification.json`.
+
+## Preview 10 unified import page
+
+Import projects is one responsive page: active jobs at the top, staged files and editable per-file name/platform/packages below. Adding files does not navigate away or follow an active job. Details and a bounded live console expand on demand. The GUI exposes no concurrency setting and imposes no two/six-job cap; sustained RAM/CPU pressure generates inline text warnings only. Reviewed job inputs remain fixed; cancel, logs and explicit recovery stay contextual. CLI optional positive worker counts and resource-based automatic scheduling share the same queue/core.
+
+Validation: static code review and Release compilation/publishing only, with no new test-suite or real import execution. Evidence and package: `.work/artifacts/2026-10-17-unified-imports/`. Preview 9 counts below are historical, not evidence for preview 10.
+
+## Preview 9 projects and multiple imports
+
+Projects now has direct Open project, relative modification time, responsive rows and package management without Unity version/kind columns. The package sheet follows the supplied Creator Companion references while retaining batch Apply/Revert. The new [Imports queue](IMPORT-QUEUE.md) shares the core pipeline with CLI: multi-file review, one/two workers, per-project steps/log/cancel, persistent history, explicit reviewed recovery and bounded analysis-cache clearing. Existing source files/personal presets are not changed by recognition.
+
+Verification: 104 .NET tests and 132 native WinUI checks pass; the installed executable also passes all 132 native checks. Native rendering covers five widths, direct project actions/date and the new Imports page, without mouse/keyboard injection. Installer exit0; all 759 installed payload files match their hashes, config preserved. Implemented build `03212f5`. The four requested files were planned as new destinations and started with two workers. At Dom's stop, only GIGGLES PC/Quest had been created and reached preparation/package work; Lulla PC/Quest remained queued. Verified owned CLI process 41776 was stopped; original archives and partial project directories are preserved. Next GUI initialization marks old active records Interrupted for explicit recovery. No four-import completion claim. Evidence: `.work/artifacts/2026-10-17-projects-import-queue/`.
+
+## Preview 8 reviewed installation
+
+Research intake is recorded in [RECOGNITION-RESEARCH.md](RECOGNITION-RESEARCH.md). Search/version metadata no longer populate the personal package registry; transient discovery results stay out of the unfiltered library unless selected/favorited. Existing saved entries are preserved. Recognition excludes known world-only identities; the metadata seed contains 3,410 observations across 12 identities. Existing world project workflows remain available.
+
+Review also corrected loss of pending changes on window close and numeric overflow while sorting malformed package versions. The shared planner/executor, terminal workflow and explicit staged application remain intact. This delivery uses static review, Release compilation/publishing and installed-file integrity verification. No new test-suite, UI automation or Unity import run is claimed. Evidence: `.work/artifacts/2026-10-17-preview8-reviewed-install/`.
+
+Installation completed successfully: preview 8 implementation `4bd3c36`, 759 installed payload files match their manifest hashes, EXE/ZIP checksums verified, zero compiler diagnostics. Settings and the separate legacy launcher retain their baseline hashes; Start-menu target and command PATH entry are correct. Preview 6 remains in the installer's `.previous-*` rollback directory. The app was not launched. New research signatures and the remote harvester remain unimplemented, not silently added to this release.
+
+## Preview 7 offline dependency inspection
+
+The core and infrastructure now provide bounded streaming UnityPackage inspection, GUID-based advisory classification, an included metadata seed, personal signatures and observation caching. The CLI adds inspect/--deep/--index-project; the desktop automatically inspects selected files without blocking Create and adds suggestions to the existing package dialog. Pin/SDK-kind preservation, explicit range choices, stale-request rejection and staged acceptance are covered by tests. See [inspection behavior and delivery boundary](PACKAGE-INSPECTION.md).
+
+The first delivery was local-only. Repository-content downloads and broad online creator-package discovery remain subsequent work; manual catalog search is available. Historical evidence: `.work/artifacts/2026-10-17-inspection-preview7/`. Its installer was not executed during the preview 7 hold.
+
+Final candidate: 99 core tests and 112 published native checks pass. Installer/ZIP/checksums are in `release-verified`; implementation `5957763`. Real-corpus scans are approximately 0.09/0.43/1.23 seconds; cached Lulla is 0.27 seconds including process startup. Installed preview6 and its configuration hashes remain unchanged. This is tester-ready packaging, not a claim of human acceptance or clean-machine validation.
+
+## Preview 6 responsive polish
+
+Navigation automatically collapses at narrow widths. Creation fields and preset actions stack when their viewport is below 560 pixels; the chosen filename stays on one ellipsized line. Native verification includes 520 and 760 pixel windows alongside the existing three widths.
+
+The shared creation/package selection dialog uses a taller flat list, per-row version dropdowns, asynchronous search as you type and small content-footer actions. The title is reduced; the separate version-options panel and Search button are removed. Cancel/dismiss returns no edits; Done explicitly accepts the working copy.
+
+Favorite rows notify property changes in place. Library refresh reconciles rows instead of resetting the collection, preserves visible order and defers favorite-filter membership changes until re-entry or a deliberate filter change. Evidence lives under `.work/artifacts/2026-10-17-responsive/`.
+
+## Preview 5 package workflow
+
+Project management now has explicit Projects/Back navigation, Revert and a contextual batch Apply strip. The Installed column itself opens the version dropdown; Choice/After saving and the long action menu are removed. Rows show only a small pending-change hint. Navigation asks before discarding staged project/preset edits, including clicking an already selected Projects navigation item. Returning from the package browser preserves the active batch.
+
+The project Add package action and the My packages preset tab share a reusable in-page browser. Local definitions are immediately filterable/addable; typing also starts debounced, cancellable catalog/repository/VRC-Get lookup in the background. The project browser has no preset-editing tab or preset selector. Project-observed definitions are remembered in the local registry.
+
+Preset and project versions use native row dropdowns with a beta filter. A shared bounded single-flight cache moves synchronous catalog/tool work off the dispatcher, prevents repeat lookups for pending requests, preserves existing pins, and retries empty/faulted results. No version ContentDialog is queued by these rows.
+
+Create clipping was reproduced with copied real settings: form right1238 exceeded client1164 although viewport-only checks looked valid. Explicit viewport-sized, left-aligned forms and resize handling now put the form at249..1009 in the same client. The native test checks full-window bounds as well as the local viewport. Candidate evidence is under `.work/artifacts/2026-10-16-package-flow/`; personal project data and the preview4 installation are not changed.
+
+## Preview 4 visual polish
+
+Projects keeps its existing flow, with aligned rows and a per-project package-management icon replacing normal Ready/count text. Exceptional project states retain a warning icon. Create and Settings use constrained, stretching scroll content to prevent fields and actions overflowing the viewport.
+
+Packages has a centered preset selector and separate Preset packages / My packages tabs. Local packages appear as cards with favorite stars and inclusion state for the current preset. Row menus contain secondary actions; the save/discard strip only appears for pending changes. Preset rename preserves staged edits, creation overrides and case-insensitive template references. Required package removal stays disabled.
+
+The compact version dialog defaults to the current choice; Automatic represents the same `latest` engine policy. Search, previews and exact versions remain under Advanced. Activity moves to footer navigation and uses structured entries, an empty state and a contextual project-actions menu. Restore and unfinished-project actions remain available without developer mode. Settings shares field widths, grouped surfaces and aligned switches.
+
+The core and terminal client are unchanged. Evidence and the new installer/portable build live under `.work/artifacts/2026-10-16-polish/`. Native fixture verification covers 1024, 1180 and 1366 pixel window widths, package-menu data context, rename/template references, library state and form bounds. Human desktop input remains outside these automated checks.
+
+## Preview 3 usability revision
+
+Dom's original PowerShell TUI is available immediately through the independent `vrcsetup-legacy` installation. It is retained while the GUI is evaluated. The shared-core C# TUI now follows its primary Import / My projects flow, panel presentation, searchable/multiselect project library and keyboard package workspace. Nested Back/Esc and version lookup failures preserve staged edits; recovery remains reachable.
+
+The desktop Create page now has an obvious drop zone, automatic editable name, destination, one platform choice and preset customization. Optional templates are collapsed. Presets have a visible Default/named selection, direct staged editing, Add package, favorite stars and a local My packages library with asynchronous stale version refresh. The idle operation footer is hidden; Activity replaces Activity & recovery in normal navigation. Developer tools expose shared JSONL diagnostics and runtime flags.
+
+The reported blank/error Projects screen did not reproduce with copied real settings: the final native startup loaded 45 projects without errors (43 at the initial check, before the owner added more). Catalog failures no longer prevent project scanning, initialization callbacks are gated, malformed project metadata is isolated, and unavailable roots/empty searches have explicit messages and a folder-selection action. No personal Unity project was modified by these checks.
+
+Preview 3 artifacts and verification are retained under the canonical checkout's `.work/artifacts/2026-10-16-usability/`. The original migration's Unity and lifecycle evidence below remains applicable; the new UI tests use fixture projects and native rendering without mouse/keyboard injection. The running preview 2 instance is preserved; install the new package after closing it normally.
+
+## Previous migration checkpoint (preview 2)
+
+Dom approved the complete migration, dedicated remote branch, installer and local installation. Branch: `feature/winui-desktop`; stable main is retained without a merge. Preexisting work was preserved and pushed as `c76fc5a` and `438aa35` before the feature branch. Core/client checkpoint: `7436185`; completed implementation: `31e54eb`; corrected installer migration and preview 2: `24f2cdc`.
+
+## Delivered
+
+- Shared C#/.NET 10 core and infrastructure, first-class CLI/Spectre TUI, native WinUI 3 desktop client and per-user standalone installer.
+- All A01–A38 parity rows and B01–B03 additions implemented; see [verification map](VERIFICATION.md). Creation recipes preserve setup policy; they do not clone entire private projects.
+- Project library, creation, package version control, presets/defaults/favorites, bulk targets, review, logs/reports, import pipeline, backup/recovery, cancellation and lifecycle operations use the shared engine.
+- Old PowerShell engine and its implementation-specific tests retired on this branch. Configuration/resources and the Unity-compatible import bridge are retained in their new source locations. Main and Git history preserve the previous implementation.
+- Standalone EXE, portable ZIP and SHA256SUMS are in the canonical checkout's `.work/artifacts/2026-10-14-winui-migration/release-2.0.0-preview.2/`. Generated binaries are not committed to Git or published as a GitHub release.
+- Preview 2 installed under `%LOCALAPPDATA%\Programs\VrcSetup`. Legacy settings were recovered and verified; the final upgrade preserves the configuration hash exactly. Original legacy and previous .NET program copies remain available as rollback backups. User PATH, command alias, Start-menu target and installed payload integrity verified.
+
+## Verification
+
+- 76 .NET rule, planner/executor, filesystem/config, failure/recovery and CLI subprocess tests pass.
+- 17 real Unity/VPM E2E checks pass on two disposable projects, including CLI/shared-service creation, UnityPackage import, compiled probe and bulk add/remove/preset operations.
+- 18 native WinUI dispatcher/render checks pass on the self-contained published executable, with development runtime paths excluded. Six screens, two window sizes, dark theme and a package dialog are covered. No mouse/keyboard input was injected.
+- 17 standalone installer checks pass: legacy migration, install, upgrade, alias repair, running-CLI self-uninstall, settings/project preservation and shortcut ownership. The omitted-home portable-marker regression has a separate .NET test.
+- Release desktop/CLI/installer builds succeed with zero warnings. Independent review findings and live packaging/migration defects were fixed before handoff.
+- Disposable Unity projects and obsolete package candidates were removed after retaining evidence. Useful checks, native captures, logs, final distributables and live-install proof remain under `.work/artifacts/`.
+
+## Acceptance boundaries
+
+Dom requested tests without desktop input. Human mouse/keyboard, screen reader, actual multiple-DPI displays and a clean tester PC remain acceptance checks, not claimed results. Android/iOS modules and exact prerelease installation were not exercised live. Unity/VCC/VPM and VPM's compatible runtime remain external prerequisites; the application itself bundles .NET/Windows App SDK runtimes. The installer is unsigned.
+
+Source changes and this handoff are committed/pushed on the feature branch. No personal-memory write or automated goal was created. [Distribution instructions](DISTRIBUTION.md) describe installation, portable mode, CLI and recovery.
+
+## Current iteration: unified setup and local import customization
+
+One native installer window owns all phases and manual completion; its downloaded engine runs without a second window. Real byte/file counts drive per-phase progress. Import customization now uses the shared package editor with draft-local changes, while search has one centered searching/empty state. Project rows reuse the light package surfaces and the package-management icon. Import jobs sit at the page bottom, remove duplicate outlines and expose a single log viewport. Active imports block maintenance and update application.

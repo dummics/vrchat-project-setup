@@ -1,5 +1,4 @@
 **/logs
-**\setup-scripts\archive\legacy
 
 # User-generated config (contains local paths)
 setup-scripts/config/vrcsetup.json
@@ -13,3 +12,11 @@ setup-scripts/cache/
 
 # Local verification artifacts and reversible runtime backups
 .work/
+
+# .NET build outputs and local IDE state
+**/bin/
+**/obj/
+.vs/
+*.user
+TestResults/
+artifacts/

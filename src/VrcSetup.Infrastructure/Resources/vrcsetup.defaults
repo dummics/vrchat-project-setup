@@ -1,0 +1,38 @@
+{
+  "VpmPackages": {
+    "com.vrchat.base": "latest",
+    "com.vrchat.avatars": "latest",
+    "com.vrchat.core.vpm-resolver": "latest",
+    "com.vrcfury.vrcfury": "latest",
+    "com.poiyomi.toon": "latest"
+  },
+  "DefaultPackages": [
+    "com.vrchat.base",
+    "com.vrchat.avatars",
+    "com.vrchat.core.vpm-resolver",
+    "com.vrcfury.vrcfury",
+    "com.poiyomi.toon"
+  ],
+  "RequiredPackages": [
+    "com.vrchat.base",
+    "com.vrchat.avatars",
+    "com.vrchat.core.vpm-resolver"
+  ],
+  "FavoritePackages": [
+    "com.vrcfury.vrcfury",
+    "com.poiyomi.toon"
+  ],
+  "UnityEditorPath": "",
+  "UnityProjectsRoot": "",
+  "Naming": {
+    "DefaultPrefix": "",
+    "DefaultSuffix": "",
+    "RegexRemovePatterns": [],
+    "RememberUnityPackageNames": true
+  },
+  "SavedProjectNames": {},
+  "LastProjectName": "",
+  "LastUnityPackagePath": "",
+  "ProjectLibrarySort": "recent",
+  "UnityPackagesFolder": null
+}
