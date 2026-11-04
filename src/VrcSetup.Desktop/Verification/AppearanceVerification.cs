@@ -69,6 +69,13 @@ internal static class AppearanceVerification
             require(vm.CanvasColor == "invalid" && vm.SurfaceColor == "#GGGGGG" && vm.AccentColor == "", "Fallback preview does not overwrite settings through picker events");
             require(vm.ErrorMessage.Length == 0, "Invalid appearance values do not cause a preview error");
             require(protectedKeys.All(key => ((Microsoft.UI.Xaml.Media.SolidColorBrush)highContrast[key]).Color == contrastColors[key]), "Custom palettes leave the system contrast resources unchanged");
+            vm.ColorPalette = "Legacy palette";
+            vm.CanvasColor = null!;
+            vm.SurfaceColor = null!;
+            vm.AccentColor = null!;
+            await Task.Delay(30);
+            require(canvas.Color == Color.FromArgb(255, 37, 39, 42) && surface.Color == Color.FromArgb(255, 48, 51, 56) && accent.Color == Color.FromArgb(255, 80, 205, 187), "Null legacy color values use the same safe preview defaults");
+            require(vm.ErrorMessage.Length == 0 && vm.CanvasColor is null && vm.SurfaceColor is null && vm.AccentColor is null, "Legacy fallback leaves stored user choices intact without an error");
         }
         finally { vm.DiscardSettingsCommand.Execute(null); }
         require((vm.ColorPalette, vm.CanvasColor, vm.SurfaceColor, vm.AccentColor, vm.Theme) == original, "Discard restores saved appearance atomically");
