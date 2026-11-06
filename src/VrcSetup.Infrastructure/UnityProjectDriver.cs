@@ -159,6 +159,9 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
     public async Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
         if (!plan.RequiresUnityBatch) return;
+        var checkedSource = plan.Creation ?? plan.RecoverySource;
+        await using var sourceLease = checkedSource is { EmptyProject: false, SourceIdentity: { } expectedSource }
+            ? await PackageSourceIdentity.OpenVerifiedAsync(checkedSource.UnityPackagePath, expectedSource, cancellationToken) : null;
         if (workspace.IsBusy(plan.Path)) throw new IOException("The project is open in Unity. Close it before importing.");
         var editor = plan.UnityEditorPath;
         ValidateEditor(editor);

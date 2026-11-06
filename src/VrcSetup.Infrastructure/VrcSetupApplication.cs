@@ -105,7 +105,8 @@ public sealed partial class VrcSetupApplication
             if (!UnityProjectDriver.HasBuildSupport(config.UnityEditorPath, target)) throw new IOException($"Unity build support is missing for {target}. Install it in Unity Hub before importing.");
         var imports = ExtraImports(config, package).Concat(recipe?.ExtraImports ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var targetPath = Path.Combine(ProjectRules.NormalizePath(config.UnityProjectsRoot), name);
-        var request = new CreationRequest(package, name, targetPath, config.UnityEditorPath, buildTarget, publishingPlatforms, imports) { CreationId = Guid.NewGuid().ToString("N") };
+        var request = new CreationRequest(package, name, targetPath, config.UnityEditorPath, buildTarget, publishingPlatforms, imports)
+        { CreationId = Guid.NewGuid().ToString("N"), SourceIdentity = await PackageSourceIdentity.ReadAsync(package, cancellationToken) };
         var destination = await new ImportDestinationInspector(Projects).InspectAsync(targetPath, package, cancellationToken);
         if (destination.Kind == ImportDestinationKind.Recoverable || destination.CanImportMissing)
             return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [await PlanResumeAsync(request, selected, config, preset, imports, cancellationToken)]);
@@ -116,6 +117,8 @@ public sealed partial class VrcSetupApplication
     public async Task<ProjectPlan> PlanResumeAsync(CreationRequest source, IReadOnlyDictionary<string, string> packages, AppConfiguration config, string? preset,
         IEnumerable<string> imports, CancellationToken token = default, string? recordedSource = null)
     {
+        if (!source.EmptyProject && source.SourceIdentity is { } expectedSource && await PackageSourceIdentity.ReadAsync(source.UnityPackagePath, token) != expectedSource)
+            throw new IOException("This package differs from the original. Choose the original UnityPackage to continue.");
         // A replacement archive is allowed only after the caller explicitly selected it.
         // Validate ownership against the recorded source, while fingerprinting the selected file.
         var state = await new ImportDestinationInspector(Projects).InspectAsync(source.TargetPath, recordedSource ?? source.UnityPackagePath, token, source.EmptyProject);

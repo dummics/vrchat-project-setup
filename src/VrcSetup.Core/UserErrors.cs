@@ -61,6 +61,7 @@ public static class UserErrors
     }
     private static string? Advice(string message) => message switch
     {
+        "This package differs from the original. Choose the original UnityPackage to continue." => message,
         "Unity is still preparing scripts. Wait for it to finish, then retry the package changes." => message,
         "Package refresh helper is missing. Repair the application and retry." => message,
         "A different editor script uses the package helper filename. Rename that script and retry." => message,

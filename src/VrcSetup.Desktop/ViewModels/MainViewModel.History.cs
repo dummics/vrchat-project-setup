@@ -98,9 +98,17 @@ public sealed partial class MainViewModel
         if (entry.Job is not { Active: false } job || !CanRecoverCurrentImport(job)) return;
         var source = job.Source;
         var original = job.Plan.Projects.Single().RecoveryOriginalSource ?? source.UnityPackagePath;
-        if (!source.EmptyProject && !File.Exists(source.UnityPackagePath))
+        var sourceChanged = !source.EmptyProject && File.Exists(source.UnityPackagePath) && source.SourceIdentity is { } expected &&
+            await PackageSourceIdentity.ReadAsync(source.UnityPackagePath, lifetime.Token) != expected;
+        if (!source.EmptyProject && source.SourceIdentity is null && File.Exists(source.UnityPackagePath) &&
+            !await ui.ConfirmAsync(entry.RepairLabel, "For this older import, the app cannot verify whether the selected file is the original. Check it before continuing.", "Use package")) return;
+        if (!source.EmptyProject && (!File.Exists(source.UnityPackagePath) || sourceChanged))
         {
+            if (!await ui.ConfirmAsync(entry.RepairLabel, "The original package is missing or changed. Select the original UnityPackage to continue.", "Choose file")) return;
             var chosen = await ui.PickFileAsync(".unitypackage"); if (chosen is null) return;
+            if (source.SourceIdentity is { } identity && await PackageSourceIdentity.ReadAsync(chosen, lifetime.Token) != identity)
+                throw new IOException("This package differs from the original. Choose the original UnityPackage to continue.");
+            if (source.SourceIdentity is null && !await ui.ConfirmAsync(entry.RepairLabel, "For this older import, the app cannot verify whether the selected file is the original. Check it before continuing.", "Use package")) return;
             if (!await ui.ConfirmAsync(entry.RepairLabel, UiText.Text("Use this package to add missing files? Existing files stay unchanged.") + "\n" + Path.GetFileName(chosen), "Use package")) return;
             source = source with { UnityPackagePath = chosen };
         }

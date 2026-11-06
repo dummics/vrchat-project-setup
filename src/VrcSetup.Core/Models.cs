@@ -177,11 +177,13 @@ public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOu
     public bool Cancelled => NotProcessed.Length > 0 || Results.Any(x => x.Status == OperationStatus.Cancelled);
 }
 
+public sealed record PackageIdentity(long Length, string Sha256);
 public sealed record CreationRequest(string UnityPackagePath, string Name, string TargetPath, string UnityEditorPath, string BuildTarget, string[] PublishingPlatforms, string[] ExtraImports, bool EmptyProject = false)
 {
+    public PackageIdentity? SourceIdentity { get; init; }
     // Assigned only when planning a new creation; legacy/recovery inputs stay unattributed.
     public string? CreationId { get; init; }
-    public bool MatchesInputs(CreationRequest? other) => other is not null && CreationId == other.CreationId && Name == other.Name
+    public bool MatchesInputs(CreationRequest? other) => other is not null && CreationId == other.CreationId && SourceIdentity == other.SourceIdentity && Name == other.Name
         && EmptyProject == other.EmptyProject && BuildTarget == other.BuildTarget
         && string.Equals(UnityPackagePath, other.UnityPackagePath, StringComparison.OrdinalIgnoreCase)
         && string.Equals(TargetPath, other.TargetPath, StringComparison.OrdinalIgnoreCase)
