@@ -6,6 +6,70 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task ShutdownCannotReleaseQueueOwnershipWhileDiscardCleanupIsRunning()
+    {
+        var app = App; var plan = Plan("Discard shutdown");
+        var job = new ImportJob("discard-close", plan, plan.Projects.Single().Creation!, "Paused", "Paused", 40, "", "") { DiscardRequested = true };
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = queue.FinishDiscardAsync(job.Id, async (_, _) => { entered.TrySetResult(); await release.Task; });
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            using var cancellation = new CancellationTokenSource();
+            var shutdown = queue.ShutdownAsync(cancellation.Token);
+            Assert.False(shutdown.IsCompleted);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => shutdown);
+            await using var competing = new ImportQueue(app);
+            await Assert.ThrowsAnyAsync<IOException>(() => competing.InitializeAsync());
+            Assert.True(queue.Snapshot().Single().DiscardRequested);
+        }
+        finally { release.TrySetResult(); await finish.WaitAsync(TimeSpan.FromSeconds(5)); }
+        await queue.ShutdownAsync();
+        await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
+        Assert.True(reopened.Snapshot().Single().DiscardCompleted);
+    }
+
+    [Fact] public async Task DiscardOutcomeIsNotPublishedWhenItsJournalWriteFails()
+    {
+        var app = App; var plan = Plan("Discard persistence");
+        var job = new ImportJob("discard-save", plan, plan.Projects.Single().Creation!, "Paused", "Paused", 40, "", "") { DiscardRequested = true };
+        var journal = Path.Combine(app.Paths.Home, "imports.json");
+        var saved = journal + ".saved";
+        await AtomicFile.WriteJsonAsync(journal, new[] { job });
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        var terminalPublished = false;
+        queue.Changed += jobs => terminalPublished |= jobs.Any(x => x.DiscardCompleted);
+        var cleanupCalls = 0;
+        try
+        {
+            var failure = await Record.ExceptionAsync(() => queue.FinishDiscardAsync(job.Id, (_, _) =>
+            {
+                cleanupCalls++;
+                File.Move(journal, saved);
+                Directory.CreateDirectory(journal);
+                return Task.CompletedTask;
+            }));
+            Assert.True(failure is IOException or UnauthorizedAccessException, failure?.ToString());
+            Assert.False(terminalPublished);
+            Assert.True(queue.Snapshot().Single().DiscardRequested);
+            Assert.False(queue.Snapshot().Single().DiscardCompleted);
+        }
+        finally
+        {
+            if (Directory.Exists(journal)) Directory.Delete(journal);
+            if (File.Exists(saved)) File.Move(saved, journal);
+        }
+        // Simulate idempotent cleanup after the first cleanup succeeded but its receipt did not save.
+        await queue.FinishDiscardAsync(job.Id, (_, _) => { cleanupCalls++; return Task.CompletedTask; });
+        Assert.Equal(2, cleanupCalls);
+        Assert.True(terminalPublished);
+        Assert.True(queue.Snapshot().Single().DiscardCompleted);
+    }
+
     [Fact] public async Task FailedDiscardCleanupStaysPendingAndSuccessfulRetryIsIdempotent()
     {
         var app = App; var plan = Plan("Discard outcome"); var source = plan.Projects.Single().Creation!;
