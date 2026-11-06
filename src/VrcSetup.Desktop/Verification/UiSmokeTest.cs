@@ -325,6 +325,24 @@ public static class UiSmokeTest
                     DesiredPolicy = new Dictionary<string, string> { ["gogoloco"] = "latest" } };
                 var retryJob = new ImportJob("retry-" + partialRetry, new("retry-" + partialRetry, DateTime.UtcNow, [retryPlan]), request, "Failed", "Create", 0, "stopped", "");
                 decisions.ConfirmResult = true;
+                var ownedPartial = retryJob with { Source = request with { CreationId = Guid.NewGuid().ToString("N") } };
+                var placeholders = VrcSetup_Desktop.ViewModels.MainViewModel.IncludePendingProjectFolders([], [ownedPartial], flow.ProjectsRoot);
+                Require(placeholders.Length == (partialRetry ? 1 : 0) && (!partialRetry || placeholders[0].InitializationPending),
+                    "Only existing owned partial folders appear as pending project placeholders: " + partialRetry);
+                if (partialRetry)
+                {
+                    var readySnapshot = placeholders[0] with { InitializationPending = false, UnityVersion = "2022.3.22f1" };
+                    Require(VrcSetup_Desktop.ViewModels.MainViewModel.IncludePendingProjectFolders([readySnapshot], [ownedPartial], flow.ProjectsRoot).Length == 1,
+                        "A scanned project is not duplicated by its import journal entry");
+                    Require(VrcSetup_Desktop.ViewModels.MainViewModel.IncludePendingProjectFolders([], [ownedPartial], Path.Combine(flow.ProjectsRoot, "OtherRoot")).Length == 0,
+                        "Pending project placeholders never escape the selected projects root");
+                    Require(VrcSetup_Desktop.ViewModels.MainViewModel.IncludePendingProjectFolders([], [ownedPartial, ownedPartial with { State = "Completed" }], flow.ProjectsRoot).Length == 0,
+                        "A later completion does not revive an older partial project placeholder");
+                    var currentPage = flow.CurrentPage;
+                    await flow.OpenProjectsAsync(placeholders);
+                    Require(flow.CurrentPage == currentPage && flow.ApplicationNotice.Length > 0,
+                        "Pending project placeholders cannot enter package management before initialization");
+                }
                 var discard = retryJob with { DiscardRequested = true, State = "Completed", Source = request with { EmptyProject = false } };
                 var discardRow = new VrcSetup_Desktop.ViewModels.UiImportRow(discard);
                 Require(discardRow.Step == "Cancellation needs finishing" && discardRow.RecoverVisibility == Visibility.Collapsed

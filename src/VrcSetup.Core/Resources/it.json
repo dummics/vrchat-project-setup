@@ -526,5 +526,7 @@
   "Stopping is taking longer. Your cancellation request is saved.": "L’arresto richiede più tempo. La richiesta di annullamento è salvata.",
   "The cancellation request was not saved. Try again.": "La richiesta di annullamento non è stata salvata. Riprova.",
   "Import cancelled.": "Importazione annullata.",
-  "The import has finished. The project has been kept.": "L’importazione è terminata. Il progetto è stato conservato."
+  "The import has finished. The project has been kept.": "L’importazione è terminata. Il progetto è stato conservato.",
+  "Finish the import from the project warning before managing its packages.": "Completa l’importazione dall’avviso del progetto prima di gestirne i pacchetti.",
+  "Finish the import from the project warning before opening Unity.": "Completa l’importazione dall’avviso del progetto prima di aprire Unity."
 }

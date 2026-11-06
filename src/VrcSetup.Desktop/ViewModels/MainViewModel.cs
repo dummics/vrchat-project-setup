@@ -198,10 +198,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             var root = config.UnityProjectsRoot; var sort = ProjectSort;
-            var scanned = await Task.Run(() => app.Projects.ScanAsync(root, sort, true, cancellationToken: lifetime.Token), lifetime.Token);
+            var scanned = await Task.Run(async () => IncludePendingProjectFolders(
+                await app.Projects.ScanAsync(root, sort, true, cancellationToken: lifetime.Token), app.Imports.Snapshot(), root), lifetime.Token);
             if (root != config.UnityProjectsRoot || sort != ProjectSort) return;
             allProjects = scanned; FilterProjects(); Status = $"{allProjects.Length} projects";
-            try { await app.Catalog.RememberProjectPackagesAsync(allProjects, lifetime.Token); }
+            try { await app.Catalog.RememberProjectPackagesAsync(allProjects.Where(x => !x.InitializationPending).ToArray(), lifetime.Token); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Project package index", error.Message, error); }
         }
         catch when (!Directory.Exists(config.UnityProjectsRoot)) { allProjects = []; FilterProjects(); throw; }
@@ -266,6 +267,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
     public async Task OpenProjectsAsync(ProjectSnapshot[] projects, bool reload = false)
     {
+        if (projects.Any(x => x.InitializationPending))
+        { ApplicationNotice = UiText.Text("Finish the import from the project warning before managing its packages."); return; }
         if (IsApplyingPackages && !(reload && ReferenceEquals(session, applyingSession)) && applyingSession?.Projects.Any(x => projects.Any(y => x.Path.Equals(y.Path, StringComparison.OrdinalIgnoreCase))) == true)
         { Status = "These projects are being updated. You can manage other projects in the meantime."; return; }
         if (!reload && CurrentPage == "Workspace" && session?.MatchesProjects(projects) == true)
@@ -610,6 +613,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async Task LaunchUnityAsync(string project)
     {
         if (!Directory.Exists(project)) throw new IOException("Project folder is unavailable: " + project);
+        if (!File.Exists(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt")))
+        { ApplicationNotice = UiText.Text("Finish the import from the project warning before opening Unity."); return; }
         if (ProjectApplyActive([project]) || ProjectImportsActive([project])) return;
         if (!await FindEditorAsync(true)) return;
         if (app.Projects.IsBusy(project)) { Status = "Project is already open in Unity"; return; }

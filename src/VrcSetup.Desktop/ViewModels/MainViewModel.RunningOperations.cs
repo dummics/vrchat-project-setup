@@ -39,11 +39,12 @@ public sealed partial class MainViewModel
     private void ObserveCreationResults(ImportJob[] jobs)
     {
         var refreshProjects = false;
-        foreach (var job in jobs.Where(x => x.Source.EmptyProject))
+        foreach (var job in jobs)
         {
             if (observedCreations.TryGetValue(job.Id, out var old) && old is "Queued" or "Running" or "Cancelling" or "Pausing" && !job.Active)
             {
-                if (!job.Recoverable) ShowSavedFeedback(string.Format(UiText.Text("Project created: {0}"), job.Name));
+                if (job.Source.EmptyProject && !job.DiscardCompleted && job.State is "Completed" or "Recovered")
+                    ShowSavedFeedback(string.Format(UiText.Text("Project created: {0}"), job.Name));
                 refreshProjects = true;
             }
             observedCreations[job.Id] = job.State;

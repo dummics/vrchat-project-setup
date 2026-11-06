@@ -118,6 +118,7 @@ public sealed record CreationRecipe
 
 public sealed record ProjectSnapshot
 {
+    public bool InitializationPending { get; init; }
     public required string Path { get; init; }
     public required string Name { get; init; }
     public string Kind { get; init; } = "Unity";
