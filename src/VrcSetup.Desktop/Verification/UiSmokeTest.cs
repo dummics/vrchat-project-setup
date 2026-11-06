@@ -59,6 +59,12 @@ public static class UiSmokeTest
         Require(window.AppWindow.Size.Width >= 720 && window.AppWindow.Size.Height >= 580, "Native window enforces a usable minimum size");
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
         Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
+        var numericCreationPreview = new VrcSetup_Desktop.ViewModels.UiCreationPackage(new("fixture.package", "latest", true, null), "Fixture");
+        numericCreationPreview.SetLatestVersion("1.2.3");
+        Require(numericCreationPreview.Version == "1.2.3" && numericCreationPreview.Data.Version == "latest", "Numeric package preview preserves floating version policy");
+        numericCreationPreview.Update(new("fixture.package", "1.0.0", true, null), "Fixture");
+        numericCreationPreview.SetLatestVersion("2.0.0");
+        Require(numericCreationPreview.Version == "1.0.0", "An asynchronous available version never replaces an explicit pin");
         await AppearanceVerification.RunAsync(page, Require);
         Require(viewModel.UnityEditorPath == Path.Combine(artifacts, "saved-editor", "Unity.exe"), "Startup preserves a saved editor path even when its drive is unavailable");
         var installedEditor = UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path;
@@ -512,8 +518,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             page.DispatcherQueue.TryEnqueue(() => dispatched.TrySetResult());
             await dispatched.Task.WaitAsync(TimeSpan.FromSeconds(1));
             Require(responsive.IsInspectingPackage, "Dispatcher remains usable while package analysis is pending");
+            Require(responsive.InspectionStatus.Length > 0 && responsive.InspectionBusyVisibility == Visibility.Visible && !responsive.CreateProjectCommand.CanExecute(null), "File selection immediately exposes analysis progress and blocks premature review");
             responsive.PackageFile = ""; delayed.Release.TrySetResult(); await Task.Delay(120);
             Require(responsive.CreationInspection is null && responsive.InspectionStatus.Length == 0, "Replacing a file rejects stale inspection results");
+            Require(!responsive.CreateProjectCommand.CanExecute(null) && responsive.InspectionBusyVisibility == Visibility.Collapsed, "Clearing the source stops analysis feedback and leaves review unavailable");
         }
         var proof = new DependencyEvidence("Assets/Test.prefab", "script");
         var advice = new PackageInspectionReport(new(1, 0, 0, true, true, [], [], 0), "fixture", "Avatar prefab", 0,

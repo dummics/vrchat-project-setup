@@ -54,6 +54,7 @@ public sealed partial class MainViewModel
         }
         OnPropertyChanged(nameof(DetectedCreationPackagesVisibility));
         OnPropertyChanged(nameof(CreationPackageSummary));
+        RefreshCreationVersions();
     }
     public async Task AddCreationSuggestionAsync(UiCreationPackage row)
     {
@@ -74,7 +75,14 @@ public sealed class UiCreationPackage(PackageSelectionPreview data, string name)
     public string Id => Data.Id;
     public string Name { get; private set; } = name;
     public bool Selected => Data.Selected;
-    public string Version => Data.Version is "latest" ? "Latest" : string.IsNullOrWhiteSpace(Data.Version) ? "Choose version" : Data.Version;
+    private string latestVersion = "Checking version…";
+    public string Version => Data.Version is "latest" ? latestVersion : string.IsNullOrWhiteSpace(Data.Version) ? "Choose version" : Data.Version;
+    public void SetLatestVersion(string value)
+    {
+        if (latestVersion == value) return;
+        latestVersion = value;
+        OnPropertyChanged(nameof(Version)); OnPropertyChanged(nameof(Tooltip)); OnPropertyChanged(nameof(AccessibilityLabel));
+    }
     public string AccessibilityLabel => Name + ", " + UiText.Text(Version);
     public string Hint => Data.Evidence?.Confidence switch
     {

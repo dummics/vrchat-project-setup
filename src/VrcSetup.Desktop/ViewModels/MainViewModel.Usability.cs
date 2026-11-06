@@ -61,6 +61,7 @@ public sealed partial class MainViewModel
     partial void OnFavoritesOnlyChanged(bool value) { libraryFavoriteSnapshot = null; RefreshLibraryRows(); RenderPreset(); }
     partial void OnCurrentPageChanged(string value)
     {
+        if (value == "Create") RefreshCreationVersions();
         BrowsingProjectPackages = value == "Workspace" && session is not null;
         if (value == "Activity") _ = RefreshSavedHistoryAsync();
         if (value is "Presets" or "Workspace" or "ImportPackages" or "NewProject") { libraryFavoriteSnapshot = null; LibraryPackages.Clear(); RefreshLibraryRows(); }

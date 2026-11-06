@@ -70,6 +70,7 @@ public sealed partial class MainViewModel
         OnPropertyChanged(nameof(ApplicationWorking)); OnPropertyChanged(nameof(ApplicationProgressVisibility));
         OnPropertyChanged(nameof(ApplicationProgressIndeterminate)); OnPropertyChanged(nameof(ApplicationStopVisibility));
         OnPropertyChanged(nameof(CanUseUpdateAction));
+        CreateProjectCommand.NotifyCanExecuteChanged();
     }
     [RelayCommand] private async Task OpenApplicationStatus()
     {

@@ -4,7 +4,13 @@ Preview 7 implements the first delivery of the dependency-detection design. Insp
 
 ## Desktop
 
-Selecting a UnityPackage starts one cancellable background inspection. A short status appears if work lasts longer than 300 ms; name/platform/preset controls remain usable. Changing the file cancels that consumer and rejects old results. The selected file's creation overrides reset when the file changes.
+The import recap displays numeric available versions for floating policies, using
+a lazy metadata lookup that cannot register package sources. Explicit pins remain
+unchanged; an available version is not a resolved dependency plan. Loading and
+unavailable states are shown explicitly. These 0.3 candidate changes still await
+runtime verification.
+
+Selecting a UnityPackage starts one cancellable background inspection with immediate status and progress feedback; name/platform/preset controls remain usable. Review is unavailable while analysis or review preparation is running, and a partial or unavailable final analysis still permits explicit manual review. Changing the file cancels that consumer and rejects old results. The selected file's creation overrides reset when the file changes. The 0.3 refactor changes are pending native verification.
 
 Customize packages includes the detected package definitions in the existing selection dialog. Rows show Detected, Possible, Included or a declared version requirement, with evidence in tooltips. Add detected stages eligible additions; Done accepts the working copy and Cancel discards it. Existing pins and opposite SDK kinds are excluded from batch additions. Reopening customization preserves accepted creation overrides.
 

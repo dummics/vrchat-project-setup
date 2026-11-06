@@ -53,7 +53,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial string CurrentPage { get; set; } = "Projects";
     [ObservableProperty] public partial string ProjectFilter { get; set; } = "";
     [ObservableProperty] public partial string PackageFilter { get; set; } = "";
-    [ObservableProperty] public partial string PackageFile { get; set; } = "";
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))] public partial string PackageFile { get; set; } = "";
     [ObservableProperty] public partial string ProjectName { get; set; } = "";
     [ObservableProperty] public partial string SelectedPreset { get; set; } = "My default packages";
     [ObservableProperty] public partial string SelectedRecipe { get; set; } = "No recipe";
@@ -434,8 +434,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(UseImportPresetVisibility)); OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility));
     });
     private Dictionary<string, string>? creationOverrides;
-    [RelayCommand] private async Task CreateProject()
+    [RelayCommand(CanExecute = nameof(CanPrepareImportReview))] private async Task CreateProject()
     {
+        if (IsPreparingImport || IsInspectingPackage) return;
         ImportError = "";
         if (ImportDrafts.Count == 0 && string.IsNullOrWhiteSpace(PackageFile)) { ImportError = "Choose a UnityPackage. For an empty project, use Projects → New project."; return; }
         if (IsInstallingUpdate || IsBusy && !IsApplyingPackages) { ImportError = "Wait for the current operation to finish, then try again."; return; }

@@ -11,11 +11,13 @@ public sealed partial class MainViewModel
 {
     public ObservableCollection<UiImportRow> ImportJobs { get; } = [];
     private const int RequestedParallelism = int.MaxValue;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportReviewLabel))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportReviewLabel)), NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
     public partial bool IsPreparingImport { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportErrorVisibility)), NotifyPropertyChangedFor(nameof(ImportSettingsVisibility))]
     public partial string ImportError { get; set; } = "";
-    public string ImportReviewLabel => IsPreparingImport ? "Preparing review…" : "Review and import";
+    public string ImportReviewLabel => IsPreparingImport ? "Preparing review…" : IsInspectingPackage ? "Checking packages…" : "Review and import";
+    public bool CanPrepareImportReview => !string.IsNullOrWhiteSpace(PackageFile) && !IsPreparingImport && !IsInspectingPackage
+        && !IsInstallingUpdate && (!IsBusy || IsApplyingPackages);
     public Visibility ImportErrorVisibility => ImportError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportSettingsVisibility => ImportError.Contains("Settings", StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ManualImportPathVisibility))] public partial bool ManualImportPath { get; set; }
