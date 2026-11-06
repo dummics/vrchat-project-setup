@@ -81,7 +81,7 @@ public sealed partial class VrcSetupApplication
         if (!UnityProjectDriver.HasBuildSupport(config.UnityEditorPath, buildTarget)) throw new IOException("Unity build support is missing for " + buildTarget);
         var selected = preset is null ? new Dictionary<string, string>(config.VpmPackages) : new(config.PackagePresets.GetValueOrDefault(preset) ?? throw new ArgumentException("Preset not found."));
         var target = Path.Combine(ProjectRules.NormalizePath(config.UnityProjectsRoot), name);
-        var request = new CreationRequest("", name, target, config.UnityEditorPath, buildTarget, [buildTarget], [], EmptyProject: true);
+        var request = new CreationRequest("", name, target, config.UnityEditorPath, buildTarget, [buildTarget], [], EmptyProject: true) { CreationId = Guid.NewGuid().ToString("N") };
         var project = await Planner.PlanAsync(target, selected, config, exact: true, preset: preset ?? "My default packages", creation: request, cancellationToken: cancellationToken);
         return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [project]);
     }
@@ -105,7 +105,7 @@ public sealed partial class VrcSetupApplication
             if (!UnityProjectDriver.HasBuildSupport(config.UnityEditorPath, target)) throw new IOException($"Unity build support is missing for {target}. Install it in Unity Hub before importing.");
         var imports = ExtraImports(config, package).Concat(recipe?.ExtraImports ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var targetPath = Path.Combine(ProjectRules.NormalizePath(config.UnityProjectsRoot), name);
-        var request = new CreationRequest(package, name, targetPath, config.UnityEditorPath, buildTarget, publishingPlatforms, imports);
+        var request = new CreationRequest(package, name, targetPath, config.UnityEditorPath, buildTarget, publishingPlatforms, imports) { CreationId = Guid.NewGuid().ToString("N") };
         var destination = await new ImportDestinationInspector(Projects).InspectAsync(targetPath, package, cancellationToken);
         if (destination.Kind == ImportDestinationKind.Recoverable || destination.CanImportMissing)
             return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [await PlanResumeAsync(request, selected, config, preset, imports, cancellationToken)]);

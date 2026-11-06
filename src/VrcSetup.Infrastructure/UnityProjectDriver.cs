@@ -84,7 +84,9 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             }
             if (request.EmptyProject) await UnityProjectTemplate.EnsureBuiltinModulesAsync(stage, request.UnityEditorPath, cancellationToken);
             await AtomicFile.WriteJsonAsync(Path.Combine(stage, ".vrcsetup", "state.json"), new SetupState
-            { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
+            { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, CreationId = request.CreationId,
+                CreatedTargetPath = request.CreationId is null ? null : ProjectRules.NormalizePath(request.TargetPath),
+                StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
             Directory.Move(stage, request.TargetPath);
         }
         finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
@@ -96,8 +98,14 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             if (result.ExitCode != 0 || !Directory.Exists(Path.Combine(request.TargetPath, "Assets")) || !Directory.Exists(Path.Combine(request.TargetPath, "Packages")))
                 throw new IOException("Unity could not create the project. Log: " + log);
         }
-        await AtomicFile.WriteJsonAsync(Path.Combine(request.TargetPath, ".vrcsetup", "state.json"), new SetupState
-        { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = true } }, cancellationToken);
+        var stateFile = Path.Combine(request.TargetPath, ".vrcsetup", "state.json");
+        var created = await AtomicFile.ReadJsonAsync<SetupState>(stateFile, cancellationToken)
+            ?? throw new IOException("Project creation state is missing. Its files have been preserved.");
+        if (created.CreationId != request.CreationId || created.ProjectName != request.Name || created.UnityPackagePath != request.UnityPackagePath)
+            throw new IOException("Project creation state changed. Its files have been preserved.");
+        created.LastUpdatedAt = DateTime.UtcNow;
+        created.Steps["created"] = true;
+        await AtomicFile.WriteJsonAsync(stateFile, created, cancellationToken);
     }
 
     public async Task<ToolResult> ChangePackageAsync(string project, PackageChange change, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
