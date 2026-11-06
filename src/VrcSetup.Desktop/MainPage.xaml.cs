@@ -274,9 +274,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void ProjectAttentionClicked(object sender, RoutedEventArgs args)
     {
         if (ViewModel.IsClosingApp || (sender as FrameworkElement)?.DataContext is not ProjectSnapshot project) return;
+        await ViewModel.RefreshSavedHistoryAsync();
+        if (ViewModel.IsClosingApp) return;
         var recovery = ViewModel.RecoverableImportForProject(project);
         var registration = ViewModel.PendingRegistrationForProject(project);
+        var backup = ViewModel.LatestProjectBackup(project);
         object content = ProjectAttentionConverter.Description(project);
+        if (project.InitializationPending && recovery is null)
+            content = UiText.Text("The import details are unavailable. Your project is kept. Open the logs for help before trying to import again.");
         if (recovery is not null)
         {
             var details = new StackPanel { Spacing = 8 };
@@ -290,16 +295,19 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             content = details;
         }
         var choice = await ShowDialog(new() { Title = "Project needs attention", Content = content,
-            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : registration is not null ? "Add to Creator Companion" : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "",
+            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : registration is not null ? "Add to Creator Companion" : project.InitializationPending ? "Open logs" : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "Review packages",
+            SecondaryButtonText = backup is not null ? "Restore backup" : "",
             CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
+        if (choice == ContentDialogResult.Secondary && backup is not null) { await ViewModel.RestoreHistoryBackupAsync(backup); return; }
         if (choice == ContentDialogResult.Primary)
         {
             if (recovery is not null) { await ViewModel.RecoverProjectImportAsync(project, recovery.Id); return; }
             if (registration is not null) { await ViewModel.RetryCreatorCompanionAsync(new(registration)); return; }
+            if (project.InitializationPending) { ViewModel.OpenLogsCommand.Execute(null); return; }
             if (ViewModel.IsClosingApp || ViewModel.RecoverableImportForProject(project) is not null) return;
             ViewModel.ReserveExplicitPackageRetry(project);
             await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project);
-            if (ViewModel.WorkspaceMatchesProject(project)) await ViewModel.RetryMissingPackagesCommand.ExecuteAsync(null);
+            if (project.PackageRetrySafe && project.MissingPackages.Length > 0 && ViewModel.WorkspaceMatchesProject(project)) await ViewModel.RetryMissingPackagesCommand.ExecuteAsync(null);
         }
     }
     private async void ProjectOpenClicked(object sender, RoutedEventArgs args)

@@ -147,6 +147,12 @@ public sealed partial class MainViewModel
         RenderPreset(); RefreshLibraryRows();
         return true;
     }
+    public UiHistoryEntry? LatestProjectBackup(ProjectSnapshot project) => savedOperations
+        .OrderByDescending(report => report.CompletedUtc)
+        .SelectMany(report => report.Results.Where(result => result.Path.Equals(project.Path, StringComparison.OrdinalIgnoreCase))
+            .Select(result => new UiHistoryEntry(report with { Results = [result] })))
+        .FirstOrDefault(entry => entry.RestoreVisibility == Visibility.Visible);
+
     public async Task RestoreHistoryBackupAsync(UiHistoryEntry entry) => await Guard(async () =>
     {
         var project = entry.ProjectPath; var file = entry.BackupFile;
@@ -154,8 +160,10 @@ public sealed partial class MainViewModel
         ProjectRules.EnsureContained(Path.Combine(project, ".vrcsetup", "backups"), file);
         var backup = await AtomicFile.ReadJsonAsync<BackupRecord>(file, lifetime.Token) ?? throw new IOException("Backup record not found.");
         if (!await ui.ConfirmAsync("Restore " + entry.Name, "Restore the backup from this operation? Current files are kept in a recovery folder.\n" + project, "Restore backup")) return;
+        if (ProjectImportsActive([project]) || ProjectApplyActive([project])) return;
         using var lease = await app.Projects.AcquireAsync(project, lifetime.Token);
-        if (app.Projects.IsBusy(project)) throw new IOException("Close Unity or wait for the active import before restoring.");
+        if (ProjectImportsActive([project]) || ProjectApplyActive([project]) || app.Projects.IsBusy(project)) throw new IOException("Close Unity or wait for the active import before restoring.");
+        if (entry.RestoreVisibility != Visibility.Visible) throw new IOException("This backup is no longer available. Choose the latest backup for this project.");
         if (!await app.Projects.RestoreAsync(project, backup, new SynchronizationProgress<OperationEvent>(context, AppendActivity), lifetime.Token)) throw new IOException("Restore could not complete; inspect the logs.");
         entry.Health = "Backup restored. Check the project before resuming its import.";
     });
