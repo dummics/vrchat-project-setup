@@ -124,15 +124,23 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 if (backup is not null) await workspace.ConfirmBackupAsync(backup);
                 if (project.Changes.Any(x => x.Id == "com.poiyomi.pro" && x.Kind is ChangeKind.Add or ChangeKind.Update))
                     Emit("Packages", "Poiyomi Pro installer is ready. Open the project in Unity and complete Poiyomi's Patreon sign-in if requested.");
+                var registrationPending = false;
                 if (project.Creation is not null || project.RecoverySource is not null)
                 {
                     var registered = false;
-                    try { registered = await driver.RegisterAsync(project.Path, progress, cancellationToken); }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { /* The project is already complete; only optional registration was interrupted. */ }
+                    // Creation has committed. Optional discovery in VCC must never roll it back
+                    // or present tool stderr as a failed package installation.
+                    var registrationProgress = progress is null ? null : new RegistrationProgress(progress);
+                    try { registered = await driver.RegisterAsync(project.Path, registrationProgress, cancellationToken); }
+                    catch (Exception error)
+                    {
+                        progress?.Report(new(DateTime.UtcNow, "VCC", "Creator Companion registration did not complete.", EventSeverity.Warning, project.Path, error.Message));
+                    }
+                    registrationPending = !registered;
                     if (!registered) warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
                 }
                 var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;
-                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory));
+                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory) { CreatorCompanionPending = registrationPending });
                 Emit("Completed", warnings.Count > 0 ? warnings[0] : "Project saved.", warnings.Count > 0 ? EventSeverity.Warning : EventSeverity.Info);
             }
             catch (ProjectSkippedException error)
@@ -240,5 +248,13 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
         return mismatched.Length > 0 || restoredPins;
     }
 
+    private sealed class RegistrationProgress(IProgress<OperationEvent> target) : IProgress<OperationEvent>
+    {
+        public void Report(OperationEvent value) => target.Report(value with
+        {
+            Phase = "VCC",
+            Severity = value.Severity == EventSeverity.Error ? EventSeverity.Warning : value.Severity
+        });
+    }
     private sealed class ProjectSkippedException(string message) : Exception(message);
 }

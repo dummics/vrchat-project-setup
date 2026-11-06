@@ -275,6 +275,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         if (ViewModel.IsClosingApp || (sender as FrameworkElement)?.DataContext is not ProjectSnapshot project) return;
         var recovery = ViewModel.RecoverableImportForProject(project);
+        var registration = ViewModel.PendingRegistrationForProject(project);
         object content = ProjectAttentionConverter.Description(project);
         if (recovery is not null)
         {
@@ -289,11 +290,12 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             content = details;
         }
         var choice = await ShowDialog(new() { Title = "Project needs attention", Content = content,
-            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "",
+            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : registration is not null ? "Add to Creator Companion" : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "",
             CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
         if (choice == ContentDialogResult.Primary)
         {
             if (recovery is not null) { await ViewModel.RecoverProjectImportAsync(project, recovery.Id); return; }
+            if (registration is not null) { await ViewModel.RetryCreatorCompanionAsync(new(registration)); return; }
             if (ViewModel.IsClosingApp || ViewModel.RecoverableImportForProject(project) is not null) return;
             ViewModel.ReserveExplicitPackageRetry(project);
             await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project);
@@ -387,6 +389,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.OpenImportLog(row); }
     private async void ImportRecoverClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.RecoverImportAsync(row); }
+    private async void ImportRegisterClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.RetryCreatorCompanionAsync(row); }
     private async void ImportDiscardClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.DiscardImportAsync(row); }
     public async Task<string?> PickFileAsync(string extension)

@@ -198,6 +198,28 @@ public sealed class PlannerExecutorTests
         var catalog = new FixtureCatalog(); catalog.Versions[ProjectRules.BaseSdk] = ["3.10.5-beta.1"];
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ProjectPlanner(new MemoryWorkspace(), catalog).PlanAsync(Path.GetFullPath("avatar"), new Dictionary<string, string> { [ProjectRules.BaseSdk] = "3.10.5-beta.1" }, new()));
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OptionalRegistrationFailureNeverRollsBackAReadyProject(bool throws)
+    {
+        var root = Path.GetFullPath("registration-fixture");
+        var target = Path.Combine(root, "project");
+        var request = new CreationRequest("", "project", target, "Unity.exe", "StandaloneWindows64", ["StandaloneWindows64"], [], EmptyProject: true);
+        var workspace = new MemoryWorkspace();
+        var driver = new MemoryDriver(workspace) { FailRegistration = true, RegistrationFailure = throws ? new InvalidOperationException("VCC unavailable") : null };
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(target, new Dictionary<string, string> { [ProjectRules.BaseSdk] = "latest", [ProjectRules.Resolver] = "latest" }, new() { UnityProjectsRoot = root }, creation: request);
+        var events = new List<OperationEvent>();
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("registration", DateTime.UtcNow, [plan]), new CaptureProgress(events));
+        Assert.True(report.Success);
+        var outcome = Assert.Single(report.Results);
+        Assert.Equal(OperationStatus.CompletedWithWarnings, outcome.Status);
+        Assert.True(outcome.CreatorCompanionPending);
+        Assert.True(workspace.Completed);
+        Assert.Equal(0, workspace.Restores);
+        Assert.DoesNotContain(events, x => x.Severity == EventSeverity.Error);
+        Assert.Contains(events, x => x.Phase == "VCC" && x.Severity == EventSeverity.Warning);
+    }
     [Fact] public async Task CancelledOptionalRegistrationKeepsCreatedProjectSuccessful()
     {
         using var cancellation = new CancellationTokenSource();
@@ -261,7 +283,9 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
     { Initializations++; InitializationLeaseHeld = workspace.LeaseHeld; workspace.Project = workspace.Project with { Fingerprint = "initialized" }; return Task.CompletedTask; }
     public IAsyncDisposable? EditorSession;
     public Task<IAsyncDisposable?> BeginPackageChangesAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) => Task.FromResult(EditorSession);
-    public bool Fail, CancelRegistration; public int Calls, UnityCalls, Registrations;
+    public bool Fail, CancelRegistration, FailRegistration;
+    public Exception? RegistrationFailure;
+    public int Calls, UnityCalls, Registrations;
     public Action? AfterResolve;
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -276,5 +300,11 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
     public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { AfterResolve?.Invoke(); return Task.FromResult(new ToolResult(0, "Resolved", "")); }
     public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
-    public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Registrations++; return CancelRegistration && cancellationToken.IsCancellationRequested ? Task.FromCanceled<bool>(cancellationToken) : Task.FromResult(true); }
+    public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
+    {
+        Registrations++;
+        if (FailRegistration) progress?.Report(new(DateTime.UtcNow, "VPM", "[ERROR] Cannot add project", EventSeverity.Error, project));
+        if (RegistrationFailure is not null) throw RegistrationFailure;
+        return CancelRegistration && cancellationToken.IsCancellationRequested ? Task.FromCanceled<bool>(cancellationToken) : Task.FromResult(!FailRegistration);
+    }
 }

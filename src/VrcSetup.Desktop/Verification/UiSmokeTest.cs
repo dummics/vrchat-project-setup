@@ -943,6 +943,14 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedEmpty) is { RecoverVisibility: Visibility.Visible, RetryLabel: "Try again" }, "Failed empty project exposes Try again");
         var failedImport = fixtureJobs[0].Job with { Id = "failed-import", State = "Failed", Plan = fixtureJobs[0].Job.Plan with { CreatedUtc = DateTime.UtcNow.AddMinutes(-5) } };
         var interruptedImport = failedImport with { State = "Interrupted" };
+        var registrationNotice = failedImport with { State = "Completed", CreatorCompanionPending = true, Progress = 100 };
+        var registrationRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice);
+        Require(registrationRow.RegistrationVisibility == Visibility.Visible && registrationRow.RecoverVisibility == Visibility.Collapsed && registrationRow.Step == "Completed with a notice",
+            "Optional VCC failure offers registration retry without suggesting another import");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([registrationNotice], true).Length == 1,
+            "A pending VCC notice is not automatically hidden as a completed import");
+        Require(ProjectAttentionConverter.Description(new ProjectSnapshot { Name = "Ready fixture", Path = artifacts, CreatorCompanionPending = true }) == UiText.Text(registrationRow.Message),
+            "Project and import show the same ready-project notice for optional registration");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport) is { RetryLabel: "Try again", AttentionVisibility: Visibility.Visible }, "Failed imports have a retry action and a quiet warning marker");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(interruptedImport) is { RetryLabel: "Continue import", AttentionVisibility: Visibility.Visible }, "Interrupted imports retain Continue with a quiet warning marker");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedImport).RepairLabel == "Try again", "Activity uses the same retry label for failures");

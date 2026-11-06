@@ -10,6 +10,7 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool PauseRequested { get; init; }
     public bool DiscardRequested { get; init; }
     public bool DiscardCompleted { get; init; }
+    public bool CreatorCompanionPending { get; init; }
     public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
     public bool Recoverable => !DiscardRequested && !DiscardCompleted && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
 }
@@ -100,6 +101,8 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                 foreach (var entry in saved)
                 {
                     var job = entry.Active ? entry with { State = entry.PauseRequested ? "Paused" : "Interrupted", Step = entry.PauseRequested ? "Paused" : "Interrupted", Message = "Ready to continue.", FinishedAt = DateTime.UtcNow } : entry;
+                    if (job.State == "Completed" && job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.")
+                        job = job with { CreatorCompanionPending = true };
                     if (job.Recoverable)
                     {
                         try
@@ -208,7 +211,8 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             {
                 var state = report.Success ? "Completed" : report.Cancelled ? x.PauseRequested ? "Paused" : "Cancelled" : "Failed";
                 return x with { State = state, Step = state, Progress = report.Success ? 100 : x.Progress,
-                    Message = state == "Paused" ? "Ready to continue." : outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile };
+                    Message = state == "Paused" ? "Ready to continue." : outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile,
+                    CreatorCompanionPending = outcome?.CreatorCompanionPending == true };
             });
         }
         catch (OperationCanceledException)

@@ -76,7 +76,7 @@ public sealed partial class MainViewModel
         .Where(x => !x.Source.EmptyProject)
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
         .Select(group => ImportQueue.CurrentForProject(group, group.Key)!)
-        .Where(x => !x.HiddenFromImports && !(hideCompleted && !x.DiscardRequested && x.State is "Completed" or "Recovered"))
+        .Where(x => !x.HiddenFromImports && !(hideCompleted && !x.CreatorCompanionPending && !x.DiscardRequested && x.State is "Completed" or "Recovered"))
         .OrderByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)
@@ -86,6 +86,7 @@ public sealed partial class MainViewModel
         {
             Interlocked.Exchange(ref importUpdateQueued, 0);
             var snapshot = app.Imports.Snapshot();
+            RefreshRegistrationNotices(snapshot);
             ObserveCreationResults(snapshot);
             var jobs = VisibleImportJobs(snapshot, AutoHideCompletedImports); var ids = jobs.Select(x => x.Id).ToHashSet();
             for (var index = ImportJobs.Count - 1; index >= 0; index--) if (!ids.Contains(ImportJobs[index].Id)) ImportJobs.RemoveAt(index);
@@ -186,6 +187,9 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     private bool detailsOpen;
     private string logText = "";
     private double logHeight = 105;
+    private bool isRegistering;
+    public bool IsRegistering { get => isRegistering; set { if (SetProperty(ref isRegistering, value)) OnPropertyChanged(nameof(CanRegister)); } }
+    public bool CanRegister => !IsRegistering;
     public double LogHeight { get => logHeight; set => SetProperty(ref logHeight, value); }
     public bool DetailsOpen { get => detailsOpen; set => SetProperty(ref detailsOpen, value); }
     public string LogText
@@ -218,13 +222,14 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         }
     }
     public string Path => Job.ProjectPath;
-    public string Step => Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? Job.Step switch
+    public string Step => Job.CreatorCompanionPending ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? Job.Step switch
     {
         "Create" => "Creating project", "Prepare" => "Preparing project", "Packages" => "Adding packages",
         "Import" => Job.Plan.Projects.FirstOrDefault()?.RecoverySource is null ? "Importing assets" : "Reimporting assets",
         "Validate" => "Checking project", "Finish" => "Finishing", "Starting" => "Starting…", _ => Job.Step
     } : Job.State == "Queued" ? "Starting…" : Job.State;
-    public string Message => Job.DiscardRequested ? "Your cancellation request is saved. The project is preserved until cleanup finishes."
+    public string Message => Job.CreatorCompanionPending ? "Your project is ready. It was not added to Creator Companion. Retry here, or add it there as an existing project. You do not need to import it again."
+        : Job.DiscardRequested ? "Your cancellation request is saved. The project is preserved until cleanup finishes."
         : Job.DiscardCompleted ? "The import was cancelled and its created project was removed."
         : Job.State switch
         {
@@ -239,9 +244,10 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
     public string RetryLabel => Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
-    public Visibility AttentionVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility AttentionVisibility => Job.Recoverable || Job.CreatorCompanionPending ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RegistrationVisibility => Job.CreatorCompanionPending && !Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DiscardVisibility => !Job.DiscardCompleted && Job.Source.CreationId is not null
         && (Job.Active || Job.Recoverable || Job.DiscardRequested) ? Visibility.Visible : Visibility.Collapsed;
     public void Update(ImportJob value) { OnPropertyChanged(nameof(Elapsed)); if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }

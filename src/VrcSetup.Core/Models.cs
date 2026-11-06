@@ -118,6 +118,7 @@ public sealed record CreationRecipe
 
 public sealed record ProjectSnapshot
 {
+    public bool CreatorCompanionPending { get; init; }
     public bool InitializationPending { get; init; }
     public required string Path { get; init; }
     public required string Name { get; init; }
@@ -165,7 +166,10 @@ public sealed record OperationEvent(DateTime Timestamp, string Phase, string Mes
 {
     public PackageChange? Package { get; init; }
 }
-public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null);
+public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null)
+{
+    public bool CreatorCompanionPending { get; init; }
+}
 public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOutcome[] Results, string[] NotProcessed, string? ReportFile = null)
 {
     public OperationPlan? Plan { get; init; }

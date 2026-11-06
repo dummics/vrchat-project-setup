@@ -6,6 +6,58 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RegistrationRetryOnlyUpdatesTheNoticeAndPersistsItsResult(bool registered)
+    {
+        var app = App; var plan = Plan("Registration");
+        var job = new ImportJob("vcc-retry", plan, plan.Projects.Single().Creation!, "Completed", "Completed", 100,
+            "Project ready; Creator Companion registration failed. Add the existing project in VCC.", "") { CreatorCompanionPending = true };
+        var journal = Path.Combine(app.Paths.Home, "imports.json");
+        await AtomicFile.WriteJsonAsync(journal, new[] { job });
+        await using (var queue = new ImportQueue(app, (_, _, _) => throw new InvalidOperationException("Never repeat the import")))
+        {
+            await queue.InitializeAsync();
+            var calls = 0;
+            Assert.Equal(registered, await queue.RetryRegistrationAsync(job.Id, (selected, _) => { Assert.Equal(job.ProjectPath, selected.ProjectPath); calls++; return Task.FromResult(registered); }));
+            Assert.Equal(1, calls);
+            Assert.Equal(!registered, queue.Snapshot().Single().CreatorCompanionPending);
+            Assert.Equal("Completed", queue.Snapshot().Single().State);
+        }
+        await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
+        Assert.Equal(!registered, reopened.Snapshot().Single().CreatorCompanionPending);
+    }
+    [Fact] public async Task FailedRegistrationNoticeSaveDoesNotPublishSuccess()
+    {
+        var app = App; var plan = Plan("Notice save");
+        var job = new ImportJob("vcc-save", plan, plan.Projects.Single().Creation!, "Completed", "Completed", 100, "", "") { CreatorCompanionPending = true };
+        var journal = Path.Combine(app.Paths.Home, "imports.json"); var saved = journal + ".saved";
+        await AtomicFile.WriteJsonAsync(journal, new[] { job });
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        var publishedSuccess = false;
+        queue.Changed += jobs => publishedSuccess |= jobs.Any(x => !x.CreatorCompanionPending);
+        try
+        {
+            var failure = await Record.ExceptionAsync(() => queue.RetryRegistrationAsync(job.Id, (_, _) =>
+            {
+                File.Move(journal, saved); Directory.CreateDirectory(journal); return Task.FromResult(true);
+            }));
+            Assert.True(failure is IOException or UnauthorizedAccessException, failure?.ToString());
+            Assert.True(queue.Snapshot().Single().CreatorCompanionPending);
+            Assert.False(publishedSuccess);
+        }
+        finally { Directory.Delete(journal); File.Move(saved, journal); }
+    }
+    [Fact] public async Task SupersededRegistrationNoticeCannotRetryAnOlderImport()
+    {
+        var app = App; var plan = Plan("Newer import");
+        var old = new ImportJob("old-vcc", plan, plan.Projects.Single().Creation!, "Completed", "Completed", 100, "", "") { CreatorCompanionPending = true };
+        var current = old with { Id = "new-vcc", CreatorCompanionPending = false };
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { old, current });
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        Assert.False(await queue.RetryRegistrationAsync(old.Id, (_, _) => throw new InvalidOperationException("Must not register stale import")));
+    }
     [Fact] public async Task ShutdownCannotReleaseQueueOwnershipWhileDiscardCleanupIsRunning()
     {
         var app = App; var plan = Plan("Discard shutdown");

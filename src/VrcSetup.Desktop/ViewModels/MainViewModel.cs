@@ -170,7 +170,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         BuildTarget = recipe.BuildTarget; PublishWindows = recipe.PublishingPlatforms.Contains("StandaloneWindows64"); PublishAndroid = recipe.PublishingPlatforms.Contains("Android"); PublishIos = recipe.PublishingPlatforms.Contains("iOS");
         RefreshCreationPackages();
     }
-    private void FilterProjects() { Replace(Projects, ProjectOrdering.Apply(allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase)), ProjectSort)); UpdateProjectState(); }
+    private void FilterProjects()
+    {
+        var visible = allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x with { CreatorCompanionPending = pendingRegistrationPaths.Contains(ProjectRules.NormalizePath(x.Path)) });
+        Replace(Projects, ProjectOrdering.Apply(visible, ProjectSort)); UpdateProjectState();
+    }
     private void RenderWorkspace()
     {
         var selected = SelectedPackage?.Id;

@@ -325,6 +325,16 @@ Attributed partial projects now plan an explicit initialization phase from a rea
 The checks exposed and corrected metadata-only handles that failed to pin a directory against rename, a runner fixture that did not inherit its pipe, partial reads that enumerated absent Packages, and fingerprint/request serialization incompatibilities. A bounded independent static review confirmed its missing-Packages finding was fixed; it is not runtime acceptance. Real Unity compilation/import after partial recovery, native UI layout and appearance crash reproduction, complete archive identity/corpus detection, preexisting-project rollback and the full regression suite remain required.
 # Quick guide (0.3 candidate)
 
+Creator Companion registration is a separate optional step after project completion.
+Its failure is a warning, including exceptions and tool error output; it must not
+restore or repeat the successful import. A pending notice survives restart and
+offers registration-only retry from the import details or project warning.
+The full core suite passed (407 tests), and the native UI smoke passed (530 checks)
+before the final duplicate-click guard. The subsequent desktop build passed with
+zero warnings/errors. Tests cover false/exception registration, retry persistence,
+failed journal writes and superseded imports. Real VCC registration is not covered
+by these isolated checks.
+
 The native offscreen verifier opens and closes the guide in English and Italian,
 expands all seven topics, checks translated content, and renders both dialogs.
 Evidence: `.work/artifacts/ui-guide/` (smoke exit 0). The guide is available from
