@@ -248,6 +248,7 @@ public interface IProjectWorkspace
 
 public interface IProjectDriver
 {
+    Task<IAsyncDisposable?> HoldImportSourceAsync(ProjectPlan plan, CancellationToken token) => Task.FromResult<IAsyncDisposable?>(null);
     Task InitializePartialAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) =>
         throw new NotSupportedException("Partial project initialization is not available in this driver.");
     Task<IAsyncDisposable?> BeginPackageChangesAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) => Task.FromResult<IAsyncDisposable?>(null);

@@ -7,6 +7,12 @@ namespace VrcSetup.Infrastructure;
 
 public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner, ProjectWorkspace workspace, bool registerProjects = true) : IProjectDriver
 {
+    public async Task<IAsyncDisposable?> HoldImportSourceAsync(ProjectPlan plan, CancellationToken token)
+    {
+        var source = plan.Creation ?? plan.RecoverySource;
+        return source is { EmptyProject: false, SourceIdentity: { } identity }
+            ? await PackageSourceIdentity.OpenVerifiedAsync(source.UnityPackagePath, identity, token) : null;
+    }
     private static readonly SemaphoreSlim preparation = new(1);
     public async Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {

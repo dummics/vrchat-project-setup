@@ -18,6 +18,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             var warnings = new List<string>();
             IDisposable? projectLock = null;
             IAsyncDisposable? editorSession = null;
+            IAsyncDisposable? sourceLease = null;
             Emit(phase, $"Project: {project.Name}");
             try
             {
@@ -35,6 +36,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 foreach (var import in project.ImportFingerprints)
                     if (ProjectRules.FileIdentity(import.Key) != import.Value) throw new ProjectSkippedException("UnityPackage changed after review. Review again before importing.");
+                sourceLease = await driver.HoldImportSourceAsync(project, cancellationToken);
                 // VPM edits are consumed by the running editor. Only operations
                 // launching another Unity instance need exclusive editor access.
                 if (project.RequiresUnityBatch && workspace.IsBusy(project.Path))
@@ -166,7 +168,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             finally
             {
                 try { if (editorSession is not null) await editorSession.DisposeAsync(); }
-                finally { projectLock?.Dispose(); }
+                finally { try { if (sourceLease is not null) await sourceLease.DisposeAsync(); } finally { projectLock?.Dispose(); } }
             }
             void Emit(string eventPhase, string message, EventSeverity severity = EventSeverity.Info) => progress?.Report(new(DateTime.UtcNow, eventPhase, message, severity, project.Path));
         }

@@ -5,6 +5,29 @@ namespace VrcSetup.Tests;
 
 public sealed class PlannerExecutorTests
 {
+    [Fact] public async Task InvalidSourceStopsBeforeAnyProjectMutation()
+    {
+        var workspace = new MemoryWorkspace();
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path,
+            new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var driver = new MemoryDriver(workspace) { RejectSource = true };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("invalid-source", DateTime.UtcNow, [project]));
+        Assert.False(report.Success);
+        Assert.Equal(0, workspace.Backups);
+        Assert.Equal(0, workspace.Restores);
+        Assert.Equal(0, driver.Calls);
+        Assert.False(workspace.Completed);
+    }
+    [Fact] public async Task SourceLeaseIsReleasedAfterPackageFailure()
+    {
+        var workspace = new MemoryWorkspace();
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path,
+            new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var driver = new MemoryDriver(workspace) { Fail = true, TrackSourceLease = true };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("source-failure", DateTime.UtcNow, [project]));
+        Assert.False(report.Success);
+        Assert.True(driver.SourceLeaseReleased);
+    }
     [Theory, InlineData(true), InlineData(false)]
     public async Task RecoveryOfPreexistingProjectBacksUpBeforeMutationAndPreservesOpenEditor(bool editorOpen)
     {
@@ -277,6 +300,11 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
+    public bool RejectSource, TrackSourceLease, SourceLeaseReleased;
+    public Task<IAsyncDisposable?> HoldImportSourceAsync(ProjectPlan plan, CancellationToken token) => RejectSource
+        ? Task.FromException<IAsyncDisposable?>(new IOException("Source changed")) : Task.FromResult<IAsyncDisposable?>(TrackSourceLease ? new SourceLease(() => SourceLeaseReleased = true) : null);
+    private sealed class SourceLease(Action release) : IAsyncDisposable
+    { public ValueTask DisposeAsync() { release(); return ValueTask.CompletedTask; } }
     public int Initializations;
     public bool InitializationLeaseHeld;
     public Task InitializePartialAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token)
