@@ -6,6 +6,41 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public void CurrentImportPrefersActiveWorkAndDoesNotReviveAnOlderPausedImport()
+    {
+        var plan = Plan("History"); var source = plan.Projects.Single().Creation!;
+        var paused = new ImportJob("paused", plan, source, "Paused", "Paused", 40, "", "");
+        var completed = paused with { Id = "completed", State = "Completed", HiddenFromImports = true,
+            Plan = plan with { CreatedUtc = plan.CreatedUtc.AddSeconds(1) } };
+        var active = paused with { Id = "active", State = "Running" };
+        Assert.Equal(completed.Id, ImportQueue.CurrentForProject([paused, completed], source.TargetPath.ToUpperInvariant())?.Id);
+        Assert.Equal(active.Id, ImportQueue.CurrentForProject([completed, paused, active], source.TargetPath)?.Id);
+        var afterClockChange = completed with { Id = "clock-change", Plan = plan with { CreatedUtc = plan.CreatedUtc.AddHours(-1) } };
+        Assert.Equal(afterClockChange.Id, ImportQueue.CurrentForProject([paused, completed, afterClockChange], source.TargetPath)?.Id);
+        Assert.Null(ImportQueue.CurrentForProject([paused, completed], Path.Combine(root, "Other")));
+    }
+
+    [Fact] public async Task ContinuationChecksItsPredecessorInsideTheQueueBeforeAddingWork()
+    {
+        var app = App; var plan = Plan("History"); var source = plan.Projects.Single().Creation!;
+        var paused = new ImportJob("paused", plan, source, "Paused", "Paused", 40, "", "");
+        var completed = paused with { Id = "completed", State = "Completed",
+            Plan = plan with { CreatedUtc = plan.CreatedUtc.AddSeconds(1) } };
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { paused, completed });
+        var executed = 0;
+        await using var queue = new ImportQueue(app, (p, _, _) => { Interlocked.Increment(ref executed); return Task.FromResult(Completed(p)); });
+        await queue.InitializeAsync();
+        await Assert.ThrowsAnyAsync<IOException>(() => queue.EnqueueAsync(plan, expectedImportId: paused.Id));
+        Assert.Equal(2, queue.Snapshot().Length);
+        Assert.Equal(0, executed);
+        await queue.EnqueueAsync(plan, expectedImportId: completed.Id);
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(1, executed);
+        await Assert.ThrowsAnyAsync<IOException>(() => queue.EnqueueAsync(plan, expectedImportId: completed.Id));
+        Assert.Equal(3, queue.Snapshot().Length);
+        Assert.Equal(1, executed);
+    }
+
     [Fact] public async Task CancellingShutdownWaitPreservesTheLeaseAndTheActiveWorker()
     {
         var app = App;

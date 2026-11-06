@@ -308,6 +308,9 @@ public static class UiSmokeTest
         using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
         {
             await flow.InitializeAsync();
+            var queue = flow.Application.Imports;
+            var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             foreach (var partialRetry in new[] { false, true })
             {
                 var retryName = partialRetry ? "Partial creation retry" : "Missing creation retry";
@@ -322,7 +325,28 @@ public static class UiSmokeTest
                     DesiredPolicy = new Dictionary<string, string> { ["gogoloco"] = "latest" } };
                 var retryJob = new ImportJob("retry-" + partialRetry, new("retry-" + partialRetry, DateTime.UtcNow, [retryPlan]), request, "Failed", "Create", 0, "stopped", "");
                 decisions.ConfirmResult = true;
-                await flow.RepairHistoryImportAsync(new(retryJob)).WaitAsync(TimeSpan.FromSeconds(5));
+                var newer = retryJob with { Id = retryJob.Id + "-newer", State = "Completed", Plan = retryJob.Plan with { CreatedUtc = retryJob.Plan.CreatedUtc.AddSeconds(1) } };
+                var active = retryJob with { Id = retryJob.Id + "-active", State = "Running" };
+                Require(ImportQueue.CurrentForProject([retryJob, newer], retryPath)?.Id == newer.Id,
+                    "A completed newer import supersedes an older recoverable record: " + partialRetry);
+                Require(ImportQueue.CurrentForProject([retryJob, newer, active], retryPath)?.Id == active.Id,
+                    "An active import takes priority over terminal history for its project: " + partialRetry);
+                lock (queueSync) { queueJobs.Add(retryJob); queueJobs.Add(newer); }
+                try
+                {
+                    var recoveryProject = new ProjectSnapshot { Name = retryName, Path = retryPath };
+                    Require(flow.RecoverableImportForProject(recoveryProject) is null,
+                        "Project recovery does not expose an older import after a newer completion: " + partialRetry);
+                    var pageBefore = flow.CurrentPage; var confirmationsBefore = decisions.Confirmations;
+                    await flow.RepairHistoryImportAsync(new(retryJob)).WaitAsync(TimeSpan.FromSeconds(5));
+                    Require(flow.CurrentPage == pageBefore && decisions.Confirmations == confirmationsBefore,
+                        "A stale repair request cannot open creation or confirmation: " + partialRetry);
+                    lock (queueSync) queueJobs.RemoveAll(x => x.Id == newer.Id);
+                    Require(flow.RecoverableImportForProject(recoveryProject)?.Id == retryJob.Id,
+                        "Project recovery finds the current unfinished import: " + partialRetry);
+                    await flow.RecoverProjectImportAsync(recoveryProject, retryJob.Id).WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                finally { lock (queueSync) queueJobs.RemoveAll(x => x.Id == retryJob.Id || x.Id == newer.Id); }
                 Require(flow.CurrentPage == "NewProject" && flow.PresetPackages.Any(x => x.Id == "gogoloco") && !flow.LibraryPackages.Any(x => x.Id == "gogoloco"), "Retry opens captured one-time choices without a nested action lock or duplicate catalogue entry: " + partialRetry);
                 if (partialRetry) Require(flow.NewProjectName != retryName && await File.ReadAllTextAsync(Path.Combine(retryPath, "preserve.txt")) == "owner data", "Partial retry preserves the old folder and suggests a separate destination");
                 await flow.NavigateAsync("Projects");
@@ -500,9 +524,6 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require((await flow.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(presetBefore.OrderBy(x => x.Key)), "Project-only customization cannot save over the shared preset");
             await flow.UsePresetForImportCommand.ExecuteAsync(null);
             Require(flow.CurrentPage == "Create" && flow.PackageFile == importFile && flow.CreationPackages.Any(x => x.Id == importOptional.Id && x.Selected), "Using a local package selection returns to the unchanged import draft");
-            var queue = flow.Application.Imports;
-            var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
-            var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             var protectedJob = new ImportJob("protected-fixture", new OperationPlan("protected", DateTime.UtcNow, []), new CreationRequest("", "Protected", "fixture", "", "StandaloneWindows64", [], []), "Running", "Import", 20, "", "", DateTime.UtcNow);
             lock (queueSync) queueJobs.Add(protectedJob);
             try

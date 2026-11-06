@@ -273,10 +273,28 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project); }
     private async void ProjectAttentionClicked(object sender, RoutedEventArgs args)
     {
-        if ((sender as FrameworkElement)?.DataContext is not ProjectSnapshot project) return;
-        var choice = await ShowDialog(new() { Title = "Project needs attention", Content = ProjectAttentionConverter.Description(project), PrimaryButtonText = project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
+        if (ViewModel.IsClosingApp || (sender as FrameworkElement)?.DataContext is not ProjectSnapshot project) return;
+        var recovery = ViewModel.RecoverableImportForProject(project);
+        object content = ProjectAttentionConverter.Description(project);
+        if (recovery is not null)
+        {
+            var details = new StackPanel { Spacing = 8 };
+            details.Children.Add(new TextBlock { Text = UiText.Text("This import did not finish. You can continue from here."), TextWrapping = TextWrapping.Wrap });
+            if (!recovery.Source.EmptyProject)
+            {
+                var source = new TextBlock { Text = System.IO.Path.GetFileName(recovery.Source.UnityPackagePath), TextWrapping = TextWrapping.Wrap, Opacity = .7 };
+                ToolTipService.SetToolTip(source, recovery.Source.UnityPackagePath);
+                details.Children.Add(source);
+            }
+            content = details;
+        }
+        var choice = await ShowDialog(new() { Title = "Project needs attention", Content = content,
+            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "",
+            CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
         if (choice == ContentDialogResult.Primary)
         {
+            if (recovery is not null) { await ViewModel.RecoverProjectImportAsync(project, recovery.Id); return; }
+            if (ViewModel.IsClosingApp || ViewModel.RecoverableImportForProject(project) is not null) return;
             ViewModel.ReserveExplicitPackageRetry(project);
             await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project);
             if (ViewModel.WorkspaceMatchesProject(project)) await ViewModel.RetryMissingPackagesCommand.ExecuteAsync(null);

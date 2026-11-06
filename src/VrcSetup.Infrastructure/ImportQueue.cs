@@ -121,12 +121,23 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         Publish();
     }
 
-    public async Task EnqueueAsync(OperationPlan reviewed, int parallelism = 1, CreationRequest? recoverySource = null, CancellationToken token = default)
+    public static ImportJob? CurrentForProject(IEnumerable<ImportJob> snapshot, string path)
+    {
+        var normalized = ProjectRules.NormalizePath(path);
+        // Snapshot/journal order is append order; wall-clock changes must not revive old work.
+        return snapshot.Where(x => ProjectRules.NormalizePath(x.ProjectPath).Equals(normalized, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.Active).LastOrDefault();
+    }
+
+    public async Task EnqueueAsync(OperationPlan reviewed, int parallelism = 1, CreationRequest? recoverySource = null, CancellationToken token = default,
+        string? expectedImportId = null)
     {
         await InitializeAsync(token);
         if (parallelism < 0) throw new ArgumentException("Use zero for automatic scheduling or a positive parallel import count.");
         if (reviewed.Projects.Length == 0 || reviewed.Projects.Select(x => ProjectRules.NormalizePath(x.Path)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != reviewed.Projects.Length)
             throw new ArgumentException("Each import needs a distinct project destination.");
+        if (expectedImportId is not null && reviewed.Projects.Length != 1)
+            throw new ArgumentException("An import continuation needs one project destination.");
         var pending = reviewed.Projects.Select(project =>
         {
             var source = project.Creation ?? project.RecoverySource ?? (reviewed.Projects.Length == 1 ? recoverySource : null) ?? throw new ArgumentException("Import source missing.");
@@ -140,6 +151,8 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             lock (sync)
             {
                 if (stopping) throw new IOException("Import queue is closing.");
+                if (expectedImportId is not null && (CurrentForProject(jobs, pending[0].ProjectPath) is not { Active: false } current || current.Id != expectedImportId))
+                    throw new IOException("This import changed. Choose it again to continue.");
                 var active = jobs.Where(x => x.Active).Select(x => ProjectRules.NormalizePath(x.ProjectPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 if (pending.Any(x => active.Contains(ProjectRules.NormalizePath(x.ProjectPath)))) throw new IOException("An import for this project is already queued.");
                 requestedParallelism = parallelism;

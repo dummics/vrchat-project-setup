@@ -75,7 +75,7 @@ public sealed partial class MainViewModel
     internal static ImportJob[] VisibleImportJobs(ImportJob[] snapshot, bool hideCompleted) => snapshot
         .Where(x => !x.Source.EmptyProject)
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
-        .Select(group => group.OrderBy(x => x.Active).ThenBy(x => x.Plan.CreatedUtc).Last())
+        .Select(group => ImportQueue.CurrentForProject(group, group.Key)!)
         .Where(x => !x.HiddenFromImports && !(hideCompleted && x.State is "Completed" or "Recovered"))
         .OrderByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;

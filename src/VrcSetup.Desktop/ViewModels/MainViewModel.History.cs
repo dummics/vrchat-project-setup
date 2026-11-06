@@ -91,7 +91,7 @@ public sealed partial class MainViewModel
     });
     public async Task RepairHistoryImportAsync(UiHistoryEntry entry) => await Guard(async () =>
     {
-        if (entry.Job is not { Active: false } job || app.Imports.Snapshot().Any(x => x.Active && x.ProjectPath.Equals(job.ProjectPath, StringComparison.OrdinalIgnoreCase))) return;
+        if (entry.Job is not { Active: false } job || !CanRecoverCurrentImport(job)) return;
         var source = job.Source;
         var original = job.Plan.Projects.Single().RecoveryOriginalSource ?? source.UnityPackagePath;
         if (!source.EmptyProject && !File.Exists(source.UnityPackagePath))
@@ -101,6 +101,7 @@ public sealed partial class MainViewModel
             source = source with { UnityPackagePath = chosen };
         }
         var destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, original, lifetime.Token, source.EmptyProject));
+        if (!CanRecoverCurrentImport(job)) return;
         if (destination.Kind is ImportDestinationKind.New or ImportDestinationKind.Partial)
         {
             if (source.EmptyProject)
@@ -108,7 +109,7 @@ public sealed partial class MainViewModel
                 if (!await BeginRetryNewProjectAsync(job, destination.Kind == ImportDestinationKind.Partial)) return;
                 return;
             }
-            if (!await ui.ConfirmAsync("Create a new copy", "Create a separate project? The existing folder stays unchanged.", "New copy")) return;
+            if (!await ui.ConfirmAsync("Create a new copy", "Create a separate project? The existing folder stays unchanged.", "New copy") || !CanRecoverCurrentImport(job)) return;
             if (!await NavigateAsync("Create")) return;
             StageImportFiles([source.UnityPackagePath]);
             var name = job.Name + " (copy)"; var index = 2;
@@ -118,7 +119,7 @@ public sealed partial class MainViewModel
             if (SelectedImportDraft is { } draft) draft.Packages = new(creationOverrides);
             RefreshCreationPackages(); return;
         }
-        if (!await FindEditorAsync(true)) return;
+        if (!await FindEditorAsync(true) || !CanRecoverCurrentImport(job)) return;
         source = source with { UnityEditorPath = config.UnityEditorPath };
         foreach (var platform in source.PublishingPlatforms.Append(source.BuildTarget).Distinct())
             if (!UnityProjectDriver.HasBuildSupport(source.UnityEditorPath, platform)) throw new IOException("Unity build support is missing for " + platform);
@@ -126,13 +127,15 @@ public sealed partial class MainViewModel
         var planned = await Task.Run(() => app.PlanResumeAsync(source, project.DesiredPolicy, config.Copy(), project.PresetName,
             source.ExtraImports.Concat(project.ExtraImports).Where(x => !x.Equals(original, StringComparison.OrdinalIgnoreCase) && !x.Equals(job.Source.UnityPackagePath, StringComparison.OrdinalIgnoreCase)), lifetime.Token, original));
         var plan = new OperationPlan(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [planned]);
-        if (source.EmptyProject || await ui.ReviewAsync(plan)) { await app.Imports.EnqueueAsync(plan, RequestedParallelism, source, lifetime.Token); await NavigateAsync(source.EmptyProject ? "Projects" : "Create"); }
+        if ((source.EmptyProject || await ui.ReviewAsync(plan)) && CanRecoverCurrentImport(job))
+        { await app.Imports.EnqueueAsync(plan, RequestedParallelism, source, lifetime.Token, expectedImportId: job.Id); await NavigateAsync(source.EmptyProject ? "Projects" : "Create"); }
     });
     private async Task<bool> BeginRetryNewProjectAsync(ImportJob job, bool partial)
     {
         if (partial && !await ui.ConfirmAsync("Create a new copy", "Create a separate project? The existing folder stays unchanged.", "New copy")) return false;
+        if (!CanRecoverCurrentImport(job)) return false;
         await BeginNewProjectCoreAsync();
-        if (CurrentPage != "NewProject") return false;
+        if (CurrentPage != "NewProject" || !CanRecoverCurrentImport(job)) return false;
         var name = job.Name; var index = 2;
         while (Directory.Exists(Path.Combine(ProjectsRoot, name)) || File.Exists(Path.Combine(ProjectsRoot, name))) name = job.Name + " (" + index++ + ")";
         NewProjectName = name; NewProjectPlatform = job.Source.BuildTarget;
