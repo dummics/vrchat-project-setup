@@ -8,8 +8,9 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public string Name => Source.Name;
     public string ProjectPath => Source.TargetPath;
     public bool PauseRequested { get; init; }
+    public bool DiscardRequested { get; init; }
     public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
-    public bool Recoverable => State is "Failed" or "Cancelled" or "Interrupted" or "Paused";
+    public bool Recoverable => !DiscardRequested && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
 }
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
@@ -151,9 +152,9 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             lock (sync)
             {
                 if (stopping) throw new IOException("Import queue is closing.");
-                if (expectedImportId is not null && (CurrentForProject(jobs, pending[0].ProjectPath) is not { Active: false } current || current.Id != expectedImportId))
+                if (expectedImportId is not null && (CurrentForProject(jobs, pending[0].ProjectPath) is not { Active: false, DiscardRequested: false } current || current.Id != expectedImportId))
                     throw new IOException("This import changed. Choose it again to continue.");
-                var active = jobs.Where(x => x.Active).Select(x => ProjectRules.NormalizePath(x.ProjectPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var active = jobs.Where(x => x.Active || x.DiscardRequested).Select(x => ProjectRules.NormalizePath(x.ProjectPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 if (pending.Any(x => active.Contains(ProjectRules.NormalizePath(x.ProjectPath)))) throw new IOException("An import for this project is already queued.");
                 requestedParallelism = parallelism;
                 jobs.AddRange(pending);
@@ -264,7 +265,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         {
             lock (sync)
                 for (var index = 0; index < jobs.Count; index++)
-                    if (!jobs[index].Active && jobs[index].State != "Paused") jobs[index] = jobs[index] with { HiddenFromImports = true };
+                    if (!jobs[index].Active && jobs[index].State != "Paused" && !jobs[index].DiscardRequested) jobs[index] = jobs[index] with { HiddenFromImports = true };
             await SaveAsync(token);
         }
         finally { journalGate.Release(); }
@@ -279,7 +280,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             lock (sync)
             {
                 var index = jobs.FindIndex(x => x.Id == id);
-                if (index < 0 || jobs[index].Active || jobs[index].State == "Paused") return;
+                if (index < 0 || jobs[index].Active || jobs[index].State == "Paused" || jobs[index].DiscardRequested) return;
                 jobs[index] = jobs[index] with { HiddenFromImports = true };
             }
             await SaveAsync(token);

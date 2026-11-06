@@ -6,6 +6,30 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task DiscardIntentSurvivesRestartReservesTheTargetAndCannotBeHidden()
+    {
+        var app = App; var plan = Plan("Discard"); var source = plan.Projects.Single().Creation!;
+        var job = new ImportJob("discard", plan, source, "Paused", "Paused", 40, "", "");
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using (var queue = new ImportQueue(app))
+        {
+            await queue.InitializeAsync();
+            await queue.RequestDiscardAsync(job.Id);
+            Assert.True(queue.Snapshot().Single().DiscardRequested);
+            Assert.False(queue.Snapshot().Single().Recoverable);
+            await queue.ClearFinishedAsync(); await queue.DismissAsync(job.Id);
+            Assert.False(queue.Snapshot().Single().HiddenFromImports);
+        }
+        await using var restarted = new ImportQueue(app);
+        await restarted.InitializeAsync();
+        Assert.True(restarted.Snapshot().Single().DiscardRequested);
+        Assert.False(restarted.Snapshot().Single().Active);
+        Assert.False(restarted.Snapshot().Single().Recoverable);
+        await Assert.ThrowsAnyAsync<IOException>(() => restarted.EnqueueAsync(plan));
+        Assert.Single(restarted.Snapshot());
+        Assert.False(Directory.Exists(source.TargetPath));
+    }
+
     [Fact] public void CurrentImportPrefersActiveWorkAndDoesNotReviveAnOlderPausedImport()
     {
         var plan = Plan("History"); var source = plan.Projects.Single().Creation!;

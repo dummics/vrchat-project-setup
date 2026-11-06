@@ -70,7 +70,7 @@ public sealed partial class MainViewModel
     }
     public bool HasActiveImports => app.Imports.HasActiveJobs;
     private bool ImportBlocksAutomaticRetry(string path) => app.Imports.Snapshot()
-        .Any(job => (job.Active || job.State == "Paused") && job.Plan.Projects.Any(p => p.Path.Equals(path, StringComparison.OrdinalIgnoreCase)));
+        .Any(job => (job.Active || job.DiscardRequested || job.State == "Paused") && job.Plan.Projects.Any(p => p.Path.Equals(path, StringComparison.OrdinalIgnoreCase)));
     public bool ImportsIdle => !HasActiveImports;
     internal static ImportJob[] VisibleImportJobs(ImportJob[] snapshot, bool hideCompleted) => snapshot
         .Where(x => !x.Source.EmptyProject)
