@@ -542,6 +542,7 @@
   "Import in progress.": "Importazione in corso.",
   "Add to Creator Companion": "Aggiungi a Creator Companion",
   "Review packages": "Controlla pacchetti",
+  "The project was kept. Open its warning in Projects to continue.": "Il progetto è stato conservato. Apri il suo avviso in Progetti per continuare.",
   "The import stopped and the previous files could not be restored automatically. Your recovery copy was kept. Open the project options to review and restore a backup.": "L’importazione si è interrotta e i file precedenti non sono stati ripristinati automaticamente. La copia di recupero è stata conservata. Apri le opzioni del progetto per controllare e ripristinare un backup.",
   "The UnityPackage changed after it was selected. Choose Try again to select the original file or review the import again.": "Il UnityPackage è cambiato dopo la selezione. Premi Riprova per scegliere il file originale o controllare di nuovo l’importazione.",
   "This package differs from the original. Choose the original UnityPackage to continue.": "Questo file è diverso da quello originale. Scegli il UnityPackage originale per continuare.",

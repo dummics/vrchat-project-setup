@@ -136,7 +136,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
     }
 
     public async Task EnqueueAsync(OperationPlan reviewed, int parallelism = 1, CreationRequest? recoverySource = null, CancellationToken token = default,
-        string? expectedImportId = null)
+        string? expectedImportId = null, bool requireNoProjectHistory = false)
     {
         await InitializeAsync(token);
         if (parallelism < 0) throw new ArgumentException("Use zero for automatic scheduling or a positive parallel import count.");
@@ -144,6 +144,8 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             throw new ArgumentException("Each import needs a distinct project destination.");
         if (expectedImportId is not null && reviewed.Projects.Length != 1)
             throw new ArgumentException("An import continuation needs one project destination.");
+        if (requireNoProjectHistory && (expectedImportId is not null || reviewed.Projects.Length != 1))
+            throw new ArgumentException("Recovery without history needs one project destination.");
         var pending = reviewed.Projects.Select(project =>
         {
             var source = project.Creation ?? project.RecoverySource ?? (reviewed.Projects.Length == 1 ? recoverySource : null) ?? throw new ArgumentException("Import source missing.");
@@ -157,6 +159,8 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             lock (sync)
             {
                 if (stopping) throw new IOException("Import queue is closing.");
+                if (requireNoProjectHistory && CurrentForProject(jobs, pending[0].ProjectPath) is not null)
+                    throw new IOException("This import changed. Choose it again to continue.");
                 if (expectedImportId is not null && (CurrentForProject(jobs, pending[0].ProjectPath) is not { Active: false, DiscardRequested: false } current || current.Id != expectedImportId))
                     throw new IOException("This import changed. Choose it again to continue.");
                 var active = jobs.Where(x => x.Active || x.DiscardRequested).Select(x => ProjectRules.NormalizePath(x.ProjectPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);

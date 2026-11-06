@@ -7,6 +7,40 @@ namespace VrcSetup.Tests;
 
 public sealed class PartialInitializationTests : IDisposable
 {
+    [Fact] public async Task CreationPersistsRecoveryInputsOutsideImportJournal()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        Directory.CreateDirectory(root);
+        var target = Path.Combine(root, "created");
+        var editor = Path.Combine(root, "Unity.exe");
+        File.Copy(typeof(VrcSetup.TestFixtures.EditorMetadataMarker).Assembly.Location, editor);
+        var source = new CreationRequest(Path.Combine(root, "source.unitypackage"), "Avatar", target, editor,
+            "StandaloneWindows64", ["StandaloneWindows64"], ["extra.unitypackage"])
+        { CreationId = Guid.NewGuid().ToString("N"), SourceIdentity = new PackageIdentity(42, new string('A', 64)), RecoveryPolicy = new() { ["com.example.test"] = "1.2.3" } };
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var runner = new ToolRunner(commandOverride: (_, _, _) =>
+        {
+            Directory.CreateDirectory(Path.Combine(target, "Assets"));
+            Directory.CreateDirectory(Path.Combine(target, "Packages"));
+            return Task.FromResult(new ToolResult(0, "", ""));
+        });
+        await new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths)).CreateAsync(source, null, default);
+        var saved = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(target, ".vrcsetup", "state.json"));
+        Assert.NotNull(saved?.CreationRequest);
+        Assert.True(source.MatchesInputs(saved.CreationRequest));
+        Assert.True(ProjectCreationReceipt.Matches(saved.CreationRequest, saved, ProjectDirectoryIdentity.TryRead(target)));
+        Assert.False(File.Exists(Path.Combine(paths.Home, "imports.json")));
+        var recovered = await OrphanImportRecovery.ReadAsync(new ProjectWorkspace(paths), target);
+        Assert.NotNull(recovered);
+        Assert.True(source.MatchesInputs(recovered));
+        saved.CreationRequest = saved.CreationRequest with { SourceIdentity = null };
+        await AtomicFile.WriteJsonAsync(Path.Combine(target, ".vrcsetup", "state.json"), saved);
+        Assert.Null(await OrphanImportRecovery.ReadAsync(new ProjectWorkspace(paths), target));
+        saved.CreationRequest = source;
+        saved.CreationRequest = saved.CreationRequest with { CreationId = Guid.NewGuid().ToString("N") };
+        await AtomicFile.WriteJsonAsync(Path.Combine(target, ".vrcsetup", "state.json"), saved);
+        await Assert.ThrowsAsync<IOException>(() => OrphanImportRecovery.ReadAsync(new ProjectWorkspace(paths), target));
+    }
     private readonly string root = Path.Combine(Path.GetTempPath(), "vrcsetup-partial-init-" + Guid.NewGuid().ToString("N"));
 
     [Theory, InlineData(true), InlineData(false)]

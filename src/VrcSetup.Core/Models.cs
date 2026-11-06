@@ -181,15 +181,19 @@ public sealed record PackageIdentity(long Length, string Sha256);
 public sealed record CreationRequest(string UnityPackagePath, string Name, string TargetPath, string UnityEditorPath, string BuildTarget, string[] PublishingPlatforms, string[] ExtraImports, bool EmptyProject = false)
 {
     public PackageIdentity? SourceIdentity { get; init; }
+    public Dictionary<string, string>? RecoveryPolicy { get; init; }
     // Assigned only when planning a new creation; legacy/recovery inputs stay unattributed.
     public string? CreationId { get; init; }
-    public bool MatchesInputs(CreationRequest? other) => other is not null && CreationId == other.CreationId && SourceIdentity == other.SourceIdentity && Name == other.Name
+    public bool MatchesInputs(CreationRequest? other) => other is not null && CreationId == other.CreationId && SourceIdentity == other.SourceIdentity && PoliciesMatch(RecoveryPolicy, other.RecoveryPolicy) && Name == other.Name
         && EmptyProject == other.EmptyProject && BuildTarget == other.BuildTarget
         && string.Equals(UnityPackagePath, other.UnityPackagePath, StringComparison.OrdinalIgnoreCase)
         && string.Equals(TargetPath, other.TargetPath, StringComparison.OrdinalIgnoreCase)
         && string.Equals(UnityEditorPath, other.UnityEditorPath, StringComparison.OrdinalIgnoreCase)
         && PublishingPlatforms.SequenceEqual(other.PublishingPlatforms, StringComparer.OrdinalIgnoreCase)
         && ExtraImports.SequenceEqual(other.ExtraImports, StringComparer.OrdinalIgnoreCase);
+    private static bool PoliciesMatch(Dictionary<string, string>? first, Dictionary<string, string>? second) =>
+        first is null ? second is null : second is not null && first.Count == second.Count &&
+        first.All(pair => second.TryGetValue(pair.Key, out var value) && string.Equals(pair.Value, value, StringComparison.Ordinal));
 }
 public sealed record PartialProjectInitialization(CreationRequest Source, string ExpectedDirectoryIdentity,
     IReadOnlyDictionary<string, string> ExistingFileFingerprints);

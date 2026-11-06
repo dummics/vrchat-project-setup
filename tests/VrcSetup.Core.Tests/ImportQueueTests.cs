@@ -6,6 +6,15 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task OrphanRecoveryCannotOverwriteAConcurrentImportHistory()
+    {
+        var app = App; var plan = Plan("History appeared");
+        var existing = new ImportJob("existing", plan, plan.Projects.Single().Creation!, "Paused", "Paused", 20, "", "");
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { existing });
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        await Assert.ThrowsAsync<IOException>(() => queue.EnqueueAsync(plan, requireNoProjectHistory: true));
+        Assert.Equal(existing.Id, Assert.Single(queue.Snapshot()).Id);
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

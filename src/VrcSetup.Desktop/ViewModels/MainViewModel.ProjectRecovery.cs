@@ -10,6 +10,37 @@ public sealed partial class MainViewModel
     public ImportJob? RecoverableImportForProject(ProjectSnapshot project) =>
         ImportQueue.CurrentForProject(app.Imports.Snapshot(), project.Path) is { Recoverable: true, Active: false } job ? job : null;
 
+    public async Task<CreationRequest?> OrphanRecoveryForProjectAsync(ProjectSnapshot project)
+    {
+        if (IsClosingApp || ImportQueue.CurrentForProject(app.Imports.Snapshot(), project.Path) is not null) return null;
+        try { return await OrphanImportRecovery.ReadAsync(app.Projects, project.Path, lifetime.Token); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException)
+        { app.Diagnostics.Write("Import recovery", error.Message, error); return null; }
+    }
+
+    public Task ResumeOrphanImportAsync(ProjectSnapshot project, CreationRequest recorded) => Guard(async () =>
+    {
+        var current = await OrphanRecoveryForProjectAsync(project);
+        if (current is null || !recorded.MatchesInputs(current)) throw new IOException("This import changed. Choose it again to continue.");
+        var source = current;
+        if (!source.EmptyProject && (!File.Exists(source.UnityPackagePath) ||
+            await PackageSourceIdentity.ReadAsync(source.UnityPackagePath, lifetime.Token) != source.SourceIdentity))
+        {
+            if (!await ui.ConfirmAsync("Continue import", "The original package is missing or changed. Select the original UnityPackage to continue.", "Choose file")) return;
+            var selected = await ui.PickFileAsync(".unitypackage"); if (selected is null) return;
+            if (await PackageSourceIdentity.ReadAsync(selected, lifetime.Token) != source.SourceIdentity)
+                throw new IOException("This package differs from the original. Choose the original UnityPackage to continue.");
+            source = source with { UnityPackagePath = selected };
+        }
+        if (!await FindEditorAsync(true)) return;
+        source = source with { UnityEditorPath = config.UnityEditorPath };
+        var planned = await app.PlanResumeAsync(source, source.RecoveryPolicy!, config.Copy(), null, source.ExtraImports, lifetime.Token, current.UnityPackagePath);
+        var plan = new OperationPlan(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [planned]);
+        if (!await ui.ReviewAsync(plan)) return;
+        await app.Imports.EnqueueAsync(plan, RequestedParallelism, source, lifetime.Token, requireNoProjectHistory: true);
+        await NavigateAsync(source.EmptyProject ? "Projects" : "Create");
+    });
+
     public Task RecoverProjectImportAsync(ProjectSnapshot project, string expectedImportId)
     {
         var job = RecoverableImportForProject(project);

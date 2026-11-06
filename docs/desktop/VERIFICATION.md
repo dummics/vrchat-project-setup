@@ -325,6 +325,17 @@ Attributed partial projects now plan an explicit initialization phase from a rea
 The checks exposed and corrected metadata-only handles that failed to pin a directory against rename, a runner fixture that did not inherit its pipe, partial reads that enumerated absent Packages, and fingerprint/request serialization incompatibilities. A bounded independent static review confirmed its missing-Packages finding was fixed; it is not runtime acceptance. Real Unity compilation/import after partial recovery, native UI layout and appearance crash reproduction, complete archive identity/corpus detection, preexisting-project rollback and the full regression suite remain required.
 # Quick guide (0.3 candidate)
 
+For new creations the project state retains the original creation request,
+archive identity and selected package policy, separately from the import queue.
+If its journal is missing, the project warning can propose a new reviewed plan
+only after validating the creation receipt. A moved archive must match its saved
+identity; the queue also rejects a newly appeared history entry under its journal
+lock. Legacy records without these inputs are not treated as verified ownership.
+Focused fixture tests cover retained inputs, receipt mismatch, missing identity
+and a concurrent history entry. The complete suite passed 415 tests and the
+offscreen UI smoke passed 535 checks, but the orphan recovery action itself has
+not yet been exercised end-to-end through WinUI and real Unity.
+
 Creator Companion registration is a separate optional step after project completion.
 Its failure is a warning, including exceptions and tool error output; it must not
 restore or repeat the successful import. A pending notice survives restart and

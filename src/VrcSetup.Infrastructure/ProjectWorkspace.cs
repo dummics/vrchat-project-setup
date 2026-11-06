@@ -441,6 +441,10 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
 
 public sealed class SetupState
 {
+    // Written at creation so a lost import journal does not also lose the
+    // source, target platform and archive identity. This is recovery evidence,
+    // not authority to overwrite a project without the creation receipt.
+    public CreationRequest? CreationRequest { get; set; }
     public string? CreationId { get; set; }
     public string? CreatedTargetPath { get; set; }
     public ProjectDirectoryIdentity? CreatedDirectoryIdentity { get; set; }

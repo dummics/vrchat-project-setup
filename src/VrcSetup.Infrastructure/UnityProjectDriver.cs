@@ -90,7 +90,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             }
             if (request.EmptyProject) await UnityProjectTemplate.EnsureBuiltinModulesAsync(stage, request.UnityEditorPath, cancellationToken);
             await AtomicFile.WriteJsonAsync(Path.Combine(stage, ".vrcsetup", "state.json"), new SetupState
-            { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, CreationId = request.CreationId,
+            { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, CreationId = request.CreationId, CreationRequest = request,
                 CreatedTargetPath = request.CreationId is null ? null : ProjectRules.NormalizePath(request.TargetPath),
                 CreatedDirectoryIdentity = request.CreationId is null ? null : ProjectDirectoryIdentity.TryRead(stage),
                 StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);

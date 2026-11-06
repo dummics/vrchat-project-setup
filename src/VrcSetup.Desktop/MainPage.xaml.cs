@@ -292,30 +292,34 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (ViewModel.IsClosingApp) return;
         var recovery = ViewModel.RecoverableImportForProject(project);
         var registration = ViewModel.PendingRegistrationForProject(project);
+        var orphan = recovery is null && registration is null ? await ViewModel.OrphanRecoveryForProjectAsync(project) : null;
+        if (ViewModel.IsClosingApp) return;
         var backup = ViewModel.LatestProjectBackup(project);
         object content = ProjectAttentionConverter.Description(project);
-        if (project.InitializationPending && recovery is null)
+        if (project.InitializationPending && recovery is null && orphan is null)
             content = UiText.Text("The import details are unavailable. Your project is kept. Open the logs for help before trying to import again.");
-        if (recovery is not null)
+        if (recovery is not null || orphan is not null)
         {
             var details = new StackPanel { Spacing = 8 };
             details.Children.Add(new TextBlock { Text = UiText.Text("This import did not finish. You can continue from here."), TextWrapping = TextWrapping.Wrap });
-            if (!recovery.Source.EmptyProject)
+            var recoverySource = recovery?.Source ?? orphan!;
+            if (!recoverySource.EmptyProject)
             {
-                var source = new TextBlock { Text = System.IO.Path.GetFileName(recovery.Source.UnityPackagePath), TextWrapping = TextWrapping.Wrap, Opacity = .7 };
-                ToolTipService.SetToolTip(source, recovery.Source.UnityPackagePath);
+                var source = new TextBlock { Text = System.IO.Path.GetFileName(recoverySource.UnityPackagePath), TextWrapping = TextWrapping.Wrap, Opacity = .7 };
+                ToolTipService.SetToolTip(source, recoverySource.UnityPackagePath);
                 details.Children.Add(source);
             }
             content = details;
         }
         var choice = await ShowDialog(new() { Title = "Project needs attention", Content = content,
-            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : registration is not null ? "Add to Creator Companion" : project.InitializationPending ? "Open logs" : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "Review packages",
+            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : orphan is not null ? "Continue import" : registration is not null ? "Add to Creator Companion" : project.InitializationPending ? "Open logs" : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "Review packages",
             SecondaryButtonText = backup is not null ? "Restore backup" : "",
             CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
         if (choice == ContentDialogResult.Secondary && backup is not null) { await ViewModel.RestoreHistoryBackupAsync(backup); return; }
         if (choice == ContentDialogResult.Primary)
         {
             if (recovery is not null) { await ViewModel.RecoverProjectImportAsync(project, recovery.Id); return; }
+            if (orphan is not null) { await ViewModel.ResumeOrphanImportAsync(project, orphan); return; }
             if (registration is not null) { await ViewModel.RetryCreatorCompanionAsync(new(registration)); return; }
             if (project.InitializationPending) { ViewModel.OpenLogsCommand.Execute(null); return; }
             if (ViewModel.IsClosingApp || ViewModel.RecoverableImportForProject(project) is not null) return;
