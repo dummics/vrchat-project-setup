@@ -271,6 +271,20 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private void ManageSelectionResized(object sender, SizeChangedEventArgs args) => ConstrainForms();
     private async void ProjectPackagesClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is ProjectSnapshot project) await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project); }
+    private void ProjectMoreClicked(object sender, RoutedEventArgs args)
+    {
+        if (ViewModel.IsClosingApp || sender is not FrameworkElement { DataContext: ProjectSnapshot project } anchor) return;
+        var menu = new MenuFlyout();
+        var restore = new MenuFlyoutItem { Text = UiText.Text("Restore backup") };
+        restore.Click += async (_, _) =>
+        {
+            await ViewModel.RefreshSavedHistoryAsync();
+            if (ViewModel.IsClosingApp) return;
+            if (ViewModel.LatestProjectBackup(project) is { } backup) await ViewModel.RestoreHistoryBackupAsync(backup);
+            else await ShowDialog(new() { Title = "Restore backup", Content = UiText.Text("No backup is available for this project."), CloseButtonText = "Close" });
+        };
+        menu.Items.Add(restore); menu.ShowAt(anchor);
+    }
     private async void ProjectAttentionClicked(object sender, RoutedEventArgs args)
     {
         if (ViewModel.IsClosingApp || (sender as FrameworkElement)?.DataContext is not ProjectSnapshot project) return;

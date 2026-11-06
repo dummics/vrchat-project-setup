@@ -66,7 +66,7 @@ public sealed class ProjectRowSurface : Grid
         ColumnSpacing = narrow ? 0 : 16;
         RowSpacing = narrow ? 8 : 0;
         ColumnDefinitions[1].Width = new GridLength(narrow ? 0 : 260);
-        ColumnDefinitions[2].Width = new GridLength(narrow ? 0 : 140);
+        ColumnDefinitions[2].Width = new GridLength(narrow ? 0 : 200);
         foreach (var child in Children.OfType<FrameworkElement>())
         {
             if (child.Name == "ProjectDates") { SetColumn(child, narrow ? 0 : 1); SetRow(child, narrow ? 1 : 0); }
