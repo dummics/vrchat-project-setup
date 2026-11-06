@@ -325,6 +325,13 @@ public static class UiSmokeTest
                     DesiredPolicy = new Dictionary<string, string> { ["gogoloco"] = "latest" } };
                 var retryJob = new ImportJob("retry-" + partialRetry, new("retry-" + partialRetry, DateTime.UtcNow, [retryPlan]), request, "Failed", "Create", 0, "stopped", "");
                 decisions.ConfirmResult = true;
+                var discard = retryJob with { DiscardRequested = true, State = "Completed", Source = request with { EmptyProject = false } };
+                var discardRow = new VrcSetup_Desktop.ViewModels.UiImportRow(discard);
+                Require(discardRow.Step == "Cancellation needs finishing" && discardRow.RecoverVisibility == Visibility.Collapsed
+                    && new VrcSetup_Desktop.ViewModels.UiHistoryEntry(discard).ImportActionsVisibility == Visibility.Collapsed,
+                    "Pending cancellation is not shown as completed or resumable: " + partialRetry);
+                Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([discard], true).Length == 1,
+                    "Auto-hide completed imports retains pending cancellation: " + partialRetry);
                 var newer = retryJob with { Id = retryJob.Id + "-newer", State = "Completed", Plan = retryJob.Plan with { CreatedUtc = retryJob.Plan.CreatedUtc.AddSeconds(1) } };
                 var active = retryJob with { Id = retryJob.Id + "-active", State = "Running" };
                 Require(ImportQueue.CurrentForProject([retryJob, newer], retryPath)?.Id == newer.Id,

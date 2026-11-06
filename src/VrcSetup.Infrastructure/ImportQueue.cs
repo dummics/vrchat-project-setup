@@ -23,6 +23,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
     private readonly List<ImportJob> jobs = [];
     private readonly Dictionary<string, CancellationTokenSource> cancellations = [];
     private readonly List<Task> workers = [];
+    private readonly Dictionary<string, Task> jobWorkers = [];
     private readonly Dictionary<string, long> lastPublication = [];
     private readonly HashSet<string> claimed = [];
     private TaskCompletionSource capacityChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -173,10 +174,13 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             lock (sync)
             {
                 workers.RemoveAll(x => x.IsCompletedSuccessfully);
+                foreach (var id in jobWorkers.Where(x => x.Value.IsCompletedSuccessfully).Select(x => x.Key).ToArray()) jobWorkers.Remove(id);
                 foreach (var item in pending)
                 {
                     var cancellation = cancellations[item.Id];
-                    workers.Add(Task.Run(() => RunAsync(item, cancellation)));
+                    var worker = Task.Run(() => RunAsync(item, cancellation));
+                    workers.Add(worker);
+                    jobWorkers[item.Id] = worker;
                 }
                 PulseCapacity();
             }

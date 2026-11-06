@@ -516,5 +516,8 @@
   "Stopping is taking longer. The app will stay open; your import is preserved.": "L’arresto richiede più tempo. L’app resta aperta e l’importazione viene conservata.",
   "Could not finish closing. The app will stay open.": "Non è stato possibile completare la chiusura. L’app resta aperta.",
   "This import changed. Choose it again to continue.": "L’importazione è cambiata. Selezionala di nuovo per continuare.",
-  "This import did not finish. You can continue from here.": "L’importazione non è terminata. Puoi riprenderla da qui."
+  "This import did not finish. You can continue from here.": "L’importazione non è terminata. Puoi riprenderla da qui.",
+  "Stopping import…": "Arresto dell’importazione…",
+  "Cancellation needs finishing": "Annullamento da completare",
+  "Your cancellation request is saved. The project is preserved until cleanup finishes.": "La richiesta di annullamento è salvata. Il progetto viene conservato finché la pulizia non è conclusa."
 }

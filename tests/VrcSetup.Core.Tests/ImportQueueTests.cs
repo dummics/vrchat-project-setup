@@ -6,6 +6,35 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task WaitingForOneImportDoesNotTreatTheStopRequestAsWorkerExit()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            entered.TrySetResult(); await release.Task;
+            token.ThrowIfCancellationRequested(); return Completed(plan);
+        });
+        try
+        {
+            await queue.EnqueueAsync(Plan("Slow worker"));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var id = queue.Snapshot().Single().Id;
+            await queue.RequestDiscardAsync(id);
+            using var cancellation = new CancellationTokenSource();
+            var stopped = queue.WaitForStoppedAsync(id, cancellation.Token);
+            Assert.False(stopped.IsCompleted);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stopped);
+            Assert.True(queue.HasActiveJobs);
+            release.TrySetResult();
+            await queue.WaitForStoppedAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(queue.HasActiveJobs);
+            Assert.True(queue.Snapshot().Single().DiscardRequested);
+        }
+        finally { release.TrySetResult(); }
+    }
+
     [Fact] public async Task DiscardIntentSurvivesRestartReservesTheTargetAndCannotBeHidden()
     {
         var app = App; var plan = Plan("Discard"); var source = plan.Projects.Single().Creation!;

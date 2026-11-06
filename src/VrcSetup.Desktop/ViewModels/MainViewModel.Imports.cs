@@ -76,7 +76,7 @@ public sealed partial class MainViewModel
         .Where(x => !x.Source.EmptyProject)
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
         .Select(group => ImportQueue.CurrentForProject(group, group.Key)!)
-        .Where(x => !x.HiddenFromImports && !(hideCompleted && x.State is "Completed" or "Recovered"))
+        .Where(x => !x.HiddenFromImports && !(hideCompleted && !x.DiscardRequested && x.State is "Completed" or "Recovered"))
         .OrderByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)
@@ -216,15 +216,15 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         }
     }
     public string Path => Job.ProjectPath;
-    public string Step => Job.State == "Running" ? Job.Step switch
+    public string Step => Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? Job.Step switch
     {
         "Create" => "Creating project", "Prepare" => "Preparing project", "Packages" => "Adding packages",
         "Import" => Job.Plan.Projects.FirstOrDefault()?.RecoverySource is null ? "Importing assets" : "Reimporting assets",
         "Validate" => "Checking project", "Finish" => "Finishing", "Starting" => "Starting…", _ => Job.Step
     } : Job.State == "Queued" ? "Starting…" : Job.State;
-    public string Message => Job.Message.Length > 240 ? Job.Message[..240] + "…" : Job.Message;
+    public string Message => Job.DiscardRequested ? "Your cancellation request is saved. The project is preserved until cleanup finishes." : Job.Message.Length > 240 ? Job.Message[..240] + "…" : Job.Message;
     public int Progress => Job.Progress;
-    public bool CanPause => Job.Active && Job.State is not ("Cancelling" or "Pausing");
+    public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
     public string RetryLabel => Job.State is "Interrupted" or "Paused" ? "Continue import" : "Try again";
     public Visibility AttentionVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;

@@ -16,7 +16,7 @@ public sealed partial class MainViewModel
     public Visibility ImportHistoryEmptyVisibility => ImportHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility OperationHistoryEmptyVisibility => OperationHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility HistoryErrorsVisibility => ImportHistory.Concat(OperationHistory).Any(x => x.State is "Failed" or "Interrupted" or "Partially applied") ? Visibility.Visible : Visibility.Collapsed;
-    public bool CanClearFinishedImports => ImportJobs.Any(x => !x.Job.Active && x.Job.State != "Paused");
+    public bool CanClearFinishedImports => ImportJobs.Any(x => !x.Job.Active && x.Job.State != "Paused" && !x.Job.DiscardRequested);
     [ObservableProperty] public partial bool AutoHideCompletedImports { get; set; }
     partial void OnAutoHideCompletedImportsChanged(bool value) => ImportsChanged(app.Imports.Snapshot());
 
@@ -175,7 +175,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public string ProjectPath => job?.ProjectPath ?? (report?.Results.Length == 1 ? report.Results[0].Path : "");
     public string BackupFile => report?.Results.FirstOrDefault(x => x.Path.Equals(ProjectPath, StringComparison.OrdinalIgnoreCase))?.BackupPath is { Length: > 0 } folder ? Path.Combine(folder, "backup.json") : "";
     public Visibility RestoreVisibility => !Checking && job?.Active != true && File.Exists(BackupFile) && !File.Exists(Path.Combine(Path.GetDirectoryName(BackupFile)!, "superseded")) ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility ImportActionsVisibility => job is { Active: false } && (!job.Source.EmptyProject || job.Recoverable) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ImportActionsVisibility => job is { Active: false, DiscardRequested: false } && (!job.Source.EmptyProject || job.Recoverable) ? Visibility.Visible : Visibility.Collapsed;
     public string RepairLabel => job?.State is "Failed" or "Cancelled" ? "Try again" : job?.Source.EmptyProject == true ? "Retry project creation" : job?.Recoverable == true ? "Continue import" : "Complete missing files";
     public Visibility ProjectActionsVisibility => job?.Active != true && (ProjectPath.Length > 0 || report?.Results.Length > 0) ? Visibility.Visible : Visibility.Collapsed;
     public string StateGlyph => State is "Failed" or "Interrupted" or "Partially applied" or "Not applied" ? "⚠ " : "";
@@ -192,7 +192,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public DateTime Timestamp => job?.Plan.CreatedUtc ?? report!.CompletedUtc;
     public string Date => Timestamp.ToLocalTime().ToString("g");
     public string Name => job?.Name ?? (report!.Results.Length == 1 ? report.Results[0].Project : string.Format(UiText.Text("{0} projects"), report.Results.Length));
-    public string State => job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
+    public string State => job?.DiscardRequested == true ? job.Active ? "Stopping import…" : "Cancellation needs finishing" : job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
         : report!.Success ? report.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) ? "Completed with a notice" : "Completed" : report.Cancelled ? "Cancelled"
         : report.Results.Length > 0 && report.Results.All(x => x.Status == OperationStatus.Skipped) ? "Not applied"
         : report.Results.Any(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings) ? "Partially applied" : "Failed";
