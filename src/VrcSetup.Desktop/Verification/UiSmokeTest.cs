@@ -812,8 +812,11 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     await Task.Delay(650); page.UpdateLayout();
                     Require(Math.Abs(details.ActualWidth - collapsedWidth) < 2, "Package disclosure keeps a stable width while expanding: " + size.Width);
                     var importAction = (FrameworkElement)page.FindName("ImportPrimaryAction");
-                    Require(importAction.TransformToVisual(details).TransformPoint(new(0, 0)).Y >= details.ActualHeight,
-                        "Import action stays below package details: " + size.Width);
+                    var importViewport = (FrameworkElement)page.FindName("CreateView");
+                    var actionTop = importAction.TransformToVisual(page).TransformPoint(new(0, 0)).Y;
+                    var viewportBottom = importViewport.TransformToVisual(page).TransformPoint(new(0, importViewport.ActualHeight)).Y;
+                    Require(actionTop >= viewportBottom - 2 && actionTop + importAction.ActualHeight <= page.ActualHeight,
+                        "Import action stays outside the scrolling package details and within the page: " + size.Width);
                     var footer = (FrameworkElement)page.FindName("StatusBar");
                     var text = (Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("ApplicationStatusText");
                     Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);

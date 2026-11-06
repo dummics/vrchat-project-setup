@@ -63,8 +63,8 @@ public sealed partial class MainViewModel
     }
     public async Task<bool> NavigateAsync(string page)
     {
-        if (page == CurrentPage) return true;
         if (navigating || IsClosingApp || IsInstallingUpdate) return false;
+        if (page == CurrentPage) return true;
         navigating = true;
         try
         {

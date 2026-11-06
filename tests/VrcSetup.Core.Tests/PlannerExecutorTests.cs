@@ -5,6 +5,20 @@ namespace VrcSetup.Tests;
 
 public sealed class PlannerExecutorTests
 {
+    [Theory, InlineData(true), InlineData(false)]
+    public async Task RecoveryOfPreexistingProjectBacksUpBeforeMutationAndPreservesOpenEditor(bool editorOpen)
+    {
+        var workspace = new MemoryWorkspace { Busy = editorOpen };
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path,
+            new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        plan = plan with { RecoverySource = new("", workspace.Project.Name, workspace.Project.Path, "Unity.exe", "StandaloneWindows64", [], [], true) };
+        var report = await new ProjectExecutor(workspace, new MemoryDriver(workspace) { Fail = true }).ApplyAsync(new("recovery-backup", DateTime.UtcNow, [plan]));
+        Assert.False(report.Success);
+        Assert.Equal(1, workspace.Backups);
+        Assert.Equal(editorOpen ? 0 : 1, workspace.Restores);
+        Assert.Equal("backup", report.Results.Single().BackupPath);
+    }
+
     private sealed class CaptureProgress(List<OperationEvent> events) : IProgress<OperationEvent>
     { public void Report(OperationEvent value) => events.Add(value); }
     [Fact] public async Task PackageExecutionPublishesStructuredActionAndVersion()
@@ -170,13 +184,13 @@ public sealed class PlannerExecutorTests
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
         Assert.True(report.Success); Assert.Equal("1.1.0", workspace.Project.InstalledVersions["tool"]); Assert.True(workspace.Completed);
     }
-    [Fact] public async Task ReimportDoesNotCreateOrRestoreABackup()
+    [Fact] public async Task ReimportOfPreexistingProjectKeepsABackupWithoutRestoringOnSuccess()
     {
         var workspace = new MemoryWorkspace(); var driver = new MemoryDriver(workspace);
         var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
         project = project with { RecoverySource = new("source.unitypackage", project.Name, project.Path, "Unity.exe", "StandaloneWindows64", [], []) };
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
-        Assert.True(report.Success); Assert.Equal(0, workspace.Backups); Assert.Equal(0, workspace.Restores); Assert.Null(report.Results.Single().BackupPath);
+        Assert.True(report.Success); Assert.Equal(1, workspace.Backups); Assert.Equal(0, workspace.Restores); Assert.Equal("backup", report.Results.Single().BackupPath);
         Assert.Equal(1, driver.Registrations);
     }
     [Fact] public async Task PrereleaseSdkMustExistForEveryLinkedComponent()

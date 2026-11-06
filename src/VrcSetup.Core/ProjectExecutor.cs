@@ -76,7 +76,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 editorWasOpen = workspace.IsBusy(project.Path);
                 editorSession = await driver.BeginPackageChangesAsync(project, progress, cancellationToken);
-                if (project.RecoverySource is null)
+                if (project.RecoverySource is null || project.RecoverySource.CreationId is null)
                 {
                     phase = "Backup";
                     backup = await workspace.BackupAsync(project, cancellationToken);
