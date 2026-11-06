@@ -539,5 +539,20 @@
   "History": "Cronologia",
   "The import did not finish. The project and recovery information were kept.": "L’importazione non è terminata. Il progetto e i dati di recupero sono stati conservati.",
   "The import stopped. The project was kept.": "L’importazione si è fermata. Il progetto è stato conservato.",
-  "Import in progress.": "Importazione in corso."
+  "Import in progress.": "Importazione in corso.",
+  "Quick guide": "Guida rapida",
+  "Import an avatar": "Importare un avatar",
+  "Review suggested packages": "Scegliere i pacchetti consigliati",
+  "Pause and continue": "Mettere in pausa e riprendere",
+  "Cancel an import": "Annullare un’importazione",
+  "Find the original package": "Ritrovare il pacchetto originale",
+  "Work with Unity open": "Lavorare con Unity aperto",
+  "Resolve an error": "Risolvere un problema",
+  "Choose a UnityPackage, check the project name, destination and platform, then review the package choices before importing. Keep the original archive available until the import is complete.": "Scegli un UnityPackage e controlla nome del progetto, cartella di destinazione e piattaforma. Prima di importare, verifica i pacchetti selezionati. Conserva l’archivio originale fino al termine dell’importazione.",
+  "Suggestions help you choose packages; they never install or remove anything by themselves. Check the creator's instructions when a suggestion needs confirmation. A newer available version is not necessarily required by the avatar.": "I suggerimenti ti aiutano a scegliere: non installano né rimuovono pacchetti da soli. Se una proposta è da confermare, confrontala con le istruzioni del creator. Una versione più recente disponibile non è necessariamente richiesta dall’avatar.",
+  "Pause keeps the project and your import request. Wait until the import has stopped. You can continue from the import row or the project warning, including after reopening the app.": "La pausa conserva il progetto e l’importazione. Attendi che l’operazione si fermi, poi puoi riprenderla dalla sua riga o dall’avviso in Progetti, anche dopo aver riaperto l’app.",
+  "Cancel and remove project deletes the project created for that import, including its files, after confirmation. Pause keeps it instead. Existing or unverified projects are preserved; the app explains when automatic removal is unavailable. A pending cancellation has not finished yet.": "Annulla ed elimina progetto rimuove, dopo la tua conferma, il progetto creato per quell’importazione e tutti i suoi file. La pausa invece lo conserva. I progetti preesistenti o non verificabili vengono preservati: l’app segnala quando non può eliminarli automaticamente. Annullamento da completare significa che l’operazione non è ancora conclusa.",
+  "If the source archive was moved, the recovery flow asks you to select it again. Choose the same original UnityPackage and review the proposed work. The app does not make a large automatic copy of your archive.": "Se hai spostato l’archivio, durante il recupero ti verrà chiesto di selezionarlo di nuovo. Scegli lo stesso UnityPackage originale e controlla il lavoro proposto. L’app non crea automaticamente una copia pesante dell’archivio.",
+  "Package changes can run with Unity open when supported. Imports that launch Unity and full backup restoration require the editor to be closed. Follow the message for the selected operation; never force-close an editor with unsaved work.": "Le modifiche ai pacchetti compatibili possono essere eseguite con Unity aperto. Le importazioni che avviano Unity e il ripristino completo di un backup richiedono invece l’editor chiuso. Segui l’indicazione dell’operazione scelta e salva il lavoro prima di chiudere Unity.",
+  "Use the action beside the affected import or project. The message explains what was kept and what to do next. Activity records what happened; Open log and Export diagnostics provide details when you need help.": "Usa l’azione accanto all’importazione o al progetto interessato. Il messaggio indica cosa è stato conservato e come procedere. Attività è la cronologia di ciò che è successo; Apri log ed Esporta diagnostica raccolgono i dettagli utili se hai bisogno di assistenza."
 }

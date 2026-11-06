@@ -151,10 +151,33 @@ public static class UiSmokeTest
             await Render(contact, Path.Combine(artifacts, "contact-dialog.png"));
         }
         finally { contact.Hide(); await contactTask; }
+        var guideLanguage = UiText.Language;
+        try
+        {
+            foreach (var language in new[] { "it", "en" })
+            {
+                UiText.Language = language;
+                var guide = page.CreateQuickGuideDialog(); guide.XamlRoot = page.XamlRoot;
+                var guideTask = guide.ShowAsync(); await Task.Delay(150);
+                try
+                {
+                    var topics = Descendants(guide).OfType<Microsoft.UI.Xaml.Controls.Expander>().ToArray();
+                    Require(topics.Length == MainPage.QuickGuideTopics.Length, "Quick guide exposes each topic in " + language);
+                    foreach (var topic in topics) topic.IsExpanded = true;
+                    await Task.Delay(180);
+                    Require(topics.All(x => ((FrameworkElement)x.Content).ActualHeight > 0), "Expanded guide topics remain readable in " + language);
+                    Require(language != "it" || MainPage.QuickGuideTopics.All(x => UiText.Text(x.Title) != x.Title && UiText.Text(x.Description) != x.Description), "Every guide topic has Italian copy");
+                    await Render(guide, Path.Combine(artifacts, "quick-guide-" + language + ".png"));
+                }
+                finally { guide.Hide(); await guideTask; }
+            }
+        }
+        finally { UiText.Language = guideLanguage; }
         var information = (FrameworkElement)page.FindName("InformationItem");
         var informationMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.GetAttachedFlyout(information);
         informationMenu.ShowAt(information); await Task.Delay(100);
-        Require(informationMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().All(x => x.Command is not null), "Information opens a contextual popup with bound support commands"); informationMenu.Hide();
+        var supportItems = informationMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().ToArray();
+        Require(supportItems.Length == 5 && supportItems[0].Text == UiText.Text("Quick guide") && supportItems.Skip(1).All(x => x.Command is not null), "Information offers the guide and bound support commands"); informationMenu.Hide();
         window.AppWindow.Resize(new(1180, 800)); navigation.IsPaneOpen = true; await Task.Delay(250);
         var informationHeights = new List<double>(); page.ToggleInformation();
         for (var i = 0; i < 6; i++) { await Task.Delay(40); informationHeights.Add(((FrameworkElement)page.FindName("InformationSurface")).ActualHeight); }

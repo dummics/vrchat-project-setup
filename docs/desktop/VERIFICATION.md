@@ -323,3 +323,11 @@ After the owner authorized hidden verification, the backend and x64 desktop comp
 Attributed partial projects now plan an explicit initialization phase from a read-only partial snapshot. Execution verifies the physical receipt and reviewed file fingerprints under the project lock, adds missing manifest/version/Assets scaffold and preserves existing files. A metadata-only test assembly copied as `Unity.exe` validates the positive path without executing an editor. Tests cover absent Packages, JSON roundtrip, receipt/file mismatch, policy preservation and initialization under the executor lock. Existing installed/locked package versions are retained during partial planning. Legacy partial projects without a creation receipt keep the conservative separate-creation route.
 
 The checks exposed and corrected metadata-only handles that failed to pin a directory against rename, a runner fixture that did not inherit its pipe, partial reads that enumerated absent Packages, and fingerprint/request serialization incompatibilities. A bounded independent static review confirmed its missing-Packages finding was fixed; it is not runtime acceptance. Real Unity compilation/import after partial recovery, native UI layout and appearance crash reproduction, complete archive identity/corpus detection, preexisting-project rollback and the full regression suite remain required.
+# Quick guide (0.3 candidate)
+
+The native offscreen verifier opens and closes the guide in English and Italian,
+expands all seven topics, checks translated content, and renders both dialogs.
+Evidence: `.work/artifacts/ui-guide/` (smoke exit 0). The guide is available from
+Information; it is optional and can be reopened. This does not verify a first-run
+tutorial or keyboard/screen-reader acceptance.
+
