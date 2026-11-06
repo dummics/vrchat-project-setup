@@ -11,6 +11,31 @@ public sealed class PackageInspectionTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "VrcSetup.Inspection.Tests", Guid.NewGuid().ToString("N"));
     private const string A = "11111111111111111111111111111111", B = "22222222222222222222222222222222", C = "33333333333333333333333333333333";
+    [Theory]
+    [InlineData("script", DependencyConfidence.Detected)]
+    [InlineData("shader", DependencyConfidence.Possible)]
+    [InlineData("asset", DependencyConfidence.Possible)]
+    public void StrongDetectionRequiresMatchingSignatureKindAndKeepsObservedVersionsAsProvenance(string kind, DependencyConfidence expected)
+    {
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], [new(A, "Assets/Main.prefab", [new(B, "script"), new(B, "script")], [], false)], 0);
+        var report = DependencyAdvisor.Match(observation, new("fixture", [new(B, "example.package", "1.0.0", kind, "release-one"), new(B, "example.package", "3.0.0", kind, "release-three")]));
+        var hint = Assert.Single(report.Suggestions);
+        Assert.Equal(expected, hint.Confidence); Assert.Null(hint.VersionConstraint);
+        var proof = Assert.Single(hint.Evidence);
+        Assert.Equal(["3.0.0", "1.0.0"], proof.ObservedVersions);
+        Assert.Equal(["release-one", "release-three"], proof.SignatureSources);
+    }
+
+    [Fact] public void GenericAnchorInAnotherAvatarDoesNotEstablishASharedTypedRequirement()
+    {
+        const string other = "44444444444444444444444444444444", anchor = "55555555555555555555555555555555";
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], [
+            new(A, "Assets/PC.prefab", [new(C, "script"), new(B, "script")], [], false),
+            new(other, "Assets/Quest.prefab", [new(C, "script"), new(anchor, "script")], [], false)], 0);
+        var signatures = new SignatureSnapshot("fixture", [new(C, ProjectRules.AvatarSdk, "3.10.5", "script", "sdk"),
+            new(B, "example.package", "1.0.0", "script", "typed"), new(anchor, "example.package", "1.0.0", "asset", "generic")]);
+        Assert.Equal(DependencyConfidence.Possible, DependencyAdvisor.Match(observation, signatures).Suggestions.Single(x => x.Id == "example.package").Confidence);
+    }
     private PackageInspectionService Service(IUnityPackageInspector? reader = null) => new(new AppPaths(Path.Combine(root, "home")), reader);
     private sealed class LimitedReader(string limitation) : IUnityPackageInspector
     {

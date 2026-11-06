@@ -15,7 +15,7 @@ public sealed partial class MainViewModel
     [ObservableProperty, NotifyPropertyChangedFor(nameof(InspectionVisibility))] public partial string InspectionStatus { get; set; } = "";
     public Visibility InspectionVisibility => InspectionStatus.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool CanInspectDeeper => !IsInspectingPackage && CreationInspection is not null;
-    public string InspectionReviewNote => IsInspectingPackage ? "Package analysis is still running. This review uses your current selection." : CreationInspection is { Observation.ArchiveComplete: false } or { Observation.TextComplete: false } ? "Package analysis is partial. Review your package selection." : "";
+    public string InspectionReviewNote => IsInspectingPackage ? "Checking packages…" : CreationInspection is { Observation.ArchiveComplete: false } or { Observation.TextComplete: false } ? "Confirm the suggested packages before importing." : "";
     [RelayCommand] private async Task InspectDeeper() => await InspectCreationPackageAsync(PackageFile, true);
     private async Task InspectCreationPackageAsync(string file, bool deep = false)
     {
@@ -31,19 +31,21 @@ public sealed partial class MainViewModel
             {
                 if (inspectionRequest != request || request.IsCancellationRequested) return;
                 CreationInspection = report;
-                InspectionStatus = "Checking larger package…";
+                InspectionStatus = "Checking packages…";
             });
             var pending = app.Inspection.InspectForImportAsync(file, deep, partial, request.Token);
             var report = await pending;
             if (inspectionRequest != request || request.IsCancellationRequested) return;
             CreationInspection = report;
             var detected = report.Suggestions.Count(x => x.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared);
-            InspectionStatus = !report.Observation.ArchiveComplete || !report.Observation.TextComplete ? (detected > 0 ? $"{detected} packages detected · partial analysis" : "Partial analysis · review packages") : detected > 0 ? $"{detected} packages detected" : "Analysis finished · review packages";
+            InspectionStatus = !report.Observation.ArchiveComplete || !report.Observation.TextComplete || report.UnresolvedReferences > 0
+                ? "Confirm the suggested packages before importing."
+                : detected > 0 ? string.Format(UiText.Text("{0} packages to review"), detected) : "No additional packages found.";
         }
         catch (OperationCanceledException) { }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            if (inspectionRequest == request) { InspectionStatus = "Analysis unavailable · choose packages manually"; app.Diagnostics.Write("Package inspection", error.Message, error); }
+            if (inspectionRequest == request) { InspectionStatus = "Choose packages manually to continue."; app.Diagnostics.Write("Package inspection", error.Message, error); }
         }
         finally { if (inspectionRequest == request) { IsInspectingPackage = false; inspectionRequest = null; } request.Dispose(); }
     }

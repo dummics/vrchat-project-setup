@@ -23,6 +23,7 @@ Import automatically retries a budget-limited scan once with the larger local bu
 ```powershell
 vrcsetup inspect 'C:\Downloads\Avatar.unitypackage' --json
 vrcsetup inspect 'C:\Downloads\Avatar.unitypackage' --deep --json
+vrcsetup inspect 'C:\Downloads\Avatar.unitypackage' --json --advice
 vrcsetup inspect 'C:\Downloads\Avatar.unitypackage' --index-project 'F:\Unity Projects\Existing Avatar' --json
 ```
 
@@ -31,6 +32,23 @@ Inspection is local-only, including deep mode. `--index-project` explicitly read
 JSON contains the archive observation, coverage flags/limitations, index revision, scope, unresolved reference count, suggestions with evidence/constraints, and FromCache. Exit 0 means archive traversal completed; text analysis can still be partial. Exit 2 means partial/invalid archive traversal or cancellation. Always inspect coverage, not exit code alone. ScanMilliseconds is the duration of the original scan, including when its observation is subsequently served from cache.
 
 ## Detection and safeguards
+
+The 0.3 candidate adds advisory proposals for missing packages, declared version
+requirements and bundled package overlap. `--json --advice` wraps the inspection
+with AdviceSchema, the current configuration's default package selection and
+proposals; plain `--json` retains the inspection-report shape. No proposal edits
+the selection or project. A range without an exact proposed version needs manual
+choice. Bundled overlap requests review, not automatic removal. Absence of a
+reference is never a removal recommendation.
+
+GUID evidence records bounded signature sources and observed versions. These
+versions describe the index observations, not a minimum compatible release.
+Strong script/shader detection requires a matching signature kind; generic
+anchors and ambiguous matches in other avatar variants cannot establish a
+shared typed requirement. New regression coverage is written but unexecuted.
+Normal UI copy presents suggested actions; archive/text limits and unresolved
+references remain available in the diagnostic report, without claiming complete
+dependency certainty.
 
 GZipStream/TarReader traverse the archive sequentially. Asset/path/meta entries are associated by GUID independently of member order. Bounded text parsing observes serialized script/shader/asset references and embedded package manifests. Binary/model/media assets are not imported or decoded. Their intentional exclusion does not mark eligible Unity text as truncated: TextComplete refers to supported text analysis, not every byte or importer feature. Gzip bytes still need decompression when skipping their contents.
 

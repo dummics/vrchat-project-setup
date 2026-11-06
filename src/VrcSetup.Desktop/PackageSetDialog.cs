@@ -54,16 +54,17 @@ public sealed class PackageSetDialog : IDisposable
         notice = new InfoBar { IsOpen = false, IsClosable = true }; panel.Children.Add(notice);
         if (inspection is not null)
         {
-            var recommended = inspection.Suggestions.Where(x => DependencyAdvisor.SuggestedVersion(x) is not null && !working.ContainsKey(x.Id)
-                && !(x.Id == ProjectRules.WorldSdk && working.ContainsKey(ProjectRules.AvatarSdk)) && !(x.Id == ProjectRules.AvatarSdk && working.ContainsKey(ProjectRules.WorldSdk))).ToArray();
+            var proposals = DependencyAdvisor.Propose(working, inspection);
+            var recommended = proposals.Where(x => x.Kind == DependencyProposalKind.Add && x.ProposedVersion is not null).Select(x => x.Evidence).ToArray();
             if (recommended.Length > 0)
             {
             var addDetected = new Button { Content = string.Format(UiText.Text("Add detected ({0})"), recommended.Length), MinHeight = 30, Padding = new Thickness(10, 4, 10, 4) };
                 addDetected.Click += (_, _) => { foreach (var item in recommended) if (!session.Rows().Any(x => x.Id == item.Id && x.Included)) session.SetVersion(item.Id, DependencyAdvisor.SuggestedVersion(item)!); Render(); addDetected.Visibility = Visibility.Collapsed; };
                 panel.Children.Add(addDetected);
             }
-            if (!inspection.Observation.ArchiveComplete || !inspection.Observation.TextComplete) ShowNotice("Analysis is partial. Other packages may still be required.");
-            else if (inspection.Suggestions.Any(x => x.Confidence == DependencyConfidence.Included && working.ContainsKey(x.Id))) ShowNotice("This file includes packages also present in your selection. Review before importing.");
+            if (!inspection.Observation.ArchiveComplete || !inspection.Observation.TextComplete) ShowNotice("Confirm the suggested packages before importing.");
+            else if (proposals.Any(x => x.Kind == DependencyProposalKind.ReviewBundled)) ShowNotice("Some selected packages are already in the file. Check your selection.");
+            else if (proposals.Any(x => x.Kind == DependencyProposalKind.ReviewVersion)) ShowNotice("Check selected versions against the package requirements before importing.");
         }
         list = new ListView { SelectionMode = ListViewSelectionMode.None, MaxHeight = 480, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         list.ItemsSource = visibleRows;
@@ -164,8 +165,14 @@ public sealed class PackageSetDialog : IDisposable
         {
             detail.Tag = row.Id;
             var hint = Advice(row.Id);
-            detail.Text = hint is null ? row.Id : hint.Confidence == DependencyConfidence.Declared ? "Requires " + hint.VersionConstraint : hint.Confidence.ToString();
-            ToolTipService.SetToolTip(detail, hint is null ? row.Id : row.Id + "\n" + string.Join("\n", hint.Evidence.Take(3).Select(x => x.Kind + " · " + x.Asset)));
+            detail.Text = hint is null ? row.Id : hint.Confidence switch
+            {
+                DependencyConfidence.Included => UiText.Text("In file"),
+                DependencyConfidence.Declared => UiText.Text("Requires ") + hint.VersionConstraint,
+                DependencyConfidence.Detected => UiText.Text("Suggested"),
+                _ => UiText.Text("Needs confirmation")
+            };
+            ToolTipService.SetToolTip(detail, hint is null ? row.Id : row.Id + "\n" + EvidenceTooltip(hint));
         }
         if (parent is PackageVersionSelector selector)
         {
@@ -174,11 +181,15 @@ public sealed class PackageSetDialog : IDisposable
                 selector.VersionSource = versionCache.GetAsync;
                 selector.VersionPicked += VersionPicked;
                 if (inspection?.Suggestions.FirstOrDefault(x => x.Id.Equals(selector.PackageId, StringComparison.OrdinalIgnoreCase)) is { } advice)
-                    ToolTipService.SetToolTip(selector, advice.Confidence + (advice.VersionConstraint is { Length: > 0 } constraint ? " · requires " + constraint : "") + "\n" + string.Join("\n", advice.Evidence.Take(3).Select(x => x.Kind + " · " + x.Asset)));
+                    ToolTipService.SetToolTip(selector, UiText.Text(advice.Confidence.ToString()) + (advice.VersionConstraint is { Length: > 0 } constraint ? " · " + UiText.Text("Requires ") + constraint : "") + "\n" + EvidenceTooltip(advice));
             }
         }
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++) WireSelectors(VisualTreeHelper.GetChild(parent, index));
     }
+    private static string EvidenceTooltip(DependencySuggestion suggestion) => string.Join("\n", suggestion.Evidence.Take(3).Select(proof =>
+        proof.Kind + " · " + proof.Asset
+        + (proof.ObservedVersions.Length > 0 ? "\n" + UiText.Text("Observed versions") + ": " + string.Join(", ", proof.ObservedVersions) : "")
+        + (proof.SignatureSources.Length > 0 ? "\n" + string.Join("\n", proof.SignatureSources.Take(2)) : "")));
     private void VersionPicked(object? sender, string value)
     {
         if (sender is not PackageVersionSelector selector) return;
