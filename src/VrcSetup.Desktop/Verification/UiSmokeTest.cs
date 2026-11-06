@@ -933,6 +933,22 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             }
         }
         viewModel.CurrentPage = "Create";
+        var backupProject = Path.Combine(artifacts, "backup-choice-project");
+        var backupRoot = Path.Combine(backupProject, ".vrcsetup", "backups");
+        var olderBackup = Path.Combine(backupRoot, "older"); var newestBackup = Path.Combine(backupRoot, "newest");
+        Directory.CreateDirectory(olderBackup); Directory.CreateDirectory(newestBackup);
+        await File.WriteAllTextAsync(Path.Combine(olderBackup, "backup.json"), "{}");
+        await File.WriteAllTextAsync(Path.Combine(newestBackup, "backup.json"), "{}");
+        var backupSnapshot = new ProjectSnapshot { Name = "Fixture", Path = backupProject };
+        OperationReport BackupReport(string id, string folder, int minutes, string? path = null) => new(id, DateTime.UtcNow.AddMinutes(minutes),
+            [new("Fixture", path ?? backupProject, OperationStatus.Failed, "", BackupPath: folder)], []);
+        var backupReports = new[] { BackupReport("older", olderBackup, -3), BackupReport("newest", newestBackup, -1),
+            BackupReport("other-project", newestBackup, 0, Path.Combine(artifacts, "other-project")) };
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.LatestProjectBackup(backupSnapshot, backupReports)?.Id == "newest", "Project warning selects the latest backup for the same project");
+        await File.WriteAllTextAsync(Path.Combine(newestBackup, "superseded"), "");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.LatestProjectBackup(backupSnapshot, backupReports)?.Id == "older", "Project warning excludes superseded backups");
+        File.Delete(Path.Combine(olderBackup, "backup.json"));
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.LatestProjectBackup(backupSnapshot, backupReports) is null, "Project warning excludes missing backup records");
         var jobList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("ImportQueueList");
         var jobSection = (FrameworkElement)page.FindName("ImportQueueSection");
         var fixtureJobs = new[] { "First avatar", "Second avatar" }.Select((name, index) => new VrcSetup_Desktop.ViewModels.UiImportRow(

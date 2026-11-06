@@ -147,7 +147,8 @@ public sealed partial class MainViewModel
         RenderPreset(); RefreshLibraryRows();
         return true;
     }
-    public UiHistoryEntry? LatestProjectBackup(ProjectSnapshot project) => savedOperations
+    public UiHistoryEntry? LatestProjectBackup(ProjectSnapshot project) => LatestProjectBackup(project, savedOperations);
+    internal static UiHistoryEntry? LatestProjectBackup(ProjectSnapshot project, IEnumerable<OperationReport> reports) => reports
         .OrderByDescending(report => report.CompletedUtc)
         .SelectMany(report => report.Results.Where(result => result.Path.Equals(project.Path, StringComparison.OrdinalIgnoreCase))
             .Select(result => new UiHistoryEntry(report with { Results = [result] })))
