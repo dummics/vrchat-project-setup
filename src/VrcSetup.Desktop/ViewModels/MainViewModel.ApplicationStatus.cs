@@ -20,17 +20,18 @@ public sealed partial class MainViewModel
         try { await Task.Delay(TimeSpan.FromSeconds(4), lifetime.Token); if (sequence == noticeSequence) ApplicationNotice = ""; }
         catch (OperationCanceledException) { }
     }
-    public bool ApplicationWorking => IsCreatingProject || IsApplyingPackages || IsBusy || IsRefreshing || IsInspectingPackage || IsPreparingImport || IsSearchingPackages
+    public bool ApplicationWorking => IsClosingApp || IsCreatingProject || IsApplyingPackages || IsBusy || IsRefreshing || IsInspectingPackage || IsPreparingImport || IsSearchingPackages
         || HasActiveImports || IsDownloadingUpdate || IsInstallingUpdate || IsCheckingUpdate;
     public bool ApplicationProgressIndeterminate => !IsDownloadingUpdate || UpdateStatus == "Preparing update…";
     public Visibility ApplicationProgressVisibility => ApplicationWorking ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ApplicationStatusVisibility => ApplicationStatus.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ApplicationStopVisibility => IsBusy && !IsApplyingPackages && !IsPreparingImport ? Visibility.Visible : Visibility.Collapsed;
-    public bool CanUseUpdateAction => MainInteractionEnabled && !IsBusy && !IsCreatingProject && !IsApplyingPackages && !IsDownloadingUpdate && !IsCheckingUpdate;
+    public bool CanUseUpdateAction => !IsClosingApp && MainInteractionEnabled && !IsBusy && !IsCreatingProject && !IsApplyingPackages && !IsDownloadingUpdate && !IsCheckingUpdate;
     public string ApplicationStatus
     {
         get
         {
+            if (IsClosingApp) return UiText.Text("Preparing to close…");
             var parts = new List<string>();
             if (IsCreatingProject) parts.Add(UiText.Text("Creating project"));
             if (app.Imports.Snapshot().Any(x => x.Source.EmptyProject && x.Recoverable && !x.HiddenFromImports)) parts.Add(UiText.Text("Project creation stopped"));
@@ -57,7 +58,7 @@ public sealed partial class MainViewModel
     {
         PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName is nameof(IsBusy) or nameof(IsRefreshing) or nameof(IsInspectingPackage) or nameof(IsPreparingImport) or nameof(IsSearchingPackages)
+            if (args.PropertyName is nameof(IsClosingApp) or nameof(IsBusy) or nameof(IsRefreshing) or nameof(IsInspectingPackage) or nameof(IsPreparingImport) or nameof(IsSearchingPackages)
                 or nameof(IsApplyingPackages) or nameof(HasActiveImports) or nameof(IsDownloadingUpdate) or nameof(UpdateDownloadPercent)
                 or nameof(IsInstallingUpdate) or nameof(UpdateFailed) or nameof(UpdateStatus) or nameof(IsCheckingUpdate) or nameof(MemoryWarning) or nameof(ApplicationNotice))
                 NotifyApplicationStatus();

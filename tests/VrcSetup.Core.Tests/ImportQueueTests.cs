@@ -6,6 +6,44 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task CancellingShutdownWaitPreservesTheLeaseAndTheActiveWorker()
+    {
+        var app = App;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var queue = new ImportQueue(app, async (plan, _, token) =>
+        {
+            using var registration = token.Register(() => stopRequested.TrySetResult());
+            entered.TrySetResult();
+            await release.Task; // A worker may take time to acknowledge its stop request.
+            token.ThrowIfCancellationRequested();
+            return Completed(plan);
+        });
+        using var wait = new CancellationTokenSource();
+        try
+        {
+            await queue.EnqueueAsync(Plan("Slow stop"));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var shutdown = queue.ShutdownAsync(wait.Token);
+            await stopRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            wait.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => shutdown);
+            Assert.True(queue.HasActiveJobs);
+            Assert.Equal("Pausing", queue.Snapshot().Single().State);
+            await using (var competing = new ImportQueue(app))
+                await Assert.ThrowsAnyAsync<IOException>(() => competing.InitializeAsync());
+            release.TrySetResult();
+            await WaitUntil(() => !queue.HasActiveJobs);
+            Assert.Equal("Paused", queue.Snapshot().Single().State);
+            await queue.ShutdownAsync();
+            await using var reopened = new ImportQueue(app);
+            await reopened.InitializeAsync();
+            Assert.Equal("Paused", reopened.Snapshot().Single().State);
+        }
+        finally { release.TrySetResult(); }
+    }
+
     [Fact] public async Task FailedPauseJournalWriteDoesNotStopTheWorkerOrLeavePauseIntent()
     {
         var app = App;

@@ -337,6 +337,19 @@ public static class UiSmokeTest
             await flow.ExportLogsCommand.ExecuteAsync(null);
             Require(decisions.SaveFileRequests == pickerRequests + 1 && flow.IsBusy, "Diagnostic export remains accessible while busy without changing operation state");
             flow.IsBusy = false;
+            flow.IsClosingApp = true;
+            try
+            {
+                Require(!flow.CanPrepareImportReview && !flow.CanCreateConfiguredProject && !flow.CanUseUpdateAction,
+                    "Closing reserves import, project creation and update actions");
+                var requestsBeforeClosing = decisions.SaveFileRequests;
+                await flow.ExportLogsCommand.ExecuteAsync(null);
+                Require(decisions.SaveFileRequests == requestsBeforeClosing && !await flow.NavigateAsync("Settings"),
+                    "Closing guards queued actions and navigation without disabling the window");
+                Require(flow.ApplicationWorking && flow.ApplicationStatus.Length > 0,
+                    "Closing exposes progress in the application status area");
+            }
+            finally { flow.IsClosingApp = false; }
             var initialConfigText = await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile);
             var initialImportFile = flow.PackageFile;
             await flow.BeginNewProjectAsync(); flow.EditingPreset = "Creator renamed"; flow.NewProjectName = "Local creation fixture";
@@ -450,6 +463,8 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             await flow.NavigateAsync("Settings");
             var savedPrefix = flow.NamingPrefix; flow.NamingPrefix = "Unsaved fixture";
             Require(flow.SettingsDirty && !await flow.NavigateAsync("Projects") && !await flow.ConfirmCloseAsync(), "Settings cancellation protects edits on navigation and close");
+            Require(!await flow.PrepareToCloseAsync() && !flow.IsClosingApp && flow.SettingsDirty,
+                "Cancelling the dirty-settings close prompt restores actions and preserves edits");
             decisions.SettingsChoice = "Discard";
             Require(await flow.NavigateAsync("Projects") && !flow.SettingsDirty && flow.NamingPrefix == savedPrefix, "Discard reloads saved settings");
             await flow.NavigateAsync("Settings"); flow.UnityEditorPath = ""; flow.NamingPrefix = "Saved fixture"; decisions.SettingsChoice = "Save";

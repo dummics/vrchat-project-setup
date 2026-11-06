@@ -15,7 +15,7 @@ public sealed partial class MainViewModel
     [ObservableProperty, NotifyPropertyChangedFor(nameof(NewProjectNameErrorVisibility))] public partial string NewProjectNameError { get; set; } = "";
     public Visibility NewProjectNameErrorVisibility => NewProjectNameError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     partial void OnNewProjectNameChanged(string value) => NewProjectNameError = value.Length == 0 ? "" : ProjectRules.NameError(value.Trim()) ?? "";
-    public bool CanCreateConfiguredProject => !IsCreatingProject && ProjectRules.NameError(NewProjectName.Trim()) is null;
+    public bool CanCreateConfiguredProject => !IsClosingApp && !IsCreatingProject && ProjectRules.NameError(NewProjectName.Trim()) is null;
     [ObservableProperty] public partial string NewProjectPlatform { get; set; } = "StandaloneWindows64";
     public DisplayOption[] NewProjectPlatforms => [new("StandaloneWindows64", "Windows"), new("Android", "Android / Quest"), new("iOS", "iOS")];
     public Visibility NewProjectVisibility => editingNewProject ? Visibility.Visible : Visibility.Collapsed;
@@ -36,7 +36,7 @@ public sealed partial class MainViewModel
     }
     [RelayCommand(CanExecute = nameof(CanCreateConfiguredProject))] private async Task CreateConfiguredProject()
     {
-        if (IsCreatingProject) return;
+        if (IsClosingApp || IsCreatingProject) return;
         if (ProjectRules.NameError(NewProjectName.Trim()) is { } error) { NewProjectNameError = error; return; }
         IsCreatingProject = true;
         try { await CreateEmptyProjectAsync(NewProjectName.Trim(), EditingPreset, NewProjectPlatform, new(presetWorking)); }

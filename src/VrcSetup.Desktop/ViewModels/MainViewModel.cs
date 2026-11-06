@@ -233,8 +233,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         foreach (var initial in allProjects.Where(x => x.Incomplete && x.PackageRetrySafe && x.MissingPackages.Length > 0).ToArray())
         {
-            if (lifetime.IsCancellationRequested || IsBusy || IsApplyingPackages || IsInstallingUpdate) return;
-            if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(initial.Path, StringComparison.OrdinalIgnoreCase)))) continue;
+            if (lifetime.IsCancellationRequested || IsClosingApp || IsBusy || IsApplyingPackages || IsInstallingUpdate) return;
+            if (ImportBlocksAutomaticRetry(initial.Path)) continue;
             if (!automaticPackageRetries.Add(initial.Path)) continue;
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             applyingSession = new PackageEditSession([initial], config, []); operation = cancellation;
@@ -244,12 +244,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 var fresh = await app.Projects.ReadAsync(initial.Path, cancellation.Token);
                 if (!fresh.Incomplete || !fresh.PackageRetrySafe || fresh.MissingPackages.Length == 0) continue;
                 if (fresh.MissingPackages.Contains("com.poiyomi.pro", StringComparer.OrdinalIgnoreCase) && Directory.Exists(Path.Combine(fresh.Path, "Assets", "_PoiyomiShaders"))) continue;
-                if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(fresh.Path, StringComparison.OrdinalIgnoreCase)))) continue;
+                if (ImportBlocksAutomaticRetry(fresh.Path)) continue;
                 var selected = fresh.MissingPackages.ToDictionary(id => id, id => fresh.Packages.GetValueOrDefault(id) ?? "latest", StringComparer.OrdinalIgnoreCase);
                 var plan = await Task.Run(() => app.Planner.PlanBulkAsync([fresh.Path], selected, config.Copy(), cancellationToken: cancellation.Token));
                 if (plan.Projects.Any(p => p.Changes.Any(c => c.Kind != ChangeKind.Keep && !fresh.MissingPackages.Contains(c.Id, StringComparer.OrdinalIgnoreCase)) || p.LegacyAssetPaths.Any(x => File.Exists(Path.Combine(p.Path, x)) || Directory.Exists(Path.Combine(p.Path, x)))) || PackageDowngrades.RequiresConfirmation(plan))
                     throw new InvalidOperationException("Retry needs additional package changes. Review the project before continuing.");
-                if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(fresh.Path, StringComparison.OrdinalIgnoreCase)))) continue;
+                if (IsClosingApp || ImportBlocksAutomaticRetry(fresh.Path)) continue;
                 applyingProjects = plan.Projects;
                 var report = await Run(plan, cancellation);
                 if (report.Success)
@@ -287,7 +287,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(WorkspaceAttention)); OnPropertyChanged(nameof(WorkspaceAttentionVisibility)); OnPropertyChanged(nameof(MissingPackagesActionVisibility));
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : string.Format(UiText.Text("{0} projects"), projects.Length); PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
         if (!reload && fresh.Count == 1 && fresh[0].Incomplete && fresh[0].PackageRetrySafe && fresh[0].MissingPackages.Length > 0 &&
-            !IsBusy && !IsApplyingPackages && !ProjectImportsActive([fresh[0].Path]) && automaticPackageRetries.Add(fresh[0].Path))
+            !IsClosingApp && !IsBusy && !IsApplyingPackages && !ImportBlocksAutomaticRetry(fresh[0].Path) && automaticPackageRetries.Add(fresh[0].Path))
             await RetryMissingPackages();
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>
@@ -436,7 +436,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private Dictionary<string, string>? creationOverrides;
     [RelayCommand(CanExecute = nameof(CanPrepareImportReview))] private async Task CreateProject()
     {
-        if (IsPreparingImport || IsInspectingPackage) return;
+        if (IsClosingApp || IsPreparingImport || IsInspectingPackage) return;
         ImportError = "";
         if (ImportDrafts.Count == 0 && string.IsNullOrWhiteSpace(PackageFile)) { ImportError = "Choose a UnityPackage. For an empty project, use Projects → New project."; return; }
         if (IsInstallingUpdate || IsBusy && !IsApplyingPackages) { ImportError = "Wait for the current operation to finish, then try again."; return; }
@@ -444,7 +444,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             await actionGate.WaitAsync(lifetime.Token);
-            try { await QueueCreationAsync(); }
+            try { if (!IsClosingApp) await QueueCreationAsync(); }
             finally { actionGate.Release(); }
         }
         catch (OperationCanceledException) { ImportError = "Import preparation cancelled. Your files are still selected."; }
@@ -618,13 +618,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private static void OpenPath(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     private async Task Guard(Func<Task> action, bool allowWhileBusy = false, bool serialize = true)
     {
-        if (IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
+        if (IsClosingApp || IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
         var area = CurrentPage;
         var actionId = Guid.NewGuid().ToString("N");
         if (serialize) await actionGate.WaitAsync(lifetime.Token);
         try
         {
-            if (IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
+            if (IsClosingApp || IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
             ErrorMessage = ""; ErrorNeedsDiagnostics = true; ErrorSeverity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error;
             app.Diagnostics.RecordAction(area, actionId, "Started");
             await action();

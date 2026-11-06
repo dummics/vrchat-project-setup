@@ -301,24 +301,27 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Import history", error.Message, error); }
         finally { journalGate.Release(); }
     }
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => new(ShutdownAsync());
+
+    // Cancelling the wait keeps the queue lease: it does not prove that a worker stopped.
+    public async Task ShutdownAsync(CancellationToken token = default)
     {
-        await disposalGate.WaitAsync();
+        await disposalGate.WaitAsync(token);
         try
         {
             Task[] pending;
-            await journalGate.WaitAsync();
+            await journalGate.WaitAsync(token);
             try { lock (sync) { stopping = true; pending = workers.ToArray(); } }
             finally { journalGate.Release(); }
             try
             {
-                foreach (var job in Snapshot().Where(x => x.Active)) await RequestPauseAsync(job.Id, true);
-                await Task.WhenAll(pending);
+                foreach (var job in Snapshot().Where(x => x.Active)) await RequestPauseAsync(job.Id, true, token);
+                await Task.WhenAll(pending).WaitAsync(token);
             }
             catch
             {
                 lock (sync) { stopping = false; PulseCapacity(); }
-                throw; // Keep the lease and workers available when saving pause intent fails.
+                throw; // Preserve ownership if saving fails or the caller stops waiting.
             }
             monitoring.Cancel(); if (resourceWorker is not null) await resourceWorker;
             lease?.Dispose(); lease = null;

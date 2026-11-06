@@ -17,7 +17,7 @@ public sealed partial class MainViewModel
     public partial string ImportError { get; set; } = "";
     public string ImportReviewLabel => IsPreparingImport ? "Preparing review…" : IsInspectingPackage ? "Checking packages…" : "Review and import";
     public bool CanPrepareImportReview => !string.IsNullOrWhiteSpace(PackageFile) && !IsPreparingImport && !IsInspectingPackage
-        && !IsInstallingUpdate && (!IsBusy || IsApplyingPackages);
+        && !IsClosingApp && !IsInstallingUpdate && (!IsBusy || IsApplyingPackages);
     public Visibility ImportErrorVisibility => ImportError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImportSettingsVisibility => ImportError.Contains("Settings", StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ManualImportPathVisibility))] public partial bool ManualImportPath { get; set; }
@@ -50,6 +50,7 @@ public sealed partial class MainViewModel
     }
     public void StageImportFiles(IEnumerable<string> selected)
     {
+        if (IsClosingApp) return;
         ImportError = "";
         foreach (var path in selected.Select(x => ProjectRules.NormalizePath(x)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -68,6 +69,8 @@ public sealed partial class MainViewModel
         NotifyDrafts();
     }
     public bool HasActiveImports => app.Imports.HasActiveJobs;
+    private bool ImportBlocksAutomaticRetry(string path) => app.Imports.Snapshot()
+        .Any(job => (job.Active || job.State == "Paused") && job.Plan.Projects.Any(p => p.Path.Equals(path, StringComparison.OrdinalIgnoreCase)));
     public bool ImportsIdle => !HasActiveImports;
     internal static ImportJob[] VisibleImportJobs(ImportJob[] snapshot, bool hideCompleted) => snapshot
         .Where(x => !x.Source.EmptyProject)
