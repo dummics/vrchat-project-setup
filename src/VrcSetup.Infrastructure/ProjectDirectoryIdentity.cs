@@ -6,6 +6,26 @@ namespace VrcSetup.Infrastructure;
 // A missing identity never grants permission to remove or replace a directory.
 public sealed record ProjectDirectoryIdentity(ulong Volume, ulong FileIdLow, ulong FileIdHigh)
 {
+    // Only empty directories; ownership/receipt authorization belongs to the caller.
+    public static void RemoveEmptyDirectory(string path, ProjectDirectoryIdentity expected)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        var full = Path.GetFullPath(path);
+        var parent = Directory.GetParent(full)?.FullName ?? throw new IOException("Cannot remove a volume root.");
+        var parentIdentity = TryRead(parent) ?? throw new IOException("The parent location cannot be verified.");
+        using var ancestors = HoldPath(parent, parentIdentity);
+        using var handle = CreateFileW(full, 0x00010000, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+        if (Read(handle) != expected) throw new IOException("The project location changed. Its files have been preserved.");
+        var disposition = new DispositionInfo { Delete = 1 };
+        if (!SetDisposition(handle, 4, ref disposition, 1))
+            throw new IOException("The directory could not be removed. It may still contain files.", new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+        handle.Dispose();
+        try { _ = File.GetAttributes(full); }
+        catch (FileNotFoundException) { return; }
+        catch (DirectoryNotFoundException) { return; }
+        throw new IOException("Directory removal has not been confirmed. The cancellation remains pending.");
+    }
+
     public static ProjectDirectoryIdentity? TryRead(string path)
     {
         if (!OperatingSystem.IsWindows()) return null;
@@ -58,6 +78,11 @@ public sealed record ProjectDirectoryIdentity(ulong Volume, ulong FileIdLow, ulo
     private struct AttributeInfo { public uint Attributes; public uint ReparseTag; }
     [StructLayout(LayoutKind.Sequential)]
     private struct IdentityInfo { public ulong Volume; public ulong Low; public ulong High; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DispositionInfo { public byte Delete; }
+    [DllImport("kernel32.dll", EntryPoint = "SetFileInformationByHandle", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetDisposition(SafeFileHandle handle, int infoClass, ref DispositionInfo info, uint size);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
     [DllImport("kernel32.dll", EntryPoint = "GetFileInformationByHandleEx", SetLastError = true)]
