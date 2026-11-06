@@ -86,8 +86,13 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             await AtomicFile.WriteJsonAsync(Path.Combine(stage, ".vrcsetup", "state.json"), new SetupState
             { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, CreationId = request.CreationId,
                 CreatedTargetPath = request.CreationId is null ? null : ProjectRules.NormalizePath(request.TargetPath),
+                CreatedDirectoryIdentity = request.CreationId is null ? null : ProjectDirectoryIdentity.TryRead(stage),
                 StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
             Directory.Move(stage, request.TargetPath);
+            var movedState = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(request.TargetPath, ".vrcsetup", "state.json"), cancellationToken);
+            if (movedState?.CreatedDirectoryIdentity is not null
+                && !ProjectCreationReceipt.Matches(request, movedState, ProjectDirectoryIdentity.TryRead(request.TargetPath)))
+                throw new IOException("Project creation location changed. Its files have been preserved.");
         }
         finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
         if (!request.EmptyProject)

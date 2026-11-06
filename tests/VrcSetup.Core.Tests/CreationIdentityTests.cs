@@ -7,6 +7,42 @@ namespace VrcSetup.Tests;
 
 public sealed class CreationIdentityTests
 {
+    [Fact] public void ReceiptRequiresMatchingRequestTargetAndPhysicalIdentity()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "receipt-fixture");
+        var request = new CreationRequest("avatar.unitypackage", "Avatar", path, "Unity.exe", "StandaloneWindows64", [], [])
+            { CreationId = Guid.NewGuid().ToString("N") };
+        var identity = new ProjectDirectoryIdentity(1, 2, 3);
+        var state = new SetupState { CreationId = request.CreationId, ProjectName = request.Name,
+            CreatedTargetPath = path, CreatedDirectoryIdentity = identity };
+        Assert.True(ProjectCreationReceipt.Matches(request, state, identity));
+        Assert.False(ProjectCreationReceipt.Matches(request, state, null));
+        Assert.False(ProjectCreationReceipt.Matches(request, state, identity with { FileIdLow = 4 }));
+        Assert.False(ProjectCreationReceipt.Matches(request with { TargetPath = path + "-other" }, state, identity));
+        Assert.False(ProjectCreationReceipt.Matches(request with { CreationId = null }, state, identity));
+    }
+
+    [Fact] public void WindowsDirectoryIdentitySurvivesRenameButRejectsReplacement()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "vrcsetup-identity-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var stage = Path.Combine(root, "stage"); var target = Path.Combine(root, "target");
+            Directory.CreateDirectory(stage);
+            var identity = ProjectDirectoryIdentity.TryRead(stage);
+            Assert.NotNull(identity);
+            Directory.Move(stage, target);
+            Assert.Equal(identity, ProjectDirectoryIdentity.TryRead(target));
+            Directory.CreateDirectory(stage);
+            Assert.NotEqual(identity, ProjectDirectoryIdentity.TryRead(stage));
+            var file = Path.Combine(root, "file"); File.WriteAllText(file, "fixture");
+            Assert.Null(ProjectDirectoryIdentity.TryRead(file));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [Fact] public void LegacyRequestsAndStateDoNotAcquireCreationIdentityOnRead()
     {
         var request = new CreationRequest("avatar.unitypackage", "Avatar", "project", "Unity.exe", "StandaloneWindows64", [], []);

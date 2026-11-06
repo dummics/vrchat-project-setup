@@ -438,6 +438,7 @@ public sealed class SetupState
 {
     public string? CreationId { get; set; }
     public string? CreatedTargetPath { get; set; }
+    public ProjectDirectoryIdentity? CreatedDirectoryIdentity { get; set; }
     public int SchemaVersion { get; set; } = 2;
     public string ProjectName { get; set; } = "";
     public string UnityPackagePath { get; set; } = "";
