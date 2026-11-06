@@ -16,7 +16,7 @@ public sealed partial class MainViewModel
     public Visibility ImportHistoryEmptyVisibility => ImportHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility OperationHistoryEmptyVisibility => OperationHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility HistoryErrorsVisibility => ImportHistory.Concat(OperationHistory).Any(x => x.State is "Failed" or "Interrupted" or "Partially applied") ? Visibility.Visible : Visibility.Collapsed;
-    public bool CanClearFinishedImports => ImportJobs.Any(x => !x.Job.Active);
+    public bool CanClearFinishedImports => ImportJobs.Any(x => !x.Job.Active && x.Job.State != "Paused");
     [ObservableProperty] public partial bool AutoHideCompletedImports { get; set; }
     partial void OnAutoHideCompletedImportsChanged(bool value) => ImportsChanged(app.Imports.Snapshot());
 

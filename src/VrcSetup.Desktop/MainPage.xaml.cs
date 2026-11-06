@@ -363,8 +363,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ImportDetailsCollapsed(object sender, object args)
     { if (sender is Expander { DataContext: UiImportRow row }) { row.DetailsOpen = false; ConstrainForms(); } }
-    private void ImportCancelClicked(object sender, RoutedEventArgs args)
-    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.CancelImport(row); }
+    private async void ImportPauseClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.PauseImportAsync(row); }
     private void ImportLogClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.OpenImportLog(row); }
     private async void ImportRecoverClicked(object sender, RoutedEventArgs args)

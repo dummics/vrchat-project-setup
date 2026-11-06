@@ -41,7 +41,7 @@ public sealed partial class MainViewModel
         var refreshProjects = false;
         foreach (var job in jobs.Where(x => x.Source.EmptyProject))
         {
-            if (observedCreations.TryGetValue(job.Id, out var old) && old is "Queued" or "Running" or "Cancelling" && !job.Active)
+            if (observedCreations.TryGetValue(job.Id, out var old) && old is "Queued" or "Running" or "Cancelling" or "Pausing" && !job.Active)
             {
                 if (!job.Recoverable) ShowSavedFeedback(string.Format(UiText.Text("Project created: {0}"), job.Name));
                 refreshProjects = true;

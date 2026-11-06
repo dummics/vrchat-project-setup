@@ -7,16 +7,18 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
 {
     public string Name => Source.Name;
     public string ProjectPath => Source.TargetPath;
-    public bool Active => State is "Queued" or "Running" or "Cancelling";
-    public bool Recoverable => State is "Failed" or "Cancelled" or "Interrupted";
+    public bool PauseRequested { get; init; }
+    public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
+    public bool Recoverable => State is "Failed" or "Cancelled" or "Interrupted" or "Paused";
 }
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
 // No startup auto-resume and no project deletion/cache deletion on cancellation.
-public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IProgress<OperationEvent>?, CancellationToken, Task<OperationReport>>? execute = null) : IAsyncDisposable
+public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IProgress<OperationEvent>?, CancellationToken, Task<OperationReport>>? execute = null) : IAsyncDisposable
 {
     private readonly object sync = new();
     private readonly SemaphoreSlim journalGate = new(1);
+    private readonly SemaphoreSlim disposalGate = new(1);
     private readonly List<ImportJob> jobs = [];
     private readonly Dictionary<string, CancellationTokenSource> cancellations = [];
     private readonly List<Task> workers = [];
@@ -94,7 +96,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                     throw new IOException("Import history is invalid; the original file was preserved.");
                 foreach (var entry in saved)
                 {
-                    var job = entry.Active ? entry with { State = "Interrupted", Step = "Interrupted", Message = "Review recovery before continuing." } : entry;
+                    var job = entry.Active ? entry with { State = entry.PauseRequested ? "Paused" : "Interrupted", Step = entry.PauseRequested ? "Paused" : "Interrupted", Message = "Ready to continue.", FinishedAt = DateTime.UtcNow } : entry;
                     if (job.Recoverable)
                     {
                         try
@@ -175,18 +177,26 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         try
         {
             await ClaimAsync(item.Id, cancellation.Token); acquired = true; cancellation.Token.ThrowIfCancellationRequested();
-            Update(item.Id, x => x with { State = "Running", Step = "Starting", Message = "", StartedAt = DateTime.UtcNow });
+            Update(item.Id, x => x.State is "Pausing" or "Cancelling" ? x : x with { State = "Running", Step = "Starting", Message = "", StartedAt = DateTime.UtcNow });
             await PersistAsync();
+            cancellation.Token.ThrowIfCancellationRequested();
             var progress = new InlineProgress(value => Update(item.Id, x => x with
             { Step = Phase(value.Phase), Progress = Math.Max(x.Progress, Percent(value.Phase)), Message = value.Message,
                 LogFile = x.LogFile.Length > 0 ? x.LogFile : FindLog(item.Id) }));
             var report = execute is null ? await app.ApplyAsync(item.Plan, progress, cancellation.Token, rememberCreation: false) : await execute(item.Plan, progress, cancellation.Token);
             var outcome = report.Results.FirstOrDefault();
-            var state = report.Success ? "Completed" : report.Cancelled ? "Cancelled" : "Failed";
-            Update(item.Id, x => x with { State = state, Step = state, Progress = report.Success ? 100 : x.Progress,
-                Message = outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile });
+            Update(item.Id, x =>
+            {
+                var state = report.Success ? "Completed" : report.Cancelled ? x.PauseRequested ? "Paused" : "Cancelled" : "Failed";
+                return x with { State = state, Step = state, Progress = report.Success ? 100 : x.Progress,
+                    Message = state == "Paused" ? "Ready to continue." : outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile };
+            });
         }
-        catch (OperationCanceledException) { Update(item.Id, x => x with { State = "Cancelled", Step = "Cancelled", Message = "Import cancelled; project data preserved." }); }
+        catch (OperationCanceledException)
+        {
+            Update(item.Id, x => x with { State = x.PauseRequested ? "Paused" : "Cancelled", Step = x.PauseRequested ? "Paused" : "Cancelled",
+                Message = x.PauseRequested ? "Ready to continue." : "Import cancelled; project data preserved." });
+        }
         catch (Exception error)
         {
             app.Diagnostics.Write("Import queue", error.Message, error);
@@ -241,7 +251,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         {
             lock (sync)
                 for (var index = 0; index < jobs.Count; index++)
-                    if (!jobs[index].Active) jobs[index] = jobs[index] with { HiddenFromImports = true };
+                    if (!jobs[index].Active && jobs[index].State != "Paused") jobs[index] = jobs[index] with { HiddenFromImports = true };
             await SaveAsync(token);
         }
         finally { journalGate.Release(); }
@@ -256,7 +266,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
             lock (sync)
             {
                 var index = jobs.FindIndex(x => x.Id == id);
-                if (index < 0 || jobs[index].Active) return;
+                if (index < 0 || jobs[index].Active || jobs[index].State == "Paused") return;
                 jobs[index] = jobs[index] with { HiddenFromImports = true };
             }
             await SaveAsync(token);
@@ -293,13 +303,27 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
     }
     public async ValueTask DisposeAsync()
     {
-        Task[] pending;
-        await journalGate.WaitAsync();
-        try { lock (sync) { stopping = true; pending = workers.ToArray(); } }
-        finally { journalGate.Release(); }
-        CancelAll(); await Task.WhenAll(pending);
-        monitoring.Cancel(); if (resourceWorker is not null) await resourceWorker;
-        lease?.Dispose(); lease = null;
+        await disposalGate.WaitAsync();
+        try
+        {
+            Task[] pending;
+            await journalGate.WaitAsync();
+            try { lock (sync) { stopping = true; pending = workers.ToArray(); } }
+            finally { journalGate.Release(); }
+            try
+            {
+                foreach (var job in Snapshot().Where(x => x.Active)) await RequestPauseAsync(job.Id, true);
+                await Task.WhenAll(pending);
+            }
+            catch
+            {
+                lock (sync) { stopping = false; PulseCapacity(); }
+                throw; // Keep the lease and workers available when saving pause intent fails.
+            }
+            monitoring.Cancel(); if (resourceWorker is not null) await resourceWorker;
+            lease?.Dispose(); lease = null;
+        }
+        finally { disposalGate.Release(); }
     }
     private string FindLog(string id)
     {

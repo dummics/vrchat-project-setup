@@ -148,7 +148,7 @@ public sealed partial class MainViewModel
         { PackageFile = ""; ProjectName = ""; }
         NotifyDrafts();
     }
-    public void CancelImport(UiImportRow row) => app.Imports.Cancel(row.Id);
+    public Task PauseImportAsync(UiImportRow row) => IndependentAction(() => app.Imports.PauseAsync(row.Id, lifetime.Token));
     public void CancelAllImports() => app.Imports.CancelAll();
     public Task FinishImportsAsync() => app.Imports.DisposeAsync().AsTask();
     public void OpenImportLog(UiImportRow row)
@@ -221,11 +221,11 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     } : Job.State == "Queued" ? "Starting…" : Job.State;
     public string Message => Job.Message.Length > 240 ? Job.Message[..240] + "…" : Job.Message;
     public int Progress => Job.Progress;
-    public bool CanCancel => Job.Active && Job.State != "Cancelling";
-    public string CancelLabel => Job.State == "Cancelling" ? "Cancelling…" : "Cancel import";
-    public string RetryLabel => Job.State == "Interrupted" ? "Continue import" : "Try again";
+    public bool CanPause => Job.Active && Job.State is not ("Cancelling" or "Pausing");
+    public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
+    public string RetryLabel => Job.State is "Interrupted" or "Paused" ? "Continue import" : "Try again";
     public Visibility AttentionVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility CancelVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
     public void Update(ImportJob value) { OnPropertyChanged(nameof(Elapsed)); if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }
 }

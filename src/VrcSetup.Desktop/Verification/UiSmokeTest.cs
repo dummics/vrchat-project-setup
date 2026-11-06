@@ -867,7 +867,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         {
             window.AppWindow.Resize(size); await Task.Delay(600); page.UpdateLayout();
             var view = (FrameworkElement)page.FindName("CreateView");
-            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 1, "Imports stay in the bottom area at every window size: " + size.Width);
+            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 2, "Imports stay in the bottom area at every window size: " + size.Width);
             Require(jobList.ActualHeight >= 100, "Active job rows are visible in the adaptive import area: " + size.Width);
             var host = (FrameworkElement)page.FindName("CreateHost");
             var viewOrigin = view.TransformToVisual(host).TransformPoint(new(0, 0));
@@ -875,21 +875,21 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(jobsOrigin.Y >= viewOrigin.Y + view.ActualHeight - 1, "Import jobs do not overlap the form viewport: " + size.Width);
             Require(Math.Abs(jobsOrigin.Y + jobSection.ActualHeight - host.ActualHeight) < 2, "Imports are anchored to the bottom: " + size.Width);
             var row = (FrameworkElement)jobList.ContainerFromIndex(0);
-            var cancel = Descendants(row).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "CancelImportAction");
-            Require(!fixtureJobs[0].DetailsOpen && cancel.Visibility == Visibility.Visible && cancel.IsEnabled && cancel.ActualWidth >= 32 && cancel.ActualWidth <= 40,
-                "Cancel import is directly visible on a collapsed active row: " + size.Width);
-            Require(cancel.TransformToVisual(jobList).TransformPoint(new(cancel.ActualWidth, 0)).X <= jobList.ActualWidth,
-                "Cancel import remains inside the usable list width: " + size.Width);
+            var pause = Descendants(row).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "PauseImportAction");
+            Require(!fixtureJobs[0].DetailsOpen && pause.Visibility == Visibility.Visible && pause.IsEnabled && pause.ActualWidth >= 32 && pause.ActualWidth <= 40,
+                "Pause import is directly visible on a collapsed active row: " + size.Width);
+            Require(pause.TransformToVisual(jobList).TransformPoint(new(pause.ActualWidth, 0)).X <= jobList.ActualWidth,
+                "Pause import remains inside the usable list width: " + size.Width);
             await Render(page, Path.Combine(artifacts, "create-jobs-fixture-" + size.Width + ".png"));
         }
-        fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Cancelling" });
+        fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Pausing" });
         await Task.Delay(100);
-        var firstCancel = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "CancelImportAction");
-        Require(firstCancel.Visibility == Visibility.Visible && !firstCancel.IsEnabled && Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(firstCancel) == "Cancelling…",
-            "Cancellation request stays visible with immediate disabled feedback");
+        var firstPause = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "PauseImportAction");
+        Require(firstPause.Visibility == Visibility.Visible && !firstPause.IsEnabled && Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(firstPause) == "Pausing…",
+            "Pause request stays visible with immediate disabled feedback");
         fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Completed" });
         await Task.Delay(100);
-        Require(firstCancel.Visibility == Visibility.Collapsed, "Finished imports do not show a cancel action");
+        Require(firstPause.Visibility == Visibility.Collapsed, "Finished imports do not show a pause action");
         fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Failed" });
         await Task.Delay(100);
         var retryImport = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "RetryImportAction");

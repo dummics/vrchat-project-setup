@@ -6,6 +6,148 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task FailedPauseJournalWriteDoesNotStopTheWorkerOrLeavePauseIntent()
+    {
+        var app = App;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = false;
+        await using var queue = new ImportQueue(app, async (plan, _, token) =>
+        {
+            using var registration = token.Register(() => cancelled = true);
+            entered.TrySetResult();
+            await release.Task.WaitAsync(token);
+            return Completed(plan);
+        });
+        try
+        {
+            await queue.EnqueueAsync(Plan("Unsaved pause"));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var journal = Path.Combine(app.Paths.Home, "imports.json");
+            var saved = journal + ".saved";
+            File.Move(journal, saved);
+            Directory.CreateDirectory(journal); // An isolated fixture blocks replacement deterministically.
+            try
+            {
+                var failure = await Record.ExceptionAsync(() => queue.PauseAsync(queue.Snapshot().Single().Id));
+                Assert.True(failure is IOException or UnauthorizedAccessException, failure?.ToString());
+                Assert.False(cancelled);
+                Assert.False(queue.Snapshot().Single().PauseRequested);
+                Assert.Equal("Running", queue.Snapshot().Single().State);
+            }
+            finally
+            {
+                Directory.Delete(journal);
+                File.Move(saved, journal);
+            }
+        }
+        finally { release.TrySetResult(); }
+        await WaitUntil(() => !queue.HasActiveJobs);
+    }
+
+    [Fact] public async Task PausingAQueuedImportDoesNotExecuteIt()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var executed = new List<string>();
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            lock (executed) executed.Add(plan.Projects.Single().Name);
+            entered.TrySetResult();
+            await release.Task.WaitAsync(token);
+            return Completed(plan);
+        });
+        try
+        {
+            await queue.EnqueueAsync(Plan("First", "Queued"), 1);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var queued = queue.Snapshot().Single(x => x.Name == "Queued");
+            Assert.Equal("Queued", queued.State);
+            await queue.PauseAsync(queued.Id);
+            await WaitUntil(() => queue.Snapshot().Single(x => x.Id == queued.Id).State == "Paused");
+            release.TrySetResult();
+            await WaitUntil(() => !queue.HasActiveJobs);
+            lock (executed) Assert.Equal(new[] { "First" }, executed);
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [Fact] public async Task PauseWaitsForTheWorkerAndDoesNotOverwriteACompletedResult()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            using var registration = token.Register(() => cancelled.TrySetResult());
+            entered.TrySetResult();
+            // Deliberately delay acknowledgement: a cancellation request is not an exit.
+            await release.Task;
+            return Completed(plan);
+        });
+        try
+        {
+            await queue.EnqueueAsync(Plan("Completing"));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var id = queue.Snapshot().Single().Id;
+            await queue.PauseAsync(id);
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal("Pausing", queue.Snapshot().Single().State);
+            Assert.True(queue.HasActiveJobs);
+            await queue.ClearFinishedAsync();
+            Assert.False(queue.Snapshot().Single().HiddenFromImports);
+            release.TrySetResult();
+            await WaitUntil(() => !queue.HasActiveJobs);
+            Assert.Equal("Completed", queue.Snapshot().Single().State);
+            Assert.Equal(100, queue.Snapshot().Single().Progress);
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [Fact] public async Task PauseIntentIsOnDiskBeforeTheWorkerStopsAndSurvivesRestart()
+    {
+        var app = App;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource<ImportJob>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using (var queue = new ImportQueue(app, async (plan, _, token) =>
+        {
+            entered.TrySetResult();
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, token); return Completed(plan); }
+            finally
+            {
+                var journal = await AtomicFile.ReadJsonAsync<ImportJob[]>(Path.Combine(app.Paths.Home, "imports.json"));
+                stopped.TrySetResult(journal!.Single());
+            }
+        }))
+        {
+            await queue.EnqueueAsync(Plan("Paused"));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await queue.PauseAsync(queue.Snapshot().Single().Id);
+            Assert.True((await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5))).PauseRequested);
+            await WaitUntil(() => !queue.HasActiveJobs);
+            Assert.Equal("Paused", queue.Snapshot().Single().State);
+            await queue.ClearFinishedAsync(); await queue.DismissAsync(queue.Snapshot().Single().Id);
+            Assert.False(queue.Snapshot().Single().HiddenFromImports);
+        }
+        await using var reopened = new ImportQueue(app);
+        await reopened.InitializeAsync();
+        Assert.Equal("Paused", reopened.Snapshot().Single().State);
+        Assert.True(reopened.Snapshot().Single().Recoverable);
+        Assert.False(reopened.Snapshot().Single().Active);
+    }
+
+    [Fact] public async Task RestartAfterPersistedPauseRequestDoesNotResumeAutomatically()
+    {
+        var app = App; var plan = Plan("Interrupted pause");
+        var job = new ImportJob("paused", plan, plan.Projects.Single().Creation!, "Pausing", "Pausing", 35, "", "") { PauseRequested = true };
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        var executed = 0;
+        await using var queue = new ImportQueue(app, (p, _, _) => { executed++; return Task.FromResult(Completed(p)); });
+        await queue.InitializeAsync();
+        Assert.Equal(0, executed); Assert.Equal("Paused", queue.Snapshot().Single().State);
+        Assert.Equal(job.Source.UnityPackagePath, queue.Snapshot().Single().Source.UnityPackagePath);
+    }
+
     [Fact] public async Task DismissFailedCreationPersistsWithItsHistory()
     {
         var app = App; var plan = Plan("Failed", "Active");
