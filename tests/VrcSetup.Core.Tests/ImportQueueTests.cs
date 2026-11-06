@@ -6,6 +6,25 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task FailedDiscardCleanupStaysPendingAndSuccessfulRetryIsIdempotent()
+    {
+        var app = App; var plan = Plan("Discard outcome"); var source = plan.Projects.Single().Creation!;
+        var job = new ImportJob("discard-outcome", plan, source, "Paused", "Paused", 40, "", "") { DiscardRequested = true };
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        await Assert.ThrowsAnyAsync<IOException>(() => queue.FinishDiscardAsync(job.Id, (_, _) => throw new IOException("fixture failure")));
+        Assert.True(queue.Snapshot().Single().DiscardRequested);
+        Assert.False(queue.Snapshot().Single().DiscardCompleted);
+        var calls = 0;
+        await queue.FinishDiscardAsync(job.Id, (_, _) => { calls++; return Task.CompletedTask; });
+        Assert.True(queue.Snapshot().Single().DiscardCompleted);
+        Assert.False(queue.Snapshot().Single().Recoverable);
+        await queue.FinishDiscardAsync(job.Id, (_, _) => { calls++; return Task.CompletedTask; });
+        Assert.Equal(1, calls);
+        var saved = await AtomicFile.ReadJsonAsync<ImportJob[]>(Path.Combine(app.Paths.Home, "imports.json"));
+        Assert.True(saved!.Single().DiscardCompleted);
+    }
+
     [Fact] public async Task WaitingForOneImportDoesNotTreatTheStopRequestAsWorkerExit()
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

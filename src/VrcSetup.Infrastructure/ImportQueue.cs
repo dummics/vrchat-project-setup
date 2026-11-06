@@ -9,8 +9,9 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public string ProjectPath => Source.TargetPath;
     public bool PauseRequested { get; init; }
     public bool DiscardRequested { get; init; }
+    public bool DiscardCompleted { get; init; }
     public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
-    public bool Recoverable => !DiscardRequested && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
+    public bool Recoverable => !DiscardRequested && !DiscardCompleted && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
 }
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
