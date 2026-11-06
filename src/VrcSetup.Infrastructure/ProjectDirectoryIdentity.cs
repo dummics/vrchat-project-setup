@@ -11,12 +11,47 @@ public sealed record ProjectDirectoryIdentity(ulong Volume, ulong FileIdLow, ulo
         if (!OperatingSystem.IsWindows()) return null;
         // Open the entry itself, including reparse points, rather than following its target.
         using var handle = CreateFileW(path, 0, 7, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+        return Read(handle);
+    }
+
+    // Pin every path component against rename/deletion, not just the final entry.
+    // This is not an exclusive writer lock and does not protect descendants.
+    public static IDisposable HoldPath(string path, ProjectDirectoryIdentity expected)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Directory ownership requires Windows file identity.");
+        var handles = new List<SafeFileHandle>();
+        try
+        {
+            var components = new Stack<string>();
+            for (var directory = new DirectoryInfo(Path.GetFullPath(path)); directory is not null; directory = directory.Parent)
+                components.Push(directory.FullName);
+            ProjectDirectoryIdentity? actual = null;
+            foreach (var component in components)
+            {
+                var handle = CreateFileW(component, 0, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+                handles.Add(handle);
+                actual = Read(handle);
+                if (actual is null) throw new IOException("The project path cannot be protected safely. Its files have been preserved.");
+            }
+            if (actual != expected) throw new IOException("The project location changed. Its files have been preserved.");
+            return new PathLease(handles);
+        }
+        catch { foreach (var handle in handles) handle.Dispose(); throw; }
+    }
+
+    private static ProjectDirectoryIdentity? Read(SafeFileHandle handle)
+    {
         if (handle.IsInvalid || !GetAttributes(handle, 9, out var attributes, 8)
             || (attributes.Attributes & (uint)FileAttributes.Directory) == 0
             || (attributes.Attributes & (uint)FileAttributes.ReparsePoint) != 0
             || !GetIdentity(handle, 18, out var identity, 24)
             || (identity.Low == 0 && identity.High == 0)) return null;
         return new(identity.Volume, identity.Low, identity.High);
+    }
+
+    private sealed class PathLease(List<SafeFileHandle> handles) : IDisposable
+    {
+        public void Dispose() { for (var index = handles.Count - 1; index >= 0; index--) handles[index].Dispose(); }
     }
 
     [StructLayout(LayoutKind.Sequential)]

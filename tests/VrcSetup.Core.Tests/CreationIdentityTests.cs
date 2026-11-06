@@ -7,6 +7,28 @@ namespace VrcSetup.Tests;
 
 public sealed class CreationIdentityTests
 {
+    [Fact] public void WindowsPathLeasePreventsParentReplacementAndReleasesHandles()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "vrcsetup-path-lease-" + Guid.NewGuid().ToString("N"));
+        var parent = Path.Combine(root, "parent"); var target = Path.Combine(parent, "project");
+        Directory.CreateDirectory(target);
+        try
+        {
+            var identity = ProjectDirectoryIdentity.TryRead(target)!;
+            Assert.NotNull(identity);
+            using (ProjectDirectoryIdentity.HoldPath(target, identity))
+            {
+                Assert.ThrowsAny<IOException>(() => Directory.Move(parent, parent + "-moved"));
+                Assert.ThrowsAny<IOException>(() => Directory.Move(target, target + "-moved"));
+            }
+            Assert.ThrowsAny<IOException>(() => ProjectDirectoryIdentity.HoldPath(target, identity with { FileIdLow = identity.FileIdLow ^ 1 }));
+            Directory.Move(parent, parent + "-moved");
+            Assert.True(Directory.Exists(Path.Combine(parent + "-moved", "project")));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [Fact] public void ReceiptRequiresMatchingRequestTargetAndPhysicalIdentity()
     {
         var path = Path.Combine(Path.GetTempPath(), "receipt-fixture");
