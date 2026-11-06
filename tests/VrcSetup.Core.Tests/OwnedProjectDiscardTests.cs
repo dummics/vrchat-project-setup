@@ -29,6 +29,23 @@ public sealed class OwnedProjectDiscardTests : IDisposable
         await service.RemoveAsync(job, projects);
         Assert.False(Directory.Exists(target));
         Assert.Equal("Removed", (await ImportDiscardTransaction.ReadAsync(paths, job))!.Phase);
+        var removed = (await ImportDiscardTransaction.ReadAsync(paths, job))!;
+        await AtomicFile.WriteJsonAsync(ImportDiscardTransaction.FilePath(paths, job.Id), removed with { Phase = "RootRemovalRequested" });
+        var displacedParent = projects + "-moved";
+        Directory.Move(projects, displacedParent);
+        Directory.CreateDirectory(projects);
+        try
+        {
+            await Assert.ThrowsAnyAsync<IOException>(() => service.RemoveAsync(job, projects));
+            Assert.Equal("RootRemovalRequested", (await ImportDiscardTransaction.ReadAsync(paths, job))!.Phase);
+        }
+        finally
+        {
+            Directory.Delete(projects);
+            Directory.Move(displacedParent, projects);
+        }
+        await service.RemoveAsync(job, projects);
+        Assert.Equal("Removed", (await ImportDiscardTransaction.ReadAsync(paths, job))!.Phase);
         await service.RemoveAsync(job, projects);
         Directory.CreateDirectory(target);
         await File.WriteAllTextAsync(Path.Combine(target, "replacement.txt"), "preserve");

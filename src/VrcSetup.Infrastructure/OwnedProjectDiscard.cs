@@ -22,10 +22,17 @@ public sealed class OwnedProjectDiscard(AppPaths paths, ProjectWorkspace workspa
         }
         using var applicationLock = await workspace.AcquireAsync(target, token);
         var transaction = await ImportDiscardTransaction.ReadAsync(paths, job, token);
-        if (transaction?.Phase == "Removed")
+        if (transaction?.Phase is "Removed" or "RootRemovalRequested")
         {
-            ConfirmAbsent(target);
-            return;
+            var parent = Directory.GetParent(target)?.FullName ?? throw new IOException("Invalid project parent.");
+            if (transaction.ParentIdentity is null) throw new IOException("The cancellation parent cannot be verified.");
+            using var parentLock = ProjectDirectoryIdentity.HoldPath(parent, transaction.ParentIdentity);
+            if (IsAbsent(target))
+            {
+                await AtomicFile.WriteJsonAsync(ImportDiscardTransaction.FilePath(paths, job.Id), transaction with { Phase = "Removed" }, token);
+                return;
+            }
+            if (transaction.Phase == "Removed") throw new IOException("The project location has been reused. Its files have been preserved.");
         }
         var identity = ProjectDirectoryIdentity.TryRead(target)
             ?? throw new IOException("The project location cannot be verified. Cancellation remains pending.");
@@ -47,9 +54,15 @@ public sealed class OwnedProjectDiscard(AppPaths paths, ProjectWorkspace workspa
             if (transaction.DirectoryIdentity != identity) throw new IOException("The project location changed. Its files have been preserved.");
             CheckTree(target, token);
             RemoveContents(target, token);
+            if (Directory.EnumerateFileSystemEntries(target).Any()) throw new IOException("Project contents changed. Cancellation remains pending.");
+            var parentPath = Directory.GetParent(target)?.FullName ?? throw new IOException("Invalid project parent.");
+            transaction = transaction with { Phase = "RootRemovalRequested", ParentIdentity = ProjectDirectoryIdentity.TryRead(parentPath)
+                ?? throw new IOException("The project parent cannot be verified.") };
+            await AtomicFile.WriteJsonAsync(ImportDiscardTransaction.FilePath(paths, job.Id), transaction, token);
         }
         // Reopens with DELETE and compares identity, so replacing the target in
         // the handoff cannot cause removal of an unrelated directory.
+        using var finalParent = ProjectDirectoryIdentity.HoldPath(Directory.GetParent(target)!.FullName, transaction.ParentIdentity!);
         ProjectDirectoryIdentity.RemoveEmptyDirectory(target, identity);
         ConfirmAbsent(target);
         await AtomicFile.WriteJsonAsync(ImportDiscardTransaction.FilePath(paths, job.Id), transaction with { Phase = "Removed" }, token);
@@ -94,5 +107,12 @@ public sealed class OwnedProjectDiscard(AppPaths paths, ProjectWorkspace workspa
         catch (FileNotFoundException) { return; }
         catch (DirectoryNotFoundException) { return; }
         throw new IOException("Project removal has not been confirmed. Cancellation remains pending.");
+    }
+
+    private static bool IsAbsent(string target)
+    {
+        try { _ = File.GetAttributes(target); return false; }
+        catch (FileNotFoundException) { return true; }
+        catch (DirectoryNotFoundException) { return true; }
     }
 }

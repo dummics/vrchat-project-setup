@@ -6,6 +6,7 @@ namespace VrcSetup.Infrastructure;
 public sealed record ImportDiscardTransaction(int Schema, string ImportId, string CreationId,
     string TargetPath, ProjectDirectoryIdentity DirectoryIdentity, string Phase)
 {
+    public ProjectDirectoryIdentity? ParentIdentity { get; init; }
     public static async Task<ImportDiscardTransaction?> ReadAsync(AppPaths paths, ImportJob job, CancellationToken token = default)
     {
         var file = FilePath(paths, job.Id);
@@ -14,9 +15,10 @@ public sealed record ImportDiscardTransaction(int Schema, string ImportId, strin
         var saved = await AtomicFile.ReadJsonAsync<ImportDiscardTransaction>(file, token);
         if (saved is not null && (saved.Schema != 1 || saved.ImportId != job.Id || saved.CreationId != job.Source.CreationId
             || !Guid.TryParseExact(saved.CreationId, "N", out _) || saved.DirectoryIdentity is null
+            || ((saved.Phase is "RootRemovalRequested" or "Removed") && saved.ParentIdentity is null)
             || string.IsNullOrWhiteSpace(saved.TargetPath)
             || !saved.TargetPath.Equals(ProjectRules.NormalizePath(job.ProjectPath), StringComparison.OrdinalIgnoreCase)
-            || saved.Phase is not ("Prepared" or "Removed")))
+            || saved.Phase is not ("Prepared" or "RootRemovalRequested" or "Removed")))
             throw new IOException("The saved cancellation does not match this project. Its files have been preserved.");
         return saved;
     }
@@ -36,7 +38,7 @@ public sealed record ImportDiscardTransaction(int Schema, string ImportId, strin
         {
             if (previous.Schema != 1 || previous.ImportId != transaction.ImportId || previous.CreationId != transaction.CreationId
                 || previous.DirectoryIdentity != actual || !previous.TargetPath.Equals(transaction.TargetPath, StringComparison.OrdinalIgnoreCase)
-                || previous.Phase is not ("Prepared" or "Removed"))
+                || previous.Phase is not ("Prepared" or "RootRemovalRequested" or "Removed"))
                 throw new IOException("The saved cancellation does not match this project. Its files have been preserved.");
             return previous;
         }
