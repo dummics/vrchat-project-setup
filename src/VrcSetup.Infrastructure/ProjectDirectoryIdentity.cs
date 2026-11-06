@@ -34,6 +34,32 @@ public sealed record ProjectDirectoryIdentity(ulong Volume, ulong FileIdLow, ulo
         return Read(handle);
     }
 
+    public static ProjectDirectoryIdentity? TryReadFile(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        using var handle = CreateFileW(path, 0, 7, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero);
+        return Read(handle, directory: false);
+    }
+
+    public static void RemoveFile(string path, ProjectDirectoryIdentity expected)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        var full = Path.GetFullPath(path);
+        var parent = Path.GetDirectoryName(full) ?? throw new IOException("Invalid file location.");
+        var parentIdentity = TryRead(parent) ?? throw new IOException("The parent location cannot be verified.");
+        using var ancestors = HoldPath(parent, parentIdentity);
+        using var handle = CreateFileW(full, 0x00010000, 3, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero);
+        if (Read(handle, directory: false) != expected) throw new IOException("The file changed. It has been preserved.");
+        var disposition = new DispositionInfo { Delete = 1 };
+        if (!SetDisposition(handle, 4, ref disposition, 1))
+            throw new IOException("The file could not be removed.", new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+        handle.Dispose();
+        try { _ = File.GetAttributes(full); }
+        catch (FileNotFoundException) { return; }
+        catch (DirectoryNotFoundException) { return; }
+        throw new IOException("File removal has not been confirmed. The cancellation remains pending.");
+    }
+
     // Pin every path component against rename/deletion, not just the final entry.
     // This is not an exclusive writer lock and does not protect descendants.
     public static IDisposable HoldPath(string path, ProjectDirectoryIdentity expected)
@@ -59,10 +85,10 @@ public sealed record ProjectDirectoryIdentity(ulong Volume, ulong FileIdLow, ulo
         catch { foreach (var handle in handles) handle.Dispose(); throw; }
     }
 
-    private static ProjectDirectoryIdentity? Read(SafeFileHandle handle)
+    private static ProjectDirectoryIdentity? Read(SafeFileHandle handle, bool directory = true)
     {
         if (handle.IsInvalid || !GetAttributes(handle, 9, out var attributes, 8)
-            || (attributes.Attributes & (uint)FileAttributes.Directory) == 0
+            || ((attributes.Attributes & (uint)FileAttributes.Directory) != 0) != directory
             || (attributes.Attributes & (uint)FileAttributes.ReparsePoint) != 0
             || !GetIdentity(handle, 18, out var identity, 24)
             || (identity.Low == 0 && identity.High == 0)) return null;

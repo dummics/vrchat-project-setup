@@ -7,6 +7,26 @@ namespace VrcSetup.Tests;
 
 public sealed class CreationIdentityTests
 {
+    [Fact] public void WindowsFileRemovalRejectsReplacementAndDirectoryEntries()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "vrcsetup-file-remove-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var file = Path.Combine(root, "asset"); File.WriteAllText(file, "original");
+            var identity = ProjectDirectoryIdentity.TryReadFile(file)!;
+            Assert.NotNull(identity);
+            File.Move(file, file + ".old"); File.WriteAllText(file, "replacement");
+            Assert.ThrowsAny<IOException>(() => ProjectDirectoryIdentity.RemoveFile(file, identity));
+            Assert.Equal("replacement", File.ReadAllText(file));
+            Assert.Null(ProjectDirectoryIdentity.TryReadFile(root));
+            ProjectDirectoryIdentity.RemoveFile(file + ".old", identity);
+            Assert.False(File.Exists(file + ".old"));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [Fact] public void WindowsEmptyDirectoryRemovalChecksIdentityAndPreservesUnexpectedContents()
     {
         if (!OperatingSystem.IsWindows()) return;
