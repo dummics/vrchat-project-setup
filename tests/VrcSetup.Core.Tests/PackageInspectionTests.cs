@@ -79,6 +79,24 @@ public sealed class PackageInspectionTests : IDisposable
         Assert.Equal(new AssetReference(B, "script"), report.Assets.Single().References.Single());
         Assert.False(File.Exists(Path.Combine(root, "escape.prefab")));
     }
+    [Fact] public async Task BinaryAssetsDoNotConsumeTheTextBudgetOrImplyIncompleteAnalysis()
+    {
+        var path = Archive(($"{A}/asset", "BM" + new string('\0', 4096)), ($"{A}/pathname", "Assets/texture.bmp"),
+            ($"{B}/asset", $"%YAML\nm_Script: {{guid: {C}}}"), ($"{B}/pathname", "Assets/Main.prefab"));
+        var observation = await new UnityPackageInspector().ReadAsync(path, new() { EntryTextBytes = 128, TotalTextBytes = 128 }, default);
+        Assert.True(observation.ArchiveComplete);
+        Assert.True(observation.TextComplete);
+        Assert.Empty(observation.Limitations);
+        Assert.Contains(new AssetReference(C, "script"), observation.Assets.Single(x => x.Guid == B).References);
+    }
+    [Fact] public async Task OversizedTextStillReportsIncompleteAnalysis()
+    {
+        var path = Archive(($"{A}/asset", "%YAML\n" + new string(' ', 4096)), ($"{A}/pathname", "Assets/Main.prefab"));
+        var observation = await new UnityPackageInspector().ReadAsync(path, new() { EntryTextBytes = 128 }, default);
+        Assert.True(observation.ArchiveComplete);
+        Assert.False(observation.TextComplete);
+        Assert.True(Assert.Single(observation.Assets).TextPartial);
+    }
     [Fact] public async Task InternalReferencesAreNotExternalDependencies()
     {
         var path = Archive(($"{A}/asset", $"%YAML\nm_Script: {{guid: {B}}}"), ($"{A}/pathname", "Assets/Main.prefab"), ($"{B}/pathname", "Assets/Included.cs"));

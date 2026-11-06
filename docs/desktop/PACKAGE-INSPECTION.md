@@ -1,5 +1,28 @@
 # Offline package inspection
 
+## 0.3 Trixie reference check
+
+The read-only deep scan of `Trixie_By_Ray9_Updatedd.unitypackage` traversed all
+530 assets. Binary content is classified before applying the text budget; a large
+BMP no longer incorrectly marks the text analysis incomplete. Both coverage flags
+are true after that fix. SDK Base, SDK Avatars and VRCFury have typed reference
+evidence; Poiyomi and AudioLink remain suggestions to confirm. There are 21
+unresolved references and no declared package version requirements. Observed
+signature versions must not be shown as required versions.
+
+The creator screenshot describes an installed environment. It does not establish
+that Gesture Manager, Jerry's Templates, GoGo Loco, Pumkin tools or the SPS
+Configurator must all be separately installed for this archive. Optimized shaders
+and some SPS content are bundled, but that alone does not prove the corresponding
+external package is either required or removable. Detailed evidence and the
+comparison are kept in `.work/artifacts/trixie-inspection/`. This is one avatar,
+not a validated multi-avatar corpus or a successful Unity compilation.
+
+`inspect --json --advice` is accepted by the CLI argument parser and has a real
+process regression covering the proposal envelope. Proposals refer to the current
+selection; an empty proposal list can mean that the detected packages are already
+selected. It does not mean that no dependencies were detected.
+
 Preview 7 implements the first delivery of the dependency-detection design. Inspection is advisory and shared between the C# core, desktop and CLI. It never starts Unity, extracts avatar assets, installs a package or rewrites a preset.
 
 ## Desktop
