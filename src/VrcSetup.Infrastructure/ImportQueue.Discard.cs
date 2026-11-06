@@ -68,6 +68,8 @@ public sealed partial class ImportQueue
                 if (index < 0) throw new IOException("Import not found.");
                 previous = jobs[index];
                 if (previous.DiscardCompleted) return;
+                if (!previous.DiscardRequested && previous.State is "Completed" or "Recovered")
+                    throw new IOException("The import has finished. The project has been kept.");
                 if (CurrentForProject(jobs, previous.ProjectPath)?.Id != id)
                     throw new IOException("This import changed. Choose it again to continue.");
                 jobs[index] = previous with { DiscardRequested = true, HiddenFromImports = false };

@@ -349,6 +349,23 @@ public static class UiSmokeTest
                     Require(flow.CurrentPage == pageBefore && decisions.Confirmations == confirmationsBefore,
                         "A stale repair request cannot open creation or confirmation: " + partialRetry);
                     lock (queueSync) queueJobs.RemoveAll(x => x.Id == newer.Id);
+                    var cancellable = retryJob with { Id = Guid.NewGuid().ToString("N"),
+                        Source = request with { CreationId = Guid.NewGuid().ToString("N") } };
+                    lock (queueSync) queueJobs.Add(cancellable);
+                    try
+                    {
+                        decisions.ConfirmResult = false;
+                        await flow.DiscardImportAsync(new(cancellable)).WaitAsync(TimeSpan.FromSeconds(5));
+                        Require(!queue.Snapshot().Single(x => x.Id == cancellable.Id).DiscardRequested,
+                            "Declining discard leaves the import request unchanged: " + partialRetry);
+                        Require(new VrcSetup_Desktop.ViewModels.UiImportRow(cancellable).DiscardVisibility == Visibility.Visible,
+                            "Owned unfinished creation exposes the explicit discard action: " + partialRetry);
+                    }
+                    finally
+                    {
+                        decisions.ConfirmResult = true;
+                        lock (queueSync) queueJobs.RemoveAll(x => x.Id == cancellable.Id);
+                    }
                     Require(flow.RecoverableImportForProject(recoveryProject)?.Id == retryJob.Id,
                         "Project recovery finds the current unfinished import: " + partialRetry);
                     await flow.RecoverProjectImportAsync(recoveryProject, retryJob.Id).WaitAsync(TimeSpan.FromSeconds(5));

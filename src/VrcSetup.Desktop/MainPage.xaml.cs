@@ -387,6 +387,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.OpenImportLog(row); }
     private async void ImportRecoverClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.RecoverImportAsync(row); }
+    private async void ImportDiscardClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.DiscardImportAsync(row); }
     public async Task<string?> PickFileAsync(string extension)
     {
         var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(extension);

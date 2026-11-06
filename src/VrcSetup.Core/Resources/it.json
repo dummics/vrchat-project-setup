@@ -519,5 +519,12 @@
   "This import did not finish. You can continue from here.": "L’importazione non è terminata. Puoi riprenderla da qui.",
   "Stopping import…": "Arresto dell’importazione…",
   "Cancellation needs finishing": "Annullamento da completare",
-  "Your cancellation request is saved. The project is preserved until cleanup finishes.": "La richiesta di annullamento è salvata. Il progetto viene conservato finché la pulizia non è conclusa."
+  "Your cancellation request is saved. The project is preserved until cleanup finishes.": "La richiesta di annullamento è salvata. Il progetto viene conservato finché la pulizia non è conclusa.",
+  "This project will be preserved. You can pause its import and continue later.": "Il progetto viene conservato. Puoi mettere in pausa l’importazione e riprenderla in seguito.",
+  "Cancel this import and remove the project created for it, including its files?": "Annullare l’importazione ed eliminare il progetto creato, inclusi tutti i suoi file?",
+  "Cancel and remove project": "Annulla ed elimina progetto",
+  "Stopping is taking longer. Your cancellation request is saved.": "L’arresto richiede più tempo. La richiesta di annullamento è salvata.",
+  "The cancellation request was not saved. Try again.": "La richiesta di annullamento non è stata salvata. Riprova.",
+  "Import cancelled.": "Importazione annullata.",
+  "The import has finished. The project has been kept.": "L’importazione è terminata. Il progetto è stato conservato."
 }

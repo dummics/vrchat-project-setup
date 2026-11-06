@@ -14,6 +14,12 @@ public sealed class OwnedProjectDiscard(AppPaths paths, ProjectWorkspace workspa
         var root = ProjectRules.NormalizePath(projectsRoot);
         ProjectRules.EnsureContained(root, target);
         if (target.Equals(root, StringComparison.OrdinalIgnoreCase)) throw new IOException("Cannot remove the projects folder.");
+        foreach (var protectedPath in new[] { paths.Home, paths.Locks })
+        {
+            var relative = Path.GetRelativePath(target, ProjectRules.NormalizePath(protectedPath));
+            if (relative == "." || (!Path.IsPathRooted(relative) && relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
+                throw new IOException("Application recovery data is inside this project. Its files have been preserved.");
+        }
         using var applicationLock = await workspace.AcquireAsync(target, token);
         var transaction = await ImportDiscardTransaction.ReadAsync(paths, job, token);
         if (transaction?.Phase == "Removed")

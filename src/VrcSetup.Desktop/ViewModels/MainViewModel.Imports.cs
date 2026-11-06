@@ -230,6 +230,8 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public Visibility AttentionVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility DiscardVisibility => !Job.DiscardCompleted && Job.Source.CreationId is not null
+        && (Job.Active || Job.Recoverable || Job.DiscardRequested) ? Visibility.Visible : Visibility.Collapsed;
     public void Update(ImportJob value) { OnPropertyChanged(nameof(Elapsed)); if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }
 }
 
