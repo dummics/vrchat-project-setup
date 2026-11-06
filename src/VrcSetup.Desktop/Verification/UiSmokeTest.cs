@@ -106,7 +106,7 @@ public static class UiSmokeTest
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(skipped).State == "Not applied", "Skipped projects are not labelled failed");
         var partial = skipped with { Results = [new("Done", "done", OperationStatus.Completed, ""), new("Skipped", "skip", OperationStatus.Skipped, "Open in Unity")] };
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(partial).State == "Partially applied", "Mixed batch outcomes remain explicit");
-        Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 2, "Diagnostics tab is absent in normal mode");
+        Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 1, "Normal Activity exposes one unified history without the diagnostics tab");
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
         viewModel.CurrentPage = "Presets"; await Task.Delay(100); page.UpdateLayout();
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == viewModel.EditingPreset, "Preset selector reflects the current preset");
@@ -932,8 +932,8 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Running" }).Summary.Length > 0, "Creation history summary works before its report exists");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Completed" }).ImportActionsVisibility == Visibility.Collapsed, "Completed empty project has no archive recovery action");
         viewModel.CurrentPage = "Activity";
-        var historyList = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => ReferenceEquals(x.ItemsSource, viewModel.ImportHistory));
-        var emptyHistory = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().First(x => x.Text == "No import history yet");
+        var historyList = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => ReferenceEquals(x.ItemsSource, viewModel.History));
+        var emptyHistory = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().First(x => x.Text == "No operations yet");
         emptyHistory.Visibility = Visibility.Collapsed;
         historyList.ItemsSource = fixtureJobs.Select(x => new VrcSetup_Desktop.ViewModels.UiHistoryEntry(x.Job)).ToArray();
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(1180, 800) })
@@ -941,7 +941,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             window.AppWindow.Resize(size); await Task.Delay(450); page.UpdateLayout();
             await Render(page, Path.Combine(artifacts, "activity-fixture-" + size.Width + ".png"));
         }
-        historyList.ItemsSource = viewModel.ImportHistory; viewModel.CurrentPage = "Create";
+        historyList.ItemsSource = viewModel.History; viewModel.CurrentPage = "Create";
         emptyHistory.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportHistoryEmptyVisibility)) });
         jobList.ItemsSource = fixtureJobs; jobList.Visibility = Visibility.Visible; jobSection.Visibility = Visibility.Visible;
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(1180, 800) })
@@ -1028,10 +1028,15 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         await AtomicFile.WriteJsonAsync(Path.Combine(viewModel.Application.Paths.Logs, "operation-fixture-partial.json"), partial);
         viewModel.CurrentPage = "Activity"; await viewModel.RefreshSavedHistoryAsync(); await Task.Delay(200);
         var historyEntry = viewModel.OperationHistory.Single(x => x.Id == partial.Id); historyEntry.Expanded = true;
-        var activityTabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs"); activityTabs.SelectedIndex = 1;
+        var activityTabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs"); activityTabs.SelectedIndex = 0;
         await Task.Delay(550); page.UpdateLayout(); await Render(page, Path.Combine(artifacts, "activity-outcome-fixture.png"));
-        viewModel.DeveloperMode = true; Require(activityTabs.Items.Count == 3, "Developer mode adds diagnostics tab");
-        viewModel.DeveloperMode = false; Require(activityTabs.Items.Count == 2, "Disabling developer mode removes diagnostics header");
+        Require(viewModel.History.Any(x => x.Id == partial.Id) && viewModel.History.Select(x => x.Id).Distinct().Count() == viewModel.History.Count,
+            "Unified history includes operations without duplicate entries");
+        Require(!Descendants(activityTabs).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.Content is string caption &&
+            (caption == VrcSetup.Core.UiText.Text("Check project") || caption == VrcSetup.Core.UiText.Text("Continue import") || caption == VrcSetup.Core.UiText.Text("Restore backup"))),
+            "History contains no recovery or mutation actions");
+        viewModel.DeveloperMode = true; Require(activityTabs.Items.Count == 2, "Developer mode adds diagnostics beside unified history");
+        viewModel.DeveloperMode = false; Require(activityTabs.Items.Count == 1, "Disabling developer mode leaves one history");
         viewModel.Theme = "Light"; viewModel.CurrentPage = "Settings"; await Task.Delay(150);
         await Render(page, Path.Combine(artifacts, "settings-light.png"));
         var savedAccent = viewModel.AccentColor;

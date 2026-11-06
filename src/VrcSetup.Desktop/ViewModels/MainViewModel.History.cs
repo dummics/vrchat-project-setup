@@ -11,6 +11,8 @@ public sealed partial class MainViewModel
 {
     public ObservableCollection<UiHistoryEntry> ImportHistory { get; } = [];
     public ObservableCollection<UiHistoryEntry> OperationHistory { get; } = [];
+    public ObservableCollection<UiHistoryEntry> History { get; } = [];
+    public Visibility HistoryEmptyVisibility => History.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     private OperationReport[] savedOperations = [];
     private bool loadingHistory;
     public Visibility ImportHistoryEmptyVisibility => ImportHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -42,6 +44,8 @@ public sealed partial class MainViewModel
         imported.AddRange(others.Where(x => x.IsImport));
         Reconcile(ImportHistory, imported.OrderByDescending(x => x.Timestamp).ToArray());
         Reconcile(OperationHistory, jobRows.Where(x => !x.IsImport).Concat(others.Where(x => !x.IsImport)).OrderByDescending(x => x.Timestamp).ToArray());
+        Reconcile(History, ImportHistory.Concat(OperationHistory).OrderByDescending(x => x.Timestamp).ToArray());
+        OnPropertyChanged(nameof(HistoryEmptyVisibility));
         OnPropertyChanged(nameof(ImportHistoryEmptyVisibility)); OnPropertyChanged(nameof(OperationHistoryEmptyVisibility)); OnPropertyChanged(nameof(HistoryErrorsVisibility));
         static void Reconcile(ObservableCollection<UiHistoryEntry> rows, UiHistoryEntry[] desired)
         {
@@ -205,7 +209,11 @@ public sealed class UiHistoryEntry : ObservableObject
     public string Changes => IsImport || report?.Plan is not { } plan ? "" : string.Join(Environment.NewLine + Environment.NewLine,
         PackageReview.Group(plan).Select(group => (group.Projects.Length == Projects.Length ? "All projects" : string.Join(", ", group.Projects.Select(x => x.Name))) + Environment.NewLine
             + string.Join(Environment.NewLine, group.Changes.Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"))));
-    public string Result => job is not null ? job.Active || job.State is "Completed" or "Recovered" ? UiText.Text(job.Message) : job.Source.EmptyProject ? UserErrors.Message(new IOException(job.Message)) : UiText.Text(job.State == "Failed" ? "The import failed. Try again." : "The import did not finish. Check the project or continue the import.")
+    public string Result => job is not null ? UiText.Text(job.DiscardCompleted ? "Import cancelled." : job.DiscardRequested ? "Cancellation needs finishing"
+        : job.State is "Completed" or "Recovered" ? "Import completed."
+        : job.State == "Failed" ? "The import did not finish. The project and recovery information were kept."
+        : job.State is "Paused" or "Interrupted" or "Cancelled" ? "The import stopped. The project was kept."
+        : "Import in progress.")
         : string.Join(Environment.NewLine, report!.Results.Select(x => x.Project + ": " + UiText.Text(x.Status switch
         {
             OperationStatus.Completed => "Completed",

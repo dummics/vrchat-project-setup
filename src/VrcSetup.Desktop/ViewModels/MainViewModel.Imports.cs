@@ -195,9 +195,11 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         {
             if (!SetProperty(ref logText, value)) return;
             OnPropertyChanged(nameof(PreviousLogText)); OnPropertyChanged(nameof(LatestLogText));
+            OnPropertyChanged(nameof(TechnicalLogText));
         }
     }
     public string LatestLogText => LogLines().LastOrDefault() ?? "";
+    public string TechnicalLogText => string.Join("\n", LogLines().Reverse());
     public string PreviousLogText { get { var lines = LogLines(); return string.Join("\n", lines.Take(Math.Max(0, lines.Length - 1)).Reverse()); } }
     private string[] LogLines() => logText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     public bool LoadingLog { get; set; }
@@ -222,11 +224,21 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         "Import" => Job.Plan.Projects.FirstOrDefault()?.RecoverySource is null ? "Importing assets" : "Reimporting assets",
         "Validate" => "Checking project", "Finish" => "Finishing", "Starting" => "Starting…", _ => Job.Step
     } : Job.State == "Queued" ? "Starting…" : Job.State;
-    public string Message => Job.DiscardRequested ? "Your cancellation request is saved. The project is preserved until cleanup finishes." : Job.Message.Length > 240 ? Job.Message[..240] + "…" : Job.Message;
+    public string Message => Job.DiscardRequested ? "Your cancellation request is saved. The project is preserved until cleanup finishes."
+        : Job.DiscardCompleted ? "The import was cancelled and its created project was removed."
+        : Job.State switch
+        {
+            "Paused" => "The import is paused. Your project is kept. Choose Continue import when you are ready.",
+            "Interrupted" or "Cancelled" => "The import stopped. Your project is kept. Choose Continue import to resume.",
+            "Failed" => "The import could not finish. Your project and recovery information are kept. Choose Try again, or open the log for details.",
+            "Pausing" or "Cancelling" => "Waiting for the import to stop safely. Keep the app open until it finishes.",
+            "Completed" or "Recovered" => "The project is ready. You can open it from Projects.",
+            _ => ""
+        };
     public int Progress => Job.Progress;
     public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
-    public string RetryLabel => Job.State is "Interrupted" or "Paused" ? "Continue import" : "Try again";
+    public string RetryLabel => Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
     public Visibility AttentionVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
