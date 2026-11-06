@@ -41,7 +41,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception error)
             {
-                application.Diagnostics.Write("Close confirmation", error.Message, error);
+                page.ViewModel.Application.Diagnostics.Write("Close confirmation", error.Message, error);
                 page.ViewModel.ErrorMessage = VrcSetup.Core.UserErrors.Message(error);
             }
             finally { closePromptPending = false; }

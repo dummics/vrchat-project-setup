@@ -17,13 +17,35 @@ public sealed class ToolRunnerCancellationTests
         var childId = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         var child = Encode("[Console]::Out.WriteLine('child:' + $PID); Start-Sleep -Seconds 30");
         var script = $$"""
-            $start = New-Object System.Diagnostics.ProcessStartInfo
-            $start.FileName = (Get-Process -Id $PID).Path
-            $start.Arguments = '-NoProfile -NonInteractive -EncodedCommand {{child}}'
-            $start.UseShellExecute = $false
-            $start.CreateNoWindow = $true
+            Add-Type -TypeDefinition @'
+            using System;
+            using System.Runtime.InteropServices;
+            public static class InheritedPipeChild {
+                [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+                struct Startup {
+                    public int cb; public string reserved, desktop, title;
+                    public int x,y,width,height,charsX,charsY,fill,flags;
+                    public short show, reservedBytes; public IntPtr reservedPointer,input,output,error;
+                }
+                [StructLayout(LayoutKind.Sequential)]
+                struct Child { public IntPtr process,thread; public int pid,tid; }
+                [DllImport("kernel32.dll")] static extern IntPtr GetStdHandle(int kind);
+                [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetHandleInformation(IntPtr h, uint mask, uint flags);
+                [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+                static extern bool CreateProcessW(string app, System.Text.StringBuilder command, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr environment, string directory, ref Startup startup, out Child child);
+                [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+                public static void Start(string executable, string arguments) {
+                    var s = new Startup(); s.cb=Marshal.SizeOf(s); s.flags=0x100;
+                    s.output=GetStdHandle(-11); s.error=GetStdHandle(-12); s.input=GetStdHandle(-10);
+                    if (!SetHandleInformation(s.output,1,1) || !SetHandleInformation(s.error,1,1)) throw new System.ComponentModel.Win32Exception();
+                    Child c;
+                    if (!CreateProcessW(executable,new System.Text.StringBuilder("\""+executable+"\" "+arguments),IntPtr.Zero,IntPtr.Zero,true,0x08000000,IntPtr.Zero,null,ref s,out c)) throw new System.ComponentModel.Win32Exception();
+                    CloseHandle(c.thread); CloseHandle(c.process);
+                }
+            }
+            '@
             [Console]::Out.WriteLine('parent:' + $PID)
-            [void][System.Diagnostics.Process]::Start($start)
+            [InheritedPipeChild]::Start((Get-Process -Id $PID).Path, '-NoProfile -NonInteractive -EncodedCommand {{child}}')
             """;
         using var cancellation = new CancellationTokenSource();
         Process? descendant = null;
