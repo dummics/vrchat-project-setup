@@ -235,6 +235,8 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         {
             "Paused" => "The import is paused. Your project is kept. Choose Continue import when you are ready.",
             "Interrupted" or "Cancelled" => "The import stopped. Your project is kept. Choose Continue import to resume.",
+            "Failed" when Job.Message.Contains("Automatic restore incomplete", StringComparison.OrdinalIgnoreCase) => "The import stopped and the previous files could not be restored automatically. Your recovery copy was kept. Open the project options to review and restore a backup.",
+            "Failed" when Job.Message.StartsWith("This package differs from the original.", StringComparison.Ordinal) || Job.Message.StartsWith("UnityPackage changed after review.", StringComparison.Ordinal) => "The UnityPackage changed after it was selected. Choose Try again to select the original file or review the import again.",
             "Failed" => "The import could not finish. Your project and recovery information are kept. Choose Try again, or open the log for details.",
             "Pausing" or "Cancelling" => "Waiting for the import to stop safely. Keep the app open until it finishes.",
             "Completed" or "Recovered" => "The project is ready. You can open it from Projects.",

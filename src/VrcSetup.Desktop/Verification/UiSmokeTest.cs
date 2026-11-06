@@ -959,6 +959,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedEmpty) is { RecoverVisibility: Visibility.Visible, RetryLabel: "Try again" }, "Failed empty project exposes Try again");
         var failedImport = fixtureJobs[0].Job with { Id = "failed-import", State = "Failed", Plan = fixtureJobs[0].Job.Plan with { CreatedUtc = DateTime.UtcNow.AddMinutes(-5) } };
         var interruptedImport = failedImport with { State = "Interrupted" };
+        var changedSource = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "This package differs from the original. Choose the original UnityPackage to continue." });
+        Require(changedSource.Message.Contains("UnityPackage changed", StringComparison.Ordinal) && changedSource.RetryLabel == "Try again", "Changed source shows the actionable reason and retry");
+        var failedRestore = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "Import failed. Automatic restore incomplete; use recovery." });
+        Require(failedRestore.Message.Contains("could not be restored automatically", StringComparison.Ordinal), "Incomplete restore remains visible instead of a generic import error");
         var registrationNotice = failedImport with { State = "Completed", CreatorCompanionPending = true, Progress = 100 };
         var registrationRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice);
         Require(registrationRow.RegistrationVisibility == Visibility.Visible && registrationRow.RecoverVisibility == Visibility.Collapsed && registrationRow.Step == "Completed with a notice",
