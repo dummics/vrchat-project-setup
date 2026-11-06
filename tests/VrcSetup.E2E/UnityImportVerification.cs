@@ -54,7 +54,18 @@ internal static class UnityImportVerification
                 tar.WriteEntry(new UstarTarEntry(TarEntryType.RegularFile, name) { DataStream = stream });
             }
         }
-        await driver.ImportAsync(plan with { Creation = creation with { ExtraImports = [archive] } }, null, timeout.Token);
+        var identity = await PackageSourceIdentity.ReadAsync(archive, timeout.Token);
+        var archivePlan = plan with { Creation = creation with { EmptyProject = false, UnityPackagePath = archive, SourceIdentity = identity } };
+        await using (var lease = await driver.HoldImportSourceAsync(archivePlan, timeout.Token))
+        {
+            if (lease is null) throw new IOException("Source protection was not acquired.");
+            if (OperatingSystem.IsWindows())
+            {
+                try { using var writer = new FileStream(archive, FileMode.Open, FileAccess.Write, FileShare.ReadWrite); throw new IOException("Source protection allowed a writer."); }
+                catch (IOException error) when (error.Message != "Source protection allowed a writer.") { }
+            }
+            await driver.ImportAsync(archivePlan, null, timeout.Token);
+        }
         if (!File.Exists(Path.Combine(project, "Assets", "VrcSetupBridgeProbe.txt")) ||
             !File.Exists(Path.Combine(project, "Library", "ScriptAssemblies", "Assembly-CSharp.dll")))
             throw new IOException("Imported asset or recompiled assembly missing.");
@@ -71,7 +82,7 @@ internal static class UnityImportVerification
         {
             Passed = true, CreationSeconds = creationSeconds, InstalledTemplateUsed = usedTemplate,
             EmptyCreationNoUnity = true, ArchiveImported = true, ScriptRecompiled = true,
-            EmptyQueueFallbackSettled = true, EmptyProjectRecoveryNoUnity = true, ExistingProjectsChanged = false
+            EmptyQueueFallbackSettled = true, EmptyProjectRecoveryNoUnity = true, VerifiedSourceProtectedDuringImport = true, ExistingProjectsChanged = false
         }, timeout.Token);
         Console.WriteLine("PASS: archive imported, scripts recompiled and an empty queue safely settled.");
     }
