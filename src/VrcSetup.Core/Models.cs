@@ -177,9 +177,20 @@ public sealed record CreationRequest(string UnityPackagePath, string Name, strin
 {
     // Assigned only when planning a new creation; legacy/recovery inputs stay unattributed.
     public string? CreationId { get; init; }
+    public bool MatchesInputs(CreationRequest? other) => other is not null && CreationId == other.CreationId && Name == other.Name
+        && EmptyProject == other.EmptyProject && BuildTarget == other.BuildTarget
+        && string.Equals(UnityPackagePath, other.UnityPackagePath, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(TargetPath, other.TargetPath, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(UnityEditorPath, other.UnityEditorPath, StringComparison.OrdinalIgnoreCase)
+        && PublishingPlatforms.SequenceEqual(other.PublishingPlatforms, StringComparer.OrdinalIgnoreCase)
+        && ExtraImports.SequenceEqual(other.ExtraImports, StringComparer.OrdinalIgnoreCase);
 }
+public sealed record PartialProjectInitialization(CreationRequest Source, string ExpectedDirectoryIdentity,
+    IReadOnlyDictionary<string, string> ExistingFileFingerprints);
+
 public sealed record ProjectPlan
 {
+    public PartialProjectInitialization? Initialization { get; init; }
     public required string Path { get; init; }
     public required string Name { get; init; }
     public required string ExpectedFingerprint { get; init; }
@@ -231,6 +242,8 @@ public interface IProjectWorkspace
 
 public interface IProjectDriver
 {
+    Task InitializePartialAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) =>
+        throw new NotSupportedException("Partial project initialization is not available in this driver.");
     Task<IAsyncDisposable?> BeginPackageChangesAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) => Task.FromResult<IAsyncDisposable?>(null);
     Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);

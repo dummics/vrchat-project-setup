@@ -6,6 +6,7 @@ namespace VrcSetup.Infrastructure;
 // A missing identity never grants permission to remove or replace a directory.
 public sealed record ProjectDirectoryIdentity(ulong Volume, ulong FileIdLow, ulong FileIdHigh)
 {
+    public string Key => $"{Volume:X16}:{FileIdLow:X16}:{FileIdHigh:X16}";
     // Only empty directories; ownership/receipt authorization belongs to the caller.
     public static void RemoveEmptyDirectory(string path, ProjectDirectoryIdentity expected)
     {

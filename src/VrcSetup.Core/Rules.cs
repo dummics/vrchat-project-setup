@@ -146,10 +146,16 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
 {
     public async Task<ProjectPlan> PlanAsync(string project, IReadOnlyDictionary<string, string> selected, AppConfiguration config,
         bool exact = false, IEnumerable<string>? remove = null, string? preset = null, string[]? extraImports = null,
-        CreationRequest? creation = null, CancellationToken cancellationToken = default)
+        CreationRequest? creation = null, CancellationToken cancellationToken = default,
+        PartialProjectInitialization? initialization = null, ProjectSnapshot? initializationSnapshot = null)
     {
         project = ProjectRules.NormalizePath(project);
-        var snapshot = creation is null ? await workspace.ReadAsync(project, cancellationToken) : new ProjectSnapshot { Path = project, Name = creation.Name, Status = "New" };
+        if ((initialization is null) != (initializationSnapshot is null) || (initialization is not null &&
+            (creation is not null || !Guid.TryParseExact(initialization.Source.CreationId, "N", out _)
+                || !ProjectRules.NormalizePath(initialization.Source.TargetPath).Equals(project, StringComparison.OrdinalIgnoreCase)
+                || !ProjectRules.NormalizePath(initializationSnapshot!.Path).Equals(project, StringComparison.OrdinalIgnoreCase))))
+            throw new ArgumentException("Partial initialization does not match the reviewed project.");
+        var snapshot = initializationSnapshot ?? (creation is null ? await workspace.ReadAsync(project, cancellationToken) : new ProjectSnapshot { Path = project, Name = creation.Name, Status = "New" });
         if (creation is not null)
         {
             ProjectRules.ValidateName(creation.Name);
@@ -240,7 +246,8 @@ public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog 
             LegacyAssetPaths = changes.Where(x => x.Kind is ChangeKind.Add or ChangeKind.Update).SelectMany(x => metadata[x.Id].LegacyAssets).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             UnityEditorPath = creation?.UnityEditorPath ?? config.UnityEditorPath,
             ImportFingerprints = ProjectRules.Freeze((extraImports ?? []).Concat(creation?.ExtraImports ?? []).Concat(creation is null || creation.EmptyProject ? [] : new[] { creation.UnityPackagePath }).Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(x => x, ProjectRules.FileIdentity)),
-            NeedsEasyLoginRepository = desired.ContainsKey(ProjectRules.EasyLogin)
+            NeedsEasyLoginRepository = desired.ContainsKey(ProjectRules.EasyLogin),
+            Initialization = initialization, RecoverySource = initialization?.Source
         };
     }
 

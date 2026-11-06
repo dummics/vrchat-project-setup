@@ -119,6 +119,32 @@ public sealed partial class VrcSetupApplication
         // A replacement archive is allowed only after the caller explicitly selected it.
         // Validate ownership against the recorded source, while fingerprinting the selected file.
         var state = await new ImportDestinationInspector(Projects).InspectAsync(source.TargetPath, recordedSource ?? source.UnityPackagePath, token, source.EmptyProject);
+        if (state.Kind == ImportDestinationKind.Partial && source.CreationId is not null)
+        {
+            using var receipt = await ProjectCreationReceipt.AcquireAsync(Projects, source, token);
+            var identity = ProjectDirectoryIdentity.TryRead(source.TargetPath) ?? throw new IOException("The project location cannot be verified.");
+            var existing = new Dictionary<string, string>();
+            foreach (var relative in new[] { "Packages/manifest.json", "ProjectSettings/ProjectVersion.txt" })
+            {
+                var file = Path.Combine(source.TargetPath, relative); var parent = Path.GetDirectoryName(file)!;
+                if (Directory.Exists(parent))
+                {
+                    using var parentLock = ProjectDirectoryIdentity.HoldPath(parent, ProjectDirectoryIdentity.TryRead(parent) ?? throw new IOException("The project folder cannot be verified."));
+                    if (File.Exists(file) && (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) throw new IOException("The project file is linked.");
+                    existing[relative] = File.Exists(file) ? AtomicFile.Hash(file) : "";
+                }
+                else existing[relative] = "";
+            }
+            var pendingImports = (source.EmptyProject ? Array.Empty<string>() : [source.UnityPackagePath]).Concat(imports).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var partial = Projects.ReadPartial(source.TargetPath, token);
+            var preservedPartial = new Dictionary<string, string>(packages);
+            foreach (var package in packages)
+                if ((partial.InstalledVersions.GetValueOrDefault(package.Key) ?? partial.LockedPackages.GetValueOrDefault(package.Key)) is { Length: > 0 } installed)
+                    preservedPartial[package.Key] = installed;
+            var reviewed = await Planner.PlanAsync(source.TargetPath, preservedPartial, config, preset: preset, extraImports: pendingImports,
+                cancellationToken: token, initialization: new(source, identity.Key, ProjectRules.Freeze(existing)), initializationSnapshot: partial);
+            return reviewed with { UnityEditorPath = source.UnityEditorPath, RecoveryOriginalSource = recordedSource };
+        }
         if (state.Kind != ImportDestinationKind.Recoverable && !state.CanImportMissing) throw new IOException(state.Message);
         var marker = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(source.TargetPath, ".vrcsetup", "state.json"), token);
         if (source.EmptyProject && marker?.ProjectName != source.Name) throw new IOException("The project import state does not match this import. Its files have been preserved.");

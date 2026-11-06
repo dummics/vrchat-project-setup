@@ -16,7 +16,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
     }
     private async Task PrepareCoreAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
-        if (plan.Creation is not null || plan.RecoverySource is { EmptyProject: true })
+        if (plan.Creation is not null || plan.Initialization is not null || plan.RecoverySource is { EmptyProject: true })
         {
             await UnityProjectTemplate.EnsureBuiltinModulesAsync(plan.Path, plan.UnityEditorPath, cancellationToken);
             var file = Path.Combine(plan.Path, "Packages", "manifest.json");

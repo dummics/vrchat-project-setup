@@ -228,8 +228,8 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
         InstalledVersions = new() { [ProjectRules.BaseSdk] = "3.10.5", [ProjectRules.AvatarSdk] = "3.10.5", [ProjectRules.Resolver] = "0.1.29", ["tool"] = "1.0.0", ["custom"] = "1.0.0" },
         LockedPackages = new() { ["tool"] = "1.0.0" }
     };
-    public bool Busy; public bool BackupFailure; public int Backups, Restores; public bool Completed; public bool LeaseHeld, LockHeldDuringRestore; public CancellationTokenSource? CancelOnComplete;
-    public Task<ProjectSnapshot> ReadAsync(string path, CancellationToken cancellationToken = default) => Task.FromResult(Project with { Path = path });
+    public bool Busy; public bool BackupFailure; public int Backups, Restores, Reads; public bool Completed; public bool LeaseHeld, LockHeldDuringRestore; public CancellationTokenSource? CancelOnComplete;
+    public Task<ProjectSnapshot> ReadAsync(string path, CancellationToken cancellationToken = default) { Reads++; return Task.FromResult(Project with { Path = path }); }
     public bool IsBusy(string path) => Busy;
     public Task<IDisposable> AcquireAsync(string path, CancellationToken cancellationToken) { LeaseHeld = true; return Task.FromResult<IDisposable>(new Lease(() => LeaseHeld = false)); }
     public Task<BackupRecord> BackupAsync(ProjectPlan plan, CancellationToken cancellationToken) { Backups++; if (BackupFailure) throw new IOException("Backup denied"); return Task.FromResult(new BackupRecord("backup", new Dictionary<string, string?>())); }
@@ -241,6 +241,10 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
+    public int Initializations;
+    public bool InitializationLeaseHeld;
+    public Task InitializePartialAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token)
+    { Initializations++; InitializationLeaseHeld = workspace.LeaseHeld; workspace.Project = workspace.Project with { Fingerprint = "initialized" }; return Task.CompletedTask; }
     public IAsyncDisposable? EditorSession;
     public Task<IAsyncDisposable?> BeginPackageChangesAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) => Task.FromResult(EditorSession);
     public bool Fail, CancelRegistration; public int Calls, UnityCalls, Registrations;

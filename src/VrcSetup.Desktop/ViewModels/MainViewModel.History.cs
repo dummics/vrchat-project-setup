@@ -102,7 +102,7 @@ public sealed partial class MainViewModel
         }
         var destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, original, lifetime.Token, source.EmptyProject));
         if (!CanRecoverCurrentImport(job)) return;
-        if (destination.Kind is ImportDestinationKind.New or ImportDestinationKind.Partial)
+        if (destination.Kind == ImportDestinationKind.New || destination.Kind == ImportDestinationKind.Partial && source.CreationId is null)
         {
             if (source.EmptyProject)
             {

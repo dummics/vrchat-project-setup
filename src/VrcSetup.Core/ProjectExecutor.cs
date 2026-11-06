@@ -41,8 +41,17 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                     throw new ProjectsInUseException([project.Name]);
                 if (project.Creation is null)
                 {
+                    if (project.Initialization is not null)
+                    {
+                        if (!project.Initialization.Source.MatchesInputs(project.RecoverySource))
+                            throw new ArgumentException("Partial initialization has no matching recovery source.");
+                        phase = "Creating";
+                        await driver.InitializePartialAsync(project, progress, cancellationToken);
+                        mutated = true;
+                        await workspace.SetStepAsync(project.Path, "created", true, cancellationToken);
+                    }
                     var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
-                    if (fresh.Fingerprint != project.ExpectedFingerprint) throw new ProjectSkippedException("Project changed after review; skipped. Review again.");
+                    if (project.Initialization is null && fresh.Fingerprint != project.ExpectedFingerprint) throw new ProjectSkippedException("Project changed after review; skipped. Review again.");
                     var required = ProjectRules.Foundation(fresh.Packages, new()).Concat(project.RequiredPackages);
                     foreach (var id in required)
                         if (!project.DesiredPolicy.ContainsKey(id) || project.Changes.Any(x => x.Id == id && x.Kind == ChangeKind.Remove))
