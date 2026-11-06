@@ -13,7 +13,7 @@ public sealed class ImportDiscardTransactionTests : IDisposable
         var paths = new AppPaths(Path.Combine(root, "home"));
         var source = new CreationRequest("avatar.unitypackage", "Avatar", Path.Combine(root, "project"), "Unity.exe", "StandaloneWindows64", [], [])
             { CreationId = Guid.NewGuid().ToString("N") };
-        var plan = new ProjectPlan { Name = source.Name, Path = source.TargetPath, ExpectedFingerprint = "", DesiredPolicy = [], Changes = [], Creation = source };
+        var plan = new ProjectPlan { Name = source.Name, Path = source.TargetPath, ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(), Changes = [], Creation = source };
         var job = new ImportJob(Guid.NewGuid().ToString("N"), new("plan", DateTime.UtcNow, [plan]), source, "Paused", "Paused", 0, "", "") { DiscardRequested = true };
         var identity = new ProjectDirectoryIdentity(1, 2, 3);
         var state = new SetupState { ProjectName = source.Name, CreationId = source.CreationId,

@@ -74,7 +74,7 @@ public sealed record ProjectDirectoryIdentity(ulong Volume, ulong FileIdLow, ulo
             ProjectDirectoryIdentity? actual = null;
             foreach (var component in components)
             {
-                var handle = CreateFileW(component, 0, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+                var handle = CreateFileW(component, 0x00000001, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
                 handles.Add(handle);
                 actual = Read(handle);
                 if (actual is null) throw new IOException("The project path cannot be protected safely. Its files have been preserved.");

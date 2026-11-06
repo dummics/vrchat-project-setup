@@ -122,7 +122,7 @@ public sealed class CreationIdentityTests
     {
         var source = new CreationRequest("avatar.unitypackage", "Avatar", "project", "Unity.exe", "StandaloneWindows64", [], [])
             { CreationId = Guid.NewGuid().ToString("N") };
-        var project = new ProjectPlan { Name = source.Name, Path = source.TargetPath, ExpectedFingerprint = "", DesiredPolicy = [], Changes = [], Creation = source };
+        var project = new ProjectPlan { Name = source.Name, Path = source.TargetPath, ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(), Changes = [], Creation = source };
         var job = new ImportJob("job", new("plan", DateTime.UtcNow, [project]), source, "Paused", "Paused", 10, "", "");
         var restored = JsonSerializer.Deserialize<ImportJob>(JsonSerializer.Serialize(job, JsonDefaults.Options), JsonDefaults.Options)!;
         Assert.Equal(source.CreationId, restored.Source.CreationId);

@@ -21,7 +21,7 @@ public sealed class OwnedProjectDiscardTests : IDisposable
         Assert.NotNull(identity);
         await AtomicFile.WriteJsonAsync(Path.Combine(target, ".vrcsetup", "state.json"), new SetupState
         { ProjectName = source.Name, CreationId = source.CreationId, CreatedTargetPath = target, CreatedDirectoryIdentity = identity });
-        var plan = new ProjectPlan { Name = source.Name, Path = target, ExpectedFingerprint = "", DesiredPolicy = [], Changes = [], Creation = source };
+        var plan = new ProjectPlan { Name = source.Name, Path = target, ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(), Changes = [], Creation = source };
         var job = new ImportJob(Guid.NewGuid().ToString("N"), new("plan", DateTime.UtcNow, [plan]), source, "Paused", "Paused", 0, "", "") { DiscardRequested = true };
         var service = new OwnedProjectDiscard(paths, new ProjectWorkspace(paths));
         await Assert.ThrowsAnyAsync<IOException>(() => service.RemoveAsync(job with { Source = source with { CreationId = null } }, projects));
