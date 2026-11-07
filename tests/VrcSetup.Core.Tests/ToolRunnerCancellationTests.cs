@@ -8,6 +8,45 @@ namespace VrcSetup.Tests;
 
 public sealed class ToolRunnerCancellationTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunningProcessIsStoppedAndReportsCancellationOrTimeout(bool timeout)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+        var processId = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        var running = new ToolRunner().RunAsync(executable,
+            ["-NoProfile", "-NonInteractive", "-EncodedCommand", Encode("[Console]::Out.WriteLine('fixture:' + $PID); Start-Sleep -Seconds 30")],
+            progress: new InlineProgress(value =>
+            {
+                if (value.Message.StartsWith("fixture:") && int.TryParse(value.Message[8..], out var id)) processId.TrySetResult(id);
+            }), cancellationToken: cancellation.Token, timeout: timeout ? TimeSpan.FromSeconds(4) : TimeSpan.FromSeconds(20));
+        using var process = Process.GetProcessById(await processId.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        try
+        {
+            Assert.False(process.HasExited);
+            if (timeout) await Assert.ThrowsAsync<TimeoutException>(() => running.WaitAsync(TimeSpan.FromSeconds(10)));
+            else
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running.WaitAsync(TimeSpan.FromSeconds(10)));
+            }
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(process.HasExited);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            try { await running.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) { }
+            catch (TimeoutException) { }
+        }
+    }
+
     [Fact] public async Task CancellationStopsReadingAPipeInheritedByAChildAfterTheParentExits()
     {
         if (!OperatingSystem.IsWindows()) return;
