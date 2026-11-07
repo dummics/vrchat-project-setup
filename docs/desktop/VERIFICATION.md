@@ -422,6 +422,9 @@ addition, unchanged saved preset, bulk exclusion and an updated status message.
 The complete core suite passed 427 tests. Cached Trixie/Lulla observations were
 rematched: possible matches remain suggestions rather than proven requirements;
 those observations do not establish ground truth or compatibility.
+The native verifier subsequently passed 585 checks, including switching between
+two import drafts: an explicitly chosen suggestion remains with its own draft
+and is not selected in the other. This covers staging, not two Unity imports.
 
 For an uninitialized project whose recovery inputs are unavailable, the project
 warning offers a new import in a separately named project after manual package

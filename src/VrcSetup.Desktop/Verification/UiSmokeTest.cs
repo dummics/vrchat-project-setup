@@ -861,6 +861,21 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(reviewFlow.CreationPackages.Single(x => x.Id == possible.Id).Selected && !reviewFlow.PossibleCreationPackages.Any(x => x.Id == possible.Id), "Explicitly adding a possible package updates the import selection");
             Require(reviewFlow.InspectionStatus == "No additional packages found.", "The package summary updates after accepting the last possible suggestion");
             Require((await reviewFlow.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(presetBefore.OrderBy(x => x.Key)), "Adding a possible package does not modify the saved default preset");
+            var secondFile = Path.Combine(artifacts, "second-suggestion-fixture.unitypackage");
+            File.Copy(inspectionFile, secondFile);
+            reviewFlow.StageImportFiles([inspectionFile, secondFile]);
+            var firstDraft = reviewFlow.ImportDrafts.Single(x => x.File == inspectionFile);
+            var secondDraft = reviewFlow.ImportDrafts.Single(x => x.File == secondFile);
+            reviewFlow.SelectedImportDraft = firstDraft;
+            var inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
+            Require(!reviewFlow.IsInspectingPackage, "The first fixture inspection settles before selecting a suggestion");
+            reviewFlow.CreationInspection = advice with { Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
+            await reviewFlow.AddCreationSuggestionAsync(reviewFlow.PossibleCreationPackages.Single(x => x.Id == "com.llealloo.audiolink"));
+            reviewFlow.SelectedImportDraft = secondDraft;
+            Require(!reviewFlow.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected), "A package chosen for one import is not selected for another");
+            reviewFlow.SelectedImportDraft = firstDraft;
+            Require(reviewFlow.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected), "Returning to the first import retains its explicitly selected package");
         }
         using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0", [ProjectRules.AvatarSdk] = "3.10.5" }, new(), viewModel.Registry.ToArray(),
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>()), advice))
