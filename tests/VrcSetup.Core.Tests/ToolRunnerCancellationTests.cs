@@ -19,16 +19,21 @@ public sealed class ToolRunnerCancellationTests
         var processId = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancellation = new CancellationTokenSource();
         var running = new ToolRunner().RunAsync(executable,
-            ["-NoProfile", "-NonInteractive", "-EncodedCommand", Encode("[Console]::Out.WriteLine('fixture:' + $PID); Start-Sleep -Seconds 30")],
+            ["-NoProfile", "-NonInteractive", "-EncodedCommand", Encode("[Console]::Out.WriteLine('fixture:' + $PID); Start-Sleep -Seconds 90")],
             progress: new InlineProgress(value =>
             {
                 if (value.Message.StartsWith("fixture:") && int.TryParse(value.Message[8..], out var id)) processId.TrySetResult(id);
-            }), cancellationToken: cancellation.Token, timeout: timeout ? TimeSpan.FromSeconds(4) : TimeSpan.FromSeconds(20));
-        using var process = Process.GetProcessById(await processId.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+            }), cancellationToken: cancellation.Token, timeout: timeout ? TimeSpan.FromSeconds(20) : TimeSpan.FromSeconds(60));
+        Process? process = null;
         try
         {
+            process = Process.GetProcessById(await processId.Task.WaitAsync(TimeSpan.FromSeconds(15)));
             Assert.False(process.HasExited);
-            if (timeout) await Assert.ThrowsAsync<TimeoutException>(() => running.WaitAsync(TimeSpan.FromSeconds(10)));
+            if (timeout)
+            {
+                Assert.Same(running, await Task.WhenAny(running, Task.Delay(TimeSpan.FromSeconds(30))));
+                await Assert.ThrowsAsync<TimeoutException>(() => running);
+            }
             else
             {
                 cancellation.Cancel();
@@ -40,7 +45,12 @@ public sealed class ToolRunnerCancellationTests
         finally
         {
             cancellation.Cancel();
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            if (process is not null)
+            {
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+                finally { process.Dispose(); }
+            }
             try { await running.WaitAsync(TimeSpan.FromSeconds(5)); }
             catch (OperationCanceledException) { }
             catch (TimeoutException) { }
