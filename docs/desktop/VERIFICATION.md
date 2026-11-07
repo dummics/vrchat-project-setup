@@ -377,3 +377,12 @@ Evidence: `.work/artifacts/ui-guide/` (smoke exit 0). The guide is available fro
 Information; it is optional and can be reopened. This does not verify a first-run
 tutorial or keyboard/screen-reader acceptance.
 
+An interrupted empty-project creation can be explicitly cancelled even when its
+destination folder was never created. The durable outcome distinguishes this
+case from removal of an owned folder; an unavailable parent or a folder observed
+before finalization prevents the no-folder completion. A pending cancellation
+remains available in the operations footer. The complete core suite passed 420
+tests and the offscreen native verifier passed 562 checks. These checks use
+isolated fixtures and do not establish atomic exclusion of external processes
+creating a folder after the final absence check.
+

@@ -334,6 +334,47 @@ public static class UiSmokeTest
             var queue = flow.Application.Imports;
             var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var absentCreationPath = Path.Combine(flow.ProjectsRoot, "Cancelled before creation");
+            var absentCreationSource = new CreationRequest("", "Cancelled before creation", absentCreationPath, "", "StandaloneWindows64", [], [], true)
+                { CreationId = Guid.NewGuid().ToString("N") };
+            var absentCreationPlan = new ProjectPlan { Name = absentCreationSource.Name, Path = absentCreationPath, ExpectedFingerprint = "",
+                DesiredPolicy = new Dictionary<string, string>(), Changes = [], Creation = absentCreationSource };
+            var absentCreation = new ImportJob("absent-creation", new OperationPlan("absent-plan", DateTime.UtcNow, [absentCreationPlan]),
+                absentCreationSource, "Paused", "Paused", 0, "", "");
+            lock (queueSync) queueJobs.Add(absentCreation);
+            try
+            {
+                decisions.ConfirmResult = false;
+                await flow.CancelCreationAsync(absentCreation.Id);
+                Require(!queue.Snapshot().Single(x => x.Id == absentCreation.Id).DiscardRequested, "Declining cancellation keeps the uncreated project request");
+                decisions.ConfirmResult = true;
+                await flow.CancelCreationAsync(absentCreation.Id);
+                Require(queue.Snapshot().Single(x => x.Id == absentCreation.Id).DiscardCompleted && !Directory.Exists(absentCreationPath),
+                    "Cancelling before project creation finishes without deleting a folder");
+                Require(new VrcSetup_Desktop.ViewModels.UiImportRow(queue.Snapshot().Single(x => x.Id == absentCreation.Id)).Message == "Request cancelled. No project folder was removed.",
+                    "The stored cancellation outcome does not claim a project folder was deleted");
+                Require(flow.ApplicationNotice.Contains("No project folder was removed", StringComparison.Ordinal), "Cancellation explains that no folder was removed");
+            }
+            finally { lock (queueSync) queueJobs.RemoveAll(x => x.Id == absentCreation.Id); decisions.ConfirmResult = false; }
+            // The fixture inserts and removes this job directly; publish the cleaned
+            // snapshot so other view models cannot retain its last queued update.
+            await queue.ClearFinishedAsync();
+            var lateFolderPath = Path.Combine(artifacts, "folder-appeared-during-cancellation");
+            Directory.CreateDirectory(lateFolderPath);
+            var lateFolder = absentCreation with { Source = absentCreationSource with { TargetPath = lateFolderPath }, DiscardRequested = true };
+            var refusedLateFolder = false;
+            try { await VrcSetup_Desktop.ViewModels.MainViewModel.ConfirmNoProjectFolderAsync(lateFolder, default); }
+            catch (IOException) { refusedLateFolder = true; }
+            Require(refusedLateFolder && Directory.Exists(lateFolderPath), "A folder that appears during cancellation is preserved and requires another review");
+            var unavailablePath = Path.Combine(artifacts, "unavailable-parent", "project");
+            var unavailable = absentCreation with { Source = absentCreationSource with { TargetPath = unavailablePath }, DiscardRequested = true };
+            var refusedUnavailable = false;
+            try { await VrcSetup_Desktop.ViewModels.MainViewModel.ConfirmNoProjectFolderAsync(unavailable, default); }
+            catch (IOException error) { refusedUnavailable = error.Message.Contains("unavailable", StringComparison.OrdinalIgnoreCase); }
+            Require(refusedUnavailable && !VrcSetup_Desktop.ViewModels.MainViewModel.CanCancelWithoutFolder(unavailablePath),
+                "An unavailable project parent is not mistaken for a verified missing project");
+            Require(VrcSetup_Desktop.ViewModels.MainViewModel.CurrentRunningImports([absentCreation with { DiscardRequested = true }]).Length == 1,
+                "Pending cancellation of an empty project remains visible");
             var restoreProject = Path.Combine(artifacts, "restore-ui-fixture");
             Directory.CreateDirectory(Path.Combine(restoreProject, "Assets"));
             Directory.CreateDirectory(Path.Combine(restoreProject, "Packages"));
@@ -865,7 +906,8 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     scroll.ChangeView(null, 0, null, true);
                 }
                 if (screen == "Create")
-                    Require(((FrameworkElement)page.FindName("ImportQueueSection")).Visibility == Visibility.Collapsed && viewModel.ImportsIdle, "Empty imports reserve no workspace: " + size.Width);
+                    Require(((FrameworkElement)page.FindName("ImportQueueSection")).Visibility == Visibility.Collapsed && viewModel.ImportsIdle,
+                        $"Empty imports reserve no workspace: {size.Width}, visibility={((FrameworkElement)page.FindName("ImportQueueSection")).Visibility}, idle={viewModel.ImportsIdle}, rows={viewModel.ImportJobs.Count}, queue={string.Join(",", viewModel.Application.Imports.Snapshot().Select(job => job.Id + ":" + job.State + ":" + job.Source.EmptyProject))}");
                 if (screen is "Create" or "Settings")
                 {
                     var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");
@@ -1030,6 +1072,8 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         var failedImport = fixtureJobs[0].Job with { Id = "failed-import", State = "Failed", Plan = fixtureJobs[0].Job.Plan with { CreatedUtc = DateTime.UtcNow.AddMinutes(-5) } };
         var interruptedImport = failedImport with { State = "Interrupted" };
         var changedSource = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "This package differs from the original. Choose the original UnityPackage to continue." });
+        Require(fixtureJobs[0].MessageVisibility == Visibility.Collapsed && changedSource.MessageVisibility == Visibility.Visible,
+            "Import outcome uses space only when there is a message to show");
         Require(changedSource.Message.Contains("UnityPackage changed", StringComparison.Ordinal) && changedSource.RetryLabel == "Try again", "Changed source shows the actionable reason and retry");
         var failedRestore = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "Import failed. Automatic restore incomplete; use recovery." });
         Require(failedRestore.Message.Contains("could not be restored automatically", StringComparison.Ordinal), "Incomplete restore remains visible instead of a generic import error");

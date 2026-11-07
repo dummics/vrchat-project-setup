@@ -11,7 +11,7 @@ public sealed partial class MainViewModel
     public ObservableCollection<RunningOperationRow> RunningOperations { get; } = [];
     internal static ImportJob[] CurrentRunningImports(IEnumerable<ImportJob> jobs) => jobs
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
-        .Select(group => ImportQueue.CurrentForProject(group, group.Key)!).Where(x => x.Active || x.Source.EmptyProject && x.Recoverable).ToArray();
+        .Select(group => ImportQueue.CurrentForProject(group, group.Key)!).Where(x => x.Active || x.Source.EmptyProject && (x.Recoverable || x.DiscardRequested)).ToArray();
     private void RefreshRunningOperations()
     {
         var rows = new List<RunningOperationRow>();
@@ -21,8 +21,9 @@ public sealed partial class MainViewModel
         {
             var creation = job.Source.EmptyProject;
             var step = new UiImportRow(job).Step;
-            rows.Add(new(UiText.Text(creation ? job.Active ? "Creating project" : "Project creation stopped" : "Importing assets"), job.Name,
-                job.Active ? UiText.Text(step) : UserErrors.Message(new IOException(job.Message)), job.Id, creation && job.Recoverable));
+            rows.Add(new(UiText.Text(creation ? job.DiscardRequested ? "Cancellation needs finishing" : job.Active ? "Creating project" : "Project creation stopped" : "Importing assets"), job.Name,
+                job.Active ? UiText.Text(step) : UserErrors.Message(new IOException(job.Message)), job.Id, creation && job.Recoverable,
+                creation && !job.DiscardCompleted && (job.DiscardRequested || job.Source.CreationId is not null || CanCancelWithoutFolder(job.ProjectPath)), job.DiscardRequested));
         }
         if (IsDownloadingUpdate || IsCheckingUpdate || UpdateFailed)
             rows.Add(new(UiText.Text("Application update"), "", UiText.Text(UpdateStatus)));
@@ -59,11 +60,19 @@ public sealed partial class MainViewModel
         if (app.Imports.Snapshot().FirstOrDefault(x => x.Id == id && x.Source.EmptyProject && x.Recoverable) is not { } job) return;
         await RepairHistoryImportAsync(new(job));
     }
+    public async Task CancelCreationAsync(string id)
+    {
+        if (app.Imports.Snapshot().FirstOrDefault(x => x.Id == id && x.Source.EmptyProject && !x.DiscardCompleted) is not { } job) return;
+        await DiscardImportAsync(new(job));
+    }
 }
 
-public sealed record RunningOperationRow(string Kind, string Name, string Detail, string Id = "", bool Recoverable = false)
+public sealed record RunningOperationRow(string Kind, string Name, string Detail, string Id = "", bool Recoverable = false, bool CanDiscard = false, bool DiscardPending = false)
 {
     public string Caption => Name.Length > 0 ? Name : Kind;
     public string ShortState => Name.Length > 0 ? Kind : "";
-    public Visibility ActionsVisibility => Recoverable ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ActionsVisibility => Recoverable || CanDiscard ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RetryVisibility => Recoverable && !DiscardPending ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility DiscardVisibility => CanDiscard ? Visibility.Visible : Visibility.Collapsed;
+    public string DiscardLabel => DiscardPending ? "Finish cancellation" : "Cancel creation";
 }

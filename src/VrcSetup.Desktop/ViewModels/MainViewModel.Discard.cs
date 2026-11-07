@@ -9,13 +9,16 @@ public sealed partial class MainViewModel
     {
         var job = ImportQueue.CurrentForProject(app.Imports.Snapshot(), row.Job.ProjectPath);
         if (job is null || job.Id != row.Id || job.DiscardCompleted) return;
-        if (job.Source.CreationId is null)
+        var missingDestination = ProjectLocationAbsent(job.ProjectPath);
+        if (job.Source.CreationId is null && !missingDestination)
         {
-            ApplicationNotice = UiText.Text("This project will be preserved. You can pause its import and continue later.");
+            ApplicationNotice = UiText.Text("This project cannot be removed automatically. Your files were kept. Open the project folder or contact support.");
             return;
         }
-        if (!await ui.ConfirmAsync("Cancel import", UiText.Text("Cancel this import and remove the project created for it, including its files?")
-            + "\n" + job.Name, "Cancel and remove project")) return;
+        var question = missingDestination ? "Cancel this request? No project folder exists at its recorded location, so no folder will be removed."
+            : "Cancel this import and remove the project created for it, including its files?";
+        if (!await ui.ConfirmAsync("Cancel import", UiText.Text(question) + "\n" + job.Name,
+            missingDestination ? "Cancel request" : "Cancel and remove project")) return;
         var current = ImportQueue.CurrentForProject(app.Imports.Snapshot(), job.ProjectPath);
         if (IsClosingApp || current is null || current.Id != job.Id || current.DiscardCompleted) return;
         if (!current.DiscardRequested && current.State is "Completed" or "Recovered")
@@ -32,10 +35,13 @@ public sealed partial class MainViewModel
             await app.Imports.WaitForStoppedAsync(job.Id, stopWait.Token);
             var cleanup = new OwnedProjectDiscard(app.Paths, app.Projects);
             var projectsRoot = ProjectsRoot;
-            await app.Imports.FinishDiscardAsync(job.Id,
-                (current, token) => Task.Run(() => cleanup.RemoveAsync(current, projectsRoot, token), token), lifetime.Token);
-            await RefreshProjectsCore();
-            ApplicationNotice = UiText.Text("Import cancelled.");
+            await app.Imports.FinishDiscardAsync(job.Id, (current, token) => missingDestination
+                ? ConfirmNoProjectFolderAsync(current, token)
+                : Task.Run(() => cleanup.RemoveAsync(current, projectsRoot, token), token), lifetime.Token, noProjectFolder: missingDestination);
+            ApplicationNotice = UiText.Text(missingDestination ? "Request cancelled. No project folder was removed." : "Import cancelled.");
+            try { await RefreshProjectsCore(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { app.Diagnostics.Write("Project list refresh", error.Message, error); }
         }
         catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
         {
@@ -44,4 +50,28 @@ public sealed partial class MainViewModel
                 : "The cancellation request was not saved. Try again.");
         }
     });
+
+    internal static bool ProjectLocationAbsent(string path)
+    {
+        var parent = Path.GetDirectoryName(ProjectRules.NormalizePath(path));
+        if (parent is null || !Directory.Exists(parent))
+            throw new IOException("The project location is unavailable. Reconnect its drive before cancelling.");
+        try { _ = File.GetAttributes(path); return false; }
+        catch (FileNotFoundException) { return true; }
+        catch (DirectoryNotFoundException) { return true; }
+    }
+
+    internal static bool CanCancelWithoutFolder(string path)
+    {
+        try { return ProjectLocationAbsent(path); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
+    }
+
+    internal static Task ConfirmNoProjectFolderAsync(ImportJob job, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (!ProjectLocationAbsent(job.ProjectPath))
+            throw new IOException("A project folder appeared. Review the cancellation again before continuing.");
+        return Task.CompletedTask;
+    }
 }

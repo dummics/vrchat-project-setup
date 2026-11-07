@@ -4,7 +4,7 @@ public sealed partial class ImportQueue
 {
     // cleanup must be an idempotent, ownership-checked implementation. No production
     // consumer is wired until that implementation and its recovery are verified.
-    public async Task FinishDiscardAsync(string id, Func<ImportJob, CancellationToken, Task> cleanup, CancellationToken token = default)
+    public async Task FinishDiscardAsync(string id, Func<ImportJob, CancellationToken, Task> cleanup, CancellationToken token = default, bool noProjectFolder = false)
     {
         ArgumentNullException.ThrowIfNull(cleanup);
         await disposalGate.WaitAsync(token);
@@ -26,7 +26,7 @@ public sealed partial class ImportQueue
             await journalGate.WaitAsync(token);
             try
             {
-                var completed = job with { DiscardRequested = false, DiscardCompleted = true,
+                var completed = job with { DiscardRequested = false, DiscardCompleted = true, DiscardNoFolder = noProjectFolder,
                     State = "Cancelled", Step = "Cancelled", Message = "Import cancelled.", FinishedAt = DateTime.UtcNow };
                 var snapshot = Snapshot();
                 snapshot[Array.FindIndex(snapshot, x => x.Id == id)] = completed;

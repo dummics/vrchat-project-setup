@@ -34,7 +34,9 @@ public sealed partial class MainViewModel
             if (IsClosingApp) return UiText.Text("Preparing to close…");
             var parts = new List<string>();
             if (IsCreatingProject) parts.Add(UiText.Text("Creating project"));
-            if (app.Imports.Snapshot().Any(x => x.Source.EmptyProject && x.Recoverable && !x.HiddenFromImports)) parts.Add(UiText.Text("Project creation stopped"));
+            var creations = CurrentRunningImports(app.Imports.Snapshot()).Where(x => x.Source.EmptyProject).ToArray();
+            if (creations.Any(x => x.DiscardRequested && !x.Active)) parts.Add(UiText.Text("Cancellation needs finishing"));
+            else if (creations.Any(x => x.Recoverable)) parts.Add(UiText.Text("Project creation stopped"));
             if (UpdateFailed) parts.Add(UiText.Text("Update failed"));
             if (IsInstallingUpdate) parts.Add(UiText.Text("Installing update"));
             else if (IsDownloadingUpdate) parts.Add(UpdateStatus == "Preparing update…" ? UiText.Text("Preparing update…") : UiText.Text("Downloading update") + $" · {UpdateDownloadPercent}%");

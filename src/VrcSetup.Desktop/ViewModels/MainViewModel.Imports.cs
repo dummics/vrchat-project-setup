@@ -230,7 +230,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     } : Job.State == "Queued" ? "Starting…" : Job.State;
     public string Message => Job.CreatorCompanionPending ? "Your project is ready. It was not added to Creator Companion. Retry here, or add it there as an existing project. You do not need to import it again."
         : Job.DiscardRequested ? "Your cancellation request is saved. The project is preserved until cleanup finishes."
-        : Job.DiscardCompleted ? "The import was cancelled and its created project was removed."
+        : Job.DiscardCompleted ? Job.DiscardNoFolder ? "Request cancelled. No project folder was removed." : "The import was cancelled and its created project was removed."
         : Job.State switch
         {
             "Paused" => "The import is paused. Your project is kept. Choose Continue import when you are ready.",
@@ -243,6 +243,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
             _ => ""
         };
     public int Progress => Job.Progress;
+    public Visibility MessageVisibility => Message.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
     public string RetryLabel => Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
@@ -250,8 +251,9 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RecoverVisibility => Job.Recoverable ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RegistrationVisibility => Job.CreatorCompanionPending && !Job.Active ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility DiscardVisibility => !Job.DiscardCompleted && Job.Source.CreationId is not null
+    public Visibility DiscardVisibility => !Job.DiscardCompleted && (Job.Source.CreationId is not null || Job.DiscardRequested || MainViewModel.CanCancelWithoutFolder(Job.ProjectPath))
         && (Job.Active || Job.Recoverable || Job.DiscardRequested) ? Visibility.Visible : Visibility.Collapsed;
+    public string DiscardLabel => MainViewModel.CanCancelWithoutFolder(Job.ProjectPath) ? "Cancel import" : "Cancel and remove project";
     public void Update(ImportJob value) { OnPropertyChanged(nameof(Elapsed)); if (Job == value) return; Job = value; OnPropertyChanged(string.Empty); }
 }
 

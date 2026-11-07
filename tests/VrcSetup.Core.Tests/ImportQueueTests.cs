@@ -6,6 +6,22 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task CancelWithoutProjectFolderPersistsItsDistinctOutcome()
+    {
+        var app = App; var plan = Plan("Never created");
+        var job = new ImportJob("never-created", plan, plan.Projects.Single().Creation!, "Paused", "Paused", 0, "", "");
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using (var queue = new ImportQueue(app))
+        {
+            await queue.InitializeAsync(); await queue.RequestDiscardAsync(job.Id);
+            await queue.FinishDiscardAsync(job.Id, (_, _) => Task.CompletedTask, noProjectFolder: true);
+            Assert.True(Assert.Single(queue.Snapshot()).DiscardNoFolder);
+        }
+        await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
+        var saved = Assert.Single(reopened.Snapshot());
+        Assert.True(saved.DiscardCompleted && saved.DiscardNoFolder);
+        Assert.False(Directory.Exists(job.ProjectPath));
+    }
     [Fact] public async Task OrphanRecoveryEnqueuesReviewedSourceAndPersistsCompletion()
     {
         var app = App; var original = Plan("Orphan ready").Projects.Single();

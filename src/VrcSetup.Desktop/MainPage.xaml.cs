@@ -42,6 +42,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ViewModel.PropertyChanged += (_, eventArgs) =>
         {
             if (eventArgs.PropertyName == nameof(ViewModel.CurrentPage)) ShowPage(ViewModel.CurrentPage);
+            if (eventArgs.PropertyName == nameof(ViewModel.ImportJobsVisibility) && ViewModel.CurrentPage == "Create") ConstrainForms();
             if (eventArgs.PropertyName == nameof(ViewModel.IsApplyingPackages)) DispatcherQueue.TryEnqueue(() =>
             {
                 if (ViewModel.IsApplyingPackages) ApplyCancelButton.Focus(FocusState.Programmatic);
@@ -145,7 +146,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         ProjectSearch.Width = Math.Clamp(ProjectsView.ActualWidth - (ViewModel.SelectedProjects.Count >= 2 ? ManageSelectionAction.ActualWidth + 16 : 0), 140, 320);
         var stackProjectColumns = ProjectsView.ActualWidth < 640;
         ProjectColumnHeaders.ColumnDefinitions[1].Width = new GridLength(stackProjectColumns ? 0 : 260);
-        ProjectColumnHeaders.ColumnDefinitions[2].Width = new GridLength(stackProjectColumns ? 0 : 140);
+        ProjectColumnHeaders.ColumnDefinitions[2].Width = new GridLength(stackProjectColumns ? 0 : 200);
         Grid.SetRow(ProjectDateSortHeader, stackProjectColumns ? 1 : 0); Grid.SetColumn(ProjectDateSortHeader, stackProjectColumns ? 0 : 1);
         Grid.SetColumnSpan(ProjectDateSortHeader, stackProjectColumns ? 3 : 1);
         if (PresetEditor.ActualWidth > 0) PresetSelector.Width = Math.Clamp(PresetEditor.ActualWidth * .3, 180, 320);
@@ -179,7 +180,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             // An expanded row must fit its header and log at common window heights;
             // otherwise aligning the header to the bottom clips the details above it.
             ImportQueueList.MaxHeight = Math.Max(120, Math.Min(360, CreateHost.ActualHeight * .65 - 42));
-            foreach (var row in ImportQueueList.Items.OfType<UiImportRow>()) row.LogHeight = Math.Clamp(ImportQueueList.MaxHeight - 170, 40, 105);
+            foreach (var row in ImportQueueList.Items.OfType<UiImportRow>())
+            {
+                var actionsHeight = (row.DiscardVisibility == Visibility.Visible ? 40 : 0) + (row.RegistrationVisibility == Visibility.Visible ? 40 : 0);
+                row.LogHeight = Math.Clamp(ImportQueueList.MaxHeight - 170 - actionsHeight, 40, 105);
+            }
             var narrow = CreateForm.Width < 560;
             ProjectFields.Width = CreateForm.Width;
             var stackFields = CreateForm.Width < 440;

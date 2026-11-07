@@ -62,6 +62,8 @@ public static class UserErrors
     private static string? Advice(string message) => message switch
     {
         "This package differs from the original. Choose the original UnityPackage to continue." => message,
+        "A project folder appeared. Review the cancellation again before continuing." => message,
+        "The project location is unavailable. Reconnect its drive before cancelling." => message,
         "Close Unity or wait for the active import before restoring." => message,
         "This backup is no longer available. Choose the latest backup for this project." => message,
         "Restore could not complete; inspect the logs." => "The backup could not be restored. Your current project was kept. Open logs for details.",
