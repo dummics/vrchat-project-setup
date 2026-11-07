@@ -172,7 +172,7 @@ public sealed class PackageSetDialog : IDisposable
                 DependencyConfidence.Detected => UiText.Text("Suggested"),
                 _ => UiText.Text("Needs confirmation")
             };
-            ToolTipService.SetToolTip(detail, hint is null ? row.Id : row.Id + "\n" + EvidenceTooltip(hint));
+            ToolTipService.SetToolTip(detail, hint is null ? row.Id : EvidenceTooltip(hint));
         }
         if (parent is PackageVersionSelector selector)
         {
@@ -181,15 +181,18 @@ public sealed class PackageSetDialog : IDisposable
                 selector.VersionSource = versionCache.GetAsync;
                 selector.VersionPicked += VersionPicked;
                 if (inspection?.Suggestions.FirstOrDefault(x => x.Id.Equals(selector.PackageId, StringComparison.OrdinalIgnoreCase)) is { } advice)
-                    ToolTipService.SetToolTip(selector, UiText.Text(advice.Confidence.ToString()) + (advice.VersionConstraint is { Length: > 0 } constraint ? " · " + UiText.Text("Requires ") + constraint : "") + "\n" + EvidenceTooltip(advice));
+                    ToolTipService.SetToolTip(selector, EvidenceTooltip(advice) + (advice.VersionConstraint is { Length: > 0 } constraint ? "\n" + UiText.Text("Requires ") + constraint : ""));
             }
         }
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++) WireSelectors(VisualTreeHelper.GetChild(parent, index));
     }
-    private static string EvidenceTooltip(DependencySuggestion suggestion) => string.Join("\n", suggestion.Evidence.Take(3).Select(proof =>
-        proof.Kind + " · " + proof.Asset
-        + (proof.ObservedVersions.Length > 0 ? "\n" + UiText.Text("Observed versions") + ": " + string.Join(", ", proof.ObservedVersions) : "")
-        + (proof.SignatureSources.Length > 0 ? "\n" + string.Join("\n", proof.SignatureSources.Take(2)) : "")));
+    internal static string EvidenceTooltip(DependencySuggestion suggestion) => UiText.Text(suggestion.Confidence switch
+    {
+        DependencyConfidence.Declared => "This file declares a package requirement.",
+        DependencyConfidence.Detected => "This file refers to this package.",
+        DependencyConfidence.Included => "This package is included in the file. Check before adding it separately.",
+        _ => "This package may be needed. Check before adding it."
+    });
     private void VersionPicked(object? sender, string value)
     {
         if (sender is not PackageVersionSelector selector) return;

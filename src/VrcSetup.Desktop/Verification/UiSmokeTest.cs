@@ -796,6 +796,16 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             }
             finally { lock (queueSync) queueJobs.Remove(protectedJob); }
         }
+        // The flow fixture injects queue entries directly. Publish its final
+        // snapshot and wait for the real UI dispatcher to reconcile the rows.
+        await viewModel.Application.Imports.ClearFinishedAsync();
+        var reconcileUntil = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < reconcileUntil && !viewModel.ImportJobs.Select(x => x.Id).ToHashSet(StringComparer.Ordinal)
+            .SetEquals(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs(viewModel.Application.Imports.Snapshot(), viewModel.AutoHideCompletedImports).Select(x => x.Id)))
+            await Task.Delay(25);
+        Require(viewModel.ImportJobs.Select(x => x.Id).ToHashSet(StringComparer.Ordinal)
+            .SetEquals(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs(viewModel.Application.Imports.Snapshot(), viewModel.AutoHideCompletedImports).Select(x => x.Id)),
+            "The queue fixture is reconciled before measuring empty import layout");
         Require((await new VrcSetupApplication(Path.Combine(artifacts, "seed-check-home")).Inspection.LoadIndexAsync()).Signatures.Length > 1000, "Published bundle includes the offline dependency signature seed");
         var inspectionFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
         using (var file = File.Create(inspectionFile))
@@ -818,9 +828,14 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(responsive.CreationInspection is null && responsive.InspectionStatus.Length == 0, "Replacing a file rejects stale inspection results");
             Require(!responsive.CreateProjectCommand.CanExecute(null) && responsive.InspectionBusyVisibility == Visibility.Collapsed, "Clearing the source stops analysis feedback and leaves review unavailable");
         }
-        var proof = new DependencyEvidence("Assets/Test.prefab", "script");
+        var proof = new DependencyEvidence("Assets/Test.prefab", "script") { ObservedVersions = ["9.9.9"], SignatureSources = ["Packages/private/path.cs"] };
         var advice = new PackageInspectionReport(new(1, 0, 0, true, true, [], [], 0), "fixture", "Avatar prefab", 0,
             [new("com.vrcfury.vrcfury", DependencyConfidence.Detected, null, [proof]), new("com.poiyomi.toon", DependencyConfidence.Detected, null, [proof]), new(ProjectRules.WorldSdk, DependencyConfidence.Detected, null, [proof]), new("example.range", DependencyConfidence.Declared, ">=2.0.0", [proof])], false);
+        var readableEvidence = PackageSetDialog.EvidenceTooltip(advice.Suggestions[0]);
+        Require(!readableEvidence.Contains("Assets/") && !readableEvidence.Contains("Packages/") && !readableEvidence.Contains("9.9.9") && readableEvidence.Contains("refers"),
+            "Package guidance describes the finding without presenting internal paths or observed versions as requirements");
+        Require(UiText.Text("This package may be needed. Check before adding it.", "it").Contains("potrebbe servire"),
+            "Uncertain package guidance is available in Italian");
         viewModel.CurrentPage = "Create"; viewModel.CreationInspection = advice; await Task.Delay(150);
         Require(viewModel.DetectedCreationPackagesVisibility == Visibility.Visible && viewModel.DetectedCreationPackages.Any(x => x.Id == "example.range"), "Strong package suggestions appear before the import review");
         Require(!viewModel.DetectedCreationPackages.Any(x => x.Id == ProjectRules.WorldSdk), "Avatar suggestions exclude the world SDK");

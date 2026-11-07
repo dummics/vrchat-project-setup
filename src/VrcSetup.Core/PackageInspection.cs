@@ -132,7 +132,7 @@ public static partial class DependencyAdvisor
                 {
                     var ownedSignatures = signatures.Where(x => x.PackageId.Equals(owner, StringComparison.OrdinalIgnoreCase)).ToArray();
                     var typedMatch = (reference.Kind is "script" or "shader") && ownedSignatures.Any(x => x.Kind == reference.Kind);
-                    var confidence = !manyRoots && observation.ArchiveComplete && pertinent && owners.Length == 1 && (reachable.Length < 2 || common.Contains(owner)) && typedMatch ? DependencyConfidence.Detected : DependencyConfidence.Possible;
+                    var confidence = !manyRoots && observation.ArchiveComplete && observation.TextComplete && pertinent && owners.Length == 1 && (reachable.Length < 2 || common.Contains(owner)) && typedMatch ? DependencyConfidence.Detected : DependencyConfidence.Possible;
                     Add(owner, confidence, new(asset.Path, owners.Length > 1 ? "ambiguous GUID" : reference.Kind, reference.Guid)
                     {
                         SignatureSources = ownedSignatures.Select(x => x.Source).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Take(8).ToArray(),

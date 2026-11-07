@@ -402,6 +402,14 @@ exercises confirmation refusal and the resulting reviewed identity (565 checks),
 and five focused source-identity/recovery tests passed. This does not recover an
 older project whose journal and trustworthy creation inputs are both missing.
 
+With incomplete archive or eligible-text coverage, a typed GUID match remains a
+possible package rather than strong add advice. Native package guidance omits
+internal asset paths and observed signature versions, which remain in the
+inspection report. The full Core suite passed 422 tests; native UI smoke passed
+573 checks, including concise Italian guidance. Trixie and Lulla PC/Quest cached
+observations rematched successfully with complete reported coverage; this does
+not establish an independently validated dependency ground truth.
+
 For an uninitialized project whose recovery inputs are unavailable, the project
 warning offers a new import in a separately named project after manual package
 selection. It explains that edits in the old folder are not copied. An active or

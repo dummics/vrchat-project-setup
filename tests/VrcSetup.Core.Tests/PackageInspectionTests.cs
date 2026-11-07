@@ -12,6 +12,17 @@ public sealed class PackageInspectionTests : IDisposable
     private readonly string root = Path.Combine(Path.GetTempPath(), "VrcSetup.Inspection.Tests", Guid.NewGuid().ToString("N"));
     private const string A = "11111111111111111111111111111111", B = "22222222222222222222222222222222", C = "33333333333333333333333333333333";
     [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void IncompleteCoverageDoesNotPromoteAnObservedReferenceToStrongAdvice(bool archiveComplete, bool textComplete)
+    {
+        var observation = new ArchiveObservation(2, 0, 0, archiveComplete, textComplete, [],
+            [new(A, "Assets/Main.prefab", [new(B, "script")], [], false)], 0);
+        var report = DependencyAdvisor.Match(observation, new("fixture", [new(B, "example.package", "1.0.0", "script", "release")]));
+        Assert.Equal(DependencyConfidence.Possible, Assert.Single(report.Suggestions).Confidence);
+        Assert.Empty(DependencyAdvisor.Propose(new Dictionary<string, string>(), report));
+    }
+    [Theory]
     [InlineData("script", DependencyConfidence.Detected)]
     [InlineData("shader", DependencyConfidence.Possible)]
     [InlineData("asset", DependencyConfidence.Possible)]

@@ -91,7 +91,7 @@ public sealed class UiCreationPackage(PackageSelectionPreview data, string name)
     };
     public string Action => Data.Evidence is { } hint && DependencyAdvisor.SuggestedVersion(hint) is not null ? "Add" : "Review";
     public Visibility ActionVisibility => Selected ? Visibility.Collapsed : Visibility.Visible;
-    public string Tooltip => Id + "\n" + UiText.Text(Version) + (Data.Evidence?.VersionConstraint is { Length: > 0 } constraint ? "\nRequires " + constraint : "");
+    public string Tooltip => UiText.Text(Version) + (Data.Evidence?.VersionConstraint is { Length: > 0 } constraint ? "\n" + UiText.Text("Requires ") + constraint : "");
     public void Update(PackageSelectionPreview value, string displayName)
     { if (Data == value && Name == displayName) return; Data = value; Name = displayName; OnPropertyChanged(string.Empty); }
 }

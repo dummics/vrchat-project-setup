@@ -35,7 +35,7 @@ runtime verification.
 
 Selecting a UnityPackage starts one cancellable background inspection with immediate status and progress feedback; name/platform/preset controls remain usable. Review is unavailable while analysis or review preparation is running, and a partial or unavailable final analysis still permits explicit manual review. Changing the file cancels that consumer and rejects old results. The selected file's creation overrides reset when the file changes. The 0.3 refactor changes are pending native verification.
 
-Customize packages includes the detected package definitions in the existing selection dialog. Rows show Detected, Possible, Included or a declared version requirement, with evidence in tooltips. Add detected stages eligible additions; Done accepts the working copy and Cancel discards it. Existing pins and opposite SDK kinds are excluded from batch additions. Reopening customization preserves accepted creation overrides.
+Customize packages includes the detected package definitions in the existing selection dialog. Rows show Detected, Possible, Included or a declared version requirement, with short explanations in tooltips. Detailed paths and signature provenance remain in the inspection report. Add detected stages eligible additions; Done accepts the working copy and Cancel discards it. Existing pins and opposite SDK kinds are excluded from batch additions. Reopening customization preserves accepted creation overrides.
 
 Declared exact versions can be staged. Declared ranges are preserved in the report and shown on the row; they are excluded from Add detected and require an explicit exact-version choice. The current planner accepts exact versions/latest, not arbitrary VPM range expressions. Inspection does not replace VPM's dependency resolver or guarantee compatibility for a manually chosen version.
 
@@ -68,7 +68,10 @@ GUID evidence records bounded signature sources and observed versions. These
 versions describe the index observations, not a minimum compatible release.
 Strong script/shader detection requires a matching signature kind; generic
 anchors and ambiguous matches in other avatar variants cannot establish a
-shared typed requirement. New regression coverage is written but unexecuted.
+shared typed requirement. Strong GUID-based detection also requires complete
+archive and eligible-text coverage: an incomplete scan keeps a match as Possible
+because another avatar variant may have been missed. Explicit manifest
+declarations are reported independently of this GUID confidence rule.
 Normal UI copy presents suggested actions; archive/text limits and unresolved
 references remain available in the diagnostic report, without claiming complete
 dependency certainty.
