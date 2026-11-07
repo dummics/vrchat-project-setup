@@ -76,7 +76,7 @@ public sealed partial class MainViewModel
         .Where(x => !x.Source.EmptyProject)
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
         .Select(group => ImportQueue.CurrentForProject(group, group.Key)!)
-        .Where(x => !x.HiddenFromImports && !(hideCompleted && !x.CreatorCompanionPending && !x.DiscardRequested && x.State is "Completed" or "Recovered"))
+        .Where(x => (!x.HiddenFromImports || !x.CanHide) && !(hideCompleted && x.CanHide && !x.CreatorCompanionPending && x.State is "Completed" or "Recovered"))
         .OrderByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)

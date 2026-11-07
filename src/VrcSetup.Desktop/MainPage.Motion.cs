@@ -49,10 +49,6 @@ public sealed partial class MainPage
         if ((sender as FrameworkElement)?.DataContext is ViewModels.RunningOperationRow row)
         { OperationsStatusButton.Flyout.Hide(); await ViewModel.RetryCreationAsync(row.Id); }
     }
-    private async void DismissCreationClicked(object sender, RoutedEventArgs args)
-    {
-        if ((sender as FrameworkElement)?.DataContext is ViewModels.RunningOperationRow row) await ViewModel.DismissCreationAsync(row.Id);
-    }
     private void InformationSurfaceResized(object sender, SizeChangedEventArgs args)
         => InformationSurface.Clip = new RectangleGeometry { Rect = new(0, 0, Math.Max(0, args.NewSize.Width), Math.Max(0, args.NewSize.Height)) };
     private void AnimateInformation(bool expand)

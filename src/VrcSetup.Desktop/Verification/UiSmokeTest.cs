@@ -447,6 +447,8 @@ public static class UiSmokeTest
                     "A completed newer import supersedes an older recoverable record: " + partialRetry);
                 Require(ImportQueue.CurrentForProject([retryJob, newer, active], retryPath)?.Id == active.Id,
                     "An active import takes priority over terminal history for its project: " + partialRetry);
+                Require(VrcSetup_Desktop.ViewModels.MainViewModel.CurrentRunningImports([retryJob, newer, active]).Single().Id == active.Id,
+                    "Running operations show the current retry without resurrecting the older failure: " + partialRetry);
                 lock (queueSync) { queueJobs.Add(retryJob); queueJobs.Add(newer); }
                 try
                 {
@@ -1041,13 +1043,18 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             "Project and import show the same ready-project notice for optional registration");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport) is { RetryLabel: "Try again", AttentionVisibility: Visibility.Visible }, "Failed imports have a retry action and a quiet warning marker");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(interruptedImport) is { RetryLabel: "Continue import", AttentionVisibility: Visibility.Visible }, "Interrupted imports retain Continue with a quiet warning marker");
+        Require(UiText.Text("Interrupted", "it") == "Interrotta" && UiText.Text("Cancelling", "it") == "Annullamento in corso", "Interrupted and cancelling states are understandable in Italian");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport with { HiddenFromImports = true }], false).Length == 1,
+            "Legacy hidden recoverable imports are still visible for continuation");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([registrationNotice], true).Length == 1,
+            "Pending registration notices are not hidden automatically");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedImport).RepairLabel == "Try again", "Activity uses the same retry label for failures");
         var attempts = new[] { failedImport, fixtureJobs[0].Job, fixtureJobs[1].Job };
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs(attempts, false).Length == 2, "Retry replaces the older failed row for the same destination");
         var hiddenNewest = fixtureJobs[0].Job with { State = "Completed", HiddenFromImports = true };
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport, hiddenNewest], false).Length == 0, "Clearing the latest attempt does not resurrect older failures");
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport, hiddenNewest with { HiddenFromImports = false }], true).Length == 0, "Auto-hiding a completed retry does not resurrect older failures");
-        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty).ImportActionsVisibility == Visibility.Visible, "Empty project recovery is available in Activity");
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty).ImportActionsVisibility == Visibility.Visible, "Failed empty project retains its recovery metadata");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Running" }).Summary.Length > 0, "Creation history summary works before its report exists");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Completed" }).ImportActionsVisibility == Visibility.Collapsed, "Completed empty project has no archive recovery action");
         viewModel.CurrentPage = "Activity";

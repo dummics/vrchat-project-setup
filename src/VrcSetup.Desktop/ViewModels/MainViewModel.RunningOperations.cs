@@ -9,12 +9,15 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     public ObservableCollection<RunningOperationRow> RunningOperations { get; } = [];
+    internal static ImportJob[] CurrentRunningImports(IEnumerable<ImportJob> jobs) => jobs
+        .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
+        .Select(group => ImportQueue.CurrentForProject(group, group.Key)!).Where(x => x.Active || x.Source.EmptyProject && x.Recoverable).ToArray();
     private void RefreshRunningOperations()
     {
         var rows = new List<RunningOperationRow>();
         if (IsCreatingProject) rows.Add(new(UiText.Text("Creating project"), NewProjectName, UiText.Text("Preparing")));
         if (IsApplyingPackages) rows.Add(new(UiText.Text("Applying changes"), ApplyProject, string.Join(" · ", new[] { UiText.Text(ApplyPhase), ApplyPackage, ApplyPackageVersion }.Where(x => x.Length > 0))));
-        foreach (var job in app.Imports.Snapshot().Where(x => x.Active || x.Source.EmptyProject && x.Recoverable && !x.HiddenFromImports))
+        foreach (var job in CurrentRunningImports(app.Imports.Snapshot()))
         {
             var creation = job.Source.EmptyProject;
             var step = new UiImportRow(job).Step;
@@ -51,13 +54,10 @@ public sealed partial class MainViewModel
         }
         if (refreshProjects && CurrentPage == "Projects") _ = RefreshProjectsCommand.ExecuteAsync(null);
     }
-    public Task DismissCreationAsync(string id) => IndependentAction(() => app.Imports.DismissAsync(id, lifetime.Token));
     public async Task RetryCreationAsync(string id)
     {
         if (app.Imports.Snapshot().FirstOrDefault(x => x.Id == id && x.Source.EmptyProject && x.Recoverable) is not { } job) return;
         await RepairHistoryImportAsync(new(job));
-        if (app.Imports.Snapshot().Any(x => x.Active && x.ProjectPath.Equals(job.ProjectPath, StringComparison.OrdinalIgnoreCase)))
-            await DismissCreationAsync(id);
     }
 }
 

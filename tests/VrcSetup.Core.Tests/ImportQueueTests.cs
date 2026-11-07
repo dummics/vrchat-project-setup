@@ -440,7 +440,7 @@ public sealed class ImportQueueTests : IDisposable
         Assert.Equal(job.Source.UnityPackagePath, queue.Snapshot().Single().Source.UnityPackagePath);
     }
 
-    [Fact] public async Task DismissFailedCreationPersistsWithItsHistory()
+    [Fact] public async Task FailedCreationCannotBeHiddenWhileItCanBeRetried()
     {
         var app = App; var plan = Plan("Failed", "Active");
         var jobs = plan.Projects.Select((p, i) => new ImportJob("job" + i, new("op" + i, plan.CreatedUtc, [p]), p.Creation! with { EmptyProject = true },
@@ -449,13 +449,13 @@ public sealed class ImportQueueTests : IDisposable
         await using (var queue = new ImportQueue(app))
         {
             await queue.InitializeAsync(); await queue.DismissAsync("job0");
-            Assert.True(queue.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
+            Assert.False(queue.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
         }
         await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
-        Assert.True(reopened.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
+        Assert.False(reopened.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
         Assert.Equal(jobs[0].Plan.Id, reopened.Snapshot().Single(x => x.Id == "job0").Plan.Id);
     }
-    [Fact] public async Task ClearFinishedHidesCompletedFailedAndInterruptedRowsButRetainsRecoveryAfterRestart()
+    [Fact] public async Task ClearFinishedKeepsRecoverableRowsVisibleAfterRestart()
     {
         var app = App; var plan = Plan("Complete", "Failed", "Active");
         var log = Path.Combine(app.Paths.Logs, "kept.log"); Directory.CreateDirectory(app.Paths.Logs); await File.WriteAllTextAsync(log, "evidence");
@@ -467,13 +467,47 @@ public sealed class ImportQueueTests : IDisposable
             await queue.InitializeAsync(); await queue.ClearFinishedAsync();
             Assert.Equal(3, queue.Snapshot().Length);
             Assert.True(queue.Snapshot().Single(x => x.Id == "job0").HiddenFromImports);
-            Assert.All(queue.Snapshot(), x => Assert.True(x.HiddenFromImports));
+            Assert.False(queue.Snapshot().Single(x => x.Id == "job1").HiddenFromImports);
+            Assert.False(queue.Snapshot().Single(x => x.Id == "job2").HiddenFromImports);
         }
         await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
         var kept = reopened.Snapshot().Single(x => x.Id == "job0");
         Assert.True(kept.HiddenFromImports); Assert.Equal(jobs[0].Plan.Id, kept.Plan.Id);
+        Assert.All(reopened.Snapshot().Where(x => x.Id != "job0"), x => Assert.False(x.HiddenFromImports));
         Assert.Equal(jobs[0].Source.UnityPackagePath, kept.Source.UnityPackagePath); Assert.Equal(jobs[0].Source.TargetPath, kept.Source.TargetPath);
         Assert.Equal(jobs[0].Source.PublishingPlatforms, kept.Source.PublishingPlatforms); Assert.Equal("evidence", await File.ReadAllTextAsync(kept.LogFile));
+    }
+    [Fact] public async Task PreviouslyHiddenRecoverableImportsReturnAfterRestart()
+    {
+        var app = App; var plan = Plan("Failed", "Interrupted", "Cancelled", "Paused", "Vcc");
+        var states = new[] { "Failed", "Interrupted", "Cancelled", "Paused", "Completed" };
+        var jobs = plan.Projects.Select((project, index) => new ImportJob("hidden-" + index,
+            new OperationPlan("op-" + index, DateTime.UtcNow, [project]), project.Creation!, states[index], states[index], 40, "", "", HiddenFromImports: true)
+        { CreatorCompanionPending = index == 4 }).ToArray();
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), jobs);
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        Assert.All(queue.Snapshot().Where(job => job.Recoverable), job => Assert.False(job.HiddenFromImports));
+        Assert.True(queue.Snapshot().Single(job => job.CreatorCompanionPending).HiddenFromImports);
+        await queue.ClearFinishedAsync();
+        foreach (var job in jobs) await queue.DismissAsync(job.Id);
+        Assert.All(queue.Snapshot().Where(job => job.Recoverable), job => Assert.False(job.HiddenFromImports));
+    }
+    [Theory] [InlineData(false)] [InlineData(true)]
+    public async Task HidingFinishedImportRollsBackVisibilityWhenJournalCannotBeSaved(bool single)
+    {
+        var app = App; var plan = Plan("Completed");
+        var job = new ImportJob("completed", plan, plan.Projects.Single().Creation!, "Completed", "Completed", 100, "", "");
+        var journal = Path.Combine(app.Paths.Home, "imports.json"); var saved = journal + ".saved";
+        await AtomicFile.WriteJsonAsync(journal, new[] { job });
+        await using var queue = new ImportQueue(app); await queue.InitializeAsync();
+        try
+        {
+            File.Move(journal, saved); Directory.CreateDirectory(journal);
+            var error = await Record.ExceptionAsync(() => single ? queue.DismissAsync(job.Id) : queue.ClearFinishedAsync());
+            Assert.True(error is IOException or UnauthorizedAccessException, error?.ToString());
+            Assert.False(Assert.Single(queue.Snapshot()).HiddenFromImports);
+        }
+        finally { Directory.Delete(journal); File.Move(saved, journal); }
     }
     [Fact] public async Task UnrestrictedSchedulingStartsSevenJobsAndRecordsTimes()
     {

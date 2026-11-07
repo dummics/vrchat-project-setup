@@ -18,7 +18,7 @@ public sealed partial class MainViewModel
     public Visibility ImportHistoryEmptyVisibility => ImportHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility OperationHistoryEmptyVisibility => OperationHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility HistoryErrorsVisibility => ImportHistory.Concat(OperationHistory).Any(x => x.State is "Failed" or "Interrupted" or "Partially applied") ? Visibility.Visible : Visibility.Collapsed;
-    public bool CanClearFinishedImports => ImportJobs.Any(x => !x.Job.Active && x.Job.State != "Paused" && !x.Job.DiscardRequested);
+    public bool CanClearFinishedImports => ImportJobs.Any(x => x.Job.CanHide && !x.Job.HiddenFromImports);
     [ObservableProperty] public partial bool AutoHideCompletedImports { get; set; }
     partial void OnAutoHideCompletedImportsChanged(bool value) => ImportsChanged(app.Imports.Snapshot());
 
@@ -234,7 +234,7 @@ public sealed class UiHistoryEntry : ObservableObject
         PackageReview.Group(plan).Select(group => (group.Projects.Length == Projects.Length ? "All projects" : string.Join(", ", group.Projects.Select(x => x.Name))) + Environment.NewLine
             + string.Join(Environment.NewLine, group.Changes.Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"))));
     public string Result => job is not null ? UiText.Text(job.DiscardCompleted ? "Import cancelled." : job.DiscardRequested ? "Cancellation needs finishing"
-        : job.CreatorCompanionPending ? "Project ready; Creator Companion registration failed. Add the existing project in VCC."
+        : job.CreatorCompanionPending ? "The project was created; it was not added to Creator Companion."
         : job.State is "Completed" or "Recovered" ? "Import completed."
         : job.State == "Failed" ? "The import did not finish. The project and recovery information were kept."
         : job.State is "Paused" or "Interrupted" or "Cancelled" ? "The import stopped. The project was kept."
@@ -243,11 +243,11 @@ public sealed class UiHistoryEntry : ObservableObject
         {
             OperationStatus.Completed => "Completed",
             OperationStatus.Unchanged => "Packages are already up to date",
-            OperationStatus.CompletedWithWarnings when x.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC." => x.Message,
+            OperationStatus.CompletedWithWarnings when x.CreatorCompanionPending || x.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC." => "The project was created; it was not added to Creator Companion.",
             OperationStatus.CompletedWithWarnings => "Completed. Check the details in the log.",
-            _ when x.Message.Contains("open in Unity", StringComparison.OrdinalIgnoreCase) => "Close Unity, then try again.",
+            _ when x.Message.Contains("open in Unity", StringComparison.OrdinalIgnoreCase) => "The operation stopped because the project was open in Unity.",
             OperationStatus.Cancelled => "Cancelled",
-            _ => "Not completed. Open the project to review it, or try again."
+            _ => "The operation did not finish."
         })));
     public string LogFile => job?.LogFile ?? report!.Results.Select(x => x.LogFile).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "";
     public bool HasLog => LogFile.Length > 0;

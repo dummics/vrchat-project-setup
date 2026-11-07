@@ -13,6 +13,7 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool CreatorCompanionPending { get; init; }
     public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
     public bool Recoverable => !DiscardRequested && !DiscardCompleted && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
+    public bool CanHide => !Active && !Recoverable && !DiscardRequested;
 }
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
@@ -116,6 +117,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                         }
                         catch (Exception error) when (error is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException) { app.Diagnostics.Write("Import state", error.Message, error); }
                     }
+                    if (!job.CanHide && job.HiddenFromImports) job = job with { HiddenFromImports = false };
                     lock (sync) jobs.Add(job);
                 }
                 await SaveAsync(token); initialized = true;
@@ -276,10 +278,20 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         await InitializeAsync(token); await journalGate.WaitAsync(token);
         try
         {
+            HashSet<string> changed;
             lock (sync)
+            {
+                changed = jobs.Where(x => x.CanHide && !x.HiddenFromImports).Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
                 for (var index = 0; index < jobs.Count; index++)
-                    if (!jobs[index].Active && jobs[index].State != "Paused" && !jobs[index].DiscardRequested) jobs[index] = jobs[index] with { HiddenFromImports = true };
-            await SaveAsync(token);
+                    if (jobs[index].CanHide) jobs[index] = jobs[index] with { HiddenFromImports = true };
+            }
+            try { await SaveAsync(token); }
+            catch
+            {
+                lock (sync) for (var index = 0; index < jobs.Count; index++)
+                    if (changed.Contains(jobs[index].Id)) jobs[index] = jobs[index] with { HiddenFromImports = false };
+                throw;
+            }
         }
         finally { journalGate.Release(); }
         Publish();
@@ -290,13 +302,24 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         await InitializeAsync(token); await journalGate.WaitAsync(token);
         try
         {
+            var changed = false;
             lock (sync)
             {
                 var index = jobs.FindIndex(x => x.Id == id);
-                if (index < 0 || jobs[index].Active || jobs[index].State == "Paused" || jobs[index].DiscardRequested) return;
+                if (index < 0 || !jobs[index].CanHide) return;
+                changed = !jobs[index].HiddenFromImports;
                 jobs[index] = jobs[index] with { HiddenFromImports = true };
             }
-            await SaveAsync(token);
+            try { await SaveAsync(token); }
+            catch
+            {
+                if (changed) lock (sync)
+                {
+                    var index = jobs.FindIndex(x => x.Id == id);
+                    if (index >= 0) jobs[index] = jobs[index] with { HiddenFromImports = false };
+                }
+                throw;
+            }
         }
         finally { journalGate.Release(); }
         Publish();
