@@ -334,6 +334,45 @@ public static class UiSmokeTest
             var queue = flow.Application.Imports;
             var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var orphanPath = Path.Combine(flow.ProjectsRoot, "Orphan recovery fixture");
+            Directory.CreateDirectory(orphanPath);
+            var originalArchive = Path.Combine(artifacts, "original-orphan.unitypackage");
+            var movedArchive = Path.Combine(artifacts, "moved-orphan.unitypackage");
+            var wrongArchive = Path.Combine(artifacts, "wrong-orphan.unitypackage");
+            await File.WriteAllTextAsync(originalArchive, "original");
+            var sourceIdentity = await PackageSourceIdentity.ReadAsync(originalArchive);
+            File.Move(originalArchive, movedArchive);
+            await File.WriteAllTextAsync(wrongArchive, "replaced");
+            var orphanSource = new CreationRequest(originalArchive, "Orphan recovery fixture", orphanPath, "", "StandaloneWindows64", [], [])
+            { CreationId = Guid.NewGuid().ToString("N"), SourceIdentity = sourceIdentity, RecoveryPolicy = new() };
+            var physicalIdentity = ProjectDirectoryIdentity.TryRead(orphanPath);
+            Require(physicalIdentity is not null, "Orphan recovery fixture has a physical directory identity");
+            var orphanStateFile = Path.Combine(orphanPath, ".vrcsetup", "state.json");
+            await AtomicFile.WriteJsonAsync(orphanStateFile, new SetupState { ProjectName = orphanSource.Name, UnityPackagePath = originalArchive,
+                CreationId = orphanSource.CreationId, CreationRequest = orphanSource, CreatedTargetPath = orphanPath, CreatedDirectoryIdentity = physicalIdentity });
+            var orphanSnapshot = new ProjectSnapshot { Name = orphanSource.Name, Path = orphanPath, Incomplete = true, InitializationPending = true };
+            var orphanCandidate = await flow.OrphanRecoveryForProjectAsync(orphanSnapshot);
+            Require(orphanCandidate is not null && orphanCandidate.MatchesInputs(orphanSource), "Project view finds verified orphan recovery without a queue record");
+            decisions.ConfirmResult = true; decisions.FileChoice = wrongArchive;
+            await flow.ResumeOrphanImportAsync(orphanSnapshot, orphanCandidate!);
+            Require(flow.ErrorMessage.Contains("differs from the original", StringComparison.OrdinalIgnoreCase), "Orphan recovery explains a selected archive mismatch");
+            Require(!queue.Snapshot().Any(x => x.ProjectPath == orphanPath) && !Directory.Exists(Path.Combine(orphanPath, "Assets")), "A different archive cannot enqueue or initialize the orphan project");
+            decisions.ConfirmResult = false; decisions.FileChoice = movedArchive;
+            await flow.ResumeOrphanImportAsync(orphanSnapshot, orphanCandidate!);
+            Require(!queue.Snapshot().Any(x => x.ProjectPath == orphanPath) && !Directory.Exists(Path.Combine(orphanPath, "Assets")), "Declining source selection preserves the orphan project");
+            if (installedEditor is not null)
+            {
+                decisions.ConfirmResult = true; decisions.ReviewResult = false; decisions.ClearReview();
+                await flow.ResumeOrphanImportAsync(orphanSnapshot, orphanCandidate!).WaitAsync(TimeSpan.FromSeconds(60));
+                Require(decisions.LastReview?.Projects.Single().RecoverySource?.UnityPackagePath == movedArchive,
+                    "Matching relocated archive reaches the orphan recovery review");
+                Require(!queue.Snapshot().Any(x => x.ProjectPath == orphanPath) && !Directory.Exists(Path.Combine(orphanPath, "Assets")),
+                    "Declining the reviewed orphan plan does not enqueue or mutate the project");
+                decisions.ReviewResult = null;
+                decisions.ClearReview();
+            }
+            decisions.ConfirmResult = false;
+            decisions.FileChoice = null;
             foreach (var partialRetry in new[] { false, true })
             {
                 var retryName = partialRetry ? "Partial creation retry" : "Missing creation retry";

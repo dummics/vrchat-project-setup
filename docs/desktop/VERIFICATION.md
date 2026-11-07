@@ -334,7 +334,11 @@ lock. Legacy records without these inputs are not treated as verified ownership.
 Focused fixture tests cover retained inputs, receipt mismatch, missing identity
 and a concurrent history entry. The complete suite passed 415 tests and the
 offscreen UI smoke passed 535 checks, but the orphan recovery action itself has
-not yet been exercised end-to-end through WinUI and real Unity.
+not yet been exercised end-to-end through WinUI and real Unity. The subsequent
+native verifier exercises missing and wrong archives, cancellation, and a matching
+relocated archive through the review decision without enqueuing after rejection.
+An isolated queue test separately verifies enqueue, completion and journal reload.
+These complementary checks do not yet prove a single uninterrupted UI-to-Unity run.
 
 Creator Companion registration is a separate optional step after project completion.
 Its failure is a warning, including exceptions and tool error output; it must not

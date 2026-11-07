@@ -6,6 +6,28 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task OrphanRecoveryEnqueuesReviewedSourceAndPersistsCompletion()
+    {
+        var app = App; var original = Plan("Orphan ready").Projects.Single();
+        var movedSource = original.Creation! with { UnityPackagePath = Path.Combine(root, "moved.unitypackage"), SourceIdentity = new PackageIdentity(8, new string('A', 64)) };
+        var project = original with { Creation = null, RecoverySource = movedSource };
+        var plan = new OperationPlan("orphan-reviewed", DateTime.UtcNow, [project]);
+        var received = new TaskCompletionSource<OperationPlan>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using (var queue = new ImportQueue(app, (actual, _, _) => { received.TrySetResult(actual); return Task.FromResult(Completed(actual)); }))
+        {
+            await queue.EnqueueAsync(plan, requireNoProjectHistory: true);
+            var executed = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(movedSource.MatchesInputs(executed.Projects.Single().RecoverySource));
+            var id = Assert.Single(queue.Snapshot()).Id;
+            await queue.WaitForStoppedAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal("Completed", Assert.Single(queue.Snapshot()).State);
+        }
+        await using var reopened = new ImportQueue(app);
+        await reopened.InitializeAsync();
+        var restored = Assert.Single(reopened.Snapshot());
+        Assert.Equal("Completed", restored.State);
+        Assert.True(movedSource.MatchesInputs(restored.Source));
+    }
     [Fact] public async Task OrphanRecoveryCannotOverwriteAConcurrentImportHistory()
     {
         var app = App; var plan = Plan("History appeared");
