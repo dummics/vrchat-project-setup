@@ -47,7 +47,10 @@ public sealed class ToolRunnerCancellationTests
         }
     }
 
-    [Fact] public async Task CancellationStopsReadingAPipeInheritedByAChildAfterTheParentExits()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationStopsReadingAPipeInheritedByAChild(bool keepParentAlive)
     {
         if (!OperatingSystem.IsWindows()) return;
         var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
@@ -85,6 +88,7 @@ public sealed class ToolRunnerCancellationTests
             '@
             [Console]::Out.WriteLine('parent:' + $PID)
             [InheritedPipeChild]::Start((Get-Process -Id $PID).Path, '-NoProfile -NonInteractive -EncodedCommand {{child}}')
+            {{(keepParentAlive ? "Start-Sleep -Seconds 30" : "")}}
             """;
         using var cancellation = new CancellationTokenSource();
         Process? descendant = null;
@@ -99,16 +103,26 @@ public sealed class ToolRunnerCancellationTests
         {
             var parent = await parentId.Task.WaitAsync(TimeSpan.FromSeconds(15));
             descendant = Process.GetProcessById(await childId.Task.WaitAsync(TimeSpan.FromSeconds(15)));
-            try
+            if (keepParentAlive)
+            {
+                using var process = Process.GetProcessById(parent);
+                Assert.False(process.HasExited);
+            }
+            if (!keepParentAlive) try
             {
                 using var process = Process.GetProcessById(parent);
                 await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
             catch (ArgumentException) { /* The parent already exited before its handle was acquired. */ }
-            // The child keeps the inherited output pipe open after the root exits.
+            // The child keeps the inherited output pipe open, including after the root exits.
             Assert.False(running.IsCompleted);
             cancellation.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running.WaitAsync(TimeSpan.FromSeconds(3)));
+            if (keepParentAlive)
+            {
+                await descendant.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.True(descendant.HasExited);
+            }
         }
         finally
         {
