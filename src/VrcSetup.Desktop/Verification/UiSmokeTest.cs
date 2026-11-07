@@ -1096,8 +1096,31 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(retryImport.Visibility == Visibility.Visible && Equals(retryImport.Content, "Try again") && !fixtureJobs[0].DetailsOpen, "Failed import exposes Try again without opening details");
         await Render(page, Path.Combine(artifacts, "create-failed-retry.png"));
         fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Running" });
+        var animatedContainer = (FrameworkElement)jobList.ContainerFromIndex(1);
+        var collapsedHeight = animatedContainer.ActualHeight;
         fixtureJobs[1].DetailsOpen = true;
-        await Task.Delay(600);
+        var heights = new List<double>();
+        for (var sample = 0; sample < 8; sample++) { await Task.Delay(45); page.UpdateLayout(); heights.Add(animatedContainer.ActualHeight); }
+        await Task.Delay(240); page.UpdateLayout();
+        var finalHeight = animatedContainer.ActualHeight;
+        Require(finalHeight > collapsedHeight + 20, "Expanding import details increases the whole row height");
+        if (new Windows.UI.ViewManagement.UISettings().AnimationsEnabled)
+            Require(heights.Any(height => height > collapsedHeight + 2 && height < finalHeight - 2),
+                "Import row expands through intermediate heights instead of jumping immediately");
+        fixtureJobs[1].DetailsOpen = false; await Task.Delay(40);
+        fixtureJobs[1].DetailsOpen = true; await Task.Delay(450); page.UpdateLayout();
+        var reopened = Descendants((DependencyObject)jobList.ContainerFromIndex(1)).OfType<Microsoft.UI.Xaml.Controls.Expander>().Single();
+        Require(reopened.IsExpanded && reopened.Content is FrameworkElement { Clip: null } && animatedContainer.ActualHeight > collapsedHeight + 20,
+            "Rapid collapse and reopening leave import details fully visible");
+        try
+        {
+            MainPage.MotionOverrideForVerification = false;
+            fixtureJobs[1].DetailsOpen = false; await Task.Delay(60);
+            fixtureJobs[1].DetailsOpen = true; await Task.Delay(80); page.UpdateLayout();
+            Require(reopened.IsExpanded && reopened.Content is FrameworkElement { Clip: null },
+                "Import details remain unclipped when app animations are disabled");
+        }
+        finally { MainPage.MotionOverrideForVerification = null; }
         fixtureJobs[1].LogText = string.Join("\n", Enumerable.Range(1, 160).Select(x => "Import log line " + x));
         Require(fixtureJobs[1].PreviousLogText.StartsWith("Import log line 159\n"), "Previous log entries start with the most recent");
         page.UpdateLayout(); await Task.Delay(180);

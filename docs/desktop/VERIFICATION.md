@@ -325,6 +325,12 @@ Attributed partial projects now plan an explicit initialization phase from a rea
 The checks exposed and corrected metadata-only handles that failed to pin a directory against rename, a runner fixture that did not inherit its pipe, partial reads that enumerated absent Packages, and fingerprint/request serialization incompatibilities. A bounded independent static review confirmed its missing-Packages finding was fixed; it is not runtime acceptance. Real Unity compilation/import after partial recovery, native UI layout and appearance crash reproduction, complete archive identity/corpus detection, preexisting-project rollback and the full regression suite remain required.
 # Quick guide (0.3 candidate)
 
+Import detail expansion animates the measured content height so the whole row
+grows with it. Native smoke verification samples intermediate row heights,
+checks rapid collapse/reopen and simulates disabled app animation to check that
+content remains unclipped. A compact screenshot was inspected. These checks do
+not replace keyboard or screen-reader acceptance, and do not change OS settings.
+
 The native verifier exercises the project backup action through the view model
 with simulated confirmation and an isolated filesystem fixture. Declining leaves
 the changed file intact; an exclusive Unity lock produces a clear error without

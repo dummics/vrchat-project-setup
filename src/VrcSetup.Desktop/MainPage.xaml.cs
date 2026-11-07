@@ -382,7 +382,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         if (sender.DataContext is UiImportRow row)
         {
-            row.DetailsOpen = true; ConstrainForms();
+            row.DetailsOpen = true; ConstrainForms(); AnimateImportDetails(sender);
             await ViewModel.RefreshImportLogAsync(row, true);
             // Wait for the native expander to finish arranging its upward content,
             // then keep its header visible at the bottom of the bounded queue.
@@ -405,10 +405,15 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ImportExpanderLoaded(object sender, RoutedEventArgs args)
     {
-        if (sender is Expander expander && FindVisualChild<Border>(expander, "ExpanderContent") is { } border) border.BorderThickness = new Thickness(0);
+        if (sender is Expander expander)
+        {
+            if (FindVisualChild<Border>(expander, "ExpanderContent") is { } border) border.BorderThickness = new Thickness(0);
+            expander.Unloaded -= ImportExpanderUnloaded;
+            expander.Unloaded += ImportExpanderUnloaded;
+        }
     }
     private void ImportDetailsCollapsed(object sender, object args)
-    { if (sender is Expander { DataContext: UiImportRow row }) { row.DetailsOpen = false; ConstrainForms(); } }
+    { if (sender is Expander { DataContext: UiImportRow row } expander) { StopImportDetailsMotion(expander); row.DetailsOpen = false; ConstrainForms(); } }
     private async void ImportPauseClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.PauseImportAsync(row); }
     private void ImportLogClicked(object sender, RoutedEventArgs args)
