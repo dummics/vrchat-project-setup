@@ -334,6 +334,35 @@ public static class UiSmokeTest
             var queue = flow.Application.Imports;
             var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var restoreProject = Path.Combine(artifacts, "restore-ui-fixture");
+            Directory.CreateDirectory(Path.Combine(restoreProject, "Assets"));
+            Directory.CreateDirectory(Path.Combine(restoreProject, "Packages"));
+            Directory.CreateDirectory(Path.Combine(restoreProject, "ProjectSettings"));
+            var restoreAsset = Path.Combine(restoreProject, "Assets", "fixture.txt");
+            await File.WriteAllTextAsync(restoreAsset, "before backup");
+            await File.WriteAllTextAsync(Path.Combine(restoreProject, "Packages", "manifest.json"), "{\"dependencies\":{}}");
+            var restorePlan = new ProjectPlan { Name = "Restore fixture", Path = restoreProject, ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(),
+                Changes = [new PackageChange("fixture.package", null, "1.0.0", "1.0.0", ChangeKind.Add)] };
+            var restoreBackup = await flow.Application.Projects.BackupAsync(restorePlan, default);
+            await File.WriteAllTextAsync(restoreAsset, "current work");
+            var restoreReport = new OperationReport("restore-fixture", DateTime.UtcNow,
+                [new ProjectOutcome("Restore fixture", restoreProject, OperationStatus.Failed, "", BackupPath: restoreBackup.Directory)], []);
+            var restoreEntry = new VrcSetup_Desktop.ViewModels.UiHistoryEntry(restoreReport);
+            decisions.ConfirmResult = false;
+            await flow.RestoreHistoryBackupAsync(restoreEntry);
+            Require(await File.ReadAllTextAsync(restoreAsset) == "current work", "Declining backup restoration leaves current files untouched");
+            decisions.ConfirmResult = true;
+            Directory.CreateDirectory(Path.Combine(restoreProject, "Temp"));
+            using (var editorLock = new FileStream(Path.Combine(restoreProject, "Temp", "UnityLockfile"), FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+            {
+                await flow.RestoreHistoryBackupAsync(restoreEntry);
+                Require(await File.ReadAllTextAsync(restoreAsset) == "current work" && flow.ErrorMessage.Contains("Close Unity", StringComparison.Ordinal),
+                    "Backup restoration explains the open editor and preserves current work");
+            }
+            await flow.RestoreHistoryBackupAsync(restoreEntry);
+            Require(await File.ReadAllTextAsync(restoreAsset) == "before backup" && flow.ApplicationNotice.Contains("Backup restored", StringComparison.Ordinal),
+                "Confirmed backup restoration updates the project and reports success");
+            decisions.ConfirmResult = false;
             var orphanPath = Path.Combine(flow.ProjectsRoot, "Orphan recovery fixture");
             Directory.CreateDirectory(orphanPath);
             var originalArchive = Path.Combine(artifacts, "original-orphan.unitypackage");

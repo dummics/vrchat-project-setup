@@ -62,11 +62,14 @@ public static class UserErrors
     private static string? Advice(string message) => message switch
     {
         "This package differs from the original. Choose the original UnityPackage to continue." => message,
+        "Close Unity or wait for the active import before restoring." => message,
+        "This backup is no longer available. Choose the latest backup for this project." => message,
+        "Restore could not complete; inspect the logs." => "The backup could not be restored. Your current project was kept. Open logs for details.",
         "Unity is still preparing scripts. Wait for it to finish, then retry the package changes." => message,
         "Package refresh helper is missing. Repair the application and retry." => message,
         "A different editor script uses the package helper filename. Rename that script and retry." => message,
         "Close Unity for this project before applying changes." or "Close Unity for this project before applying changes. No project was changed." or "Unity opened this project. Close it before applying changes." => "Close Unity for this project before applying changes. No project was changed.",
-        "A newer successful change replaced this recovery copy. Use the latest backup in Activity." => message,
+        "A newer successful change replaced this recovery copy. Choose the latest backup in project options." => message,
         "Choose a different preset name." => "This preset name is already in use. Enter another name.",
         "A path is required." => "Choose a folder to continue.",
         "A package version is required after @." or "Choose a version or latest." => "Choose a package version or Latest version.",

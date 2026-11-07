@@ -162,8 +162,11 @@ public sealed partial class MainViewModel
             .Select(result => new UiHistoryEntry(report with { Results = [result] })))
         .FirstOrDefault(entry => entry.RestoreVisibility == Visibility.Visible);
 
-    public async Task RestoreHistoryBackupAsync(UiHistoryEntry entry) => await Guard(async () =>
+    public async Task RestoreHistoryBackupAsync(UiHistoryEntry entry)
     {
+        var restored = false;
+        await Guard(async () =>
+        {
         var project = entry.ProjectPath; var file = entry.BackupFile;
         if (project.Length == 0 || file.Length == 0) return;
         ProjectRules.EnsureContained(Path.Combine(project, ".vrcsetup", "backups"), file);
@@ -175,7 +178,11 @@ public sealed partial class MainViewModel
         if (entry.RestoreVisibility != Visibility.Visible) throw new IOException("This backup is no longer available. Choose the latest backup for this project.");
         if (!await app.Projects.RestoreAsync(project, backup, new SynchronizationProgress<OperationEvent>(context, AppendActivity), lifetime.Token)) throw new IOException("Restore could not complete; inspect the logs.");
         entry.Health = "Backup restored. Check the project before resuming its import.";
-    });
+        restored = true;
+        ShowSavedFeedback("Backup restored. Check the project before resuming its import.");
+        });
+        if (restored && !IsClosingApp && CurrentPage == "Projects") await RefreshProjectsCommand.ExecuteAsync(null);
+    }
     [RelayCommand] private async Task OpenProjectsFolder() => await IndependentAction(() =>
     {
         var folder = string.IsNullOrWhiteSpace(ProjectsRoot) ? config.UnityProjectsRoot : ProjectRules.NormalizePath(ProjectsRoot);

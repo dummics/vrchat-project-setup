@@ -302,7 +302,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
     {
         project = ProjectRules.NormalizePath(project);
         ProjectRules.EnsureContained(Path.Combine(project, ".vrcsetup", "backups"), backup.Directory);
-        if (File.Exists(Path.Combine(backup.Directory, "superseded"))) throw new IOException("A newer successful change replaced this recovery copy. Use the latest backup in Activity.");
+        if (File.Exists(Path.Combine(backup.Directory, "superseded"))) throw new IOException("A newer successful change replaced this recovery copy. Choose the latest backup in project options.");
         if (IsBusy(project)) return false;
         if (backup.ManifestFiles.Keys.Any(x => !ManifestNames.Contains(x))) throw new IOException("Backup contains an unexpected manifest destination.");
         foreach (var file in backup.ManifestFiles)

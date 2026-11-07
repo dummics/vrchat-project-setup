@@ -325,6 +325,13 @@ Attributed partial projects now plan an explicit initialization phase from a rea
 The checks exposed and corrected metadata-only handles that failed to pin a directory against rename, a runner fixture that did not inherit its pipe, partial reads that enumerated absent Packages, and fingerprint/request serialization incompatibilities. A bounded independent static review confirmed its missing-Packages finding was fixed; it is not runtime acceptance. Real Unity compilation/import after partial recovery, native UI layout and appearance crash reproduction, complete archive identity/corpus detection, preexisting-project rollback and the full regression suite remain required.
 # Quick guide (0.3 candidate)
 
+The native verifier exercises the project backup action through the view model
+with simulated confirmation and an isolated filesystem fixture. Declining leaves
+the changed file intact; an exclusive Unity lock produces a clear error without
+restoring; confirming after release restores the saved file and displays success.
+The action refreshes the Projects list after successful completion. This does not
+simulate a mouse click on the project menu or prove every concurrent writer race.
+
 For new creations the project state retains the original creation request,
 archive identity and selected package policy, separately from the import queue.
 If its journal is missing, the project warning can propose a new reviewed plan
