@@ -38,13 +38,19 @@ public sealed partial class MainViewModel
     public ObservableCollection<UiImportDraft> ImportDrafts { get; } = [];
     [ObservableProperty] public partial UiImportDraft? SelectedImportDraft { get; set; }
     private bool switchingImportDraft;
+    private PackageIdentity? selectionSourceIdentity;
+    private void RememberSelectionSource()
+    {
+        selectionSourceIdentity ??= CreationInspection?.SourceIdentity;
+        if (SelectedImportDraft is { } draft) draft.SelectionSourceIdentity = selectionSourceIdentity;
+    }
     public Visibility DraftListVisibility => ImportDrafts.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
     private void NotifyDrafts() { OnPropertyChanged(nameof(DraftListVisibility)); OnPropertyChanged(nameof(PackageFileLabel)); RefreshCreationPackages(); }
     partial void OnSelectedImportDraftChanged(UiImportDraft? value)
     {
         if (switchingImportDraft || value is null) return;
         switchingImportDraft = true;
-        try { PackageFile = value.File; ProjectName = value.Name; BuildTarget = value.Platform; creationOverrides = value.Packages; }
+        try { PackageFile = value.File; ProjectName = value.Name; BuildTarget = value.Platform; creationOverrides = value.Packages; selectionSourceIdentity = value.SelectionSourceIdentity; }
         finally { switchingImportDraft = false; }
         NotifyDrafts();
     }
@@ -127,18 +133,25 @@ public sealed partial class MainViewModel
         choices.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
         var recipe = SelectedRecipe == "No recipe" ? null : SelectedRecipe;
         var inputFile = PackageFile; var inputName = ProjectName; var inputPlatform = BuildTarget;
-        var inputPackages = creationOverrides;
+        var inputPackages = creationOverrides; var inputIdentity = selectionSourceIdentity;
         var frozen = ImportDrafts.Select(x => (Draft: x, Revision: x.Revision, x.File, x.Name, x.Platform,
-            Packages: x.Packages is null ? null : new Dictionary<string, string>(x.Packages))).ToArray();
+            Packages: x.Packages is null ? null : new Dictionary<string, string>(x.Packages), Identity: x.SelectionSourceIdentity)).ToArray();
         var plans = new List<ProjectPlan>();
         if (frozen.Length == 0)
         {
             var file = inputFile; var name = inputName; var platform = inputPlatform; var packages = inputPackages is null ? null : new Dictionary<string, string>(inputPackages);
             var single = await Task.Run(() => app.PlanCreationAsync(file, choices, name, preset, packages, platform, [platform], recipe, lifetime.Token));
+            if (inputIdentity is not null && single.Projects.Any(x => (x.Creation ?? x.RecoverySource)?.SourceIdentity != inputIdentity))
+            { await RefreshChangedPackageAsync(file, null); return; }
             plans.AddRange(single.Projects);
         }
         else foreach (var item in frozen)
-            plans.AddRange((await Task.Run(() => app.PlanCreationAsync(item.File, choices, item.Name, preset, item.Packages, item.Platform, [item.Platform], recipe, lifetime.Token))).Projects);
+        {
+            var planned = await Task.Run(() => app.PlanCreationAsync(item.File, choices, item.Name, preset, item.Packages, item.Platform, [item.Platform], recipe, lifetime.Token));
+            if (item.Identity is not null && planned.Projects.Any(x => (x.Creation ?? x.RecoverySource)?.SourceIdentity != item.Identity))
+            { await RefreshChangedPackageAsync(item.File, item.Draft); return; }
+            plans.AddRange(planned.Projects);
+        }
         if (plans.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plans.Count)
             throw new ArgumentException("Two files would create the same project name. Select each file and give it a different name.");
         var reviewed = new OperationPlan(Guid.NewGuid().ToString("N"), DateTime.UtcNow, plans.ToArray());
@@ -151,6 +164,18 @@ public sealed partial class MainViewModel
         else if (frozen.Length == 0 && ImportDrafts.Count == 0 && PackageFile == inputFile && ProjectName == inputName && BuildTarget == inputPlatform && ReferenceEquals(creationOverrides, inputPackages) && SelectedPreset == (preset ?? DefaultPresetKey) && SelectedRecipe == (recipe ?? "No recipe"))
         { PackageFile = ""; ProjectName = ""; }
         NotifyDrafts();
+    }
+    private async Task RefreshChangedPackageAsync(string file, UiImportDraft? draft)
+    {
+        if (draft is not null && ImportDrafts.Contains(draft)) SelectedImportDraft = draft;
+        if (!await ui.ConfirmAsync("Package changed", "This file changed after you chose packages. Check the suggestions again before importing. Your selection will be kept.", "Check packages")) return;
+        await InspectCreationPackageAsync(file);
+        if (PackageFile == file && (draft is null || SelectedImportDraft == draft) && CreationInspection?.SourceIdentity is { } identity)
+        {
+            selectionSourceIdentity = identity;
+            if (draft is not null) draft.SelectionSourceIdentity = identity;
+            ImportError = "The file changed. Check your package selection, then review the import again.";
+        }
     }
     public Task PauseImportAsync(UiImportRow row) => IndependentAction(() => app.Imports.PauseAsync(row.Id, lifetime.Token));
     public void CancelAllImports() => app.Imports.CancelAll();
@@ -267,4 +292,6 @@ public sealed class UiImportDraft(string file, string name, string platform) : O
     public string Platform { get => platform; set { if (SetProperty(ref platform, value)) Revision++; } }
     private Dictionary<string, string>? packages;
     public Dictionary<string, string>? Packages { get => packages; set { packages = value; Revision++; } }
+    private PackageIdentity? selectionSourceIdentity;
+    public PackageIdentity? SelectionSourceIdentity { get => selectionSourceIdentity; set { if (SetProperty(ref selectionSourceIdentity, value)) Revision++; } }
 }

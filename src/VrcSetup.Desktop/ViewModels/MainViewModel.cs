@@ -148,6 +148,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
         OnPropertyChanged(nameof(PackageFileLabel));
         creationOverrides = null;
+        selectionSourceIdentity = null;
         _ = InspectCreationPackageAsync(value);
         RefreshCreationPackages();
         if (string.IsNullOrWhiteSpace(value)) return;

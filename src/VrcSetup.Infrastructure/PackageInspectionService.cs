@@ -96,11 +96,20 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
         await work.WaitAsync(token);
         try
         {
-            var cacheFile = Path.Combine(Cache, "archive-" + key + ".json");
+            // Hold the source without write/delete sharing until matching and
+            // caching finish; size and timestamp alone do not identify content.
+            await using var source = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 131072,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var length = source.Length;
+            var digest = Convert.ToHexString(await SHA256.HashDataAsync(source, token));
+            if (source.Length != length) throw new IOException("Package changed while it was being inspected. Select it again.");
+            var identity = new PackageIdentity(length, digest);
+            var contentKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key + ":sha256:" + digest)));
+            var cacheFile = Path.Combine(Cache, "archive-" + contentKey + ".json");
             var cached = await ReadCache<ArchiveObservation>(cacheFile, 10 * 1024 * 1024, token);
             var stamp = new FileInfo(file);
             if (Usable(cached) && cached!.Length == stamp.Length && cached.ModifiedTicks == stamp.LastWriteTimeUtc.Ticks)
-                return DependencyAdvisor.Match(cached, snapshot, true, token);
+                return DependencyAdvisor.Match(cached, snapshot, true, token) with { SourceIdentity = identity };
             var observation = await (reader ?? new UnityPackageInspector()).ReadAsync(file, options, token);
             if (observation.ArchiveComplete)
             {
@@ -120,7 +129,7 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
             if (observation.ArchiveComplete)
                 try { await AtomicFile.WriteJsonAsync(cacheFile, observation, token); TrimCache(cacheFile); }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
-            return DependencyAdvisor.Match(observation, snapshot, token: token);
+            return DependencyAdvisor.Match(observation, snapshot, token: token) with { SourceIdentity = identity };
         }
         finally { work.Release(); }
     }

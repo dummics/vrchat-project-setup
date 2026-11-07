@@ -131,14 +131,30 @@ public sealed class PackageInspectionTests : IDisposable
         var report = DependencyAdvisor.Match(observation, new("test", [new(B, "first", "1.0.0", "shader", "test"), new(B, "second", "1.0.0", "shader", "test")]));
         Assert.Equal(2, report.Suggestions.Length); Assert.All(report.Suggestions, x => Assert.Equal(DependencyConfidence.Possible, x.Confidence));
     }
-    [Fact] public async Task CacheRematchesNewSignaturesWithoutReadingTheArchive()
+    [Fact] public async Task CacheRematchesNewSignaturesAfterVerifyingTheArchive()
     {
         var file = Archive(($"{A}/asset", $"%YAML\nm_Script: {{guid: {B}}}"), ($"{A}/pathname", "Assets/Main.prefab"));
         var service = Service(); Assert.Empty((await service.InspectAsync(file)).Suggestions);
         await service.RememberSignaturesAsync([new(B, "example.package", "1.0.0", "script", "test")]);
-        using var denied = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
         var report = await service.InspectAsync(file);
         Assert.True(report.FromCache); Assert.Equal("example.package", report.Suggestions.Single().Id);
+        Assert.NotNull(report.SourceIdentity);
+    }
+    [Fact] public async Task CacheDoesNotTrustReplacedBytesWithTheSameSizeAndTimestamp()
+    {
+        var file = Archive(($"{A}/asset", $"%YAML\nm_Script: {{guid: {B}}}"), ($"{A}/pathname", "Assets/Main.prefab"));
+        var service = Service();
+        var original = await service.InspectAsync(file);
+        Assert.True(original.Observation.ArchiveComplete);
+        var timestamp = File.GetLastWriteTimeUtc(file);
+        var bytes = await File.ReadAllBytesAsync(file);
+        bytes[bytes.Length / 2] ^= 0x40;
+        await File.WriteAllBytesAsync(file, bytes);
+        File.SetLastWriteTimeUtc(file, timestamp);
+        var replaced = await service.InspectAsync(file);
+        Assert.False(replaced.FromCache);
+        Assert.NotEqual(original.SourceIdentity, replaced.SourceIdentity);
+        Assert.Equal(timestamp, File.GetLastWriteTimeUtc(file));
     }
     [Fact] public async Task ManifestRequiresTheCorrectAssetPathAndPreservesRanges()
     {

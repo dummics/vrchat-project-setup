@@ -79,6 +79,7 @@ public sealed partial class MainViewModel
         var selected = CurrentCreationSelection(); selected.TryAdd(row.Id, version);
         creationOverrides = selected;
         if (SelectedImportDraft is { } draft) draft.Packages = new(selected);
+        RememberSelectionSource();
         RefreshCreationPackages();
     }
 }

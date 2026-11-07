@@ -850,7 +850,8 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         await Render(page, Path.Combine(artifacts, "possible-package-suggestions.png"));
         possibleExpander.IsExpanded = false;
         viewModel.CreationInspection = null;
-        using (var reviewFlow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, new FlowInteraction(page)))
+        var suggestionDecisions = new FlowInteraction(page);
+        using (var reviewFlow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
         {
             await reviewFlow.InitializeAsync(); reviewFlow.CurrentPage = "Create";
             reviewFlow.CreationInspection = advice with { Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
@@ -870,12 +871,32 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             var inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
             while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
             Require(!reviewFlow.IsInspectingPackage, "The first fixture inspection settles before selecting a suggestion");
-            reviewFlow.CreationInspection = advice with { Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
+            var firstIdentity = await PackageSourceIdentity.ReadAsync(inspectionFile);
+            reviewFlow.CreationInspection = advice with { SourceIdentity = firstIdentity, Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
             await reviewFlow.AddCreationSuggestionAsync(reviewFlow.PossibleCreationPackages.Single(x => x.Id == "com.llealloo.audiolink"));
+            Require(firstDraft.SelectionSourceIdentity == firstIdentity && secondDraft.SelectionSourceIdentity is null, "An accepted suggestion records the source identity only for its own draft");
             reviewFlow.SelectedImportDraft = secondDraft;
             Require(!reviewFlow.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected), "A package chosen for one import is not selected for another");
             reviewFlow.SelectedImportDraft = firstDraft;
             Require(reviewFlow.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected), "Returning to the first import retains its explicitly selected package");
+            Require(firstDraft.SelectionSourceIdentity == firstIdentity, "Switching drafts retains the identity of the analyzed source");
+            if (installedEditor is not null && UnityProjectDriver.HasBuildSupport(installedEditor, firstDraft.Platform))
+            {
+                reviewFlow.UnityEditorPath = installedEditor;
+                firstDraft.SelectionSourceIdentity = new PackageIdentity(firstIdentity.Length, new string('0', 64));
+                inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
+                while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
+                suggestionDecisions.ConfirmResult = false; suggestionDecisions.ReviewResult = false;
+                var priorConfirmations = suggestionDecisions.Confirmations;
+                await reviewFlow.CreateProjectCommand.ExecuteAsync(null);
+                Require(suggestionDecisions.Confirmations == priorConfirmations + 1 && suggestionDecisions.LastReview is null && firstDraft.SelectionSourceIdentity != firstIdentity,
+                    "A changed source blocks review and cancellation keeps its selection and original identity");
+                suggestionDecisions.ConfirmResult = true;
+                await reviewFlow.CreateProjectCommand.ExecuteAsync(null);
+                Require(suggestionDecisions.LastReview is null && firstDraft.SelectionSourceIdentity == firstIdentity &&
+                    firstDraft.Packages?.ContainsKey("com.llealloo.audiolink") == true && reviewFlow.ImportError.Length > 0,
+                    "Rechecking a changed source keeps package choices and asks for a fresh review");
+            }
         }
         using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0", [ProjectRules.AvatarSdk] = "3.10.5" }, new(), viewModel.Registry.ToArray(),
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>()), advice))

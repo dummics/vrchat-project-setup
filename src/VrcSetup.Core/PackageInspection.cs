@@ -29,7 +29,11 @@ public sealed record DependencyEvidence(string Asset, string Kind, string? Guid 
     public string[] ObservedVersions { get; init; } = [];
 }
 public sealed record DependencySuggestion(string Id, DependencyConfidence Confidence, string? VersionConstraint, DependencyEvidence[] Evidence);
-public sealed record PackageInspectionReport(ArchiveObservation Observation, string IndexRevision, string Scope, int UnresolvedReferences, DependencySuggestion[] Suggestions, bool FromCache);
+public sealed record PackageInspectionReport(ArchiveObservation Observation, string IndexRevision, string Scope, int UnresolvedReferences, DependencySuggestion[] Suggestions, bool FromCache)
+{
+    // Identity of the bytes checked for this report, not a package version.
+    public PackageIdentity? SourceIdentity { get; init; }
+}
 public interface IUnityPackageInspector
 {
     Task<ArchiveObservation> ReadAsync(string path, InspectionOptions options, CancellationToken token);
