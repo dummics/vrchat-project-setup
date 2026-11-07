@@ -386,3 +386,11 @@ tests and the offscreen native verifier passed 562 checks. These checks use
 isolated fixtures and do not establish atomic exclusion of external processes
 creating a folder after the final absence check.
 
+The optional native `--smoke-unity-recovery` check resumes an orphan project
+using a relocated synthetic UnityPackage, approves its reviewed plan through the
+test interaction, waits for the real queue and Unity editor, and verifies the
+imported asset and completed project state. Evidence: `.work/artifacts/ui-unity-recovery-01/`;
+565 native checks passed with Unity 2022.3.22f1. This uses an isolated home and
+project, with Creator Companion registration disabled. It does not exercise a
+physical click, a real avatar archive or actual VCC registration.
+

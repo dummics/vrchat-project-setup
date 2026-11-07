@@ -1,5 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System.Formats.Tar;
+using System.IO.Compression;
+using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 using Windows.Graphics.Imaging;
@@ -68,6 +71,8 @@ public static class UiSmokeTest
         await AppearanceVerification.RunAsync(page, Require);
         Require(viewModel.UnityEditorPath == Path.Combine(artifacts, "saved-editor", "Unity.exe"), "Startup preserves a saved editor path even when its drive is unavailable");
         var installedEditor = UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path;
+        if (Environment.GetCommandLineArgs().Contains("--smoke-unity-recovery") && installedEditor is null)
+            throw new IOException("The pinned Unity editor is required for real recovery verification.");
         if (installedEditor is not null)
         {
             await viewModel.FindEditorCommand.ExecuteAsync(null);
@@ -409,7 +414,9 @@ public static class UiSmokeTest
             var originalArchive = Path.Combine(artifacts, "original-orphan.unitypackage");
             var movedArchive = Path.Combine(artifacts, "moved-orphan.unitypackage");
             var wrongArchive = Path.Combine(artifacts, "wrong-orphan.unitypackage");
-            await File.WriteAllTextAsync(originalArchive, "original");
+            var verifyRealRecovery = Environment.GetCommandLineArgs().Contains("--smoke-unity-recovery");
+            if (verifyRealRecovery) CreateRecoveryArchive(originalArchive);
+            else await File.WriteAllTextAsync(originalArchive, "original");
             var sourceIdentity = await PackageSourceIdentity.ReadAsync(originalArchive);
             File.Move(originalArchive, movedArchive);
             await File.WriteAllTextAsync(wrongArchive, "replaced");
@@ -438,6 +445,21 @@ public static class UiSmokeTest
                     "Matching relocated archive reaches the orphan recovery review");
                 Require(!queue.Snapshot().Any(x => x.ProjectPath == orphanPath) && !Directory.Exists(Path.Combine(orphanPath, "Assets")),
                     "Declining the reviewed orphan plan does not enqueue or mutate the project");
+                if (verifyRealRecovery)
+                {
+                    decisions.ReviewResult = true;
+                    await flow.ResumeOrphanImportAsync(orphanSnapshot, orphanCandidate!).WaitAsync(TimeSpan.FromSeconds(60));
+                    var resumed = queue.Snapshot().Single(x => x.ProjectPath == orphanPath);
+                    using var recoveryTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                    await queue.WaitForStoppedAsync(resumed.Id, recoveryTimeout.Token);
+                    resumed = queue.Snapshot().Single(x => x.Id == resumed.Id);
+                    Require(resumed.State == "Completed", "Relocated archive completes the real recovery queue: " + resumed.Message);
+                    Require(File.Exists(Path.Combine(orphanPath, "Assets", "VrcSetupRecoveryProbe.txt")),
+                        "Real Unity imports the relocated archive into the recovered project");
+                    var recoveredState = await AtomicFile.ReadJsonAsync<SetupState>(orphanStateFile);
+                    Require(recoveredState?.Completed == true, "Real recovered project records completion");
+                    await queue.ClearFinishedAsync();
+                }
                 decisions.ReviewResult = null;
                 decisions.ClearReview();
             }
@@ -1271,6 +1293,21 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         {
             var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i); yield return child;
             foreach (var descendant in Descendants(child)) yield return descendant;
+        }
+    }
+    private static void CreateRecoveryArchive(string path)
+    {
+        using var file = File.Create(path);
+        using var gzip = new GZipStream(file, CompressionLevel.Fastest);
+        using var tar = new TarWriter(gzip, TarEntryFormat.Ustar);
+        var guid = Guid.NewGuid().ToString("N");
+        Add("pathname", "Assets/VrcSetupRecoveryProbe.txt");
+        Add("asset", "recovered archive imported");
+        Add("asset.meta", "fileFormatVersion: 2\nguid: " + guid + "\n");
+        void Add(string suffix, string content)
+        {
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
+            tar.WriteEntry(new UstarTarEntry(TarEntryType.RegularFile, guid + "/" + suffix) { DataStream = stream });
         }
     }
     private sealed class DelayedInspectionReader : IUnityPackageInspector
