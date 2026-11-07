@@ -131,6 +131,11 @@ public sealed partial class MainViewModel
             if (SelectedImportDraft is { } draft) draft.Packages = new(creationOverrides);
             RefreshCreationPackages(); return;
         }
+        // Legacy jobs cannot prove which archive was originally used. Once the
+        // user has explicitly chosen it, protect that choice through review and
+        // execution just as we do for newly created imports.
+        if (!source.EmptyProject && source.SourceIdentity is null)
+            source = source with { SourceIdentity = await PackageSourceIdentity.ReadAsync(source.UnityPackagePath, lifetime.Token) };
         if (!await FindEditorAsync(true) || !CanRecoverCurrentImport(job)) return;
         source = source with { UnityEditorPath = config.UnityEditorPath };
         foreach (var platform in source.PublishingPlatforms.Append(source.BuildTarget).Distinct())

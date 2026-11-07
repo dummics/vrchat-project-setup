@@ -394,3 +394,11 @@ imported asset and completed project state. Evidence: `.work/artifacts/ui-unity-
 project, with Creator Companion registration disabled. It does not exercise a
 physical click, a real avatar archive or actual VCC registration.
 
+For legacy queue entries without a recorded source digest, the user must still
+confirm the archive because its original identity cannot be reconstructed. The
+confirmed file is now fingerprinted before planning so changes after that point
+are rejected by the existing verified-source execution path. The native smoke
+exercises confirmation refusal and the resulting reviewed identity (565 checks),
+and five focused source-identity/recovery tests passed. This does not recover an
+older project whose journal and trustworthy creation inputs are both missing.
+

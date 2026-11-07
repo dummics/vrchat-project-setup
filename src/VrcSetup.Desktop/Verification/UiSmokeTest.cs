@@ -465,6 +465,37 @@ public static class UiSmokeTest
             }
             decisions.ConfirmResult = false;
             decisions.FileChoice = null;
+            if (installedEditor is not null)
+            {
+                var legacyPath = Path.Combine(flow.ProjectsRoot, "Legacy recovery fixture");
+                Directory.CreateDirectory(Path.Combine(legacyPath, "Assets"));
+                Directory.CreateDirectory(Path.Combine(legacyPath, "Packages"));
+                await File.WriteAllTextAsync(Path.Combine(legacyPath, "Packages", "manifest.json"), "{}");
+                var legacySource = new CreationRequest(wrongArchive, "Legacy recovery fixture", legacyPath, installedEditor, "StandaloneWindows64", [], []);
+                await AtomicFile.WriteJsonAsync(Path.Combine(legacyPath, ".vrcsetup", "state.json"),
+                    new SetupState { ProjectName = legacySource.Name, UnityPackagePath = wrongArchive });
+                var legacyPlan = new ProjectPlan { Name = legacySource.Name, Path = legacyPath, ExpectedFingerprint = "", Changes = [], Creation = legacySource,
+                    DesiredPolicy = new Dictionary<string, string>() };
+                var legacyJob = new ImportJob("legacy-recovery", new("legacy-recovery", DateTime.UtcNow, [legacyPlan]), legacySource, "Interrupted", "Interrupted", 0, "", "");
+                lock (queueSync) queueJobs.Add(legacyJob);
+                try
+                {
+                    decisions.ReviewResult = false; decisions.ClearReview(); decisions.ConfirmResult = false;
+                    await flow.RepairHistoryImportAsync(new(legacyJob));
+                    Require(decisions.LastReview is null, "A legacy archive is not used if the user declines its unverified identity");
+                    decisions.ConfirmResult = true;
+                    await flow.RepairHistoryImportAsync(new(legacyJob));
+                    Require(decisions.LastReview?.Projects.Single().RecoverySource?.SourceIdentity == await PackageSourceIdentity.ReadAsync(wrongArchive),
+                        "A confirmed legacy archive receives an identity before the reviewed recovery");
+                    Require(!queue.Snapshot().Any(x => x.Id != legacyJob.Id && x.ProjectPath == legacyPath),
+                        "Declining the reviewed legacy recovery does not enqueue another job");
+                }
+                finally
+                {
+                    lock (queueSync) queueJobs.RemoveAll(x => x.Id == legacyJob.Id);
+                    decisions.ReviewResult = null; decisions.ClearReview(); decisions.ConfirmResult = false;
+                }
+            }
             foreach (var partialRetry in new[] { false, true })
             {
                 var retryName = partialRetry ? "Partial creation retry" : "Missing creation retry";
