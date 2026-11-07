@@ -570,6 +570,8 @@
   "Project options": "Opzioni progetto",
   "No backup is available for this project.": "Non è disponibile alcun backup per questo progetto.",
   "The import details are unavailable. Your project is kept. Open the logs for help before trying to import again.": "I dettagli dell’importazione non sono disponibili. Il progetto è stato conservato. Apri i log per ricevere assistenza prima di riprovare.",
+  "The import details are unavailable. You can select a package and start a new project. The existing folder and its edits stay where they are; they will not be copied.": "I dettagli dell’importazione non sono disponibili. Puoi scegliere un package e iniziare un nuovo progetto. La cartella esistente e le sue modifiche resteranno al loro posto e non saranno copiate.",
+  "Start a new import": "Inizia una nuova importazione",
   "The last package change did not finish. Your project was kept. Review its packages before continuing.": "L’ultima modifica ai pacchetti non è terminata. Il progetto è stato conservato: controlla i pacchetti prima di continuare.",
   "An operation on this project did not finish. Your project was kept. Review the project before continuing.": "Un’operazione sul progetto non è terminata. Il progetto è stato conservato: controllalo prima di continuare.",
   "This project needs attention. Review its packages before continuing.": "Il progetto richiede attenzione. Controlla i pacchetti prima di continuare.",

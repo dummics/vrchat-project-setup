@@ -49,6 +49,34 @@ public sealed partial class MainViewModel
         return Task.CompletedTask;
     }
 
+    public Task StartNewImportForUnrecoverableProjectAsync(ProjectSnapshot project) => Guard(async () =>
+    {
+        if (!project.InitializationPending || IsClosingApp || !Directory.Exists(project.Path)) return;
+        if (HasPendingProjectWork(project) || await OrphanRecoveryForProjectAsync(project) is not null)
+        { Status = "This import changed. Choose it again to continue."; return; }
+        var selected = await ui.PickFileAsync(".unitypackage");
+        if (selected is null) return;
+        selected = ProjectRules.NormalizePath(selected);
+        if (!selected.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase) || !File.Exists(selected))
+            throw new IOException("Choose a .unitypackage file, not a folder or another file type.");
+        if (IsClosingApp || !Directory.Exists(project.Path) || HasPendingProjectWork(project) ||
+            await OrphanRecoveryForProjectAsync(project) is not null)
+        { Status = "This import changed. Choose it again to continue."; return; }
+        if (!await NavigateAsync("Create")) return;
+        if (IsClosingApp || !Directory.Exists(project.Path) || HasPendingProjectWork(project) ||
+            await OrphanRecoveryForProjectAsync(project) is not null)
+        { Status = "This import changed. Choose it again to continue."; return; }
+        var name = project.Name + " (new)"; var index = 2;
+        while (Directory.Exists(Path.Combine(ProjectsRoot, name)) || File.Exists(Path.Combine(ProjectsRoot, name)))
+            name = project.Name + " (new " + index++ + ")";
+        var draft = new UiImportDraft(selected, name, ProjectRules.SuggestBuildTarget(selected));
+        ImportDrafts.Add(draft); SelectedImportDraft = draft; NotifyDrafts();
+    });
+
+    private bool HasPendingProjectWork(ProjectSnapshot project) =>
+        ImportQueue.CurrentForProject(app.Imports.Snapshot(), project.Path) is { } current &&
+        (current.Active || current.Recoverable || current.DiscardRequested || current.CreatorCompanionPending);
+
     private bool CanRecoverCurrentImport(ImportJob job)
     {
         var current = ImportQueue.CurrentForProject(app.Imports.Snapshot(), job.ProjectPath);

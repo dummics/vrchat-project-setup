@@ -301,8 +301,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (ViewModel.IsClosingApp) return;
         var backup = ViewModel.LatestProjectBackup(project);
         object content = ProjectAttentionConverter.Description(project);
-        if (project.InitializationPending && recovery is null && orphan is null)
-            content = UiText.Text("The import details are unavailable. Your project is kept. Open the logs for help before trying to import again.");
+        if (project.InitializationPending && recovery is null && orphan is null && registration is null)
+            content = UiText.Text("The import details are unavailable. You can select a package and start a new project. The existing folder and its edits stay where they are; they will not be copied.");
         if (recovery is not null || orphan is not null)
         {
             var details = new StackPanel { Spacing = 8 };
@@ -317,16 +317,18 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             content = details;
         }
         var choice = await ShowDialog(new() { Title = "Project needs attention", Content = content,
-            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : orphan is not null ? "Continue import" : registration is not null ? "Add to Creator Companion" : project.InitializationPending ? "Open logs" : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "Review packages",
-            SecondaryButtonText = backup is not null ? "Restore backup" : "",
+            PrimaryButtonText = recovery is not null ? new UiHistoryEntry(recovery).RepairLabel : orphan is not null ? "Continue import" : registration is not null ? "Add to Creator Companion" : project.InitializationPending ? "Start a new import" : project.PackageRetrySafe && project.MissingPackages.Length > 0 ? "Try again" : "Review packages",
+            SecondaryButtonText = backup is not null ? "Restore backup" : project.InitializationPending && recovery is null && orphan is null && registration is null ? "Open logs" : "",
             CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close });
         if (choice == ContentDialogResult.Secondary && backup is not null) { await ViewModel.RestoreHistoryBackupAsync(backup); return; }
+        if (choice == ContentDialogResult.Secondary && project.InitializationPending && recovery is null && orphan is null && registration is null)
+        { ViewModel.OpenLogsCommand.Execute(null); return; }
         if (choice == ContentDialogResult.Primary)
         {
             if (recovery is not null) { await ViewModel.RecoverProjectImportAsync(project, recovery.Id); return; }
             if (orphan is not null) { await ViewModel.ResumeOrphanImportAsync(project, orphan); return; }
             if (registration is not null) { await ViewModel.RetryCreatorCompanionAsync(new(registration)); return; }
-            if (project.InitializationPending) { ViewModel.OpenLogsCommand.Execute(null); return; }
+            if (project.InitializationPending) { await ViewModel.StartNewImportForUnrecoverableProjectAsync(project); return; }
             if (ViewModel.IsClosingApp || ViewModel.RecoverableImportForProject(project) is not null) return;
             ViewModel.ReserveExplicitPackageRetry(project);
             await ViewModel.OpenProjectPackagesCommand.ExecuteAsync(project);

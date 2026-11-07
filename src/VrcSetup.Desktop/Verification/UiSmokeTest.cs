@@ -496,6 +496,36 @@ public static class UiSmokeTest
                     decisions.ReviewResult = null; decisions.ClearReview(); decisions.ConfirmResult = false;
                 }
             }
+            var unrecoverablePath = Path.Combine(flow.ProjectsRoot, "Unrecoverable fixture");
+            Directory.CreateDirectory(unrecoverablePath);
+            await File.WriteAllTextAsync(Path.Combine(unrecoverablePath, "preserve.txt"), "owner edits");
+            await AtomicFile.WriteJsonAsync(Path.Combine(unrecoverablePath, ".vrcsetup", "state.json"), new SetupState { ProjectName = "Unrecoverable fixture" });
+            Directory.CreateDirectory(Path.Combine(flow.ProjectsRoot, "Unrecoverable fixture (new)"));
+            var unavailableProject = (await flow.Application.Projects.ScanAsync(flow.ProjectsRoot, refresh: true)).Single(x => x.Path == unrecoverablePath);
+            Require(unavailableProject.InitializationPending && await flow.OrphanRecoveryForProjectAsync(unavailableProject) is null,
+                "The project scan exposes an incomplete legacy folder without claiming recoverable inputs");
+            var pendingSource = new CreationRequest(wrongArchive, unavailableProject.Name, unrecoverablePath, "", "StandaloneWindows64", [], []);
+            var pendingPlan = new ProjectPlan { Name = pendingSource.Name, Path = unrecoverablePath, ExpectedFingerprint = "", Changes = [], Creation = pendingSource, DesiredPolicy = new Dictionary<string, string>() };
+            var pendingJob = new ImportJob("fallback-stale", new("fallback-stale", DateTime.UtcNow, [pendingPlan]), pendingSource, "Running", "Starting", 0, "", "");
+            lock (queueSync) queueJobs.Add(pendingJob);
+            decisions.FileChoice = wrongArchive; var beforePending = flow.ImportDrafts.Count;
+            try
+            {
+                await flow.StartNewImportForUnrecoverableProjectAsync(unavailableProject);
+                Require(flow.ImportDrafts.Count == beforePending, "A newly active import prevents the stale fallback action");
+            }
+            finally { lock (queueSync) queueJobs.RemoveAll(x => x.Id == pendingJob.Id); }
+            var draftCount = flow.ImportDrafts.Count; decisions.FileChoice = null;
+            await flow.StartNewImportForUnrecoverableProjectAsync(unavailableProject);
+            Require(flow.ImportDrafts.Count == draftCount, "Cancelling package selection leaves the incomplete project and drafts alone");
+            decisions.FileChoice = wrongArchive;
+            await flow.StartNewImportForUnrecoverableProjectAsync(unavailableProject);
+            Require(flow.CurrentPage == "Create" && flow.SelectedImportDraft?.File == wrongArchive && flow.ProjectName == "Unrecoverable fixture (new 2)",
+                "An unavailable import can start a separately named project with the selected package");
+            Require(await File.ReadAllTextAsync(Path.Combine(unrecoverablePath, "preserve.txt")) == "owner edits" && !queue.Snapshot().Any(x => x.ProjectPath == unrecoverablePath),
+                "Preparing the new import leaves the original project and queue untouched");
+            if (flow.SelectedImportDraft is { } fallbackDraft) flow.RemoveImportDraft(fallbackDraft);
+            decisions.FileChoice = null; await flow.NavigateAsync("Projects");
             foreach (var partialRetry in new[] { false, true })
             {
                 var retryName = partialRetry ? "Partial creation retry" : "Missing creation retry";

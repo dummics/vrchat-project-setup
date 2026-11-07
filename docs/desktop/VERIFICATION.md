@@ -402,3 +402,11 @@ exercises confirmation refusal and the resulting reviewed identity (565 checks),
 and five focused source-identity/recovery tests passed. This does not recover an
 older project whose journal and trustworthy creation inputs are both missing.
 
+For an uninitialized project whose recovery inputs are unavailable, the project
+warning offers a new import in a separately named project after manual package
+selection. It explains that edits in the old folder are not copied. An active or
+recoverable import supersedes this fallback, and name collisions are avoided.
+The native smoke passed 570 checks, including project scanning, a stale action,
+cancelled selection, and preservation of a fixture file. The picker and decisions
+were simulated; this check stops before starting the new import in Unity.
+
