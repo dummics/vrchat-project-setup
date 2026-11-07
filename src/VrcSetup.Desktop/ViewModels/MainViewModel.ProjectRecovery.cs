@@ -45,7 +45,7 @@ public sealed partial class MainViewModel
     {
         var job = RecoverableImportForProject(project);
         if (job is not null && job.Id == expectedImportId) return RepairHistoryImportAsync(new(job));
-        Status = "This import changed. Choose it again to continue.";
+        ApplicationNotice = UiText.Text("This import changed. Choose it again to continue.");
         return Task.CompletedTask;
     }
 
@@ -53,7 +53,7 @@ public sealed partial class MainViewModel
     {
         if (!project.InitializationPending || IsClosingApp || !Directory.Exists(project.Path)) return;
         if (HasPendingProjectWork(project) || await OrphanRecoveryForProjectAsync(project) is not null)
-        { Status = "This import changed. Choose it again to continue."; return; }
+        { ApplicationNotice = UiText.Text("This import changed. Choose it again to continue."); return; }
         var selected = await ui.PickFileAsync(".unitypackage");
         if (selected is null) return;
         selected = ProjectRules.NormalizePath(selected);
@@ -61,11 +61,11 @@ public sealed partial class MainViewModel
             throw new IOException("Choose a .unitypackage file, not a folder or another file type.");
         if (IsClosingApp || !Directory.Exists(project.Path) || HasPendingProjectWork(project) ||
             await OrphanRecoveryForProjectAsync(project) is not null)
-        { Status = "This import changed. Choose it again to continue."; return; }
+        { ApplicationNotice = UiText.Text("This import changed. Choose it again to continue."); return; }
         if (!await NavigateAsync("Create")) return;
         if (IsClosingApp || !Directory.Exists(project.Path) || HasPendingProjectWork(project) ||
             await OrphanRecoveryForProjectAsync(project) is not null)
-        { Status = "This import changed. Choose it again to continue."; return; }
+        { ApplicationNotice = UiText.Text("This import changed. Choose it again to continue."); return; }
         var name = project.Name + " (new)"; var index = 2;
         while (Directory.Exists(Path.Combine(ProjectsRoot, name)) || File.Exists(Path.Combine(ProjectsRoot, name)))
             name = project.Name + " (new " + index++ + ")";
@@ -81,7 +81,7 @@ public sealed partial class MainViewModel
     {
         var current = ImportQueue.CurrentForProject(app.Imports.Snapshot(), job.ProjectPath);
         if (!IsClosingApp && current is { Active: false, DiscardRequested: false, DiscardCompleted: false } && current.Id == job.Id) return true;
-        Status = "This import changed. Choose it again to continue.";
+        ApplicationNotice = UiText.Text("This import changed. Choose it again to continue.");
         return false;
     }
 }

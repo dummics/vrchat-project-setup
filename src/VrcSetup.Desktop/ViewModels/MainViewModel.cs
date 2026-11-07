@@ -622,7 +622,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         { ApplicationNotice = UiText.Text("Finish the import from the project warning before opening Unity."); return; }
         if (ProjectApplyActive([project]) || ProjectImportsActive([project])) return;
         if (!await FindEditorAsync(true)) return;
-        if (app.Projects.IsBusy(project)) { Status = "Project is already open in Unity"; return; }
+        if (app.Projects.IsBusy(project)) { ApplicationNotice = UiText.Text("Project is already open in Unity"); return; }
         var start = new ProcessStartInfo(config.UnityEditorPath) { UseShellExecute = false }; start.ArgumentList.Add("-projectPath"); start.ArgumentList.Add(project); Process.Start(start); await Task.CompletedTask;
     }
     private static void OpenPath(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });

@@ -52,4 +52,11 @@ public sealed class PortablePresetTests
         Assert.DoesNotContain("Try again, or contact support", text);
         Assert.DoesNotContain("IOException", text);
     }
+    [Fact] public void StaleRecoveryExplainsTheNextAction()
+    {
+        const string message = "This import changed. Choose it again to continue.";
+        var error = new IOException(message);
+        Assert.True(UserErrors.IsExpected(error));
+        Assert.Equal(UiText.Text(message), UserErrors.Message(error));
+    }
 }

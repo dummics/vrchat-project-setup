@@ -402,6 +402,12 @@ exercises confirmation refusal and the resulting reviewed identity (565 checks),
 and five focused source-identity/recovery tests passed. This does not recover an
 older project whose journal and trustworthy creation inputs are both missing.
 
+Stale project-recovery and Creator Companion retry actions now give visible,
+localized feedback instead of changing an undisplayed status. The native UI
+verifier passed 575 checks, including both stale-action scenarios; focused
+error/localization tests passed 15 cases. A project already open in Unity also
+reports that state visibly. These fixtures do not exercise a real VCC registry.
+
 With incomplete archive or eligible-text coverage, a typed GUID match remains a
 possible package rather than strong add advice. Native package guidance omits
 internal asset paths and observed signature versions, which remain in the

@@ -508,11 +508,15 @@ public static class UiSmokeTest
             var pendingPlan = new ProjectPlan { Name = pendingSource.Name, Path = unrecoverablePath, ExpectedFingerprint = "", Changes = [], Creation = pendingSource, DesiredPolicy = new Dictionary<string, string>() };
             var pendingJob = new ImportJob("fallback-stale", new("fallback-stale", DateTime.UtcNow, [pendingPlan]), pendingSource, "Running", "Starting", 0, "", "");
             lock (queueSync) queueJobs.Add(pendingJob);
-            decisions.FileChoice = wrongArchive; var beforePending = flow.ImportDrafts.Count;
+            decisions.FileChoice = wrongArchive; var beforePending = flow.ImportDrafts.Count; flow.ApplicationNotice = "";
             try
             {
                 await flow.StartNewImportForUnrecoverableProjectAsync(unavailableProject);
                 Require(flow.ImportDrafts.Count == beforePending, "A newly active import prevents the stale fallback action");
+                Require(flow.ApplicationNotice.Contains("import changed", StringComparison.OrdinalIgnoreCase), "A stale recovery action explains how to continue");
+                flow.ApplicationNotice = "";
+                await flow.RetryCreatorCompanionAsync(new(pendingJob));
+                Require(flow.ApplicationNotice.Contains("import changed", StringComparison.OrdinalIgnoreCase), "A stale Creator Companion retry gives visible feedback");
             }
             finally { lock (queueSync) queueJobs.RemoveAll(x => x.Id == pendingJob.Id); }
             var draftCount = flow.ImportDrafts.Count; decisions.FileChoice = null;

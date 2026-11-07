@@ -30,7 +30,7 @@ public sealed partial class MainViewModel
     {
         bool Current() => ImportQueue.CurrentForProject(app.Imports.Snapshot(), row.Path)
             is { CreatorCompanionPending: true, Active: false } job && job.Id == row.Id;
-        if (!Current()) { Status = "This import changed. Choose it again to continue."; return; }
+        if (!Current()) { ApplicationNotice = UiText.Text("This import changed. Choose it again to continue."); return; }
         bool registered;
         try
         {
@@ -45,7 +45,7 @@ public sealed partial class MainViewModel
             registered = false;
         }
         if (registered) ShowSavedFeedback("Project added to Creator Companion");
-        else if (!Current()) Status = "This import changed. Choose it again to continue.";
+        else if (!Current()) ApplicationNotice = UiText.Text("This import changed. Choose it again to continue.");
         else
         {
             ErrorSeverity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning;
