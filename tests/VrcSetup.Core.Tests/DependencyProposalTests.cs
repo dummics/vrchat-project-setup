@@ -37,16 +37,40 @@ public sealed class DependencyProposalTests
             Report(Hint("tool", DependencyConfidence.Detected))));
     }
 
-    [Fact] public void AmbiguousAndEvidenceFreeHintsDoNotProduceAdditions()
+    [Fact] public void AmbiguousHintsRequireReviewAndEvidenceFreeHintsAreOmitted()
     {
-        Assert.Empty(DependencyAdvisor.Propose(new Dictionary<string, string>(), Report(
-            Hint("possible", DependencyConfidence.Possible), new("unsupported", DependencyConfidence.Detected, null, []))));
+        var proposals = DependencyAdvisor.Propose(new Dictionary<string, string>(), Report(
+            Hint("possible", DependencyConfidence.Possible), new("unsupported", DependencyConfidence.Detected, null, [])));
+        var proposal = Assert.Single(proposals);
+        Assert.Equal(DependencyProposalKind.ReviewPossible, proposal.Kind);
+        Assert.Null(proposal.ProposedVersion);
+    }
+
+    [Fact] public void PossibleMatchesAreVisibleWithoutChangingTheSelectedPackages()
+    {
+        var selection = new Dictionary<string, string> { ["already-selected"] = "1.0.0" };
+        var preview = DependencyAdvisor.CombineSelection(selection, Report(
+            Hint("possible", DependencyConfidence.Possible), Hint("bundled", DependencyConfidence.Included),
+            new("no-evidence", DependencyConfidence.Possible, null, [])));
+        var candidate = Assert.Single(preview, x => x.Id == "possible");
+        Assert.False(candidate.Selected);
+        Assert.Equal("latest", candidate.Version);
+        Assert.DoesNotContain(preview, x => x.Id is "bundled" or "no-evidence");
+        Assert.Single(selection);
+        Assert.Equal("1.0.0", selection["already-selected"]);
     }
 
     [Fact] public void AvatarAdviceDoesNotReplaceAnExplicitWorldSdkSelection()
     {
         Assert.Empty(DependencyAdvisor.Propose(new Dictionary<string, string> { [ProjectRules.WorldSdk] = "latest" },
             Report(Hint(ProjectRules.AvatarSdk, DependencyConfidence.Detected), Hint(ProjectRules.WorldSdk, DependencyConfidence.Declared, "1.0.0"))));
+    }
+
+    [Fact] public void PreviewDoesNotOfferAvatarSdkAgainstWorldSdkWithDifferentCasing()
+    {
+        var selection = new Dictionary<string, string> { [ProjectRules.WorldSdk.ToUpperInvariant()] = "latest" };
+        var preview = DependencyAdvisor.CombineSelection(selection, Report(Hint(ProjectRules.AvatarSdk.ToUpperInvariant(), DependencyConfidence.Possible)));
+        Assert.DoesNotContain(preview, x => x.Id.Equals(ProjectRules.AvatarSdk, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact] public void EvenCompleteInspectionDoesNotTreatAbsenceAsPermissionToRemove()

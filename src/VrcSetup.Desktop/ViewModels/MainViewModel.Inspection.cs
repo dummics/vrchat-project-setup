@@ -22,6 +22,7 @@ public sealed partial class MainViewModel
         inspectionRequest?.Cancel();
         var request = inspectionRequest = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         CreationInspection = null; InspectionStatus = ""; IsInspectingPackage = false;
+        var completed = false;
         try
         {
             if (string.IsNullOrWhiteSpace(file) || !file.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)) return;
@@ -37,16 +38,22 @@ public sealed partial class MainViewModel
             var report = await pending;
             if (inspectionRequest != request || request.IsCancellationRequested) return;
             CreationInspection = report;
-            var detected = report.Suggestions.Count(x => x.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared);
-            InspectionStatus = !report.Observation.ArchiveComplete || !report.Observation.TextComplete || report.UnresolvedReferences > 0
-                ? "Confirm the suggested packages before importing."
-                : detected > 0 ? string.Format(UiText.Text("{0} packages to review"), detected) : "No additional packages found.";
+            completed = true;
         }
         catch (OperationCanceledException) { }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
         {
             if (inspectionRequest == request) { InspectionStatus = "Choose packages manually to continue."; app.Diagnostics.Write("Package inspection", error.Message, error); }
         }
-        finally { if (inspectionRequest == request) { IsInspectingPackage = false; inspectionRequest = null; } request.Dispose(); }
+        finally { if (inspectionRequest == request) { IsInspectingPackage = false; inspectionRequest = null; if (completed) RefreshInspectionSummary(); } request.Dispose(); }
+    }
+    private void RefreshInspectionSummary()
+    {
+        if (IsInspectingPackage || CreationInspection is not { } report) return;
+        var detected = DetectedCreationPackages.Count;
+        var possible = PossibleCreationPackages.Count > 0;
+        InspectionStatus = !report.Observation.ArchiveComplete || !report.Observation.TextComplete || report.UnresolvedReferences > 0
+            ? detected > 0 || possible ? "Confirm the suggested packages before importing." : "Check the package selection before importing."
+            : detected > 0 ? string.Format(UiText.Text("{0} packages to review"), detected) : possible ? "Check other possible packages below." : "No additional packages found.";
     }
 }

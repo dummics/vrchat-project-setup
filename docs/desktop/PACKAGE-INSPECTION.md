@@ -35,6 +35,14 @@ runtime verification.
 
 Selecting a UnityPackage starts one cancellable background inspection with immediate status and progress feedback; name/platform/preset controls remain usable. Review is unavailable while analysis or review preparation is running, and a partial or unavailable final analysis still permits explicit manual review. Changing the file cancels that consumer and rejects old results. The selected file's creation overrides reset when the file changes. The 0.3 refactor changes are pending native verification.
 
+Strong matches are displayed separately from “Other packages to check”. A
+possible match with evidence remains unselected until the user chooses its
+individual Add action; that stages the floating `latest` policy for this import
+only and does not edit the saved preset. Possible matches are excluded from
+the bulk Add detected action. Included packages and unknown GUIDs are not
+implicitly installed. A possible text hint can reflect optional integration;
+the user-facing distinction must not be read as proof of a requirement.
+
 Customize packages includes the detected package definitions in the existing selection dialog. Rows show Detected, Possible, Included or a declared version requirement, with short explanations in tooltips. Detailed paths and signature provenance remain in the inspection report. Add detected stages eligible additions; Done accepts the working copy and Cancel discards it. Existing pins and opposite SDK kinds are excluded from batch additions. Reopening customization preserves accepted creation overrides.
 
 Declared exact versions can be staged. Declared ranges are preserved in the report and shown on the row; they are excluded from Add detected and require an explicit exact-version choice. The current planner accepts exact versions/latest, not arbitrary VPM range expressions. Inspection does not replace VPM's dependency resolver or guarantee compatibility for a manually chosen version.
@@ -62,7 +70,8 @@ with AdviceSchema, the current configuration's default package selection and
 proposals; plain `--json` retains the inspection-report shape. No proposal edits
 the selection or project. A range without an exact proposed version needs manual
 choice. Bundled overlap requests review, not automatic removal. Absence of a
-reference is never a removal recommendation.
+reference is never a removal recommendation. Evidence-backed Possible matches
+produce `ReviewPossible`, without a proposed version or automatic selection.
 
 GUID evidence records bounded signature sources and observed versions. These
 versions describe the index observations, not a minimum compatible release.

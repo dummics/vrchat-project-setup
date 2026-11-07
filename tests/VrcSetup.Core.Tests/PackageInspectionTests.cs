@@ -20,7 +20,9 @@ public sealed class PackageInspectionTests : IDisposable
             [new(A, "Assets/Main.prefab", [new(B, "script")], [], false)], 0);
         var report = DependencyAdvisor.Match(observation, new("fixture", [new(B, "example.package", "1.0.0", "script", "release")]));
         Assert.Equal(DependencyConfidence.Possible, Assert.Single(report.Suggestions).Confidence);
-        Assert.Empty(DependencyAdvisor.Propose(new Dictionary<string, string>(), report));
+        var proposal = Assert.Single(DependencyAdvisor.Propose(new Dictionary<string, string>(), report));
+        Assert.Equal(DependencyProposalKind.ReviewPossible, proposal.Kind);
+        Assert.Null(proposal.ProposedVersion);
     }
     [Theory]
     [InlineData("script", DependencyConfidence.Detected)]

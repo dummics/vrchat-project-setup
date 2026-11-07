@@ -416,6 +416,13 @@ inspection report. The full Core suite passed 422 tests; native UI smoke passed
 observations rematched successfully with complete reported coverage; this does
 not establish an independently validated dependency ground truth.
 
+The import screen offers evidence-backed possible packages separately from
+strong matches. The native verifier passed 582 checks including explicit
+addition, unchanged saved preset, bulk exclusion and an updated status message.
+The complete core suite passed 427 tests. Cached Trixie/Lulla observations were
+rematched: possible matches remain suggestions rather than proven requirements;
+those observations do not establish ground truth or compatibility.
+
 For an uninitialized project whose recovery inputs are unavailable, the project
 warning offers a new import in a separately named project after manual package
 selection. It explains that edits in the old folder are not copied. An active or

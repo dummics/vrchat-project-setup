@@ -834,7 +834,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         }
         var proof = new DependencyEvidence("Assets/Test.prefab", "script") { ObservedVersions = ["9.9.9"], SignatureSources = ["Packages/private/path.cs"] };
         var advice = new PackageInspectionReport(new(1, 0, 0, true, true, [], [], 0), "fixture", "Avatar prefab", 0,
-            [new("com.vrcfury.vrcfury", DependencyConfidence.Detected, null, [proof]), new("com.poiyomi.toon", DependencyConfidence.Detected, null, [proof]), new(ProjectRules.WorldSdk, DependencyConfidence.Detected, null, [proof]), new("example.range", DependencyConfidence.Declared, ">=2.0.0", [proof])], false);
+            [new("com.vrcfury.vrcfury", DependencyConfidence.Detected, null, [proof]), new("com.poiyomi.toon", DependencyConfidence.Detected, null, [proof]), new(ProjectRules.WorldSdk, DependencyConfidence.Detected, null, [proof]), new("example.range", DependencyConfidence.Declared, ">=2.0.0", [proof]), new("com.llealloo.audiolink", DependencyConfidence.Possible, null, [proof])], false);
         var readableEvidence = PackageSetDialog.EvidenceTooltip(advice.Suggestions[0]);
         Require(!readableEvidence.Contains("Assets/") && !readableEvidence.Contains("Packages/") && !readableEvidence.Contains("9.9.9") && readableEvidence.Contains("refers"),
             "Package guidance describes the finding without presenting internal paths or observed versions as requirements");
@@ -843,7 +843,25 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         viewModel.CurrentPage = "Create"; viewModel.CreationInspection = advice; await Task.Delay(150);
         Require(viewModel.DetectedCreationPackagesVisibility == Visibility.Visible && viewModel.DetectedCreationPackages.Any(x => x.Id == "example.range"), "Strong package suggestions appear before the import review");
         Require(!viewModel.DetectedCreationPackages.Any(x => x.Id == ProjectRules.WorldSdk), "Avatar suggestions exclude the world SDK");
+        Require(viewModel.PossibleCreationPackagesVisibility == Visibility.Visible && viewModel.PossibleCreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && !x.Selected), "Possible packages are offered separately without being selected automatically");
+        var possibleExpander = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("PossiblePackagesExpander");
+        possibleExpander.IsExpanded = true; await Task.Delay(150); page.UpdateLayout();
+        Require(possibleExpander.Visibility == Visibility.Visible && Descendants(possibleExpander).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.DataContext is VrcSetup_Desktop.ViewModels.UiCreationPackage item && item.Id == "com.llealloo.audiolink"), "Possible packages expose an individual add action in the native view");
+        await Render(page, Path.Combine(artifacts, "possible-package-suggestions.png"));
+        possibleExpander.IsExpanded = false;
         viewModel.CreationInspection = null;
+        using (var reviewFlow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, new FlowInteraction(page)))
+        {
+            await reviewFlow.InitializeAsync(); reviewFlow.CurrentPage = "Create";
+            reviewFlow.CreationInspection = advice with { Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
+            var possible = reviewFlow.PossibleCreationPackages.Single(x => x.Id == "com.llealloo.audiolink");
+            Require(reviewFlow.InspectionStatus == "Check other possible packages below.", "Possible-only results do not report that no packages were found");
+            var presetBefore = new Dictionary<string, string>((await reviewFlow.Application.Configuration.LoadAsync()).VpmPackages);
+            await reviewFlow.AddCreationSuggestionAsync(possible);
+            Require(reviewFlow.CreationPackages.Single(x => x.Id == possible.Id).Selected && !reviewFlow.PossibleCreationPackages.Any(x => x.Id == possible.Id), "Explicitly adding a possible package updates the import selection");
+            Require(reviewFlow.InspectionStatus == "No additional packages found.", "The package summary updates after accepting the last possible suggestion");
+            Require((await reviewFlow.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(presetBefore.OrderBy(x => x.Key)), "Adding a possible package does not modify the saved default preset");
+        }
         using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0", [ProjectRules.AvatarSdk] = "3.10.5" }, new(), viewModel.Registry.ToArray(),
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>()), advice))
         {
@@ -853,6 +871,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke(); await Task.Delay(100);
             Require(suggested.Result()["com.vrcfury.vrcfury"] == "latest" && suggested.Result()["com.poiyomi.toon"] == "8.0.0", "Detected packages stage additions without replacing existing pins");
             Require(!suggested.Result().ContainsKey(ProjectRules.WorldSdk) && !suggested.Result().ContainsKey("example.range"), "Suggestions preserve SDK kind and do not convert declared ranges into latest");
+            Require(!suggested.Result().ContainsKey("com.llealloo.audiolink"), "Adding detected packages in bulk never includes possible matches");
             await Render(suggested.Dialog, Path.Combine(artifacts, "detected-packages.png")); suggested.Dialog.Hide(); await shown;
             Require(!suggested.Accepted, "Detected selection stays staged until the user accepts");
         }

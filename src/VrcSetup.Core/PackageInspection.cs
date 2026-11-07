@@ -50,9 +50,9 @@ public static partial class DependencyAdvisor
         var result = selected.Select(x => new PackageSelectionPreview(x.Key, x.Value, true, hints.GetValueOrDefault(x.Key))).ToList();
         foreach (var hint in hints.Values)
         {
-            if (selected.Keys.Contains(hint.Id, StringComparer.OrdinalIgnoreCase) || !IsAvatarCandidate(hint.Id) || hint.Confidence is not (DependencyConfidence.Detected or DependencyConfidence.Declared)) continue;
-            if (hint.Id == ProjectRules.AvatarSdk && selected.Keys.Contains(ProjectRules.WorldSdk, StringComparer.OrdinalIgnoreCase)) continue;
-            result.Add(new(hint.Id, SuggestedVersion(hint) ?? hint.VersionConstraint ?? "Choose version", false, hint));
+            if (selected.Keys.Contains(hint.Id, StringComparer.OrdinalIgnoreCase) || !IsAvatarCandidate(hint.Id) || hint.Confidence is not (DependencyConfidence.Detected or DependencyConfidence.Declared or DependencyConfidence.Possible) || hint.Confidence == DependencyConfidence.Possible && hint.Evidence.Length == 0) continue;
+            if (hint.Id.Equals(ProjectRules.AvatarSdk, StringComparison.OrdinalIgnoreCase) && selected.Keys.Contains(ProjectRules.WorldSdk, StringComparer.OrdinalIgnoreCase)) continue;
+            result.Add(new(hint.Id, SuggestedVersion(hint) ?? hint.VersionConstraint ?? (hint.Confidence == DependencyConfidence.Possible ? "latest" : "Choose version"), false, hint));
         }
         return result.ToArray();
     }

@@ -1,6 +1,6 @@
 namespace VrcSetup.Core;
 
-public enum DependencyProposalKind { Add, ReviewVersion, ReviewBundled }
+public enum DependencyProposalKind { Add, ReviewVersion, ReviewBundled, ReviewPossible }
 
 // Advice refers to the caller's working selection, never authorizes a mutation.
 public sealed record DependencyProposal(string Id, DependencyProposalKind Kind,
@@ -21,6 +21,9 @@ public static partial class DependencyAdvisor
                 if (hint.Confidence is DependencyConfidence.Declared or DependencyConfidence.Detected)
                     proposals.Add(new(hint.Id, DependencyProposalKind.Add, null, SuggestedVersion(hint),
                         SuggestedVersion(hint) is null ? "Choose a version satisfying the declared requirement." : "Referenced package is not in your selection.", hint));
+                else if (hint.Confidence == DependencyConfidence.Possible)
+                    proposals.Add(new(hint.Id, DependencyProposalKind.ReviewPossible, null, null,
+                        "This package may be needed. Review it before adding it.", hint));
             }
             else if (hint.Confidence == DependencyConfidence.Included)
             {

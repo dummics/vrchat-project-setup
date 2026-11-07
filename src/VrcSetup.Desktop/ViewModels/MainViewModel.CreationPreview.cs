@@ -10,7 +10,9 @@ public sealed partial class MainViewModel
 {
     public ObservableCollection<UiCreationPackage> CreationPackages { get; } = [];
     public ObservableCollection<UiCreationPackage> DetectedCreationPackages { get; } = [];
+    public ObservableCollection<UiCreationPackage> PossibleCreationPackages { get; } = [];
     public Visibility DetectedCreationPackagesVisibility => DetectedCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PossibleCreationPackagesVisibility => PossibleCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     private readonly Dictionary<string, int> creationPreviewOrder = new(StringComparer.OrdinalIgnoreCase);
     private string creationPreviewContext = "";
     public string CreationPackageSummary
@@ -52,16 +54,28 @@ public sealed partial class MainViewModel
             if (position < 0) DetectedCreationPackages.Insert(i, suggestions[i]);
             else if (position != i) DetectedCreationPackages.Move(position, i);
         }
+        var possible = CreationPackages.Where(x => !x.Selected && x.Data.Evidence?.Confidence == DependencyConfidence.Possible).ToArray();
+        for (var i = PossibleCreationPackages.Count - 1; i >= 0; i--) if (!possible.Contains(PossibleCreationPackages[i])) PossibleCreationPackages.RemoveAt(i);
+        for (var i = 0; i < possible.Length; i++)
+        {
+            var position = PossibleCreationPackages.IndexOf(possible[i]);
+            if (position < 0) PossibleCreationPackages.Insert(i, possible[i]);
+            else if (position != i) PossibleCreationPackages.Move(position, i);
+        }
         OnPropertyChanged(nameof(DetectedCreationPackagesVisibility));
+        OnPropertyChanged(nameof(PossibleCreationPackagesVisibility));
         OnPropertyChanged(nameof(CreationPackageSummary));
+        RefreshInspectionSummary();
         RefreshCreationVersions();
     }
     public async Task AddCreationSuggestionAsync(UiCreationPackage row)
     {
         var current = CreationPackages.FirstOrDefault(x => x.Id == row.Id);
         if (current is null || current.Selected) return;
-        if (current.Data.Evidence is not { } hint || DependencyAdvisor.SuggestedVersion(hint) is not { } version)
+        if (current.Data.Evidence is not { } hint)
         { await CustomizeCreationPackagesCommand.ExecuteAsync(null); return; }
+        var version = hint.Confidence == DependencyConfidence.Possible ? "latest" : DependencyAdvisor.SuggestedVersion(hint);
+        if (version is null) { await CustomizeCreationPackagesCommand.ExecuteAsync(null); return; }
         var selected = CurrentCreationSelection(); selected.TryAdd(row.Id, version);
         creationOverrides = selected;
         if (SelectedImportDraft is { } draft) draft.Packages = new(selected);
@@ -89,7 +103,7 @@ public sealed class UiCreationPackage(PackageSelectionPreview data, string name)
         DependencyConfidence.Included => "In file", DependencyConfidence.Declared => Selected ? "Required" : "Required · not selected",
         DependencyConfidence.Detected => Selected ? "Detected" : "Detected · not selected", _ => ""
     };
-    public string Action => Data.Evidence is { } hint && DependencyAdvisor.SuggestedVersion(hint) is not null ? "Add" : "Review";
+    public string Action => Data.Evidence is { } hint && (hint.Confidence == DependencyConfidence.Possible || DependencyAdvisor.SuggestedVersion(hint) is not null) ? "Add" : "Review";
     public Visibility ActionVisibility => Selected ? Visibility.Collapsed : Visibility.Visible;
     public string Tooltip => UiText.Text(Version) + (Data.Evidence?.VersionConstraint is { Length: > 0 } constraint ? "\n" + UiText.Text("Requires ") + constraint : "");
     public void Update(PackageSelectionPreview value, string displayName)
