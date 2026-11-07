@@ -215,6 +215,25 @@ public sealed class PackageInspectionTests : IDisposable
         Assert.Equal("1.0.0", suggestion.VersionConstraint);
         Assert.Equal("1.0.0", DependencyAdvisor.SuggestedVersion(suggestion));
     }
+    [Fact] public void ConflictingEmbeddedDeclarationsDoNotChooseAVersionAutomatically()
+    {
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], [
+            new(A, "Packages/example.one/package.json", [], [], false,
+                new("example.one", "1.0.0", new() { ["example.dependency"] = "1.0.0" })),
+            new(B, "Packages/example.two/package.json", [], [], false,
+                new("example.two", "1.0.0", new() { ["example.dependency"] = "2.0.0" })),
+            new(C, "Packages/example.three/package.json", [], [], false,
+                new("example.three", "1.0.0", new() { ["example.dependency"] = "1.0.0" }))], 0);
+        var report = DependencyAdvisor.Match(observation, new("fixture", []));
+        var suggestion = Assert.Single(report.Suggestions, x => x.Id == "example.dependency");
+        Assert.Equal(DependencyConfidence.Declared, suggestion.Confidence);
+        Assert.Equal("1.0.0 & 2.0.0", suggestion.VersionConstraint);
+        Assert.Null(DependencyAdvisor.SuggestedVersion(suggestion));
+        var proposal = Assert.Single(DependencyAdvisor.Propose(new Dictionary<string, string>(), report), x => x.Id == "example.dependency");
+        Assert.Equal(DependencyProposalKind.Add, proposal.Kind);
+        Assert.Null(proposal.ProposedVersion);
+        Assert.Contains("Choose a version", proposal.Reason);
+    }
     [Fact] public async Task EntryAndTextLimitsAreReportedAndDeepHasItsOwnCache()
     {
         var file = Archive(($"{A}/asset", "%YAML\n" + new string('a', 1000)), ($"{A}/pathname", "Assets/Main.prefab"));

@@ -105,7 +105,7 @@ public static partial class DependencyAdvisor
         foreach (var set in sharedPackages.Skip(1)) common.IntersectWith(set);
         var evidence = new Dictionary<string, List<DependencyEvidence>>(StringComparer.OrdinalIgnoreCase);
         var confidences = new Dictionary<string, DependencyConfidence>(StringComparer.OrdinalIgnoreCase);
-        var constraints = new Dictionary<string, Dictionary<DependencyConfidence, string>>(StringComparer.OrdinalIgnoreCase);
+        var constraints = new Dictionary<string, Dictionary<DependencyConfidence, HashSet<string>>>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void Add(string id, DependencyConfidence confidence, DependencyEvidence proof, string? version = null)
         {
@@ -116,7 +116,8 @@ public static partial class DependencyAdvisor
             if (version is not null)
             {
                 if (!constraints.TryGetValue(id, out var versions)) constraints[id] = versions = [];
-                versions[confidence] = versions.TryGetValue(confidence, out var previous) && previous != version ? previous + " & " + version : version;
+                if (!versions.TryGetValue(confidence, out var distinct)) versions[confidence] = distinct = new(StringComparer.Ordinal);
+                distinct.Add(version);
             }
         }
         // The same GUID can belong to several packages; never pick one arbitrarily.
@@ -152,7 +153,11 @@ public static partial class DependencyAdvisor
             foreach (var hint in asset.Hints) Add(hint, DependencyConfidence.Possible, new(asset.Path, "text hint"));
         }
         foreach (var package in included.Where(IsAvatarCandidate)) confidences[package] = DependencyConfidence.Included;
-        var suggestions = evidence.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase).Select(x => new DependencySuggestion(x.Key, confidences[x.Key], constraints.GetValueOrDefault(x.Key)?.GetValueOrDefault(confidences[x.Key]), x.Value.ToArray())).ToArray();
+        var suggestions = evidence.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase).Select(x =>
+        {
+            var versions = constraints.GetValueOrDefault(x.Key)?.GetValueOrDefault(confidences[x.Key]);
+            return new DependencySuggestion(x.Key, confidences[x.Key], versions is null ? null : string.Join(" & ", versions.Order(StringComparer.Ordinal)), x.Value.ToArray());
+        }).ToArray();
         return new(observation, snapshot.Revision, manyRoots ? "Multiple avatar candidates (choose a smaller package)" : roots.Length == 1 ? roots[0].Path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase) ? "Avatar scene" : "Avatar prefab" : roots.Length > 1 ? "Shared avatar references" : "Whole archive", unresolved.Count, suggestions, cached);
     }
     private static bool Optional(string path) => new[] { "/Samples/", "/Samples~/", "/Examples/", "/Demo/", "/Editor/" }.Any(x => path.Contains(x, StringComparison.OrdinalIgnoreCase));
