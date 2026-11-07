@@ -184,6 +184,37 @@ public sealed class PackageInspectionTests : IDisposable
         Assert.DoesNotContain(report.Suggestions, x => x.Id == "example.embedded" && x.Confidence == DependencyConfidence.Included);
         Assert.DoesNotContain((await service.LoadIndexAsync()).Signatures, x => x.PackageId == "example.embedded");
     }
+    [Theory]
+    [InlineData("Assets/Example/package.json", DependencyConfidence.Possible)]
+    [InlineData("Packages/another.package/package.json", DependencyConfidence.Possible)]
+    [InlineData("Packages/example.embedded/package.json", DependencyConfidence.Declared)]
+    public async Task OnlyAnEmbeddedPackageManifestDeclaresARequirement(string manifestPath, DependencyConfidence expected)
+    {
+        var json = "{\"name\":\"example.embedded\",\"version\":\"1.2.3\",\"vpmDependencies\":{\"example.dependency\":\"1.0.0\"}}";
+        var file = Archive(($"{A}/asset", json), ($"{A}/pathname", manifestPath));
+        var report = await Service().InspectAsync(file);
+        var suggestion = Assert.Single(report.Suggestions, x => x.Id == "example.dependency");
+        Assert.Equal(expected, suggestion.Confidence);
+        var proposal = Assert.Single(DependencyAdvisor.Propose(new Dictionary<string, string>(), report), x => x.Id == "example.dependency");
+        Assert.Equal(expected == DependencyConfidence.Declared ? DependencyProposalKind.Add : DependencyProposalKind.ReviewPossible, proposal.Kind);
+        if (expected == DependencyConfidence.Possible)
+            Assert.Equal("latest", Assert.Single(DependencyAdvisor.CombineSelection(new Dictionary<string, string>(), report), x => x.Id == "example.dependency").Version);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PossibleManifestRequirementsCannotChangeADeclaredVersion(bool reverse)
+    {
+        var declared = new InspectedAsset(A, "Packages/example.owner/package.json", [], [], false,
+            new("example.owner", "2.0.0", new() { ["example.dependency"] = "1.0.0" }));
+        var possible = new InspectedAsset(B, "Assets/Example/package.json", [], [], false,
+            new("example.other", "3.0.0", new() { ["example.dependency"] = "9.0.0" }));
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], reverse ? [possible, declared] : [declared, possible], 0);
+        var suggestion = Assert.Single(DependencyAdvisor.Match(observation, new("fixture", [])).Suggestions, x => x.Id == "example.dependency");
+        Assert.Equal(DependencyConfidence.Declared, suggestion.Confidence);
+        Assert.Equal("1.0.0", suggestion.VersionConstraint);
+        Assert.Equal("1.0.0", DependencyAdvisor.SuggestedVersion(suggestion));
+    }
     [Fact] public async Task EntryAndTextLimitsAreReportedAndDeepHasItsOwnCache()
     {
         var file = Archive(($"{A}/asset", "%YAML\n" + new string('a', 1000)), ($"{A}/pathname", "Assets/Main.prefab"));

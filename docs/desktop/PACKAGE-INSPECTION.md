@@ -80,7 +80,13 @@ anchors and ambiguous matches in other avatar variants cannot establish a
 shared typed requirement. Strong GUID-based detection also requires complete
 archive and eligible-text coverage: an incomplete scan keeps a match as Possible
 because another avatar variant may have been missed. Explicit manifest
-declarations are reported independently of this GUID confidence rule.
+declarations from a package manifest at its matching `Packages/<id>/package.json`
+are reported independently of this GUID confidence rule. Dependencies found in
+other `package.json` files, including files under `Assets`, remain possible
+suggestions because they do not establish an installed VPM package. A weaker
+manifest hint cannot alter the constraint declared by an embedded package.
+Possible suggestions show the available version that the Add action would use;
+an unverified version hint is not presented as a requirement.
 Normal UI copy presents suggested actions; archive/text limits and unresolved
 references remain available in the diagnostic report, without claiming complete
 dependency certainty.

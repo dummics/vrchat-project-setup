@@ -68,6 +68,10 @@ public static class UiSmokeTest
         numericCreationPreview.Update(new("fixture.package", "1.0.0", true, null), "Fixture");
         numericCreationPreview.SetLatestVersion("2.0.0");
         Require(numericCreationPreview.Version == "1.0.0", "An asynchronous available version never replaces an explicit pin");
+        var possibleWithVersion = new DependencySuggestion("fixture.possible", DependencyConfidence.Possible, "9.0.0", [new("Assets/package.json", "declared dependency")]);
+        var possiblePreview = new VrcSetup_Desktop.ViewModels.UiCreationPackage(new("fixture.possible", "latest", false, possibleWithVersion), "Fixture");
+        possiblePreview.SetLatestVersion("1.2.3");
+        Require(possiblePreview.Version == "1.2.3" && !possiblePreview.Tooltip.Contains("9.0.0"), "A possible package shows the available version without presenting a weak hint as a requirement");
         await AppearanceVerification.RunAsync(page, Require);
         Require(viewModel.UnityEditorPath == Path.Combine(artifacts, "saved-editor", "Unity.exe"), "Startup preserves a saved editor path even when its drive is unavailable");
         var installedEditor = UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path;
