@@ -11,5 +11,7 @@ public sealed class ToolOutputSeverityTests
     [InlineData("e: failed to download package", EventSeverity.Error)]
     [InlineData("ERROR failed to resolve package", EventSeverity.Error)]
     [InlineData("Package installed", EventSeverity.Info)]
+    [InlineData(@"Starting: C:\Unity\bee_backend.exe --continue-on-failure --ipc", EventSeverity.Info)]
+    [InlineData("Bee compilation failure", EventSeverity.Error)]
     public void RespectsExplicitToolSeverity(string line, EventSeverity expected) => Assert.Equal(expected, ToolOutputSeverity.Classify(line));
 }
