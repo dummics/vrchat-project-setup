@@ -27,7 +27,7 @@ public sealed partial class MainViewModel
         get
         {
             var resource = app.Imports.Resources;
-            var usage = resource is null ? "Checking resources…" : $"RAM {resource.TotalGiB - resource.AvailableGiB:F1} / {resource.TotalGiB:F0} GB · CPU {(resource.CpuPercent is { } cpu ? cpu.ToString("F0") + "%" : "…")}";
+            var usage = resource is null ? UiText.Text("Checking resources…") : $"RAM {resource.TotalGiB - resource.AvailableGiB:F1} / {resource.TotalGiB:F0} GB · CPU {(resource.CpuPercent is { } cpu ? cpu.ToString("F0") + "%" : "…")}";
             return usage;
         }
     }
