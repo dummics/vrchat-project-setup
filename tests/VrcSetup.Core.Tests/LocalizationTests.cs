@@ -14,6 +14,8 @@ public sealed class LocalizationTests
     [Fact] public void LabelsTranslateButPackageNamesAndVersionsRemainUnchanged()
     {
         Assert.Equal("Progetti", UiText.Text("Projects", "it"));
+        Assert.Equal("Verifica pacchetti…", UiText.Text("Checking packages…", "it"));
+        Assert.Equal("Gestisci pacchetti", UiText.Text("Manage packages", "it"));
         Assert.Equal("Projects", UiText.Text("Projects", "en"));
         Assert.Equal("com.vrcfury.vrcfury", UiText.Text("com.vrcfury.vrcfury", "it"));
         Assert.Equal("3.10.5", UiText.Text("3.10.5", "it"));
