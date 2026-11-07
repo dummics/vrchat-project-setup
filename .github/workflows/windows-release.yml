@@ -1,5 +1,6 @@
 name: Windows release
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       version:
@@ -65,7 +66,7 @@ jobs:
           VERIFY_ONLY: ${{ inputs.verify_only }}
         run: |
           $sourceVersion = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
-          $version = if ($env:GITHUB_EVENT_NAME -eq 'push') { $sourceVersion } else { $env:REQUESTED_VERSION }
+          $version = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:REQUESTED_VERSION } else { $sourceVersion }
           . ./scripts/ReleaseVersion.ps1
           $version = (Get-ReleaseVersion $version).Text
           if ($sourceVersion -ne $version) { throw 'Release version must match Directory.Build.props. Use scripts/Release.ps1.' }
@@ -190,7 +191,7 @@ jobs:
           $full = Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe"
           ./scripts/Test-ApplicationUpdate.ps1 -BasePayload $basis -UpdateInstaller $full -OutputDirectory (Join-Path $env:RUNNER_TEMP 'update-full') -ComponentsDirectory (Join-Path $pwd release)
       - name: Create release
-        if: "inputs.verify_only != true && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(release): '))"
+        if: "inputs.verify_only != true && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release): ')))"
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
