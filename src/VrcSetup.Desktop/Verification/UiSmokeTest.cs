@@ -883,19 +883,29 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             if (installedEditor is not null && UnityProjectDriver.HasBuildSupport(installedEditor, firstDraft.Platform))
             {
                 reviewFlow.UnityEditorPath = installedEditor;
-                firstDraft.SelectionSourceIdentity = new PackageIdentity(firstIdentity.Length, new string('0', 64));
                 inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
                 while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
+                var originalBytes = await File.ReadAllBytesAsync(inspectionFile);
+                var originalTimestamp = File.GetLastWriteTimeUtc(inspectionFile);
+                var replacedBytes = (byte[])originalBytes.Clone();
+                replacedBytes[4] ^= 1; // gzip mtime changes the archive without changing its payload or length.
+                await File.WriteAllBytesAsync(inspectionFile, replacedBytes);
+                File.SetLastWriteTimeUtc(inspectionFile, originalTimestamp);
+                var replacementIdentity = await PackageSourceIdentity.ReadAsync(inspectionFile);
+                Require(replacementIdentity != firstIdentity && replacementIdentity.Length == firstIdentity.Length && File.GetLastWriteTimeUtc(inspectionFile) == originalTimestamp,
+                    "The source fixture is replaced with different bytes while keeping its size and timestamp");
                 suggestionDecisions.ConfirmResult = false; suggestionDecisions.ReviewResult = false;
                 var priorConfirmations = suggestionDecisions.Confirmations;
                 await reviewFlow.CreateProjectCommand.ExecuteAsync(null);
-                Require(suggestionDecisions.Confirmations == priorConfirmations + 1 && suggestionDecisions.LastReview is null && firstDraft.SelectionSourceIdentity != firstIdentity,
+                Require(suggestionDecisions.Confirmations == priorConfirmations + 1 && suggestionDecisions.LastReview is null && firstDraft.SelectionSourceIdentity == firstIdentity,
                     "A changed source blocks review and cancellation keeps its selection and original identity");
                 suggestionDecisions.ConfirmResult = true;
                 await reviewFlow.CreateProjectCommand.ExecuteAsync(null);
-                Require(suggestionDecisions.LastReview is null && firstDraft.SelectionSourceIdentity == firstIdentity &&
+                Require(suggestionDecisions.LastReview is null && firstDraft.SelectionSourceIdentity == replacementIdentity &&
                     firstDraft.Packages?.ContainsKey("com.llealloo.audiolink") == true && reviewFlow.ImportError.Length > 0,
                     "Rechecking a changed source keeps package choices and asks for a fresh review");
+                await File.WriteAllBytesAsync(inspectionFile, originalBytes);
+                File.SetLastWriteTimeUtc(inspectionFile, originalTimestamp);
             }
         }
         using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0", [ProjectRules.AvatarSdk] = "3.10.5" }, new(), viewModel.Registry.ToArray(),
