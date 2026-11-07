@@ -460,8 +460,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         catch (Exception error)
         {
             app.Diagnostics.Write("Import review", error.Message, error);
-            ImportError = error.Message;
-            AppendActivity(new(DateTime.UtcNow, "Error", error.Message, EventSeverity.Error));
+            ImportError = UserErrors.Message(error, PackageDisplayName);
+            ImportErrorNeedsDiagnostics = !UserErrors.IsExpected(error);
+            AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : ImportError, EventSeverity.Error));
         }
         finally { IsPreparingImport = false; }
     }

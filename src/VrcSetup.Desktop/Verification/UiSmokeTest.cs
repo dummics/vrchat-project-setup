@@ -906,6 +906,28 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     "Rechecking a changed source keeps package choices and asks for a fresh review");
                 await File.WriteAllBytesAsync(inspectionFile, originalBytes);
                 File.SetLastWriteTimeUtc(inspectionFile, originalTimestamp);
+                var invalidArchive = Path.Combine(artifacts, "invalid-import.unitypackage");
+                await File.WriteAllTextAsync(invalidArchive, "not an archive");
+                reviewFlow.PackageFile = invalidArchive;
+                inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
+                while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
+                await reviewFlow.CreateProjectCommand.ExecuteAsync(null);
+                Require(reviewFlow.ImportError == UiText.Text("This file is not a valid UnityPackage. Choose the original .unitypackage file.") &&
+                    reviewFlow.ImportDiagnosticVisibility == Visibility.Collapsed,
+                    "An invalid import explains which file to choose without exposing a technical exception");
+                reviewFlow.ImportError = UiText.Text("This action could not be completed. Open logs for details.");
+                reviewFlow.ImportErrorNeedsDiagnostics = true;
+                Require(reviewFlow.ImportDiagnosticVisibility == Visibility.Visible, "Unexpected import preparation errors provide a log action");
+                reviewFlow.ImportError = "";
+                Require(reviewFlow.ImportDiagnosticVisibility == Visibility.Collapsed, "Clearing an import error also clears its diagnostic action");
+                var savedLanguage = UiText.Language;
+                try
+                {
+                    UiText.Language = "it";
+                    reviewFlow.ImportError = UiText.Text("Choose the projects folder in Settings before creating a project.");
+                    Require(reviewFlow.ImportSettingsVisibility == Visibility.Visible, "The settings action remains available with an Italian import error");
+                }
+                finally { UiText.Language = savedLanguage; reviewFlow.ImportError = ""; }
             }
         }
         using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0", [ProjectRules.AvatarSdk] = "3.10.5" }, new(), viewModel.Registry.ToArray(),

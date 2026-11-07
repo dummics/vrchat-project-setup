@@ -613,5 +613,6 @@
   "Package changed": "File modificato",
   "This file changed after you chose packages. Check the suggestions again before importing. Your selection will be kept.": "Il file è cambiato dopo la scelta dei pacchetti. Ricontrolla i suggerimenti prima di importare: la tua selezione sarà conservata.",
   "Check packages": "Controlla i pacchetti",
-  "The file changed. Check your package selection, then review the import again.": "Il file è cambiato. Controlla i pacchetti selezionati, poi rivedi di nuovo l’importazione."
+  "The file changed. Check your package selection, then review the import again.": "Il file è cambiato. Controlla i pacchetti selezionati, poi rivedi di nuovo l’importazione.",
+  "The UnityPackage is unavailable. Reconnect its drive or choose the file again.": "Il UnityPackage non è disponibile. Ricollega l’unità oppure seleziona di nuovo il file."
 }

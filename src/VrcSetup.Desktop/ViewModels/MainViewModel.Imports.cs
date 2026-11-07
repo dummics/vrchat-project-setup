@@ -19,7 +19,10 @@ public sealed partial class MainViewModel
     public bool CanPrepareImportReview => !string.IsNullOrWhiteSpace(PackageFile) && !IsPreparingImport && !IsInspectingPackage
         && !IsClosingApp && !IsInstallingUpdate && (!IsBusy || IsApplyingPackages);
     public Visibility ImportErrorVisibility => ImportError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility ImportSettingsVisibility => ImportError.Contains("Settings", StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ImportSettingsVisibility => ImportError.Contains("Settings", StringComparison.OrdinalIgnoreCase) || ImportError.Contains(UiText.Text("Settings"), StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportDiagnosticVisibility))] public partial bool ImportErrorNeedsDiagnostics { get; set; }
+    public Visibility ImportDiagnosticVisibility => ImportErrorNeedsDiagnostics && ImportError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    partial void OnImportErrorChanged(string value) { ImportErrorNeedsDiagnostics = false; OnPropertyChanged(nameof(ImportDiagnosticVisibility)); }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ManualImportPathVisibility))] public partial bool ManualImportPath { get; set; }
     public Visibility ManualImportPathVisibility => ManualImportPath ? Visibility.Visible : Visibility.Collapsed;
     public string ResourceSummary
