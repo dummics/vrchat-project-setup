@@ -31,7 +31,7 @@ public static partial class DependencyAdvisor
                     "Package metadata is bundled in this file. Review whether external installation is needed; do not remove dependencies automatically.", hint));
             }
             else if (hint.Confidence == DependencyConfidence.Declared && hint.VersionConstraint is { Length: > 0 } constraint
-                && !string.Equals(version, constraint, StringComparison.OrdinalIgnoreCase))
+                && !ClearlySatisfies(version, constraint))
             {
                 proposals.Add(new(hint.Id, DependencyProposalKind.ReviewVersion, version, SuggestedVersion(hint),
                     "Check the selected version against the declared requirement before importing.", hint));
@@ -40,5 +40,31 @@ public static partial class DependencyAdvisor
             // scripts, editor tooling and unobserved variants can still require it.
         }
         return proposals.OrderBy(x => x.Kind).ThenBy(x => x.Id, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    // Only suppress a review when the result is unambiguous. Prereleases,
+    // aliases, floating policies and unsupported range syntax remain visible.
+    private static bool ClearlySatisfies(string selected, string constraint)
+    {
+        const string exact = @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$";
+        if (!System.Text.RegularExpressions.Regex.IsMatch(selected, exact) || constraint.Length > 128) return false;
+        var parts = constraint.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return false;
+        try
+        {
+            var actual = new SemanticVersion(selected);
+            foreach (var part in parts)
+            {
+                var op = part.StartsWith(">=") || part.StartsWith("<=") ? part[..2] :
+                    part.StartsWith('>') || part.StartsWith('<') || part.StartsWith('=') ? part[..1] : "";
+                var required = part[op.Length..];
+                if (!System.Text.RegularExpressions.Regex.IsMatch(required, exact)) return false;
+                var comparison = actual.CompareTo(new SemanticVersion(required));
+                if (!(op switch { ">=" => comparison >= 0, "<=" => comparison <= 0, ">" => comparison > 0,
+                    "<" => comparison < 0, "" or "=" => comparison == 0, _ => false })) return false;
+            }
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or OverflowException) { return false; }
     }
 }

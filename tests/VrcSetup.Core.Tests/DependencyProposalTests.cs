@@ -31,6 +31,23 @@ public sealed class DependencyProposalTests
         Assert.Equal(">=2.0.0 <3.0.0", proposal.Evidence.VersionConstraint);
     }
 
+    [Theory]
+    [InlineData("2.1.0", ">=2.0.0 <3.0.0", false)]
+    [InlineData("2.0.0", ">=2.0.0 <3.0.0", false)]
+    [InlineData("3.0.0", ">=2.0.0 <3.0.0", true)]
+    [InlineData("1.9.9", ">=2.0.0", true)]
+    [InlineData("2.0.0", ">2.0.0", true)]
+    [InlineData("2.0.0", "=2.0.0", false)]
+    [InlineData("latest", ">=2.0.0", true)]
+    [InlineData("2.1.0", "^2.0.0", true)]
+    [InlineData("2.1.0-beta.1", ">=2.0.0", true)]
+    [InlineData("2.1.0", ">=2.0.0 || <1.0.0", true)]
+    public void VersionReviewIsSuppressedOnlyForClearlySatisfiedConstraints(string selected, string constraint, bool review)
+    {
+        var proposals = DependencyAdvisor.Propose(new Dictionary<string, string> { ["tool"] = selected }, Report(Hint("tool", DependencyConfidence.Declared, constraint)));
+        Assert.Equal(review, proposals.Any(x => x.Kind == DependencyProposalKind.ReviewVersion));
+    }
+
     [Fact] public void GuidRecognitionDoesNotDemandAnUpgradeOfAnExplicitPin()
     {
         Assert.Empty(DependencyAdvisor.Propose(new Dictionary<string, string> { ["tool"] = "1.0.0" },

@@ -57,10 +57,12 @@ remove it. Foundation and
 VRChat SDK packages are excluded from this removal-review prompt.
 
 The file can also declare a version requirement for an already selected package.
-When the selected value differs from that declaration, the review asks the user
-to check the version in package settings; it does not infer incompatibility or
-replace a pin automatically. A version range is shown as declared, not as an
-installed version.
+The review omits an alert when an exact, stable selected version clearly satisfies
+an exact requirement or a whitespace-separated conjunction of simple comparisons.
+For other differences, floating versions, prereleases and unsupported expressions,
+it asks the user to check the version; this is not an incompatibility verdict and
+never replaces a pin. A version range is shown as declared, not as an installed
+version; the resolver remains authoritative.
 
 Import automatically retries a budget-limited scan once with the larger local budget. The first result stays available during that cancellable retry. Invalid archives are not retried. The existing creation review notes a still-running or partial analysis. The plan uses the user's selected packages; a result arriving later never modifies a pending operation.
 
