@@ -276,6 +276,7 @@ jobs:
           $assets += 'release/components.json'
           $assets += @(Get-ChildItem release -File -Filter '*.zip' | Where-Object Name -Match '^[a-f0-9]{64}\.zip$' | ForEach-Object FullName)
           $notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          $channelNote = if ($env:RELEASE_VERSION.Contains('-')) { 'This is a prerelease for testing.' } else { 'This is a stable release.' }
           @"
           <!-- vrcsetup-download:start -->
           [![Download this version](https://img.shields.io/badge/Download_this_version-Windows_x64-2ea493?style=for-the-badge)](https://github.com/dummics/vrchat-project-setup/releases/download/$tag/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe)
@@ -283,9 +284,9 @@ jobs:
 
           Use the button above to install or update this version. Setup preserves your settings. Choose Start/Desktop shortcuts and launch on the final page; automatic updates reopen the app without this step.
 
-          Internet is required for uncached components. The portable ZIP is optional. Hash-named ZIPs and components.json are internal installer assets: you do not need to download them manually. This is a beta for testing.
+          Internet is required for uncached components. The portable ZIP is optional. Hash-named ZIPs and components.json are internal installer assets: you do not need to download them manually. $channelNote
 
-          The app checks periodically while open, prepares supported updates in the background, and installs them on the next launch. Settings > Updates controls automatic updates; the footer still allows an immediate update. Existing installations need to install this version once to enable the new behavior.
+          The app checks periodically while open, prepares supported updates in the background, and installs them on the next launch. Settings > Updates controls automatic updates; the footer also allows an immediate update.
 
           Update checks now use a static feed instead of the GitHub REST API. If an older version reports an API rate limit, download and run the EXE above once; it updates the existing installation and preserves settings.
           "@ | Set-Content -LiteralPath $notes -Encoding utf8
