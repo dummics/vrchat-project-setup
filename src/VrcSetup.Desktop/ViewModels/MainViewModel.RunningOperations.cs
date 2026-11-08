@@ -40,7 +40,10 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task ViewActivity() => await NavigateAsync("Activity");
 
     private readonly Dictionary<string, string> observedCreations = [];
-    private void ObserveCreationResults(ImportJob[] jobs)
+    private bool projectRefreshPending;
+    private bool projectRefreshRunning;
+    internal Task PendingProjectRefresh { get; private set; } = Task.CompletedTask;
+    internal void ObserveCreationResults(ImportJob[] jobs)
     {
         var refreshProjects = false;
         foreach (var job in jobs)
@@ -53,7 +56,35 @@ public sealed partial class MainViewModel
             }
             observedCreations[job.Id] = job.State;
         }
-        if (refreshProjects && CurrentPage == "Projects") _ = RefreshProjectsCommand.ExecuteAsync(null);
+        if (refreshProjects)
+        {
+            projectRefreshPending = true;
+            StartPendingProjectRefresh();
+        }
+    }
+    private void StartPendingProjectRefresh()
+    {
+        if (!projectRefreshPending || projectRefreshRunning || CurrentPage != "Projects" || IsClosingApp) return;
+        projectRefreshRunning = true;
+        PendingProjectRefresh = DrainPendingProjectRefreshAsync();
+    }
+    private async Task DrainPendingProjectRefreshAsync()
+    {
+        try
+        {
+            while (projectRefreshPending && CurrentPage == "Projects" && !IsClosingApp)
+            {
+                // A manual refresh may already be running. Wait for it, then rescan:
+                // its snapshot may predate the import completion we observed.
+                if (RefreshProjectsCommand.IsRunning && RefreshProjectsCommand.ExecutionTask is { } existing)
+                    await existing;
+                if (CurrentPage != "Projects" || IsClosingApp) break;
+                projectRefreshPending = false;
+                await RefreshProjectsCommand.ExecuteAsync(null);
+            }
+        }
+        catch (Exception error) { app.Diagnostics.Write("Project refresh after import", error.Message, error); }
+        finally { projectRefreshRunning = false; }
     }
     public async Task RetryCreationAsync(string id)
     {

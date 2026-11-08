@@ -353,6 +353,36 @@ public static class UiSmokeTest
             var queue = flow.Application.Imports;
             var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var refreshNames = new[] { "Refresh completion A", "Refresh completion B" };
+            var refreshJobs = refreshNames.Select((name, index) =>
+            {
+                var path = Path.Combine(flow.ProjectsRoot, name);
+                return new ImportJob("refresh-fixture-" + index, new OperationPlan("refresh", DateTime.UtcNow, []),
+                    new CreationRequest("fixture.unitypackage", name, path, "", "StandaloneWindows64", [], []), "Running", "Import", 50, "", "");
+            }).ToArray();
+            try
+            {
+                flow.CurrentPage = "Create";
+                flow.ObserveCreationResults(refreshJobs);
+                foreach (var job in refreshJobs)
+                {
+                    Directory.CreateDirectory(Path.Combine(job.ProjectPath, "Assets"));
+                    Directory.CreateDirectory(Path.Combine(job.ProjectPath, "Packages"));
+                    Directory.CreateDirectory(Path.Combine(job.ProjectPath, "ProjectSettings"));
+                    await File.WriteAllTextAsync(Path.Combine(job.ProjectPath, "Packages", "manifest.json"), "{\"dependencies\":{}}");
+                    await File.WriteAllTextAsync(Path.Combine(job.ProjectPath, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
+                }
+                flow.ObserveCreationResults([refreshJobs[0] with { State = "Completed" }, refreshJobs[1]]);
+                flow.CurrentPage = "Projects";
+                flow.ObserveCreationResults([refreshJobs[0] with { State = "Completed" }, refreshJobs[1] with { State = "Completed" }]);
+                await flow.PendingProjectRefresh;
+                Require(refreshNames.All(name => flow.Projects.Any(x => x.Name == name)), "Closely spaced import completions refresh the project list after navigation");
+            }
+            finally
+            {
+                foreach (var job in refreshJobs) if (Directory.Exists(job.ProjectPath)) Directory.Delete(job.ProjectPath, true);
+                await flow.RefreshProjectsCommand.ExecuteAsync(null);
+            }
             var absentCreationPath = Path.Combine(flow.ProjectsRoot, "Cancelled before creation");
             var absentCreationSource = new CreationRequest("", "Cancelled before creation", absentCreationPath, "", "StandaloneWindows64", [], [], true)
                 { CreationId = Guid.NewGuid().ToString("N") };
