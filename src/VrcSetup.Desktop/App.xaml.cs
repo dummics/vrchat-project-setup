@@ -47,11 +47,40 @@ public partial class App : Application
             {
                 var app = await Verification.UiSmokeTest.PrepareAsync(output);
                 var config = await app.Configuration.LoadAsync(); config.Language = "it"; await app.Configuration.SaveAsync(config);
-                var main = new MainWindow(app); window = main; main.AppWindow.Show(false); await main.Page.Initialized;
+                var main = new MainWindow(app); window = main; main.AppWindow.Move(new(-12000, -12000)); main.AppWindow.Show(false); await main.Page.Initialized;
                 var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)main.Page.FindName("Navigation");
                 if ((navigation.MenuItems[0] as Microsoft.UI.Xaml.Controls.NavigationViewItem)?.Content as string != "Progetti") throw new System.IO.IOException("Italian navigation did not load.");
                 foreach (var page in new[] { "Settings", "Create", "Projects", "Presets" })
                 { main.Page.ViewModel.CurrentPage = page; await Task.Delay(100); await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, page.ToLowerInvariant() + "-it.png")); }
+                main.Page.ViewModel.CurrentPage = "Create";
+                var editor = arguments.Contains("--smoke-no-editor") ? null : VrcSetup.Infrastructure.UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == VrcSetup.Infrastructure.UnityEditorDiscovery.PinnedVersion).Path;
+                main.Page.ViewModel.UnityEditorPath = editor ?? "";
+                if (arguments.Contains("--smoke-no-editor") && main.Page.ViewModel.EditorReady)
+                    throw new System.IO.IOException("The no-editor fixture unexpectedly found a configured editor.");
+                var sample = System.IO.Path.Combine(output, "Avatar.unitypackage");
+                await System.IO.File.WriteAllTextAsync(sample, "isolated visual fixture");
+                main.Page.ViewModel.PackageFile = sample;
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (main.Page.ViewModel.IsInspectingPackage && DateTime.UtcNow < deadline) await Task.Delay(25);
+                if (main.Page.ViewModel.IsInspectingPackage) throw new System.IO.IOException("Italian package fixture did not finish loading.");
+                main.Page.ViewModel.CreationInspection = new VrcSetup.Core.PackageInspectionReport(
+                    new VrcSetup.Core.ArchiveObservation(2, 0, 0, true, true, [], [], 0), "fixture", "", 0,
+                    [new("gogoloco", VrcSetup.Core.DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")])], false);
+                main.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 580));
+                await Task.Delay(150); main.Page.UpdateLayout();
+                var notice = (FrameworkElement)main.Page.FindName("BundledReviewNotice");
+                var button = (Microsoft.UI.Xaml.Controls.Button)main.Page.FindName("BundledReviewButton");
+                var viewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)main.Page.FindName("CreateView");
+                var top = button.TransformToVisual(viewport).TransformPoint(new(0, 0)).Y;
+                if (!main.Page.ViewModel.EditorReady && top + button.ActualHeight > viewport.ActualHeight)
+                {
+                    viewport.ChangeView(null, viewport.VerticalOffset + top + button.ActualHeight - viewport.ActualHeight + 8, null, true);
+                    await Task.Delay(100); main.Page.UpdateLayout();
+                    top = button.TransformToVisual(viewport).TransformPoint(new(0, 0)).Y;
+                }
+                await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "bundled-review-it-compact.png"));
+                if (notice.Visibility != Visibility.Visible || button.Content as string != "Controlla i pacchetti" || button.ActualWidth <= 0 || top < 0 || top + button.ActualHeight > viewport.ActualHeight + 1)
+                    throw new System.IO.IOException($"Italian package review action is missing or clipped: visibility={notice.Visibility}, text={button.Content}, width={button.ActualWidth}, top={top}, height={button.ActualHeight}, viewport={viewport.ActualHeight}.");
                 await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(output, "localization.json"), new { Passed = true, Language = VrcSetup.Core.UiText.CurrentLanguage, NamesPreserved = main.Page.ViewModel.Projects.Any(x => x.Name == "Creator [PC] & café") });
                 main.Close(); Exit();
             }

@@ -854,10 +854,42 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         await Render(page, Path.Combine(artifacts, "possible-package-suggestions.png"));
         possibleExpander.IsExpanded = false;
         viewModel.CreationInspection = null;
+        var selectedForBundled = viewModel.CreationPackages.First(x => x.Selected && x.Id == "gogoloco");
+        viewModel.CreationInspection = advice with { Suggestions = [new(selectedForBundled.Id, DependencyConfidence.Included, "1.0.0", [new("Packages/fixture/package.json", "manifest")])] };
+        await Task.Delay(100); page.UpdateLayout();
+        var bundledNotice = (FrameworkElement)page.FindName("BundledReviewNotice");
+        var bundledButton = (Microsoft.UI.Xaml.Controls.Button)page.FindName("BundledReviewButton");
+        var ordinaryCustomize = (Microsoft.UI.Xaml.Controls.Button)page.FindName("CustomizePackagesButton");
+        Require(bundledNotice.Visibility == Visibility.Visible && bundledNotice.ActualWidth > 0 && bundledButton.ActualWidth > 0 && ordinaryCustomize.Visibility == Visibility.Collapsed,
+            "The bundled review notice has one visible package review action");
+        Require(UiText.Text("Also in file · may still be needed", "it") == "Anche nel file · potrebbero servire",
+            "The bundled review notice explains the uncertainty in Italian");
+        await Render(page, Path.Combine(artifacts, "bundled-review.png"));
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 580));
+        await Task.Delay(150); page.UpdateLayout();
+        var bundledRight = bundledButton.TransformToVisual(bundledNotice).TransformPoint(new(0, 0)).X + bundledButton.ActualWidth;
+        var createView = (FrameworkElement)page.FindName("CreateView");
+        var bundledTop = bundledButton.TransformToVisual(createView).TransformPoint(new(0, 0)).Y;
+        Require(bundledButton.ActualWidth > 0 && bundledRight <= bundledNotice.ActualWidth + 1 && bundledTop >= 0 && bundledTop + bundledButton.ActualHeight <= createView.ActualHeight + 1,
+            "The package review action is fully visible at minimum window size");
+        await Render(page, Path.Combine(artifacts, "bundled-review-compact.png"));
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
+        await Task.Delay(100); page.UpdateLayout();
+        viewModel.CreationInspection = null;
         var suggestionDecisions = new FlowInteraction(page);
         using (var reviewFlow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
         {
             await reviewFlow.InitializeAsync(); reviewFlow.CurrentPage = "Create";
+            var beforeBundled = reviewFlow.CreationPackages.Where(x => x.Selected).Select(x => x.Id).Order(StringComparer.Ordinal).ToArray();
+            reviewFlow.CreationInspection = advice with { Suggestions = [new("gogoloco", DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")])] };
+            Require(reviewFlow.BundledReviewVisibility == Visibility.Visible && reviewFlow.NormalCustomizeVisibility == Visibility.Collapsed && reviewFlow.BundledReviewText.Contains("gogo", StringComparison.OrdinalIgnoreCase) &&
+                reviewFlow.CreationPackages.Where(x => x.Selected).Select(x => x.Id).Order(StringComparer.Ordinal).SequenceEqual(beforeBundled),
+                "A selected package listed in the archive is offered for review without removing it");
+            Require(reviewFlow.InspectionStatus.Length == 0, "The bundled review notice does not compete with a redundant empty-result message");
+            reviewFlow.CreationInspection = advice with { Suggestions = [new(ProjectRules.BaseSdk, DependencyConfidence.Included, "3.10.5", [new("Packages/com.vrchat.base/package.json", "manifest")])] };
+            Require(reviewFlow.BundledReviewVisibility == Visibility.Collapsed, "Required foundation packages are not proposed for removal review");
+            reviewFlow.CreationInspection = null;
+            Require(reviewFlow.BundledReviewVisibility == Visibility.Collapsed && reviewFlow.NormalCustomizeVisibility == Visibility.Visible, "The bundled review action disappears and the normal customize action returns without matching metadata");
             reviewFlow.CreationInspection = advice with { Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
             var possible = reviewFlow.PossibleCreationPackages.Single(x => x.Id == "com.llealloo.audiolink");
             Require(reviewFlow.InspectionStatus == "Check other possible packages below.", "Possible-only results do not report that no packages were found");

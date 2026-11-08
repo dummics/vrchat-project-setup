@@ -54,6 +54,6 @@ public sealed partial class MainViewModel
         var possible = PossibleCreationPackages.Count > 0;
         InspectionStatus = !report.Observation.ArchiveComplete || !report.Observation.TextComplete || report.UnresolvedReferences > 0
             ? detected > 0 || possible ? "Confirm the suggested packages before importing." : "Check the package selection before importing."
-            : detected > 0 ? string.Format(UiText.Text("{0} packages to review"), detected) : possible ? "Check other possible packages below." : "No additional packages found.";
+            : detected > 0 ? string.Format(UiText.Text("{0} packages to review"), detected) : possible ? "Check other possible packages below." : BundledReviewVisibility == Visibility.Visible ? "" : "No additional packages found.";
     }
 }

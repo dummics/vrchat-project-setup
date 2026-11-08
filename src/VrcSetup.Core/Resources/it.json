@@ -559,7 +559,7 @@
   "The import stopped. The project was kept.": "L’importazione si è fermata. Il progetto è stato conservato.",
   "Import in progress.": "Importazione in corso.",
   "Add to Creator Companion": "Aggiungi a Creator Companion",
-  "Review packages": "Controlla pacchetti",
+  "Review packages": "Controlla i pacchetti",
   "Cancel creation": "Annulla creazione",
   "This project cannot be removed automatically. Your files were kept. Open the project folder or contact support.": "Non è possibile eliminare automaticamente questo progetto. I file sono stati conservati. Apri la cartella del progetto o contatta l’assistenza.",
   "Finish cancellation": "Completa annullamento",
@@ -621,5 +621,8 @@
   "Unity did not finish and could not import some project files. Open the log, fix the errors in Unity, then try again.": "Unity non ha terminato e non è riuscito a importare alcuni file. Apri il log, correggi gli errori in Unity e riprova.",
   "Waiting for Unity to close…": "In attesa della chiusura di Unity…",
   "The project was kept. Its path may be too long for Unity. Choose a shorter projects folder in Settings and import again, or open the log for details.": "Il progetto è stato conservato. Il percorso potrebbe essere troppo lungo per Unity: scegli una cartella progetti più corta nelle Impostazioni e importa di nuovo, oppure apri il log per i dettagli.",
-  "The project was kept. Unity could not import some files. Open the log, fix the errors in Unity, then try again.": "Il progetto è stato conservato. Unity non è riuscito a importare alcuni file: apri il log, correggi gli errori in Unity e riprova."
+  "The project was kept. Unity could not import some files. Open the log, fix the errors in Unity, then try again.": "Il progetto è stato conservato. Unity non è riuscito a importare alcuni file: apri il log, correggi gli errori in Unity e riprova.",
+  "Also in file · may still be needed": "Anche nel file · potrebbero servire",
+  "Project folder": "Cartella progetto",
+  "Check before removing; these packages may still be needed.": "Controlla prima di rimuoverli: questi pacchetti potrebbero ancora servire."
 }

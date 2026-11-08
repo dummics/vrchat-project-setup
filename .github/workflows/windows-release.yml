@@ -137,6 +137,20 @@ jobs:
           }
           $result = Get-Content (Join-Path $artifacts 'ui-smoke.json') -Raw | ConvertFrom-Json
           if ($process.ExitCode -ne 0 -or -not $result.Passed) { throw 'Native UI verification failed.' }
+      - name: Verify Italian import layout without Unity configured
+        shell: pwsh
+        run: |
+          $exe = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64/app/desktop/VrcSetup.Desktop.exe"
+          $artifacts = Join-Path $env:RUNNER_TEMP 'vrcsetup-italian-import'
+          $start = [Diagnostics.ProcessStartInfo]::new($exe)
+          $start.UseShellExecute = $false
+          foreach ($argument in @('--smoke-localization', $artifacts, '--smoke-no-editor')) { $start.ArgumentList.Add($argument) }
+          $process = [Diagnostics.Process]::Start($start)
+          if (-not $process.WaitForExit(90000)) { $process.Kill($true); throw 'Italian import verification timed out.' }
+          $failure = Join-Path $artifacts 'failure.txt'
+          if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+          $result = Get-Content (Join-Path $artifacts 'localization.json') -Raw | ConvertFrom-Json
+          if ($process.ExitCode -ne 0 -or -not $result.Passed -or $result.Language -ne 'it') { throw 'Italian import verification failed.' }
       - name: Verify appearance across restart
         shell: pwsh
         run: |
@@ -174,6 +188,7 @@ jobs:
           path: |
             ${{ runner.temp }}/vrcsetup-ui
             ${{ runner.temp }}/vrcsetup-appearance-restart
+            ${{ runner.temp }}/vrcsetup-italian-import
             release/release-build.json
             ${{ runner.temp }}/fresh-packages
           if-no-files-found: ignore

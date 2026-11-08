@@ -47,6 +47,12 @@ Customize packages includes the detected package definitions in the existing sel
 
 Declared exact versions can be staged. Declared ranges are preserved in the report and shown on the row; they are excluded from Add detected and require an explicit exact-version choice. The current planner accepts exact versions/latest, not arbitrary VPM range expressions. Inspection does not replace VPM's dependency resolver or guarantee compatibility for a manually chosen version.
 
+If an archive contains matching package metadata for a package already selected,
+the import screen names it and offers to review the selection. Metadata alone
+does not prove the external package is redundant, so the selection is unchanged
+and the user decides whether to remove it in the package editor. Foundation and
+VRChat SDK packages are excluded from this removal-review prompt.
+
 Import automatically retries a budget-limited scan once with the larger local budget. The first result stays available during that cancellable retry. Invalid archives are not retried. The existing creation review notes a still-running or partial analysis. The plan uses the user's selected packages; a result arriving later never modifies a pending operation.
 
 ## CLI

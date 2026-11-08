@@ -13,6 +13,21 @@ public sealed partial class MainViewModel
     public ObservableCollection<UiCreationPackage> PossibleCreationPackages { get; } = [];
     public Visibility DetectedCreationPackagesVisibility => DetectedCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PossibleCreationPackagesVisibility => PossibleCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    private UiCreationPackage[] BundledReviewCandidates()
+    {
+        var protectedIds = ProjectRules.Foundation(CurrentCreationSelection(), config).Append(ProjectRules.AvatarSdk).Append(ProjectRules.WorldSdk).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return CreationPackages.Where(x => x.Selected && x.Data.Evidence?.Confidence == DependencyConfidence.Included && !protectedIds.Contains(x.Id)).ToArray();
+    }
+    public Visibility BundledReviewVisibility => BundledReviewCandidates().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility NormalCustomizeVisibility => BundledReviewVisibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    public string BundledReviewText
+    {
+        get
+        {
+            var names = BundledReviewCandidates().Select(x => x.Name).ToArray();
+            return string.Join(", ", names.Take(3)) + (names.Length > 3 ? ", …" : "");
+        }
+    }
     private readonly Dictionary<string, int> creationPreviewOrder = new(StringComparer.OrdinalIgnoreCase);
     private string creationPreviewContext = "";
     public string CreationPackageSummary
@@ -64,6 +79,9 @@ public sealed partial class MainViewModel
         }
         OnPropertyChanged(nameof(DetectedCreationPackagesVisibility));
         OnPropertyChanged(nameof(PossibleCreationPackagesVisibility));
+        OnPropertyChanged(nameof(BundledReviewVisibility));
+        OnPropertyChanged(nameof(NormalCustomizeVisibility));
+        OnPropertyChanged(nameof(BundledReviewText));
         OnPropertyChanged(nameof(CreationPackageSummary));
         RefreshInspectionSummary();
         RefreshCreationVersions();
