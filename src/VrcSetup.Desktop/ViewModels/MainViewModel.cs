@@ -29,7 +29,7 @@ public interface IDesktopInteraction
     void CloseApplication();
     Task<bool> InstallApplicationUpdateAsync(string installer, string result) => Task.FromResult(false);
     Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
-        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null);
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null, Func<string, CancellationToken, Task<string[]>>? preview = null);
 }
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
@@ -520,7 +520,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     private async Task<Dictionary<string, string>?> EditPackageSet(Dictionary<string, string> working, string title)
     {
-        return await ui.EditPackagesAsync(title, working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync);
+        return await ui.EditPackagesAsync(title, working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync, preview: app.Catalog.GetVersionsForPreviewAsync);
     }
     [RelayCommand] private async Task FavoriteDefinition() => await Guard(async () =>
     {

@@ -64,14 +64,24 @@ public static class UiSmokeTest
         Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
         var numericCreationPreview = new VrcSetup_Desktop.ViewModels.UiCreationPackage(new("fixture.package", "latest", true, null), "Fixture");
         numericCreationPreview.SetLatestVersion("1.2.3");
-        Require(numericCreationPreview.Version == "1.2.3" && numericCreationPreview.Data.Version == "latest", "Numeric package preview preserves floating version policy");
+        Require(numericCreationPreview.Version == "Latest" && numericCreationPreview.AvailableVersion == "1.2.3" && numericCreationPreview.Data.Version == "latest", "Numeric package preview preserves floating version policy");
         numericCreationPreview.Update(new("fixture.package", "1.0.0", true, null), "Fixture");
         numericCreationPreview.SetLatestVersion("2.0.0");
         Require(numericCreationPreview.Version == "1.0.0", "An asynchronous available version never replaces an explicit pin");
+        var previewCompletion = new TaskCompletionSource<string[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var versionPreview = new PackageVersionSelector { PackageId = "fixture.tool", Value = "latest", PreviewSource = _ => previewCompletion.Task };
+        versionPreview.RefreshPreview();
+        previewCompletion.SetResult(["1.0.0", "2.3.4"]);
+        var previewDeadline = DateTime.UtcNow.AddSeconds(3);
+        while (versionPreview.Content is Microsoft.UI.Xaml.Controls.StackPanel pending && ((Microsoft.UI.Xaml.Controls.TextBlock)pending.Children[1]).Text != "2.3.4" && DateTime.UtcNow < previewDeadline) await Task.Delay(20);
+        Require(versionPreview.Content is Microsoft.UI.Xaml.Controls.StackPanel previewShown && ((Microsoft.UI.Xaml.Controls.TextBlock)previewShown.Children[0]).Text == UiText.Text("Latest") && ((Microsoft.UI.Xaml.Controls.TextBlock)previewShown.Children[1]).Text == "2.3.4" && versionPreview.Value == "latest",
+            "The shared selector shows the numeric latest release while preserving the floating policy");
+        versionPreview.Value = "1.0.0";
+        Require(versionPreview.Content is string pin && pin == "1.0.0", "A pinned version does not display the latest release as its selected value");
         var possibleWithVersion = new DependencySuggestion("fixture.possible", DependencyConfidence.Possible, "9.0.0", [new("Assets/package.json", "declared dependency")]);
         var possiblePreview = new VrcSetup_Desktop.ViewModels.UiCreationPackage(new("fixture.possible", "latest", false, possibleWithVersion), "Fixture");
         possiblePreview.SetLatestVersion("1.2.3");
-        Require(possiblePreview.Version == "1.2.3" && !possiblePreview.Tooltip.Contains("9.0.0"), "A possible package shows the available version without presenting a weak hint as a requirement");
+        Require(possiblePreview.Version == "Latest" && possiblePreview.AvailableVersion == "1.2.3" && !possiblePreview.Tooltip.Contains("9.0.0"), "A possible package shows the available version without presenting a weak hint as a requirement");
         await AppearanceVerification.RunAsync(page, Require);
         Require(viewModel.UnityEditorPath == Path.Combine(artifacts, "saved-editor", "Unity.exe"), "Startup preserves a saved editor path even when its drive is unavailable");
         var installedEditor = UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path;
@@ -860,29 +870,61 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         var bundledNotice = (FrameworkElement)page.FindName("BundledReviewNotice");
         var bundledButton = (Microsoft.UI.Xaml.Controls.Button)page.FindName("BundledReviewButton");
         var ordinaryCustomize = (Microsoft.UI.Xaml.Controls.Button)page.FindName("CustomizePackagesButton");
-        Require(bundledNotice.Visibility == Visibility.Visible && bundledNotice.ActualWidth > 0 && bundledButton.ActualWidth > 0 && ordinaryCustomize.Visibility == Visibility.Collapsed,
-            "The bundled review notice has one visible package review action");
+        Require(bundledNotice.Visibility == Visibility.Visible && bundledNotice.ActualWidth > 0 && bundledButton.ActualWidth > 0 && ordinaryCustomize.Visibility == Visibility.Visible,
+            "The bundled review action and full customization are both available");
         Require(UiText.Text("Also in file · may still be needed", "it") == "Anche nel file · potrebbero servire",
             "The bundled review notice explains the uncertainty in Italian");
         await Render(page, Path.Combine(artifacts, "bundled-review.png"));
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 580));
         await Task.Delay(150); page.UpdateLayout();
         var bundledRight = bundledButton.TransformToVisual(bundledNotice).TransformPoint(new(0, 0)).X + bundledButton.ActualWidth;
-        var createView = (FrameworkElement)page.FindName("CreateView");
+        var createView = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreateView");
         var bundledTop = bundledButton.TransformToVisual(createView).TransformPoint(new(0, 0)).Y;
+        if (bundledTop + bundledButton.ActualHeight > createView.ActualHeight)
+        {
+            createView.ChangeView(null, createView.VerticalOffset + bundledTop + bundledButton.ActualHeight - createView.ActualHeight + 8, null, true);
+            await Task.Delay(100); page.UpdateLayout();
+            bundledTop = bundledButton.TransformToVisual(createView).TransformPoint(new(0, 0)).Y;
+        }
         Require(bundledButton.ActualWidth > 0 && bundledRight <= bundledNotice.ActualWidth + 1 && bundledTop >= 0 && bundledTop + bundledButton.ActualHeight <= createView.ActualHeight + 1,
-            "The package review action is fully visible at minimum window size");
+            "The package review action is reachable at minimum window size");
         await Render(page, Path.Combine(artifacts, "bundled-review-compact.png"));
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
         await Task.Delay(100); page.UpdateLayout();
         viewModel.CreationInspection = null;
         var suggestionDecisions = new FlowInteraction(page);
+        using (var focusedReview = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
+        {
+            await focusedReview.InitializeAsync(); focusedReview.CurrentPage = "Create";
+            focusedReview.CreationInspection = advice with { Suggestions = [
+                new("gogoloco", DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")]),
+                advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
+            var snapshot = focusedReview.CreateSuggestionReview();
+            Require(snapshot.Items.Length == 2 && snapshot.Items.Any(x => x.Id == "gogoloco" && x.Selected) && snapshot.Items.Any(x => x.Id == "com.llealloo.audiolink" && !x.Selected),
+                "Focused review contains only the suggested addition and the selected package listed in the file");
+            var dialog = new SuggestionReviewDialog(snapshot, _ => Task.FromResult(new[] { "2.3.4" }));
+            var staged = dialog.Result();
+            Require(staged["gogoloco"] && !staged["com.llealloo.audiolink"], "Opening suggested package review does not change selections");
+            dialog.Dialog.XamlRoot = page.XamlRoot;
+            var suggestionShown = dialog.Dialog.ShowAsync(); await Task.Delay(150); dialog.Dialog.UpdateLayout();
+            Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.CheckBox>().Count() == 2, "Focused review renders just the two relevant package choices");
+            Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Any(x => x.Text.Contains("2.3.4")), "Suggested package review shows the fetched latest version");
+            await Render(dialog.Dialog, Path.Combine(artifacts, "suggestion-review.png"));
+            dialog.Dialog.Hide(); await suggestionShown;
+            Require(focusedReview.CreationPackages.Any(x => x.Id == "gogoloco" && x.Selected) && !focusedReview.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected),
+                "Closing suggested package review preserves the existing selection");
+            staged["gogoloco"] = false; staged["com.llealloo.audiolink"] = true;
+            Require(focusedReview.ApplySuggestionReview(snapshot, staged) && !focusedReview.CreationPackages.Any(x => x.Id == "gogoloco" && x.Selected) &&
+                focusedReview.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected),
+                "Suggested addition and possible removal apply only after explicit choices");
+            Require(!focusedReview.ApplySuggestionReview(snapshot, staged), "An outdated suggestion review cannot overwrite newer choices");
+        }
         using (var reviewFlow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
         {
             await reviewFlow.InitializeAsync(); reviewFlow.CurrentPage = "Create";
             var beforeBundled = reviewFlow.CreationPackages.Where(x => x.Selected).Select(x => x.Id).Order(StringComparer.Ordinal).ToArray();
             reviewFlow.CreationInspection = advice with { Suggestions = [new("gogoloco", DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")])] };
-            Require(reviewFlow.BundledReviewVisibility == Visibility.Visible && reviewFlow.NormalCustomizeVisibility == Visibility.Collapsed && reviewFlow.BundledReviewText.Contains("gogo", StringComparison.OrdinalIgnoreCase) &&
+            Require(reviewFlow.BundledReviewVisibility == Visibility.Visible && reviewFlow.NormalCustomizeVisibility == Visibility.Visible && reviewFlow.BundledReviewText.Contains("gogo", StringComparison.OrdinalIgnoreCase) &&
                 reviewFlow.CreationPackages.Where(x => x.Selected).Select(x => x.Id).Order(StringComparer.Ordinal).SequenceEqual(beforeBundled),
                 "A selected package listed in the archive is offered for review without removing it");
             Require(reviewFlow.InspectionStatus.Length == 0, "The bundled review notice does not compete with a redundant empty-result message");

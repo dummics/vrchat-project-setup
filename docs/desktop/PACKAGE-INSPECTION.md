@@ -48,7 +48,10 @@ Customize packages includes the detected package definitions in the existing sel
 Declared exact versions can be staged. Declared ranges are preserved in the report and shown on the row; they are excluded from Add detected and require an explicit exact-version choice. The current planner accepts exact versions/latest, not arbitrary VPM range expressions. Inspection does not replace VPM's dependency resolver or guarantee compatibility for a manually chosen version.
 
 If an archive contains matching package metadata for a package already selected,
-the import screen names it and offers to review the selection. Metadata alone
+the import screen names it and offers a dedicated review containing only relevant
+suggested additions and bundled-package overlaps. The user explicitly chooses
+whether to add or remove each item; closing the review leaves the selection
+unchanged. The full preset editor remains available separately. Metadata alone
 does not prove the external package is redundant, so the selection is unchanged
 and the user decides whether to remove it in the package editor. Foundation and
 VRChat SDK packages are excluded from this removal-review prompt.

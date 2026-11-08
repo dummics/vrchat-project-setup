@@ -624,5 +624,12 @@
   "The project was kept. Unity could not import some files. Open the log, fix the errors in Unity, then try again.": "Il progetto è stato conservato. Unity non è riuscito a importare alcuni file: apri il log, correggi gli errori in Unity e riprova.",
   "Also in file · may still be needed": "Anche nel file · potrebbero servire",
   "Project folder": "Cartella progetto",
-  "Check before removing; these packages may still be needed.": "Controlla prima di rimuoverli: questi pacchetti potrebbero ancora servire."
+  "Check before removing; these packages may still be needed.": "Controlla prima di rimuoverli: questi pacchetti potrebbero ancora servire.",
+  "Review suggested packages": "Controlla i pacchetti suggeriti",
+  "Apply choices": "Applica le scelte",
+  "May be needed": "Potrebbe servire",
+  "Suggested for this avatar": "Consigliato per questo avatar",
+  "Choose a version in package settings": "Scegli una versione nelle impostazioni dei pacchetti",
+  "No packages to review.": "Nessun pacchetto da controllare.",
+  "The selection changed. Review the suggested packages again.": "La selezione è cambiata. Controlla di nuovo i pacchetti suggeriti."
 }

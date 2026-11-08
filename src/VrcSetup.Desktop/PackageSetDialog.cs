@@ -19,6 +19,7 @@ public sealed class PackageSetDialog : IDisposable
     private readonly InfoBar notice;
     private readonly CancellationTokenSource cancellation = new();
     private readonly AsyncVersionCache versionCache;
+    private readonly AsyncVersionCache? previewCache;
     private readonly Func<string, CancellationToken, Task<PackageDefinition[]>> search;
     private CancellationTokenSource? searching;
     private bool rendering;
@@ -27,9 +28,10 @@ public sealed class PackageSetDialog : IDisposable
     private readonly ObservableCollection<PackageChoiceRow> visibleRows = [];
     private readonly Dictionary<string, int> displayOrder = new(StringComparer.OrdinalIgnoreCase);
     public PackageSetDialog(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
-        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null)
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null, Func<string, CancellationToken, Task<string[]>>? preview = null)
     {
         configuration = config; this.search = search; this.inspection = inspection;
+        if (preview is not null) previewCache = new(preview, cancellation.Token);
         originalSelection = packages.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var working = new Dictionary<string, string>(packages);
         foreach (var id in ProjectRules.Foundation(working, config)) working.TryAdd(id, "latest");
@@ -179,6 +181,7 @@ public sealed class PackageSetDialog : IDisposable
             if (selector.VersionSource is null)
             {
                 selector.VersionSource = versionCache.GetAsync;
+                if (previewCache is not null) { selector.PreviewSource = previewCache.GetAsync; selector.RefreshPreview(); }
                 selector.VersionPicked += VersionPicked;
                 if (inspection?.Suggestions.FirstOrDefault(x => x.Id.Equals(selector.PackageId, StringComparison.OrdinalIgnoreCase)) is { } advice)
                     ToolTipService.SetToolTip(selector, EvidenceTooltip(advice) + (advice.VersionConstraint is { Length: > 0 } constraint ? "\n" + UiText.Text("Requires ") + constraint : ""));

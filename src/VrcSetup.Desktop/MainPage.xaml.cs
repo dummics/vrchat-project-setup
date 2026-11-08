@@ -347,7 +347,24 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ErrorClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.DismissErrorCommand.Execute(null);
     private void VersionSelectorLoaded(object sender, RoutedEventArgs args)
-    { if (sender is PackageVersionSelector selector) { selector.VersionSource = ViewModel.LoadVersionsAsync; selector.CachedSource = ViewModel.CachedVersions; } }
+    { if (sender is PackageVersionSelector selector) { selector.VersionSource = ViewModel.LoadVersionsAsync; selector.CachedSource = ViewModel.CachedVersions; selector.PreviewSource = ViewModel.LoadPreviewVersionsAsync; selector.RefreshPreview(); } }
+    private async void ReviewSuggestionsClicked(object sender, RoutedEventArgs args)
+    {
+        if (ViewModel.IsClosingApp || ViewModel.IsInspectingPackage) return;
+        try
+        {
+            var snapshot = ViewModel.CreateSuggestionReview();
+            var review = new SuggestionReviewDialog(snapshot, ViewModel.LoadPreviewVersionsAsync);
+            if (await ShowDialog(review.Dialog) == ContentDialogResult.Primary && !ViewModel.ApplySuggestionReview(snapshot, review.Result()))
+                ViewModel.ImportError = "The selection changed. Review the suggested packages again.";
+        }
+        catch (Exception error)
+        {
+            ViewModel.Application.Diagnostics.Write("Suggested package review", error.Message, error);
+            ViewModel.ImportError = UserErrors.Message(error);
+            ViewModel.ImportErrorNeedsDiagnostics = true;
+        }
+    }
     private void PresetVersionPicked(object? sender, string version)
     { if ((sender as FrameworkElement)?.DataContext is UiPackageRow row) PackageScrollStability.Run(sender as FrameworkElement, () => ViewModel.StagePresetVersion(row.Id, version)); }
     private void WorkspaceVersionPicked(object? sender, string version)
@@ -574,9 +591,9 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         return await ShowDialog(dialog) == ContentDialogResult.Primary;
     }
     public async Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
-        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null)
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null, Func<string, CancellationToken, Task<string[]>>? preview = null)
     {
-        using var editor = new PackageSetDialog(title, packages, config, known, search, versions, inspection);
+        using var editor = new PackageSetDialog(title, packages, config, known, search, versions, inspection, preview);
         await ShowDialog(editor.Dialog);
         return editor.Accepted ? editor.Result() : null;
     }
