@@ -3,6 +3,11 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+if (args is ["--verify-hosted-vcc", var vccEvidence])
+{
+    await HostedVccVerification.RunAsync(vccEvidence);
+    return;
+}
 if (args is ["--verify-package-policy", var policyEditor, var policyEvidence])
 {
     await PackagePolicyVerification.RunAsync(policyEditor, policyEvidence);
