@@ -558,6 +558,7 @@
   "The import did not finish. The project and recovery information were kept.": "L’importazione non è terminata. Il progetto e i dati di recupero sono stati conservati.",
   "The import stopped. The project was kept.": "L’importazione si è fermata. Il progetto è stato conservato.",
   "Import in progress.": "Importazione in corso.",
+  "Your project is ready. Check whether it appears in Creator Companion; if needed, add it there as an existing project. You do not need to import it again.": "Il progetto è pronto. Controlla se compare in Creator Companion e, se necessario, aggiungilo come progetto esistente. Non serve importarlo di nuovo.",
   "Save needs attention": "Salvataggio da controllare",
   "The import status could not be saved. Check storage and retry saving before closing the app.": "Non è stato possibile salvare lo stato dell’importazione. Controlla lo spazio disponibile e riprova a salvare prima di chiudere l’app.",
   "Retry saving status": "Riprova a salvare lo stato",

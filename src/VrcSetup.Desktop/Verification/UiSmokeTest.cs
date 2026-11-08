@@ -1422,6 +1422,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(registrationRow.RegistrationVisibility == Visibility.Visible && registrationRow.RecoverVisibility == Visibility.Collapsed && registrationRow.Step == "Completed with a notice",
             "Optional VCC failure offers registration retry without suggesting another import");
         var unsavedRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { HistorySaveFailed = true });
+        var unknownRegistration = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { CreatorCompanionPending = false, CreatorCompanionUnknown = true, State = "Recovered" });
+        Require(unknownRegistration.Message.Contains("Check whether") && unknownRegistration.AttentionVisibility == Visibility.Visible &&
+            VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([unknownRegistration.Job], true).Length == 1,
+            "Recovered project does not claim an unknown Creator Companion registration failed or succeeded");
         Require(unsavedRow.HistorySaveVisibility == Visibility.Visible && unsavedRow.RegistrationVisibility == Visibility.Collapsed && unsavedRow.Message.Contains("could not be saved") &&
             VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([unsavedRow.Job], true).Length == 1,
             "Unsaved import status stays visible with a save-only action before other retries");

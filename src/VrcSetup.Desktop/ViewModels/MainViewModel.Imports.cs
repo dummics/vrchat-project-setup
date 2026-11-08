@@ -87,10 +87,10 @@ public sealed partial class MainViewModel
         .Any(job => (job.Active || job.DiscardRequested || job.State == "Paused") && job.Plan.Projects.Any(p => p.Path.Equals(path, StringComparison.OrdinalIgnoreCase)));
     public bool ImportsIdle => !HasActiveImports;
     internal static ImportJob[] VisibleImportJobs(ImportJob[] snapshot, bool hideCompleted) => snapshot
-        .Where(x => !x.Source.EmptyProject || x.HistorySaveFailed)
+        .Where(x => !x.Source.EmptyProject || x.HistorySaveFailed || x.CreatorCompanionUnknown)
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
         .Select(group => ImportQueue.CurrentForProject(group, group.Key)!)
-        .Where(x => (!x.HiddenFromImports || !x.CanHide) && !(hideCompleted && x.CanHide && !x.CreatorCompanionPending && x.State is "Completed" or "Recovered"))
+        .Where(x => (!x.HiddenFromImports || !x.CanHide) && !(hideCompleted && x.CanHide && !x.CreatorCompanionPending && !x.CreatorCompanionUnknown && x.State is "Completed" or "Recovered"))
         .OrderByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)
@@ -255,13 +255,14 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         }
     }
     public string Path => Job.ProjectPath;
-    public string Step => Job.HistorySaveFailed ? "Save needs attention" : Job.CreatorCompanionPending ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? Job.Step switch
+    public string Step => Job.HistorySaveFailed ? "Save needs attention" : Job.CreatorCompanionPending || Job.CreatorCompanionUnknown ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? Job.Step switch
     {
         "Create" => "Creating project", "Prepare" => "Preparing project", "Packages" => "Adding packages",
         "Import" => Job.Plan.Projects.FirstOrDefault()?.RecoverySource is null ? "Importing assets" : "Reimporting assets",
         "Validate" => "Checking project", "Finish" => "Finishing", "ClosingUnity" => "Waiting for Unity to close…", "Starting" => "Starting…", _ => Job.Step
     } : Job.State == "Queued" ? "Starting…" : Job.State;
     public string Message => Job.HistorySaveFailed ? "The import status could not be saved. Check storage and retry saving before closing the app."
+        : Job.CreatorCompanionUnknown ? "Your project is ready. Check whether it appears in Creator Companion; if needed, add it there as an existing project. You do not need to import it again."
         : Job.CreatorCompanionPending ? "Your project is ready. It was not added to Creator Companion. Retry here, or add it there as an existing project. You do not need to import it again."
         : Job.DiscardRequested ? "Your cancellation request is saved. The project is preserved until cleanup finishes."
         : Job.DiscardCompleted ? Job.DiscardNoFolder ? "Request cancelled. No project folder was removed." : "The import was cancelled and its created project was removed."
@@ -283,7 +284,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
     public string RetryLabel => Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
-    public Visibility AttentionVisibility => Job.Recoverable || Job.CreatorCompanionPending || Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility AttentionVisibility => Job.Recoverable || Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility HistorySaveVisibility => Job.HistorySaveFailed && !Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RecoverVisibility => Job.Recoverable && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;

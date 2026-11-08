@@ -12,6 +12,7 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool DiscardCompleted { get; init; }
     public bool DiscardNoFolder { get; init; }
     public bool CreatorCompanionPending { get; init; }
+    public bool CreatorCompanionUnknown { get; init; }
     [System.Text.Json.Serialization.JsonIgnore] public bool HistorySaveFailed { get; init; }
     public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
     public bool Recoverable => !DiscardRequested && !DiscardCompleted && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
@@ -115,7 +116,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                                 ? marker is not null && string.IsNullOrWhiteSpace(marker.UnityPackagePath) && marker.ProjectName == job.Source.Name
                                 : marker is not null && !string.IsNullOrWhiteSpace(marker.UnityPackagePath) && ProjectRules.NormalizePath(marker.UnityPackagePath).Equals(ProjectRules.NormalizePath(job.Plan.Projects[0].RecoveryOriginalSource ?? job.Source.UnityPackagePath), StringComparison.OrdinalIgnoreCase);
                             if (marker?.Completed == true && sameSource)
-                                job = job with { State = "Recovered", Step = "Completed", Progress = 100, FinishedAt = marker.CompletedAt, Message = "Project recovery verified." };
+                                job = job with { State = "Recovered", Step = "Completed", Progress = 100, FinishedAt = marker.CompletedAt, Message = "Project recovery verified.", CreatorCompanionUnknown = true, HiddenFromImports = false };
                         }
                         catch (Exception error) when (error is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException) { app.Diagnostics.Write("Import state", error.Message, error); }
                     }

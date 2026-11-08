@@ -630,6 +630,25 @@ public sealed class ImportQueueTests : IDisposable
         Assert.Equal("Interrupted", queue.Snapshot().Single().State);
         Assert.True(queue.Snapshot().Single().Recoverable);
     }
+    [Fact] public async Task RecoveryFromCompletedMarkerCannotInferCreatorCompanionRegistration()
+    {
+        var app = App; var plan = Plan("Registration outcome unknown"); var project = plan.Projects.Single();
+        Directory.CreateDirectory(project.Path);
+        await AtomicFile.WriteJsonAsync(Path.Combine(project.Path, ".vrcsetup", "state.json"),
+            new SetupState { Completed = true, ProjectName = project.Name, UnityPackagePath = project.Creation!.UnityPackagePath });
+        var old = new ImportJob("unknown-registration", plan, project.Creation!, "Running", "Finish", 95, "", "");
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { old });
+        var executed = 0;
+        await using var queue = new ImportQueue(app, (p, _, _) => { executed++; return Task.FromResult(Completed(p)); });
+        await queue.InitializeAsync();
+        var recovered = Assert.Single(queue.Snapshot());
+        Assert.Equal("Recovered", recovered.State);
+        Assert.False(recovered.CreatorCompanionPending);
+        Assert.True(recovered.CreatorCompanionUnknown);
+        Assert.Equal(0, executed);
+        // A completed marker has no registration result: false here is not evidence
+        // that VCC registration succeeded. Preserve this boundary in recovery work.
+    }
     [Fact] public async Task FinalHistoryFailureKeepsTheOutcomeVisibleUntilSavingSucceeds()
     {
         var app = App; var plan = Plan("History write failure");
