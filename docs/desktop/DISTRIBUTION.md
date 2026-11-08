@@ -50,7 +50,7 @@ Narrow windows use compact navigation and vertically stacked creation fields. Th
 
 The [multi-import workspace](IMPORT-QUEUE.md) supports parallel imports without a fixed user-facing worker limit, per-project progress/cancel, logs and explicit recovery. Resource warnings stay inline. Analysis cache maintenance is in Settings.
 
-Preview 8 includes offline UnityPackage inspection and avatar-focused package suggestions. Dom authorized upgrading preview 6 after code review, compilation and payload-integrity verification, without direct functional tests. Version lookups and search results do not automatically become personal packages. `vrcsetup inspect <file> --json` and `--deep` use the same local analyzer as Create; neither starts Unity or installs dependencies. New candidate signatures from the supplied research await source verification. See [inspection behavior](PACKAGE-INSPECTION.md).
+UnityPackage inspection runs locally and offers package suggestions for explicit review. Version lookups and search results do not automatically become personal packages. `vrcsetup inspect <file> --json` and `--deep` use the same local analyzer as Create; neither starts Unity or installs dependencies. See [inspection behavior](PACKAGE-INSPECTION.md) for evidence and limits.
 
 Extract VrcSetup-<version>-win-x64.zip, then run VRC Project Setup.bat or app/desktop/VrcSetup.Desktop.exe. The portable marker keeps settings under data/ in the extracted folder. Use bin/vrcsetup.cmd for the terminal.
 
@@ -68,7 +68,7 @@ On Dom's PC, `vrcsetup-legacy` opens the preserved original PowerShell tool whil
 
 Settings → Developer tools enables development controls, verbose diagnostics and tool-output tracing; Save settings persists these choices. CLI and `vrcsetup gui` also accept `--developer`, `--verbose`, `--trace-tools` and `--no-catalog-refresh` for that run. Errors are always recorded in `%LOCALAPPDATA%\VrcSetup\logs\VRC-Project-Setup-Errors-yyyy-MM-dd.jsonl`. Trace output may contain local paths; inspect it before sharing.
 
-Activity separates imports and operations. Check, resume/reimport and associated-backup restore belong to each relevant history entry. The CLI retains `recovery` commands and its interactive Activity menu. Presets use local known packages and favorites immediately; stale version lists refresh asynchronously when the preset page opens. Search contacts repositories only when requested.
+Activity combines import and operation history, with diagnostics in a separate tab. Project recovery actions are available from the relevant project or import. The CLI retains `recovery` commands and its interactive Activity menu. Presets use local known packages and favorites immediately; stale version lists refresh asynchronously when the preset page opens. Search contacts repositories only when requested.
 
 ## Language and layout
 
@@ -82,7 +82,7 @@ The main window has a 720×580 minimum, an always-accessible compact sidebar, an
 
 Installed settings/cache/logs: %LOCALAPPDATA%\VrcSetup. Program: %LOCALAPPDATA%\Programs\VrcSetup. Backups and operation state live in each project's .vrcsetup folder. Legacy configuration is copied and migrated, preserving the original.
 
-Ordinary package changes can run while Unity is open; Unity reloads the changes. Imports that require a separate Unity batch process need the target project to be available. If an operation fails, inspect Activity or export the logs, then review and retry. Reimport does not create a project backup. A new partial project is preserved until you explicitly delete it.
+Ordinary package changes can run while Unity is open; Unity reloads the changes. Imports that require a separate Unity batch process need the target project to be available. If an operation fails, use the action offered for the project or import; Activity and exported logs provide details. Pausing keeps a recoverable project. Cancelling a new-project import asks for confirmation and removes the owned project when cleanup succeeds; the outcome reports any cleanup failure. Reimport does not create a project backup.
 
 Repair rebuilds the command and shortcuts after validating payload hashes. Uninstall removes the program and its scoped shortcuts/PATH entry, preserving settings and Unity projects. Successful upgrades and repairs retain only the current installation's direct previous-program rollback. Older recognized snapshots and failed candidates are removed after successful verification/integration. A failed update restores its previous version before any pruning. Unknown folders, linked paths and portable data are preserved; locked obsolete files are logged and retried at the next successful update/repair. GitHub releases provide historical installers, rather than keeping unlimited full copies on the PC.
 
