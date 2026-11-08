@@ -13,7 +13,7 @@ internal static class HostedVccVerification
         evidence = Path.GetFullPath(evidence);
         if (!evidence.StartsWith(Path.TrimEndingDirectorySeparator(runnerTemp) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || Directory.Exists(evidence))
             throw new IOException("Choose a new fixture directory inside the hosted runner temp directory.");
-        var project = Path.Combine(evidence, "VccRegistrationFixture");
+        var project = Path.Combine(evidence, "VccProbe");
         Directory.CreateDirectory(Path.Combine(project, "ProjectSettings"));
         Directory.CreateDirectory(Path.Combine(project, "Packages"));
         await File.WriteAllTextAsync(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1\n");
@@ -28,7 +28,7 @@ internal static class HostedVccVerification
         Directory.CreateDirectory(Path.Combine(project, "Assets"));
         if (!await driver.RegisterAsync(project, progress, timeout.Token)) throw new IOException("VCC registration failed on the hosted fixture.");
         var listed = await runner.VpmAsync(["list", "projects"], cancellationToken: timeout.Token);
-        if (listed.ExitCode != 0 || !listed.Output.Contains("VccRegistrationFixture", StringComparison.OrdinalIgnoreCase))
+        if (listed.ExitCode != 0 || !listed.Output.Contains("VccProbe", StringComparison.OrdinalIgnoreCase))
             throw new IOException("VCC did not list the registered hosted fixture: " + listed.Output);
         Console.WriteLine("PASS: the real VPM CLI registered and listed an isolated project.");
     }
