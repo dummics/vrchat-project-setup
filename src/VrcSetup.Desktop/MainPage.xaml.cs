@@ -297,9 +297,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (ViewModel.IsClosingApp) return;
         if (ViewModel.ActiveImportForProject(project) is not null)
         {
-            var action = await ShowDialog(new() { Title = "Import in progress.",
-                Content = UiText.Text("This project is still being prepared. You can follow its progress in Import package."),
-                PrimaryButtonText = "View import", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Close });
+            var action = await ShowDialog(CreateActiveImportDialog());
             if (action == ContentDialogResult.Primary && !ViewModel.IsClosingApp) await ViewModel.NavigateAsync("Create");
             return;
         }
@@ -485,7 +483,10 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
         return (await picker.PickSingleFolderAsync())?.Path;
     }
-    private async Task<ContentDialogResult> ShowDialog(ContentDialog dialog)
+    internal static ContentDialog CreateActiveImportDialog() => new() { Title = "Import in progress.",
+        Content = UiText.Text("This project is still being prepared. You can follow its progress in Import package."),
+        PrimaryButtonText = "View import", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary };
+    internal async Task<ContentDialogResult> ShowDialog(ContentDialog dialog)
     {
         await dialogGate.WaitAsync();
         try { dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = RequestedTheme; dialog.PrimaryButtonStyle ??= (Style)Resources["ActionButton"]; dialog.CloseButtonStyle ??= (Style)Resources["QuietButton"]; if (dialog.Title is string title) dialog.Title = UiText.Text(title); dialog.PrimaryButtonText = UiText.Text(dialog.PrimaryButtonText); dialog.SecondaryButtonText = UiText.Text(dialog.SecondaryButtonText); dialog.CloseButtonText = UiText.Text(dialog.CloseButtonText); return await dialog.ShowAsync(); }

@@ -81,6 +81,14 @@ public partial class App : Application
                 await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "bundled-review-it-compact.png"));
                 if (notice.Visibility != Visibility.Visible || button.Content as string != "Controlla i pacchetti" || button.ActualWidth <= 0 || top < 0 || top + button.ActualHeight > viewport.ActualHeight + 1)
                     throw new System.IO.IOException($"Italian package review action is missing or clipped: visibility={notice.Visibility}, text={button.Content}, width={button.ActualWidth}, top={top}, height={button.ActualHeight}, viewport={viewport.ActualHeight}.");
+                var importStatus = MainPage.CreateActiveImportDialog();
+                var shown = main.Page.ShowDialog(importStatus);
+                await Task.Delay(150); importStatus.UpdateLayout();
+                if (importStatus.Title as string != "Importazione in corso." || importStatus.PrimaryButtonText != "Mostra importazione" ||
+                    importStatus.Content as string != "Il progetto è ancora in preparazione. Puoi seguire l’avanzamento in Importa package.")
+                    throw new System.IO.IOException("The active import dialog is not correctly localized.");
+                await Verification.UiSmokeTest.Render(importStatus, System.IO.Path.Combine(output, "active-import-dialog-it.png"));
+                importStatus.Hide(); await shown;
                 await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(output, "localization.json"), new { Passed = true, Language = VrcSetup.Core.UiText.CurrentLanguage, NamesPreserved = main.Page.ViewModel.Projects.Any(x => x.Name == "Creator [PC] & café") });
                 main.Close(); Exit();
             }
