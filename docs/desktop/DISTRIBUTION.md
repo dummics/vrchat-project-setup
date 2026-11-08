@@ -28,6 +28,8 @@ Maintainers use [the release command](RELEASING.md). An explicit version tag val
 
 From beta.12, releases provide one small online EXE for installation and updates, plus verified component archives and an optional portable ZIP. Unchanged components are reused from the current installation or verified cache, including when skipping versions. Existing clients recognize the same installer filename; no intermediate upgrade is required. See [component updates](COMPONENT-UPDATES.md) for cache behavior and future hosting migration. No machine-wide runtime installation is required.
 
+For pull requests, a successful Windows workflow also retains a commit-labelled candidate archive, checksum and instructions as a GitHub Actions artifact for seven days. CI extracts that archive and installs it into an isolated fixture before uploading it. It can be downloaded from the workflow run and installed from the extracted archive; it is not a published release and does not provide an in-app update feed.
+
 `docs/site/index.html` is a dependency-free download page using the same public Releases API, with fallback links when GitHub is unavailable. Enable GitHub Pages with the GitHub Actions source, then run `download-page.yml` after the workflows are integrated into the default branch. No Pages deployment or public beta publication is implied by a local build. The feature branch remains separate until owner-approved integration.
 
 The repeatable [local update test](UPDATE-TESTING.md) exercises the actual GUI commands, checksum, installer and relaunch against a newer build in an isolated copy. It needs no server or GitHub credentials and leaves the owner's installation and projects untouched. The live GitHub transport/publishing check remains separate.

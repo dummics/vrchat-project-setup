@@ -225,6 +225,35 @@ jobs:
           Expand-Archive -LiteralPath $env:UPDATE_BASE_ARCHIVE -DestinationPath $basis
           $full = Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe"
           ./scripts/Test-ApplicationUpdate.ps1 -BasePayload $basis -UpdateInstaller $full -OutputDirectory (Join-Path $env:RUNNER_TEMP 'update-full') -ComponentsDirectory (Join-Path $pwd release)
+      - name: Verify install from candidate archive
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          CANDIDATE_COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $archive = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64.zip"
+          $fixture = Join-Path $env:RUNNER_TEMP 'candidate-archive'
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $fixture)
+          $env:VRCSETUP_SKIP_PATH_UPDATE = '1'
+          $env:VRCSETUP_START_MENU_ROOT = Join-Path $env:RUNNER_TEMP 'candidate-shortcuts'
+          $env:VRCSETUP_HOME = Join-Path $env:RUNNER_TEMP 'candidate-home'
+          $target = Join-Path $env:RUNNER_TEMP 'candidate-install'
+          & (Join-Path $fixture 'app/cli/vrcsetup.exe') install --root $target
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $target 'app/desktop/VrcSetup.Desktop.exe'))) { throw 'Candidate archive installation failed.' }
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          [IO.File]::WriteAllText((Join-Path $pwd 'release/CANDIDATE-SHA256.txt'), "$hash  $([IO.Path]::GetFileName($archive))`n")
+          @("Pull request candidate $env:RELEASE_VERSION", "Commit: $env:CANDIDATE_COMMIT", 'Verify the SHA-256 checksum, extract the ZIP, then run Install VRC Project Setup.bat.', 'This artifact does not publish a release or provide an in-app update feed.') | Set-Content -LiteralPath (Join-Path $pwd 'release/CANDIDATE.txt') -Encoding utf8
+      - name: Preserve installable pull request candidate
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrcsetup-candidate-${{ github.event.pull_request.head.sha }}
+          path: |
+            release/VrcSetup-${{ env.RELEASE_VERSION }}-win-x64.zip
+            release/CANDIDATE-SHA256.txt
+            release/CANDIDATE.txt
+          if-no-files-found: error
+          retention-days: 7
       - name: Create release
         if: "inputs.verify_only != true && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release): ')))"
         shell: pwsh
