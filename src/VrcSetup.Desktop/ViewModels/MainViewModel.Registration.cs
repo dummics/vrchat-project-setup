@@ -6,6 +6,7 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     private HashSet<string> pendingRegistrationPaths = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> unknownRegistrationPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> registrationRetries = [];
 
     private void RefreshRegistrationNotices(ImportJob[] jobs)
@@ -13,8 +14,12 @@ public sealed partial class MainViewModel
         var next = jobs.GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
             .Where(group => ImportQueue.CurrentForProject(group, group.Key) is { CreatorCompanionPending: true, Active: false })
             .Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (pendingRegistrationPaths.SetEquals(next)) return;
+        var unknown = jobs.GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
+            .Where(group => ImportQueue.CurrentForProject(group, group.Key) is { CreatorCompanionUnknown: true, Active: false, HiddenFromImports: false })
+            .Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (pendingRegistrationPaths.SetEquals(next) && unknownRegistrationPaths.SetEquals(unknown)) return;
         pendingRegistrationPaths = next;
+        unknownRegistrationPaths = unknown;
         FilterProjects();
     }
 

@@ -1423,6 +1423,9 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             "Optional VCC failure offers registration retry without suggesting another import");
         var unsavedRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { HistorySaveFailed = true });
         var unknownRegistration = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { CreatorCompanionPending = false, CreatorCompanionUnknown = true, State = "Recovered" });
+        var unknownProject = new ProjectSnapshot { Name = "Recovered fixture", Path = artifacts, CreatorCompanionUnknown = true };
+        Require((Visibility)new ProjectAttentionConverter().Convert(unknownProject, typeof(Visibility), null!, "en") == Visibility.Visible &&
+            ProjectAttentionConverter.Description(unknownProject).Contains("Check whether"), "Recovered project offers the same uncertain registration notice in Projects");
         var unknownHistory = new VrcSetup_Desktop.ViewModels.UiHistoryEntry(unknownRegistration.Job);
         Require(unknownHistory.State == "Completed with a notice" && unknownHistory.Result.Contains("Check whether"),
             "Activity preserves the uncertain Creator Companion outcome for a recovered import");

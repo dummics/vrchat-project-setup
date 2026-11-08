@@ -174,7 +174,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void FilterProjects()
     {
         var visible = allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase))
-            .Select(x => x with { CreatorCompanionPending = pendingRegistrationPaths.Contains(ProjectRules.NormalizePath(x.Path)) });
+            .Select(x => x with { CreatorCompanionPending = pendingRegistrationPaths.Contains(ProjectRules.NormalizePath(x.Path)), CreatorCompanionUnknown = unknownRegistrationPaths.Contains(ProjectRules.NormalizePath(x.Path)) });
         Replace(Projects, ProjectOrdering.Apply(visible, ProjectSort)); UpdateProjectState();
     }
     private void RenderWorkspace()

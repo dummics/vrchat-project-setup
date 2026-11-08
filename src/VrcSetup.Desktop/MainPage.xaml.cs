@@ -305,6 +305,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         var registration = ViewModel.PendingRegistrationForProject(project);
         var orphan = recovery is null && registration is null ? await ViewModel.OrphanRecoveryForProjectAsync(project) : null;
         if (ViewModel.IsClosingApp) return;
+        if (project.CreatorCompanionUnknown && !project.Incomplete && project.MissingPackages.Length == 0)
+        {
+            await ShowDialog(new() { Title = "Project needs attention", Content = ProjectAttentionConverter.Description(project), CloseButtonText = "Close" });
+            return;
+        }
         var backup = ViewModel.LatestProjectBackup(project);
         object content = ProjectAttentionConverter.Description(project);
         if (project.InitializationPending && recovery is null && orphan is null && registration is null)
