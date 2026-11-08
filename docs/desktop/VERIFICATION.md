@@ -1,5 +1,43 @@
 # Desktop migration verification
 
+## 0.3.0 refactor candidate — verification pending
+
+The desktop history is integrated into main at f347f1a with source version 0.3.0;
+no 0.3.0 release or tag was published. The integration passed 346 core tests and
+the Release x64 desktop build. Those results predate the refactor below.
+
+The refactor branch replaces the preset carousel with a native ComboBox and
+the animated hover actions with a labelled native menu. Appearance editing is
+extracted into its own control, with explicit subscription lifetime. Settings
+restore suppresses intermediate palette updates. Appearance
+errors are logged and surfaced through the existing banner. The reported crash
+has not yet been reproduced or attributed to a confirmed root cause.
+
+Activity and Settings now use NavigationView footer items rather than separate
+buttons and hand-maintained selection markers. Native footer activation and
+selection checks have been adapted but remain unexecuted. The palette resources
+are applied by the shell at startup, independently of loading the settings view;
+picker synchronization stays inside AppearanceEditor. The smoke fixture uses a
+distinct saved canvas color before opening Settings, then restores Mint for the
+remaining screen captures.
+
+Custom accent fills are confined to Default/Light theme dictionaries; contrast
+themes retain system highlight foreground/background resources. Appearance-only
+settings saves avoid project rescans. Empty search results offer clearing the
+query. Project rows expose their Unity version and own their responsive layout;
+import resource telemetry is available from options rather than the page header.
+Configuration normalization now preserves every supported project sort, including
+reverse and creation-date order; previously it retained only name or recent.
+Settings-only roundtrip theories cover these choices and appearance persistence
+without creating Unity project fixtures.
+
+Native smoke coverage has been updated for the new preset selector and extended
+with isolated appearance/persistence and empty-search recovery checks. These
+changes have not been built or run: native UI, Unity, installation and other
+invasive verification are deferred while the owner uses the PC. Dark/light,
+high contrast, keyboard, narrow layout and save/restart acceptance remain open.
+Historical check counts and screenshots below describe their named candidates.
+
 ## 0.2.6 package migration
 
 `dotnet run --project tests/VrcSetup.E2E -c Release -- --verify-package-migration <fresh-evidence>`
@@ -9,8 +47,10 @@ embedded and locked results, preserving exact downgrade choices. It never starts
 Unity, signs into Patreon or registers fixtures with Creator Companion. Core
 regressions cover conflicting explicit choices, missing locks, phantom removals,
 version-specific migration metadata, physical/offline rollback and backup retention.
-Historical Unity-open behavior documented below is superseded by the closed-target
-requirement in 0.2.6. Backup of shader-heavy Assets may take additional time.
+The closed-target requirement introduced earlier in 0.2.6 was superseded for
+coordinated VPM changes by 0.2.6-beta.4. Asset imports launching a second editor
+and full snapshot restores still need exclusive editor access. Backup of
+shader-heavy Assets may take additional time.
 
 The unattended `FlowInteraction` file picker treats a null choice as cancellation.
 It must not delegate to a native picker: hosted release runners have no Unity
@@ -257,3 +297,166 @@ The supplied Unity log ended in `ArgumentException: Empty import plan` inside `V
 The opt-in `--verify-unity-import <editor> <new-evidence-directory>` E2E mode generated the project source in 0.19 seconds using the installed template, verified no Unity logs for empty creation/recovery, then explicitly imported a synthetic UnityPackage and verified the asset and recompiled assembly. The defensive bridge also accepts a valid empty queue while rejecting a missing package list. Evidence: `.work/artifacts/2026-10-20-empty-import/`. These timings exclude VPM downloads and the user's first interactive Unity compilation.
 
 Release CI now extends the published-native-client check to actual installation of all fresh-default packages, postcondition/version checks and a completed setup marker. A deliberately non-executable editor fixture ensures that this creation cannot depend on launching Unity. This runs only on the disposable hosted runner because the native VPM client shares VCC's profile.
+
+## Import pause and closing candidate (6 November 2026, not executed)
+
+The 0.3 refactor candidate persists pause intent before requesting worker cancellation, retains paused imports across restart without automatic resume, and prevents clearing a paused row. Closing offers Pause and close, reserves new actions, waits for actual import stop, resolves unsaved choices and then releases the queue. Each stop/shutdown wait is limited to 20 seconds; a delayed worker leaves the window open and the queue lease retained. A canceled wait is not a successful stop. Normal close no longer requires a second click after a cooperative stop. This candidate does not yet implement definitive cancellation and owned-output cleanup.
+
+Source regressions cover durable pause intent, queued imports not executed, journal-write failure without cancellation, completion winning over a pause request, restart, and a canceled shutdown wait retaining the lease. A controlled Windows runner test covers redirected output inherited by a child after the root exits. Native check source covers closing action guards, visible application status and canceling the unsaved-settings prompt. These tests and the candidate build have NOT been run while the owner uses the PC.
+
+Deferred acceptance: normal/slow/failed stop, repeated close clicks, save/discard/cancel for settings/presets/workspace, apply selected from the close prompt, an action already queued at close time, startup after pause (including no automatic missing-package retry at startup or project opening), new action after a timed-out close, app update/language-restart races, and lock release only after the worker's final persistence. Use isolated fixtures. The real Trixie Reimporting assets/Cancelling incident remains undiagnosed; do not infer its cause from the runner patch or use the owner's open project as a fixture.
+
+## Project import recovery candidate (6 November 2026, not executed)
+
+The project attention action can offer the current unfinished import's recovery action directly, showing the source archive filename with its recorded path available in the tooltip. It reuses the same reviewed recovery workflow as Imports/Activity. Missing archives still use the manual picker; original source ownership stays separate from the replacement file path. No archive is copied automatically. Partial/missing projects still follow the existing separate-creation path until owned partial-output recovery is implemented.
+
+Project selection and queue admission use append order in the durable journal, with active work taking priority. A hidden later completion does not revive an older paused record, and clock changes do not reverse operation order. Recovery rechecks the current import after dialogs/planning and passes its expected ID into EnqueueAsync, which validates it under the queue's journal gate before adding work. Core/native test sources cover these selection rules, stale requests and current-project recovery; they have NOT been run. Deferred acceptance includes changing the import during source selection/review, active same-target work, newer completion, repeated recovery, source relocation and clipboard/path accessibility. Complete archive identity validation, partial-project visibility, owned-output resume and definitive cancellation remain open.
+
+## Quiet verification and partial initialization (6 November 2026, later checkpoint)
+
+Activity/error UX follow-up: the normal history combines import and operation entries in one chronological list; mutation/recovery controls are removed from that history surface. Operational recovery remains in Projects/import queue, and the package-manager warning no longer routes to Activity. Queue details now separate a localized state/action summary from the complete technical log, including its newest entry. Italian uses “Riprendi importazione” consistently for the resume action. Native smoke `.work/artifacts/ui-history-retry/ui-smoke.json` passed for the unified history/message candidate; subsequent changes only restore the test ItemsSource to History and replace the warning's Activity link with Projects, followed by a fresh build. Full user-error matrix, help/FAQ, Italian copy audit and import expansion animation remain open.
+
+Subsequent native checkpoint: after the owner lifted the GUI/Unity test restriction (Computer Use remains excluded), the Debug x64 native smoke completed with exit code 0 in `.work/artifacts/ui-current-final`. Build had zero warnings/errors. The first runs exposed missing closing guards in log export/navigation and an outdated content-relative layout assertion; these were corrected, then the full native verifier passed. The rendered 720px expanded-import frame was inspected: its action stays below the scrolling viewport and within the page. This is native renderer/fixture evidence, not proof of the Trixie incident's root cause or all localization/error paths. Preexisting recovery now takes a backup before mutation, with 28 planner/recovery tests passing; restore remains prohibited when the editor was or is open.
+
+After the owner authorized hidden verification, the backend and x64 desktop compiled with zero warnings/errors. The final focused batch passed 112 tests covering proposals, inspection, preferences, queue/discard receipts, the runner's inherited-pipe cancellation and partial planning/initialization. Evidence: `.work/artifacts/quiet-verification/focused-combined.trx`, `desktop-build.log` and `results.md`. This supersedes the earlier unexecuted status only for these checks; no WinUI application, UI smoke mode, real Unity editor or personal project was launched.
+
+Attributed partial projects now plan an explicit initialization phase from a read-only partial snapshot. Execution verifies the physical receipt and reviewed file fingerprints under the project lock, adds missing manifest/version/Assets scaffold and preserves existing files. A metadata-only test assembly copied as `Unity.exe` validates the positive path without executing an editor. Tests cover absent Packages, JSON roundtrip, receipt/file mismatch, policy preservation and initialization under the executor lock. Existing installed/locked package versions are retained during partial planning. Legacy partial projects without a creation receipt keep the conservative separate-creation route.
+
+The checks exposed and corrected metadata-only handles that failed to pin a directory against rename, a runner fixture that did not inherit its pipe, partial reads that enumerated absent Packages, and fingerprint/request serialization incompatibilities. A bounded independent static review confirmed its missing-Packages finding was fixed; it is not runtime acceptance. Real Unity compilation/import after partial recovery, native UI layout and appearance crash reproduction, complete archive identity/corpus detection, preexisting-project rollback and the full regression suite remain required.
+# Quick guide (0.3 candidate)
+
+Clearing finished imports retains paused, interrupted, cancelled and failed
+imports while they can be resumed. A previously hidden recoverable record is
+made visible after restart. Pending Creator Companion notices are not hidden
+automatically; the user may hide a completed row while the project warning
+remains available. Journal-write failure restores the previous visibility.
+Queue tests cover these cases, including a failed project creation with no folder;
+native smoke checks the visible rows, translated states and current retry.
+
+Import detail expansion animates the measured content height so the whole row
+grows with it. Native smoke verification samples intermediate row heights,
+checks rapid collapse/reopen and simulates disabled app animation to check that
+content remains unclipped. A compact screenshot was inspected. These checks do
+not replace keyboard or screen-reader acceptance, and do not change OS settings.
+
+The native verifier exercises the project backup action through the view model
+with simulated confirmation and an isolated filesystem fixture. Declining leaves
+the changed file intact; an exclusive Unity lock produces a clear error without
+restoring; confirming after release restores the saved file and displays success.
+The action refreshes the Projects list after successful completion. This does not
+simulate a mouse click on the project menu or prove every concurrent writer race.
+
+For new creations the project state retains the original creation request,
+archive identity and selected package policy, separately from the import queue.
+If its journal is missing, the project warning can propose a new reviewed plan
+only after validating the creation receipt. A moved archive must match its saved
+identity; the queue also rejects a newly appeared history entry under its journal
+lock. Legacy records without these inputs are not treated as verified ownership.
+Focused fixture tests cover retained inputs, receipt mismatch, missing identity
+and a concurrent history entry. The complete suite passed 415 tests and the
+offscreen UI smoke passed 535 checks, but the orphan recovery action itself has
+not yet been exercised end-to-end through WinUI and real Unity. The subsequent
+native verifier exercises missing and wrong archives, cancellation, and a matching
+relocated archive through the review decision without enqueuing after rejection.
+An isolated queue test separately verifies enqueue, completion and journal reload.
+These complementary checks do not yet prove a single uninterrupted UI-to-Unity run.
+
+Creator Companion registration is a separate optional step after project completion.
+Its failure is a warning, including exceptions and tool error output; it must not
+restore or repeat the successful import. A pending notice survives restart and
+offers registration-only retry from the import details or project warning.
+The full core suite passed (407 tests), and the native UI smoke passed (530 checks)
+before the final duplicate-click guard. The subsequent desktop build passed with
+zero warnings/errors. Tests cover false/exception registration, retry persistence,
+failed journal writes and superseded imports. Real VCC registration is not covered
+by these isolated checks.
+
+The native offscreen verifier opens and closes the guide in English and Italian,
+expands all seven topics, checks translated content, and renders both dialogs.
+Evidence: `.work/artifacts/ui-guide/` (smoke exit 0). The guide is available from
+Information; it is optional and can be reopened. This does not verify a first-run
+tutorial or keyboard/screen-reader acceptance.
+
+An interrupted empty-project creation can be explicitly cancelled even when its
+destination folder was never created. The durable outcome distinguishes this
+case from removal of an owned folder; an unavailable parent or a folder observed
+before finalization prevents the no-folder completion. A pending cancellation
+remains available in the operations footer. The complete core suite passed 420
+tests and the offscreen native verifier passed 562 checks. These checks use
+isolated fixtures and do not establish atomic exclusion of external processes
+creating a folder after the final absence check.
+
+The optional native `--smoke-unity-recovery` check resumes an orphan project
+using a relocated synthetic UnityPackage, approves its reviewed plan through the
+test interaction, waits for the real queue and Unity editor, and verifies the
+imported asset and completed project state. Evidence: `.work/artifacts/ui-unity-recovery-01/`;
+565 native checks passed with Unity 2022.3.22f1. This uses an isolated home and
+project, with Creator Companion registration disabled. It does not exercise a
+physical click, a real avatar archive or actual VCC registration.
+
+For legacy queue entries without a recorded source digest, the user must still
+confirm the archive because its original identity cannot be reconstructed. The
+confirmed file is now fingerprinted before planning so changes after that point
+are rejected by the existing verified-source execution path. The native smoke
+exercises confirmation refusal and the resulting reviewed identity (565 checks),
+and five focused source-identity/recovery tests passed. This does not recover an
+older project whose journal and trustworthy creation inputs are both missing.
+
+Stale project-recovery and Creator Companion retry actions now give visible,
+localized feedback instead of changing an undisplayed status. The native UI
+verifier passed 575 checks, including both stale-action scenarios; focused
+error/localization tests passed 15 cases. A project already open in Unity also
+reports that state visibly. These fixtures do not exercise a real VCC registry.
+
+With incomplete archive or eligible-text coverage, a typed GUID match remains a
+possible package rather than strong add advice. Native package guidance omits
+internal asset paths and observed signature versions, which remain in the
+inspection report. The full Core suite passed 422 tests; native UI smoke passed
+573 checks, including concise Italian guidance. Trixie and Lulla PC/Quest cached
+observations rematched successfully with complete reported coverage; this does
+not establish an independently validated dependency ground truth.
+
+The import screen offers evidence-backed possible packages separately from
+strong matches. The native verifier passed 582 checks including explicit
+addition, unchanged saved preset, bulk exclusion and an updated status message.
+The complete core suite passed 427 tests. Cached Trixie/Lulla observations were
+rematched: possible matches remain suggestions rather than proven requirements;
+those observations do not establish ground truth or compatibility.
+The native verifier subsequently passed 585 checks, including switching between
+two import drafts: an explicitly chosen suggestion remains with its own draft
+and is not selected in the other. This covers staging, not two Unity imports.
+
+For an uninitialized project whose recovery inputs are unavailable, the project
+warning offers a new import in a separately named project after manual package
+selection. It explains that edits in the old folder are not copied. An active or
+recoverable import supersedes this fallback, and name collisions are avoided.
+The native smoke passed 570 checks, including project scanning, a stale action,
+cancelled selection, and preservation of a fixture file. The picker and decisions
+were simulated; this check stops before starting the new import in Unity.
+
+Unity asset import errors are treated conservatively as an incomplete operation,
+even when the editor returns exit code zero and writes the bridge completion
+marker. A timeout retains its diagnostic exception; when the log also contains
+asset import failures, the user receives a concise recovery action. Long paths
+are presented as a possible cause only when the corresponding file-not-found
+message contains a path of at least 260 characters. The validator does not prove
+whether a later Unity refresh might have recovered an earlier failure. While the
+bridge has finished but the editor is still running, the queue indicates that it
+is waiting for Unity to close rather than claiming completion.
+
+Appearance persistence has a separate two-process WinUI verification: the
+first process changes colors through the Settings pickers and saves the isolated
+configuration; a new process verifies the loaded values, startup brush and
+picker state. Both windows run offscreen. This verifies restart persistence but
+does not reproduce or explain the previously reported appearance crash, and it
+does not test an actual Windows high-contrast transition.
+
+An isolated journal-write failure fixture completes the operation, makes the
+journal path unwritable and checks that the in-memory outcome remains visible.
+Retry writes the existing outcome without running the import again; a new queue
+instance can then read the completed state. Native UI verification covers the
+save-only action and declining to close with an unsaved result. The warning is
+in memory: a crash or an explicit decision to close without saving can still
+leave only the earlier journal and project marker, which may not preserve an
+optional Creator Companion registration outcome.
+

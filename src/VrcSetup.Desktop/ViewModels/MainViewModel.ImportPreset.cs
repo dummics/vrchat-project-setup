@@ -18,6 +18,7 @@ public sealed partial class MainViewModel
         {
             SelectedPreset = preset; creationOverrides = selection;
             if (SelectedImportDraft is { } draft) draft.Packages = new(selection);
+            RememberSelectionSource();
             RefreshCreationPackages();
         }
         finally { acceptingImportSelection = accepting; }
@@ -34,6 +35,7 @@ public sealed partial class MainViewModel
                 foreach (var other in ImportDrafts.Where(x => x != SelectedImportDraft)) other.Packages ??= new(previousPreset);
             SelectedPreset = preset; creationOverrides = selection;
             if (SelectedImportDraft is { } draft) draft.Packages = new(selection);
+            RememberSelectionSource();
             RefreshCreationPackages();
         }
         finally { acceptingImportSelection = false; }

@@ -49,7 +49,11 @@ public static class Program
             {
                 if (command.Value("index-project") is { } project) await app.Inspection.IndexProjectAsync(project, cancellationToken);
                 var report = await app.Inspection.InspectAsync(command.Required(1, "UnityPackage path"), command.Has("deep") ? InspectionOptions.Extended : null, cancellationToken);
-                if (command.Has("json")) Console.WriteLine(JsonSerializer.Serialize(report, JsonDefaults.Options));
+                if (command.Has("json"))
+                {
+                    object output = command.Has("advice") ? new { AdviceSchema = 1, Inspection = report, Selection = config.VpmPackages, Proposals = DependencyAdvisor.Propose(config.VpmPackages, report) } : report;
+                    Console.WriteLine(JsonSerializer.Serialize(output, JsonDefaults.Options));
+                }
                 else
                 {
                     Console.WriteLine($"{report.Scope} · {(report.FromCache ? "cached" : "scanned")} · {(report.Observation.ArchiveComplete ? "archive read" : "partial archive")}");
@@ -305,7 +309,7 @@ public static class Program
         vrcsetup create <file.unitypackage> [-Name name] [-Preset name] [-Package specs...]
                          [-BuildTarget target] [-PublishingPlatforms targets...] [-DryRun]
         vrcsetup setup <project-or-package> [-Preset name] [-Exact] [-DryRun]
-        vrcsetup inspect <file.unitypackage> [--json] [--deep] [--index-project <project>]
+        vrcsetup inspect <file.unitypackage> [--json [--advice]] [--deep] [--index-project <project>]
         vrcsetup imports run <files...> [--parallel auto|number] [-Preset name] [-DryRun] [--yes] [-Json]
         vrcsetup imports list|recover [job-id] [--yes] [-Json]
         vrcsetup imports apply-plan <reviewed-plan.json> [--parallel auto|number] [--yes] [-Json]

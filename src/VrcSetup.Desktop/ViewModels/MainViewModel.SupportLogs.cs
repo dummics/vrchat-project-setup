@@ -15,7 +15,7 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task ExportLogs()
     {
         // Diagnostics are read-only and must remain available while another action is busy.
-        if (exportingLogs) return;
+        if (IsClosingApp || exportingLogs) return;
         exportingLogs = true;
         try
         {

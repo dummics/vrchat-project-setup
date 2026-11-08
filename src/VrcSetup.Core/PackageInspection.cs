@@ -22,15 +22,24 @@ public sealed record ArchiveObservation(int Schema, long Length, long ModifiedTi
 public sealed record PackageSignature(string Guid, string PackageId, string Version, string Kind, string Source);
 public sealed record SignatureSnapshot(string Revision, PackageSignature[] Signatures);
 public enum DependencyConfidence { Declared, Detected, Possible, Included }
-public sealed record DependencyEvidence(string Asset, string Kind, string? Guid = null);
+public sealed record DependencyEvidence(string Asset, string Kind, string? Guid = null)
+{
+    public string[] SignatureSources { get; init; } = [];
+    // Observations identify provenance, never a minimum compatible version.
+    public string[] ObservedVersions { get; init; } = [];
+}
 public sealed record DependencySuggestion(string Id, DependencyConfidence Confidence, string? VersionConstraint, DependencyEvidence[] Evidence);
-public sealed record PackageInspectionReport(ArchiveObservation Observation, string IndexRevision, string Scope, int UnresolvedReferences, DependencySuggestion[] Suggestions, bool FromCache);
+public sealed record PackageInspectionReport(ArchiveObservation Observation, string IndexRevision, string Scope, int UnresolvedReferences, DependencySuggestion[] Suggestions, bool FromCache)
+{
+    // Identity of the bytes checked for this report, not a package version.
+    public PackageIdentity? SourceIdentity { get; init; }
+}
 public interface IUnityPackageInspector
 {
     Task<ArchiveObservation> ReadAsync(string path, InspectionOptions options, CancellationToken token);
 }
 
-public static class DependencyAdvisor
+public static partial class DependencyAdvisor
 {
     public static bool IsEmbeddedPackage(InspectedAsset asset)
     {
@@ -45,9 +54,9 @@ public static class DependencyAdvisor
         var result = selected.Select(x => new PackageSelectionPreview(x.Key, x.Value, true, hints.GetValueOrDefault(x.Key))).ToList();
         foreach (var hint in hints.Values)
         {
-            if (selected.Keys.Contains(hint.Id, StringComparer.OrdinalIgnoreCase) || !IsAvatarCandidate(hint.Id) || hint.Confidence is not (DependencyConfidence.Detected or DependencyConfidence.Declared)) continue;
-            if (hint.Id == ProjectRules.AvatarSdk && selected.Keys.Contains(ProjectRules.WorldSdk, StringComparer.OrdinalIgnoreCase)) continue;
-            result.Add(new(hint.Id, SuggestedVersion(hint) ?? hint.VersionConstraint ?? "Choose version", false, hint));
+            if (selected.Keys.Contains(hint.Id, StringComparer.OrdinalIgnoreCase) || !IsAvatarCandidate(hint.Id) || hint.Confidence is not (DependencyConfidence.Detected or DependencyConfidence.Declared or DependencyConfidence.Possible) || hint.Confidence == DependencyConfidence.Possible && hint.Evidence.Length == 0) continue;
+            if (hint.Id.Equals(ProjectRules.AvatarSdk, StringComparison.OrdinalIgnoreCase) && selected.Keys.Contains(ProjectRules.WorldSdk, StringComparer.OrdinalIgnoreCase)) continue;
+            result.Add(new(hint.Id, hint.Confidence == DependencyConfidence.Possible ? "latest" : SuggestedVersion(hint) ?? hint.VersionConstraint ?? "Choose version", false, hint));
         }
         return result.ToArray();
     }
@@ -74,7 +83,7 @@ public static class DependencyAdvisor
         var assets = observation.Assets.ToDictionary(x => x.Guid, StringComparer.OrdinalIgnoreCase);
         var included = observation.Assets.Where(IsEmbeddedPackage).Select(x => x.Manifest!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roots = observation.Assets.Where(x => (x.Path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase) || x.Path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)) && !Optional(x.Path) &&
-            x.References.Any(r => r.Kind == "script" && byGuid.GetValueOrDefault(r.Guid)?.Any(s => s.PackageId == ProjectRules.AvatarSdk) == true)).Take(9).ToArray();
+            x.References.Any(r => r.Kind == "script" && byGuid.GetValueOrDefault(r.Guid)?.Any(s => s.PackageId == ProjectRules.AvatarSdk && s.Kind == "script") == true)).Take(9).ToArray();
         var manyRoots = roots.Length > 8;
         if (manyRoots) roots = []; // Avoid O(roots * graph) work and unsupported certainty.
         HashSet<string> Reach(InspectedAsset root)
@@ -86,20 +95,30 @@ public static class DependencyAdvisor
         var reachable = roots.Select(Reach).ToArray();
         var sharedPackages = reachable.Select(set => set.SelectMany(id => assets[id].References)
             .Where(r => r.Kind is "script" or "shader" && !internalIds.Contains(r.Guid))
-            .SelectMany(r => byGuid.GetValueOrDefault(r.Guid) ?? []).Select(x => x.PackageId).ToHashSet(StringComparer.OrdinalIgnoreCase)).ToArray();
+            .SelectMany(r =>
+            {
+                var matches = byGuid.GetValueOrDefault(r.Guid) ?? [];
+                var owners = matches.Select(x => x.PackageId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                return owners.Length == 1 && matches.Any(x => x.Kind == r.Kind) ? owners : [];
+            }).ToHashSet(StringComparer.OrdinalIgnoreCase)).ToArray();
         var common = sharedPackages.FirstOrDefault() ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var set in sharedPackages.Skip(1)) common.IntersectWith(set);
         var evidence = new Dictionary<string, List<DependencyEvidence>>(StringComparer.OrdinalIgnoreCase);
         var confidences = new Dictionary<string, DependencyConfidence>(StringComparer.OrdinalIgnoreCase);
-        var constraints = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var constraints = new Dictionary<string, Dictionary<DependencyConfidence, HashSet<string>>>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void Add(string id, DependencyConfidence confidence, DependencyEvidence proof, string? version = null)
         {
             if (!IsAvatarCandidate(id)) return;
             if (!evidence.TryGetValue(id, out var list)) evidence[id] = list = [];
-            if (list.Count < 12 && !list.Contains(proof)) list.Add(proof);
+            if (list.Count < 12 && !list.Any(x => x.Asset == proof.Asset && x.Kind == proof.Kind && string.Equals(x.Guid, proof.Guid, StringComparison.OrdinalIgnoreCase))) list.Add(proof);
             if (!confidences.TryGetValue(id, out var old) || confidence < old) confidences[id] = confidence;
-            if (version is not null) constraints[id] = constraints.TryGetValue(id, out var previous) && previous != version ? previous + " & " + version : version;
+            if (version is not null)
+            {
+                if (!constraints.TryGetValue(id, out var versions)) constraints[id] = versions = [];
+                if (!versions.TryGetValue(confidence, out var distinct)) versions[confidence] = distinct = new(StringComparer.Ordinal);
+                distinct.Add(version);
+            }
         }
         // The same GUID can belong to several packages; never pick one arbitrarily.
         foreach (var asset in observation.Assets)
@@ -107,9 +126,10 @@ public static class DependencyAdvisor
             token.ThrowIfCancellationRequested();
             if (asset.Manifest is { } manifest)
             {
-                if (IsEmbeddedPackage(asset)) Add(manifest.Name, DependencyConfidence.Included, new(asset.Path, "manifest"), manifest.Version);
+                var embedded = IsEmbeddedPackage(asset);
+                if (embedded) Add(manifest.Name, DependencyConfidence.Included, new(asset.Path, "manifest"), manifest.Version);
                 foreach (var dep in manifest.Dependencies)
-                    Add(dep.Key, Optional(asset.Path) ? DependencyConfidence.Possible : DependencyConfidence.Declared, new(asset.Path, "declared dependency"), dep.Value);
+                    Add(dep.Key, embedded && !Optional(asset.Path) ? DependencyConfidence.Declared : DependencyConfidence.Possible, new(asset.Path, "declared dependency"), dep.Value);
             }
             foreach (var reference in asset.References)
             {
@@ -120,14 +140,24 @@ public static class DependencyAdvisor
                 var pertinent = !Optional(asset.Path) && (reachable.Length == 0 ? new[] { ".prefab", ".unity", ".mat", ".asset" }.Any(x => asset.Path.EndsWith(x, StringComparison.OrdinalIgnoreCase)) : reachable.Any(x => x.Contains(asset.Guid)));
                 foreach (var owner in owners)
                 {
-                    var confidence = !manyRoots && observation.ArchiveComplete && pertinent && owners.Length == 1 && (reachable.Length < 2 || common.Contains(owner)) && reference.Kind is "script" or "shader" ? DependencyConfidence.Detected : DependencyConfidence.Possible;
-                    Add(owner, confidence, new(asset.Path, owners.Length > 1 ? "ambiguous GUID" : reference.Kind, reference.Guid));
+                    var ownedSignatures = signatures.Where(x => x.PackageId.Equals(owner, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    var typedMatch = (reference.Kind is "script" or "shader") && ownedSignatures.Any(x => x.Kind == reference.Kind);
+                    var confidence = !manyRoots && observation.ArchiveComplete && observation.TextComplete && pertinent && owners.Length == 1 && (reachable.Length < 2 || common.Contains(owner)) && typedMatch ? DependencyConfidence.Detected : DependencyConfidence.Possible;
+                    Add(owner, confidence, new(asset.Path, owners.Length > 1 ? "ambiguous GUID" : reference.Kind, reference.Guid)
+                    {
+                        SignatureSources = ownedSignatures.Select(x => x.Source).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Take(8).ToArray(),
+                        ObservedVersions = SemanticVersion.Sort(ownedSignatures.Select(x => x.Version)).Take(8).ToArray()
+                    });
                 }
             }
             foreach (var hint in asset.Hints) Add(hint, DependencyConfidence.Possible, new(asset.Path, "text hint"));
         }
         foreach (var package in included.Where(IsAvatarCandidate)) confidences[package] = DependencyConfidence.Included;
-        var suggestions = evidence.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase).Select(x => new DependencySuggestion(x.Key, confidences[x.Key], constraints.GetValueOrDefault(x.Key), x.Value.ToArray())).ToArray();
+        var suggestions = evidence.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase).Select(x =>
+        {
+            var versions = constraints.GetValueOrDefault(x.Key)?.GetValueOrDefault(confidences[x.Key]);
+            return new DependencySuggestion(x.Key, confidences[x.Key], versions is null ? null : string.Join(" & ", versions.Order(StringComparer.Ordinal)), x.Value.ToArray());
+        }).ToArray();
         return new(observation, snapshot.Revision, manyRoots ? "Multiple avatar candidates (choose a smaller package)" : roots.Length == 1 ? roots[0].Path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase) ? "Avatar scene" : "Avatar prefab" : roots.Length > 1 ? "Shared avatar references" : "Whole archive", unresolved.Count, suggestions, cached);
     }
     private static bool Optional(string path) => new[] { "/Samples/", "/Samples~/", "/Examples/", "/Demo/", "/Editor/" }.Any(x => path.Contains(x, StringComparison.OrdinalIgnoreCase));

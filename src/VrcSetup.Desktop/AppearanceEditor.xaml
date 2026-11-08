@@ -1,0 +1,70 @@
+<UserControl
+    x:Class="VrcSetup_Desktop.AppearanceEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:VrcSetup_Desktop">
+    <UserControl.Resources>
+        <Style x:Key="ColorSwatch" TargetType="Border">
+            <Setter Property="Width" Value="14"/>
+            <Setter Property="Height" Value="14"/>
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource AppStrokeBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </UserControl.Resources>
+    <StackPanel Spacing="12">
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock Text="{local:Loc Key='Color palette'}" VerticalAlignment="Center"/>
+            <ComboBox x:Name="PaletteSelector" Grid.Column="1" Width="160"
+                      ItemsSource="{Binding ColorPaletteOptions}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                      SelectedValue="{Binding ColorPalette, Mode=TwoWay}" SelectionChanged="PaletteSelectionChanged"
+                      AutomationProperties.Name="{local:Loc Key='Color palette'}"/>
+        </Grid>
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Button Grid.Column="0" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Background'}">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Border x:Name="CanvasSwatch" Style="{StaticResource ColorSwatch}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{local:Loc Key='Background'}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </Grid>
+                <Button.Flyout>
+                    <Flyout>
+                        <ColorPicker x:Name="CanvasPicker" Tag="Canvas" ColorChanged="PaletteColorChanged"
+                                     IsAlphaEnabled="False" IsAlphaSliderVisible="False"
+                                     AutomationProperties.Name="{local:Loc Key='Background'}"/>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+            <Button Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Surface'}">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Border x:Name="SurfaceSwatch" Style="{StaticResource ColorSwatch}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{local:Loc Key='Surface'}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </Grid>
+                <Button.Flyout>
+                    <Flyout>
+                        <ColorPicker x:Name="SurfacePicker" Tag="Surface" ColorChanged="PaletteColorChanged"
+                                     IsAlphaEnabled="False" IsAlphaSliderVisible="False"
+                                     AutomationProperties.Name="{local:Loc Key='Surface'}"/>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+            <Button Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Accent'}">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Border x:Name="AccentSwatch" Style="{StaticResource ColorSwatch}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{local:Loc Key='Accent'}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </Grid>
+                <Button.Flyout>
+                    <Flyout>
+                        <ColorPicker x:Name="AccentPicker" Tag="Accent" ColorChanged="PaletteColorChanged"
+                                     IsAlphaEnabled="False" IsAlphaSliderVisible="False"
+                                     AutomationProperties.Name="{local:Loc Key='Accent'}"/>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+        </Grid>
+    </StackPanel>
+</UserControl>

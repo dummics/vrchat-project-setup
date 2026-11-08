@@ -11,12 +11,14 @@ public sealed partial class MainViewModel
 {
     public ObservableCollection<UiHistoryEntry> ImportHistory { get; } = [];
     public ObservableCollection<UiHistoryEntry> OperationHistory { get; } = [];
+    public ObservableCollection<UiHistoryEntry> History { get; } = [];
+    public Visibility HistoryEmptyVisibility => History.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     private OperationReport[] savedOperations = [];
     private bool loadingHistory;
     public Visibility ImportHistoryEmptyVisibility => ImportHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility OperationHistoryEmptyVisibility => OperationHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility HistoryErrorsVisibility => ImportHistory.Concat(OperationHistory).Any(x => x.State is "Failed" or "Interrupted" or "Partially applied") ? Visibility.Visible : Visibility.Collapsed;
-    public bool CanClearFinishedImports => ImportJobs.Any(x => !x.Job.Active);
+    public bool CanClearFinishedImports => ImportJobs.Any(x => x.Job.CanHide && !x.Job.HiddenFromImports);
     [ObservableProperty] public partial bool AutoHideCompletedImports { get; set; }
     partial void OnAutoHideCompletedImportsChanged(bool value) => ImportsChanged(app.Imports.Snapshot());
 
@@ -42,6 +44,8 @@ public sealed partial class MainViewModel
         imported.AddRange(others.Where(x => x.IsImport));
         Reconcile(ImportHistory, imported.OrderByDescending(x => x.Timestamp).ToArray());
         Reconcile(OperationHistory, jobRows.Where(x => !x.IsImport).Concat(others.Where(x => !x.IsImport)).OrderByDescending(x => x.Timestamp).ToArray());
+        Reconcile(History, ImportHistory.Concat(OperationHistory).OrderByDescending(x => x.Timestamp).ToArray());
+        OnPropertyChanged(nameof(HistoryEmptyVisibility));
         OnPropertyChanged(nameof(ImportHistoryEmptyVisibility)); OnPropertyChanged(nameof(OperationHistoryEmptyVisibility)); OnPropertyChanged(nameof(HistoryErrorsVisibility));
         static void Reconcile(ObservableCollection<UiHistoryEntry> rows, UiHistoryEntry[] desired)
         {
@@ -91,24 +95,33 @@ public sealed partial class MainViewModel
     });
     public async Task RepairHistoryImportAsync(UiHistoryEntry entry) => await Guard(async () =>
     {
-        if (entry.Job is not { Active: false } job || app.Imports.Snapshot().Any(x => x.Active && x.ProjectPath.Equals(job.ProjectPath, StringComparison.OrdinalIgnoreCase))) return;
+        if (entry.Job is not { Active: false } job || !CanRecoverCurrentImport(job)) return;
         var source = job.Source;
         var original = job.Plan.Projects.Single().RecoveryOriginalSource ?? source.UnityPackagePath;
-        if (!source.EmptyProject && !File.Exists(source.UnityPackagePath))
+        var sourceChanged = !source.EmptyProject && File.Exists(source.UnityPackagePath) && source.SourceIdentity is { } expected &&
+            await PackageSourceIdentity.ReadAsync(source.UnityPackagePath, lifetime.Token) != expected;
+        if (!source.EmptyProject && source.SourceIdentity is null && File.Exists(source.UnityPackagePath) &&
+            !await ui.ConfirmAsync(entry.RepairLabel, "For this older import, the app cannot verify whether the selected file is the original. Check it before continuing.", "Use package")) return;
+        if (!source.EmptyProject && (!File.Exists(source.UnityPackagePath) || sourceChanged))
         {
+            if (!await ui.ConfirmAsync(entry.RepairLabel, "The original package is missing or changed. Select the original UnityPackage to continue.", "Choose file")) return;
             var chosen = await ui.PickFileAsync(".unitypackage"); if (chosen is null) return;
+            if (source.SourceIdentity is { } identity && await PackageSourceIdentity.ReadAsync(chosen, lifetime.Token) != identity)
+                throw new IOException("This package differs from the original. Choose the original UnityPackage to continue.");
+            if (source.SourceIdentity is null && !await ui.ConfirmAsync(entry.RepairLabel, "For this older import, the app cannot verify whether the selected file is the original. Check it before continuing.", "Use package")) return;
             if (!await ui.ConfirmAsync(entry.RepairLabel, UiText.Text("Use this package to add missing files? Existing files stay unchanged.") + "\n" + Path.GetFileName(chosen), "Use package")) return;
             source = source with { UnityPackagePath = chosen };
         }
         var destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, original, lifetime.Token, source.EmptyProject));
-        if (destination.Kind is ImportDestinationKind.New or ImportDestinationKind.Partial)
+        if (!CanRecoverCurrentImport(job)) return;
+        if (destination.Kind == ImportDestinationKind.New || destination.Kind == ImportDestinationKind.Partial && source.CreationId is null)
         {
             if (source.EmptyProject)
             {
                 if (!await BeginRetryNewProjectAsync(job, destination.Kind == ImportDestinationKind.Partial)) return;
                 return;
             }
-            if (!await ui.ConfirmAsync("Create a new copy", "Create a separate project? The existing folder stays unchanged.", "New copy")) return;
+            if (!await ui.ConfirmAsync("Create a new copy", "Create a separate project? The existing folder stays unchanged.", "New copy") || !CanRecoverCurrentImport(job)) return;
             if (!await NavigateAsync("Create")) return;
             StageImportFiles([source.UnityPackagePath]);
             var name = job.Name + " (copy)"; var index = 2;
@@ -118,7 +131,12 @@ public sealed partial class MainViewModel
             if (SelectedImportDraft is { } draft) draft.Packages = new(creationOverrides);
             RefreshCreationPackages(); return;
         }
-        if (!await FindEditorAsync(true)) return;
+        // Legacy jobs cannot prove which archive was originally used. Once the
+        // user has explicitly chosen it, protect that choice through review and
+        // execution just as we do for newly created imports.
+        if (!source.EmptyProject && source.SourceIdentity is null)
+            source = source with { SourceIdentity = await PackageSourceIdentity.ReadAsync(source.UnityPackagePath, lifetime.Token) };
+        if (!await FindEditorAsync(true) || !CanRecoverCurrentImport(job)) return;
         source = source with { UnityEditorPath = config.UnityEditorPath };
         foreach (var platform in source.PublishingPlatforms.Append(source.BuildTarget).Distinct())
             if (!UnityProjectDriver.HasBuildSupport(source.UnityEditorPath, platform)) throw new IOException("Unity build support is missing for " + platform);
@@ -126,13 +144,15 @@ public sealed partial class MainViewModel
         var planned = await Task.Run(() => app.PlanResumeAsync(source, project.DesiredPolicy, config.Copy(), project.PresetName,
             source.ExtraImports.Concat(project.ExtraImports).Where(x => !x.Equals(original, StringComparison.OrdinalIgnoreCase) && !x.Equals(job.Source.UnityPackagePath, StringComparison.OrdinalIgnoreCase)), lifetime.Token, original));
         var plan = new OperationPlan(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [planned]);
-        if (source.EmptyProject || await ui.ReviewAsync(plan)) { await app.Imports.EnqueueAsync(plan, RequestedParallelism, source, lifetime.Token); await NavigateAsync(source.EmptyProject ? "Projects" : "Create"); }
+        if ((source.EmptyProject || await ui.ReviewAsync(plan)) && CanRecoverCurrentImport(job))
+        { await app.Imports.EnqueueAsync(plan, RequestedParallelism, source, lifetime.Token, expectedImportId: job.Id); await NavigateAsync(source.EmptyProject ? "Projects" : "Create"); }
     });
     private async Task<bool> BeginRetryNewProjectAsync(ImportJob job, bool partial)
     {
         if (partial && !await ui.ConfirmAsync("Create a new copy", "Create a separate project? The existing folder stays unchanged.", "New copy")) return false;
+        if (!CanRecoverCurrentImport(job)) return false;
         await BeginNewProjectCoreAsync();
-        if (CurrentPage != "NewProject") return false;
+        if (CurrentPage != "NewProject" || !CanRecoverCurrentImport(job)) return false;
         var name = job.Name; var index = 2;
         while (Directory.Exists(Path.Combine(ProjectsRoot, name)) || File.Exists(Path.Combine(ProjectsRoot, name))) name = job.Name + " (" + index++ + ")";
         NewProjectName = name; NewProjectPlatform = job.Source.BuildTarget;
@@ -140,18 +160,34 @@ public sealed partial class MainViewModel
         RenderPreset(); RefreshLibraryRows();
         return true;
     }
-    public async Task RestoreHistoryBackupAsync(UiHistoryEntry entry) => await Guard(async () =>
+    public UiHistoryEntry? LatestProjectBackup(ProjectSnapshot project) => LatestProjectBackup(project, savedOperations);
+    internal static UiHistoryEntry? LatestProjectBackup(ProjectSnapshot project, IEnumerable<OperationReport> reports) => reports
+        .OrderByDescending(report => report.CompletedUtc)
+        .SelectMany(report => report.Results.Where(result => result.Path.Equals(project.Path, StringComparison.OrdinalIgnoreCase))
+            .Select(result => new UiHistoryEntry(report with { Results = [result] })))
+        .FirstOrDefault(entry => entry.RestoreVisibility == Visibility.Visible);
+
+    public async Task RestoreHistoryBackupAsync(UiHistoryEntry entry)
     {
+        var restored = false;
+        await Guard(async () =>
+        {
         var project = entry.ProjectPath; var file = entry.BackupFile;
         if (project.Length == 0 || file.Length == 0) return;
         ProjectRules.EnsureContained(Path.Combine(project, ".vrcsetup", "backups"), file);
         var backup = await AtomicFile.ReadJsonAsync<BackupRecord>(file, lifetime.Token) ?? throw new IOException("Backup record not found.");
         if (!await ui.ConfirmAsync("Restore " + entry.Name, "Restore the backup from this operation? Current files are kept in a recovery folder.\n" + project, "Restore backup")) return;
+        if (ProjectImportsActive([project]) || ProjectApplyActive([project])) return;
         using var lease = await app.Projects.AcquireAsync(project, lifetime.Token);
-        if (app.Projects.IsBusy(project)) throw new IOException("Close Unity or wait for the active import before restoring.");
+        if (ProjectImportsActive([project]) || ProjectApplyActive([project]) || app.Projects.IsBusy(project)) throw new IOException("Close Unity or wait for the active import before restoring.");
+        if (entry.RestoreVisibility != Visibility.Visible) throw new IOException("This backup is no longer available. Choose the latest backup for this project.");
         if (!await app.Projects.RestoreAsync(project, backup, new SynchronizationProgress<OperationEvent>(context, AppendActivity), lifetime.Token)) throw new IOException("Restore could not complete; inspect the logs.");
         entry.Health = "Backup restored. Check the project before resuming its import.";
-    });
+        restored = true;
+        ShowSavedFeedback("Backup restored. Check the project before resuming its import.");
+        });
+        if (restored && !IsClosingApp && CurrentPage == "Projects") await RefreshProjectsCommand.ExecuteAsync(null);
+    }
     [RelayCommand] private async Task OpenProjectsFolder() => await IndependentAction(() =>
     {
         var folder = string.IsNullOrWhiteSpace(ProjectsRoot) ? config.UnityProjectsRoot : ProjectRules.NormalizePath(ProjectsRoot);
@@ -172,7 +208,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public string ProjectPath => job?.ProjectPath ?? (report?.Results.Length == 1 ? report.Results[0].Path : "");
     public string BackupFile => report?.Results.FirstOrDefault(x => x.Path.Equals(ProjectPath, StringComparison.OrdinalIgnoreCase))?.BackupPath is { Length: > 0 } folder ? Path.Combine(folder, "backup.json") : "";
     public Visibility RestoreVisibility => !Checking && job?.Active != true && File.Exists(BackupFile) && !File.Exists(Path.Combine(Path.GetDirectoryName(BackupFile)!, "superseded")) ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility ImportActionsVisibility => job is { Active: false } && (!job.Source.EmptyProject || job.Recoverable) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ImportActionsVisibility => job is { Active: false, DiscardRequested: false, DiscardCompleted: false } && (!job.Source.EmptyProject || job.Recoverable) ? Visibility.Visible : Visibility.Collapsed;
     public string RepairLabel => job?.State is "Failed" or "Cancelled" ? "Try again" : job?.Source.EmptyProject == true ? "Retry project creation" : job?.Recoverable == true ? "Continue import" : "Complete missing files";
     public Visibility ProjectActionsVisibility => job?.Active != true && (ProjectPath.Length > 0 || report?.Results.Length > 0) ? Visibility.Visible : Visibility.Collapsed;
     public string StateGlyph => State is "Failed" or "Interrupted" or "Partially applied" or "Not applied" ? "⚠ " : "";
@@ -189,7 +225,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public DateTime Timestamp => job?.Plan.CreatedUtc ?? report!.CompletedUtc;
     public string Date => Timestamp.ToLocalTime().ToString("g");
     public string Name => job?.Name ?? (report!.Results.Length == 1 ? report.Results[0].Project : string.Format(UiText.Text("{0} projects"), report.Results.Length));
-    public string State => job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
+    public string State => job?.CreatorCompanionUnknown == true ? "Completed with a notice" : job?.DiscardRequested == true ? job.Active ? "Stopping import…" : "Cancellation needs finishing" : job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (job.CreatorCompanionPending || report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
         : report!.Success ? report.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) ? "Completed with a notice" : "Completed" : report.Cancelled ? "Cancelled"
         : report.Results.Length > 0 && report.Results.All(x => x.Status == OperationStatus.Skipped) ? "Not applied"
         : report.Results.Any(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings) ? "Partially applied" : "Failed";
@@ -202,16 +238,22 @@ public sealed class UiHistoryEntry : ObservableObject
     public string Changes => IsImport || report?.Plan is not { } plan ? "" : string.Join(Environment.NewLine + Environment.NewLine,
         PackageReview.Group(plan).Select(group => (group.Projects.Length == Projects.Length ? "All projects" : string.Join(", ", group.Projects.Select(x => x.Name))) + Environment.NewLine
             + string.Join(Environment.NewLine, group.Changes.Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"))));
-    public string Result => job is not null ? job.Active || job.State is "Completed" or "Recovered" ? UiText.Text(job.Message) : job.Source.EmptyProject ? UserErrors.Message(new IOException(job.Message)) : UiText.Text(job.State == "Failed" ? "The import failed. Try again." : "The import did not finish. Check the project or continue the import.")
+    public string Result => job is not null ? UiText.Text(job.DiscardCompleted ? "Import cancelled." : job.DiscardRequested ? "Cancellation needs finishing"
+        : job.CreatorCompanionUnknown ? "Your project is ready. Check whether it appears in Creator Companion; if needed, add it there as an existing project. You do not need to import it again."
+        : job.CreatorCompanionPending ? "The project was created; it was not added to Creator Companion."
+        : job.State is "Completed" or "Recovered" ? "Import completed."
+        : job.State == "Failed" ? "The import did not finish. The project and recovery information were kept."
+        : job.State is "Paused" or "Interrupted" or "Cancelled" ? "The import stopped. The project was kept."
+        : "Import in progress.")
         : string.Join(Environment.NewLine, report!.Results.Select(x => x.Project + ": " + UiText.Text(x.Status switch
         {
             OperationStatus.Completed => "Completed",
             OperationStatus.Unchanged => "Packages are already up to date",
-            OperationStatus.CompletedWithWarnings when x.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC." => x.Message,
+            OperationStatus.CompletedWithWarnings when x.CreatorCompanionPending || x.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC." => "The project was created; it was not added to Creator Companion.",
             OperationStatus.CompletedWithWarnings => "Completed. Check the details in the log.",
-            _ when x.Message.Contains("open in Unity", StringComparison.OrdinalIgnoreCase) => "Close Unity, then try again.",
+            _ when x.Message.Contains("open in Unity", StringComparison.OrdinalIgnoreCase) => "The operation stopped because the project was open in Unity.",
             OperationStatus.Cancelled => "Cancelled",
-            _ => "Not completed. Open the project to review it, or try again."
+            _ => "The operation did not finish."
         })));
     public string LogFile => job?.LogFile ?? report!.Results.Select(x => x.LogFile).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "";
     public bool HasLog => LogFile.Length > 0;

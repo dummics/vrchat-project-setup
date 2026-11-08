@@ -7,19 +7,29 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
 {
     public string Name => Source.Name;
     public string ProjectPath => Source.TargetPath;
-    public bool Active => State is "Queued" or "Running" or "Cancelling";
-    public bool Recoverable => State is "Failed" or "Cancelled" or "Interrupted";
+    public bool PauseRequested { get; init; }
+    public bool DiscardRequested { get; init; }
+    public bool DiscardCompleted { get; init; }
+    public bool DiscardNoFolder { get; init; }
+    public bool CreatorCompanionPending { get; init; }
+    public bool CreatorCompanionUnknown { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public bool HistorySaveFailed { get; init; }
+    public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
+    public bool Recoverable => !DiscardRequested && !DiscardCompleted && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
+    public bool CanHide => !Active && !Recoverable && !DiscardRequested && !HistorySaveFailed;
 }
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
 // No startup auto-resume and no project deletion/cache deletion on cancellation.
-public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IProgress<OperationEvent>?, CancellationToken, Task<OperationReport>>? execute = null) : IAsyncDisposable
+public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IProgress<OperationEvent>?, CancellationToken, Task<OperationReport>>? execute = null) : IAsyncDisposable
 {
     private readonly object sync = new();
     private readonly SemaphoreSlim journalGate = new(1);
+    private readonly SemaphoreSlim disposalGate = new(1);
     private readonly List<ImportJob> jobs = [];
     private readonly Dictionary<string, CancellationTokenSource> cancellations = [];
     private readonly List<Task> workers = [];
+    private readonly Dictionary<string, Task> jobWorkers = [];
     private readonly Dictionary<string, long> lastPublication = [];
     private readonly HashSet<string> claimed = [];
     private TaskCompletionSource capacityChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -94,7 +104,9 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                     throw new IOException("Import history is invalid; the original file was preserved.");
                 foreach (var entry in saved)
                 {
-                    var job = entry.Active ? entry with { State = "Interrupted", Step = "Interrupted", Message = "Review recovery before continuing." } : entry;
+                    var job = entry.Active ? entry with { State = entry.PauseRequested ? "Paused" : "Interrupted", Step = entry.PauseRequested ? "Paused" : "Interrupted", Message = "Ready to continue.", FinishedAt = DateTime.UtcNow } : entry;
+                    if (job.State == "Completed" && job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.")
+                        job = job with { CreatorCompanionPending = true };
                     if (job.Recoverable)
                     {
                         try
@@ -104,10 +116,11 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                                 ? marker is not null && string.IsNullOrWhiteSpace(marker.UnityPackagePath) && marker.ProjectName == job.Source.Name
                                 : marker is not null && !string.IsNullOrWhiteSpace(marker.UnityPackagePath) && ProjectRules.NormalizePath(marker.UnityPackagePath).Equals(ProjectRules.NormalizePath(job.Plan.Projects[0].RecoveryOriginalSource ?? job.Source.UnityPackagePath), StringComparison.OrdinalIgnoreCase);
                             if (marker?.Completed == true && sameSource)
-                                job = job with { State = "Recovered", Step = "Completed", Progress = 100, FinishedAt = marker.CompletedAt, Message = "Project recovery verified." };
+                                job = job with { State = "Recovered", Step = "Completed", Progress = 100, FinishedAt = marker.CompletedAt, Message = "Project recovery verified.", CreatorCompanionUnknown = true, HiddenFromImports = false };
                         }
                         catch (Exception error) when (error is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or ArgumentException) { app.Diagnostics.Write("Import state", error.Message, error); }
                     }
+                    if (!job.CanHide && job.HiddenFromImports) job = job with { HiddenFromImports = false };
                     lock (sync) jobs.Add(job);
                 }
                 await SaveAsync(token); initialized = true;
@@ -119,12 +132,25 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         Publish();
     }
 
-    public async Task EnqueueAsync(OperationPlan reviewed, int parallelism = 1, CreationRequest? recoverySource = null, CancellationToken token = default)
+    public static ImportJob? CurrentForProject(IEnumerable<ImportJob> snapshot, string path)
+    {
+        var normalized = ProjectRules.NormalizePath(path);
+        // Snapshot/journal order is append order; wall-clock changes must not revive old work.
+        return snapshot.Where(x => ProjectRules.NormalizePath(x.ProjectPath).Equals(normalized, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.Active).LastOrDefault();
+    }
+
+    public async Task EnqueueAsync(OperationPlan reviewed, int parallelism = 1, CreationRequest? recoverySource = null, CancellationToken token = default,
+        string? expectedImportId = null, bool requireNoProjectHistory = false)
     {
         await InitializeAsync(token);
         if (parallelism < 0) throw new ArgumentException("Use zero for automatic scheduling or a positive parallel import count.");
         if (reviewed.Projects.Length == 0 || reviewed.Projects.Select(x => ProjectRules.NormalizePath(x.Path)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != reviewed.Projects.Length)
             throw new ArgumentException("Each import needs a distinct project destination.");
+        if (expectedImportId is not null && reviewed.Projects.Length != 1)
+            throw new ArgumentException("An import continuation needs one project destination.");
+        if (requireNoProjectHistory && (expectedImportId is not null || reviewed.Projects.Length != 1))
+            throw new ArgumentException("Recovery without history needs one project destination.");
         var pending = reviewed.Projects.Select(project =>
         {
             var source = project.Creation ?? project.RecoverySource ?? (reviewed.Projects.Length == 1 ? recoverySource : null) ?? throw new ArgumentException("Import source missing.");
@@ -138,7 +164,11 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
             lock (sync)
             {
                 if (stopping) throw new IOException("Import queue is closing.");
-                var active = jobs.Where(x => x.Active).Select(x => ProjectRules.NormalizePath(x.ProjectPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (requireNoProjectHistory && CurrentForProject(jobs, pending[0].ProjectPath) is not null)
+                    throw new IOException("This import changed. Choose it again to continue.");
+                if (expectedImportId is not null && (CurrentForProject(jobs, pending[0].ProjectPath) is not { Active: false, DiscardRequested: false } current || current.Id != expectedImportId))
+                    throw new IOException("This import changed. Choose it again to continue.");
+                var active = jobs.Where(x => x.Active || x.DiscardRequested).Select(x => ProjectRules.NormalizePath(x.ProjectPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 if (pending.Any(x => active.Contains(ProjectRules.NormalizePath(x.ProjectPath)))) throw new IOException("An import for this project is already queued.");
                 requestedParallelism = parallelism;
                 jobs.AddRange(pending);
@@ -157,10 +187,13 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
             lock (sync)
             {
                 workers.RemoveAll(x => x.IsCompletedSuccessfully);
+                foreach (var id in jobWorkers.Where(x => x.Value.IsCompletedSuccessfully).Select(x => x.Key).ToArray()) jobWorkers.Remove(id);
                 foreach (var item in pending)
                 {
                     var cancellation = cancellations[item.Id];
-                    workers.Add(Task.Run(() => RunAsync(item, cancellation)));
+                    var worker = Task.Run(() => RunAsync(item, cancellation));
+                    workers.Add(worker);
+                    jobWorkers[item.Id] = worker;
                 }
                 PulseCapacity();
             }
@@ -175,18 +208,29 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         try
         {
             await ClaimAsync(item.Id, cancellation.Token); acquired = true; cancellation.Token.ThrowIfCancellationRequested();
-            Update(item.Id, x => x with { State = "Running", Step = "Starting", Message = "", StartedAt = DateTime.UtcNow });
+            Update(item.Id, x => x.State is "Pausing" or "Cancelling" ? x : x with { State = "Running", Step = "Starting", Message = "", StartedAt = DateTime.UtcNow });
             await PersistAsync();
+            cancellation.Token.ThrowIfCancellationRequested();
             var progress = new InlineProgress(value => Update(item.Id, x => x with
-            { Step = Phase(value.Phase), Progress = Math.Max(x.Progress, Percent(value.Phase)), Message = value.Message,
+            { Step = (value.Phase is "Unity import" or "Unity settle") && (x.Step == "ClosingUnity" || value.Message.Contains("[vrc-setup] Post-import settle complete", StringComparison.Ordinal))
+                    ? "ClosingUnity" : Phase(value.Phase),
+                Progress = Math.Max(x.Progress, (value.Phase is "Unity import" or "Unity settle") && value.Message.Contains("[vrc-setup] Post-import settle complete", StringComparison.Ordinal) ? 80 : Percent(value.Phase)), Message = value.Message,
                 LogFile = x.LogFile.Length > 0 ? x.LogFile : FindLog(item.Id) }));
             var report = execute is null ? await app.ApplyAsync(item.Plan, progress, cancellation.Token, rememberCreation: false) : await execute(item.Plan, progress, cancellation.Token);
             var outcome = report.Results.FirstOrDefault();
-            var state = report.Success ? "Completed" : report.Cancelled ? "Cancelled" : "Failed";
-            Update(item.Id, x => x with { State = state, Step = state, Progress = report.Success ? 100 : x.Progress,
-                Message = outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile });
+            Update(item.Id, x =>
+            {
+                var state = report.Success ? "Completed" : report.Cancelled ? x.PauseRequested ? "Paused" : "Cancelled" : "Failed";
+                return x with { State = state, Step = state, Progress = report.Success ? 100 : x.Progress,
+                    Message = state == "Paused" ? "Ready to continue." : outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile,
+                    CreatorCompanionPending = outcome?.CreatorCompanionPending == true };
+            });
         }
-        catch (OperationCanceledException) { Update(item.Id, x => x with { State = "Cancelled", Step = "Cancelled", Message = "Import cancelled; project data preserved." }); }
+        catch (OperationCanceledException)
+        {
+            Update(item.Id, x => x with { State = x.PauseRequested ? "Paused" : "Cancelled", Step = x.PauseRequested ? "Paused" : "Cancelled",
+                Message = x.PauseRequested ? "Ready to continue." : "Import cancelled; project data preserved." });
+        }
         catch (Exception error)
         {
             app.Diagnostics.Write("Import queue", error.Message, error);
@@ -196,7 +240,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         {
             lock (sync) { if (acquired) claimed.Remove(item.Id); cancellations.Remove(item.Id); PulseCapacity(); }
             cancellation.Dispose();
-            await PersistAsync();
+            if (!await PersistAsync()) Update(item.Id, x => x with { HistorySaveFailed = true, HiddenFromImports = false });
         }
     }
 
@@ -239,10 +283,20 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         await InitializeAsync(token); await journalGate.WaitAsync(token);
         try
         {
+            HashSet<string> changed;
             lock (sync)
+            {
+                changed = jobs.Where(x => x.CanHide && !x.HiddenFromImports).Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
                 for (var index = 0; index < jobs.Count; index++)
-                    if (!jobs[index].Active) jobs[index] = jobs[index] with { HiddenFromImports = true };
-            await SaveAsync(token);
+                    if (jobs[index].CanHide) jobs[index] = jobs[index] with { HiddenFromImports = true };
+            }
+            try { await SaveAsync(token); }
+            catch
+            {
+                lock (sync) for (var index = 0; index < jobs.Count; index++)
+                    if (changed.Contains(jobs[index].Id)) jobs[index] = jobs[index] with { HiddenFromImports = false };
+                throw;
+            }
         }
         finally { journalGate.Release(); }
         Publish();
@@ -253,13 +307,24 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
         await InitializeAsync(token); await journalGate.WaitAsync(token);
         try
         {
+            var changed = false;
             lock (sync)
             {
                 var index = jobs.FindIndex(x => x.Id == id);
-                if (index < 0 || jobs[index].Active) return;
+                if (index < 0 || !jobs[index].CanHide) return;
+                changed = !jobs[index].HiddenFromImports;
                 jobs[index] = jobs[index] with { HiddenFromImports = true };
             }
-            await SaveAsync(token);
+            try { await SaveAsync(token); }
+            catch
+            {
+                if (changed) lock (sync)
+                {
+                    var index = jobs.FindIndex(x => x.Id == id);
+                    if (index >= 0) jobs[index] = jobs[index] with { HiddenFromImports = false };
+                }
+                throw;
+            }
         }
         finally { journalGate.Release(); }
         Publish();
@@ -276,7 +341,7 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
                 if (previous.Active && !next.Active) next = next with { FinishedAt = DateTime.UtcNow };
                 jobs[index] = next;
                 var now = Environment.TickCount64;
-                publish = previous.State != next.State || previous.Step != next.Step || now - lastPublication.GetValueOrDefault(id) >= 200;
+                publish = previous.State != next.State || previous.Step != next.Step || previous.HistorySaveFailed != next.HistorySaveFailed || now - lastPublication.GetValueOrDefault(id) >= 200;
                 if (publish) lastPublication[id] = now;
             }
         }
@@ -284,22 +349,57 @@ public sealed class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IPr
     }
     private void Publish() => Changed?.Invoke(Snapshot());
     private Task SaveAsync(CancellationToken token = default) => AtomicFile.WriteJsonAsync(Journal, Snapshot(), token);
-    private async Task PersistAsync()
+    private async Task<bool> PersistAsync()
     {
         await journalGate.WaitAsync();
-        try { await SaveAsync(); }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Import history", error.Message, error); }
+        try { await SaveAsync(); return true; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Import history", error.Message, error); return false; }
         finally { journalGate.Release(); }
     }
-    public async ValueTask DisposeAsync()
+    public async Task<bool> RetryHistorySaveAsync(string id, CancellationToken token = default)
     {
-        Task[] pending;
-        await journalGate.WaitAsync();
-        try { lock (sync) { stopping = true; pending = workers.ToArray(); } }
+        await InitializeAsync(token); await journalGate.WaitAsync(token);
+        try
+        {
+            ImportJob? before; lock (sync) before = jobs.FirstOrDefault(x => x.Id == id);
+            if (before is null || !before.HistorySaveFailed || before.Active) return false;
+            await SaveAsync(token);
+            lock (sync)
+            {
+                var index = jobs.FindIndex(x => x.Id == id);
+                if (index < 0 || jobs[index] != before) return false;
+                jobs[index] = before with { HistorySaveFailed = false };
+            }
+        }
         finally { journalGate.Release(); }
-        CancelAll(); await Task.WhenAll(pending);
-        monitoring.Cancel(); if (resourceWorker is not null) await resourceWorker;
-        lease?.Dispose(); lease = null;
+        Publish(); return true;
+    }
+    public ValueTask DisposeAsync() => new(ShutdownAsync());
+
+    // Cancelling the wait keeps the queue lease: it does not prove that a worker stopped.
+    public async Task ShutdownAsync(CancellationToken token = default)
+    {
+        await disposalGate.WaitAsync(token);
+        try
+        {
+            Task[] pending;
+            await journalGate.WaitAsync(token);
+            try { lock (sync) { stopping = true; pending = workers.ToArray(); } }
+            finally { journalGate.Release(); }
+            try
+            {
+                foreach (var job in Snapshot().Where(x => x.Active)) await RequestPauseAsync(job.Id, true, token);
+                await Task.WhenAll(pending).WaitAsync(token);
+            }
+            catch
+            {
+                lock (sync) { stopping = false; PulseCapacity(); }
+                throw; // Preserve ownership if saving fails or the caller stops waiting.
+            }
+            monitoring.Cancel(); if (resourceWorker is not null) await resourceWorker;
+            lease?.Dispose(); lease = null;
+        }
+        finally { disposalGate.Release(); }
     }
     private string FindLog(string id)
     {

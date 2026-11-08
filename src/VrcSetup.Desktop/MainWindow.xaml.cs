@@ -31,17 +31,18 @@ public sealed partial class MainWindow : Window
             closePromptPending = true;
             try
             {
-                if (page.ViewModel.IsBusy || page.ViewModel.IsCreatingProject || page.ViewModel.HasActiveImports)
+                if ((page.ViewModel.IsBusy || page.ViewModel.IsCreatingProject || page.ViewModel.HasActiveImports)
+                    && !await page.ConfirmAsync("Close app", "Pause the current work and close? You can continue your imports when you reopen the app.", "Pause and close")) return;
+                if (await page.ViewModel.PrepareToCloseAsync())
                 {
-                    if (await page.ConfirmAsync("Imports running", "Cancel running operations and preserve recovery information? Close again after they stop.", "Cancel operations"))
-                    { page.ViewModel.CancelOperationCommand.Execute(null); page.ViewModel.CancelAllImports(); }
-                }
-                else if (await page.ViewModel.ConfirmCloseAsync() && !page.ViewModel.IsBusy && !page.ViewModel.IsCreatingProject && !page.ViewModel.HasActiveImports)
-                {
-                    await page.ViewModel.FinishImportsAsync();
                     closingConfirmed = true;
                     DispatcherQueue.TryEnqueue(() => Close());
                 }
+            }
+            catch (Exception error)
+            {
+                page.ViewModel.Application.Diagnostics.Write("Close confirmation", error.Message, error);
+                page.ViewModel.ErrorMessage = VrcSetup.Core.UserErrors.Message(error);
             }
             finally { closePromptPending = false; }
         };
@@ -49,7 +50,7 @@ public sealed partial class MainWindow : Window
     public async Task<bool> InstallUpdateAsync(string installer, string result)
     {
         var vm = Page.ViewModel;
-        if (vm.IsBusy || vm.IsCreatingProject || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
+        if (vm.IsClosingApp || vm.IsBusy || vm.IsCreatingProject || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
         vm.IsInstallingUpdate = true;
         try
         {
@@ -72,7 +73,7 @@ public sealed partial class MainWindow : Window
     public async Task<bool> RestartForLanguageAsync()
     {
         var vm = Page.ViewModel;
-        if (vm.IsBusy || vm.IsCreatingProject || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
+        if (vm.IsClosingApp || vm.IsBusy || vm.IsCreatingProject || vm.HasActiveImports || vm.WorkspaceDirty || vm.PresetDirty || vm.SettingsDirty) return false;
         vm.IsInstallingUpdate = true; // Reserve the restart before awaiting queue shutdown.
         try
         {

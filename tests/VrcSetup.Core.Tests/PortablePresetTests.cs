@@ -52,4 +52,19 @@ public sealed class PortablePresetTests
         Assert.DoesNotContain("Try again, or contact support", text);
         Assert.DoesNotContain("IOException", text);
     }
+    [Fact] public void StaleRecoveryExplainsTheNextAction()
+    {
+        const string message = "This import changed. Choose it again to continue.";
+        var error = new IOException(message);
+        Assert.True(UserErrors.IsExpected(error));
+        Assert.Equal(UiText.Text(message), UserErrors.Message(error));
+    }
+    [Fact] public void InvalidImportArchiveExplainsHowToContinue()
+    {
+        const string message = "This file is not a valid UnityPackage. Choose the original .unitypackage file.";
+        var error = new IOException(message, new InvalidDataException("internal archive parser details"));
+        Assert.True(UserErrors.IsExpected(error));
+        Assert.Equal(UiText.Text(message), UserErrors.Message(error));
+        Assert.DoesNotContain("parser", UserErrors.Message(error));
+    }
 }

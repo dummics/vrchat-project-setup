@@ -9,6 +9,72 @@ public sealed class UnityImportDriverTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "vrcsetup-import [PC] & città-" + Guid.NewGuid().ToString("N"));
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task FailedUnityAssetImportCannotBeReportedAsSuccessful(bool longPath, bool timeout)
+    {
+        Directory.CreateDirectory(root);
+        var editor = Path.Combine(root, "Unity.exe"); await File.WriteAllTextAsync(editor, "fixture");
+        var archive = Path.Combine(root, "Avatar.unitypackage"); await File.WriteAllTextAsync(archive, "fixture");
+        var project = Path.Combine(root, "Project");
+        var runner = new ToolRunner(commandOverride: async (_, args, _) =>
+        {
+            var log = args[Array.IndexOf(args, "-logFile") + 1];
+            Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+            var detail = longPath ? "Could not find a part of the path \"" + new string('x', 261) + "\"" : "Other error";
+            await File.WriteAllTextAsync(log, "Asset import failed, \"Packages/example/file.asset\" > DirectoryNotFoundException: " + detail + "\n[vrc-setup] Post-import settle complete, quitting.\n");
+            if (timeout) throw new TimeoutException("Unity did not exit in time.");
+            return new ToolResult(0, "", "");
+        });
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var driver = new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths));
+        var plan = new ProjectPlan
+        {
+            Path = project, Name = "Fixture", ExpectedFingerprint = "missing", DesiredPolicy = new Dictionary<string, string>(), Changes = [],
+            UnityEditorPath = editor,
+            Creation = new(archive, "Fixture", project, editor, "StandaloneWindows64", ["StandaloneWindows64"], [])
+        };
+        var error = await Assert.ThrowsAsync<IOException>(() => driver.ImportAsync(plan, null, CancellationToken.None));
+        Assert.Equal((longPath, timeout) switch
+        {
+            (true, true) => "Unity did not finish and could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details.",
+            (false, true) => "Unity did not finish and could not import some project files. Open the log, fix the errors in Unity, then try again.",
+            (true, false) => "Unity could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details.",
+            _ => "Unity could not import some project files. Open the log, fix the errors in Unity, then try again."
+        }, error.Message);
+        if (timeout) Assert.IsType<TimeoutException>(error.InnerException);
+        Assert.True(UserErrors.IsExpected(error));
+        Assert.True(File.Exists(Path.Combine(project, "Assets", "Editor", "VrcSetupPostImport.cs")));
+    }
+
+    [Fact] public async Task TimeoutWithoutAssetErrorsRetainsTheOriginalFailure()
+    {
+        Directory.CreateDirectory(root);
+        var editor = Path.Combine(root, "Unity.exe"); await File.WriteAllTextAsync(editor, "fixture");
+        var archive = Path.Combine(root, "Avatar.unitypackage"); await File.WriteAllTextAsync(archive, "fixture");
+        var project = Path.Combine(root, "Project");
+        var expected = new TimeoutException("Unity did not exit in time.");
+        var runner = new ToolRunner(commandOverride: async (_, args, _) =>
+        {
+            var log = args[Array.IndexOf(args, "-logFile") + 1];
+            Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+            await File.WriteAllTextAsync(log, "[vrc-setup] Post-import settle complete, quitting.\n");
+            throw expected;
+        });
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var driver = new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths));
+        var plan = new ProjectPlan
+        {
+            Path = project, Name = "Fixture", ExpectedFingerprint = "missing", DesiredPolicy = new Dictionary<string, string>(), Changes = [],
+            UnityEditorPath = editor,
+            Creation = new(archive, "Fixture", project, editor, "StandaloneWindows64", ["StandaloneWindows64"], [])
+        };
+        Assert.Same(expected, await Assert.ThrowsAsync<TimeoutException>(() => driver.ImportAsync(plan, null, CancellationToken.None)));
+    }
+
     [Fact] public async Task IsolatedVerificationNeverRegistersProjectsWithCreatorCompanion()
     {
         var paths = new AppPaths(Path.Combine(root, "home"));
@@ -20,6 +86,22 @@ public sealed class UnityImportDriverTests : IDisposable
         var app = new VrcSetupApplication(paths.Home, ["--no-vcc-registration"]);
         Assert.True(await app.Unity.RegisterAsync(Path.Combine(root, "Fixture"), null, default));
         Assert.True(new VrcSetup.Cli.CommandLine(["--no-vcc-registration"]).Has("no-vcc-registration"));
+    }
+
+    [Theory]
+    [InlineData(0, "Added project C:\\Avatars\\Error Recovery", true)]
+    [InlineData(0, "Added project C:\\Avatars\\Error failed\\Avatar", true)]
+    [InlineData(0, "Completed with 0 error messages", true)]
+    [InlineData(0, "ERROR: registration was rejected", false)]
+    [InlineData(0, "[ERROR] registration was rejected", false)]
+    [InlineData(0, "[12:00:00] ERR: registration was rejected", false)]
+    [InlineData(0, "Failed to register project", false)]
+    [InlineData(0, "Path is not a valid Unity project", false)]
+    [InlineData(0, "Added D:\\Path is not a valid Unity project\\Avatar", true)]
+    [InlineData(1, "", false)]
+    public void CreatorCompanionRegistrationDistinguishesErrorsFromProjectNames(int exitCode, string output, bool expected)
+    {
+        Assert.Equal(expected, UnityProjectDriver.RegistrationSucceeded(new ToolResult(exitCode, output, "")));
     }
 
     [Theory]

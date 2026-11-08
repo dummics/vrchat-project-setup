@@ -29,7 +29,7 @@ public interface IDesktopInteraction
     void CloseApplication();
     Task<bool> InstallApplicationUpdateAsync(string installer, string result) => Task.FromResult(false);
     Task<Dictionary<string, string>?> EditPackagesAsync(string title, Dictionary<string, string> packages, AppConfiguration config, PackageDefinition[] known,
-        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null);
+        Func<string, CancellationToken, Task<PackageDefinition[]>> search, Func<string, CancellationToken, Task<string[]>> versions, PackageInspectionReport? inspection = null, Func<string, CancellationToken, Task<string[]>>? preview = null);
 }
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
@@ -53,7 +53,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial string CurrentPage { get; set; } = "Projects";
     [ObservableProperty] public partial string ProjectFilter { get; set; } = "";
     [ObservableProperty] public partial string PackageFilter { get; set; } = "";
-    [ObservableProperty] public partial string PackageFile { get; set; } = "";
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))] public partial string PackageFile { get; set; } = "";
     [ObservableProperty] public partial string ProjectName { get; set; } = "";
     [ObservableProperty] public partial string SelectedPreset { get; set; } = "My default packages";
     [ObservableProperty] public partial string SelectedRecipe { get; set; } = "No recipe";
@@ -113,22 +113,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (app.AllowBackgroundUpdateChecks) { await ReadPreviousUpdateResultAsync(); _ = RunPeriodicUpdateChecksAsync(); }
         _ = RetryInterruptedPackagesAtStartupAsync();
     }
-    private void LoadSettings()
-    {
-        loadingSettings = true;
-        persistedConfiguration = config.Copy();
-        NotifyLibraryLayout();
-        UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
-        ManualImportPath = config.ManualImportPath;
-        AutoHideCompletedImports = config.AutoHideCompletedImports;
-        CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates;
-        AutomaticUpdateEnabled = config.AutomaticUpdates;
-        SelectedLanguage = config.Language;
-        NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
-        RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ColorPalette = config.ColorPalette; CanvasColor = config.CanvasColor; SurfaceColor = config.SurfaceColor; AccentColor = config.AccentColor; ProjectSort = config.ProjectLibrarySort;
-        DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
-        settingsBaseline = SettingsSnapshot(); loadingSettings = false; NotifySettingsState();
-    }
     private void LoadPresetNames()
     {
         var names = new[] { DefaultPresetKey }.Concat(config.PackagePresets.Keys.Order()).ToArray();
@@ -145,7 +129,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         foreach (var name in Recipes.Where(x => !recipeNames.Contains(x)).ToArray()) Recipes.Remove(name);
         SelectedRecipe = recipe;
         OnPropertyChanged(nameof(EditingPreset)); OnPropertyChanged(nameof(SelectedPreset));
-        OnPropertyChanged(nameof(HasMultiplePresets));
     }
     private async Task LoadRegistry()
     {
@@ -165,6 +148,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
         OnPropertyChanged(nameof(PackageFileLabel));
         creationOverrides = null;
+        selectionSourceIdentity = null;
         _ = InspectCreationPackageAsync(value);
         RefreshCreationPackages();
         if (string.IsNullOrWhiteSpace(value)) return;
@@ -187,7 +171,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         BuildTarget = recipe.BuildTarget; PublishWindows = recipe.PublishingPlatforms.Contains("StandaloneWindows64"); PublishAndroid = recipe.PublishingPlatforms.Contains("Android"); PublishIos = recipe.PublishingPlatforms.Contains("iOS");
         RefreshCreationPackages();
     }
-    private void FilterProjects() { Replace(Projects, ProjectOrdering.Apply(allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase)), ProjectSort)); UpdateProjectState(); }
+    private void FilterProjects()
+    {
+        var visible = allProjects.Where(x => (x.Name + " " + x.Kind + " " + x.UnityVersion).Contains(ProjectFilter, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x with { CreatorCompanionPending = pendingRegistrationPaths.Contains(ProjectRules.NormalizePath(x.Path)), CreatorCompanionUnknown = unknownRegistrationPaths.Contains(ProjectRules.NormalizePath(x.Path)) });
+        Replace(Projects, ProjectOrdering.Apply(visible, ProjectSort)); UpdateProjectState();
+    }
     private void RenderWorkspace()
     {
         var selected = SelectedPackage?.Id;
@@ -215,10 +204,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             var root = config.UnityProjectsRoot; var sort = ProjectSort;
-            var scanned = await Task.Run(() => app.Projects.ScanAsync(root, sort, true, cancellationToken: lifetime.Token), lifetime.Token);
+            var scanned = await Task.Run(async () => IncludePendingProjectFolders(
+                await app.Projects.ScanAsync(root, sort, true, cancellationToken: lifetime.Token), app.Imports.Snapshot(), root), lifetime.Token);
             if (root != config.UnityProjectsRoot || sort != ProjectSort) return;
             allProjects = scanned; FilterProjects(); Status = $"{allProjects.Length} projects";
-            try { await app.Catalog.RememberProjectPackagesAsync(allProjects, lifetime.Token); }
+            try { await app.Catalog.RememberProjectPackagesAsync(allProjects.Where(x => !x.InitializationPending).ToArray(), lifetime.Token); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Project package index", error.Message, error); }
         }
         catch when (!Directory.Exists(config.UnityProjectsRoot)) { allProjects = []; FilterProjects(); throw; }
@@ -250,8 +240,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         foreach (var initial in allProjects.Where(x => x.Incomplete && x.PackageRetrySafe && x.MissingPackages.Length > 0).ToArray())
         {
-            if (lifetime.IsCancellationRequested || IsBusy || IsApplyingPackages || IsInstallingUpdate) return;
-            if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(initial.Path, StringComparison.OrdinalIgnoreCase)))) continue;
+            if (lifetime.IsCancellationRequested || IsClosingApp || IsBusy || IsApplyingPackages || IsInstallingUpdate) return;
+            if (ImportBlocksAutomaticRetry(initial.Path)) continue;
             if (!automaticPackageRetries.Add(initial.Path)) continue;
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             applyingSession = new PackageEditSession([initial], config, []); operation = cancellation;
@@ -261,12 +251,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 var fresh = await app.Projects.ReadAsync(initial.Path, cancellation.Token);
                 if (!fresh.Incomplete || !fresh.PackageRetrySafe || fresh.MissingPackages.Length == 0) continue;
                 if (fresh.MissingPackages.Contains("com.poiyomi.pro", StringComparer.OrdinalIgnoreCase) && Directory.Exists(Path.Combine(fresh.Path, "Assets", "_PoiyomiShaders"))) continue;
-                if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(fresh.Path, StringComparison.OrdinalIgnoreCase)))) continue;
+                if (ImportBlocksAutomaticRetry(fresh.Path)) continue;
                 var selected = fresh.MissingPackages.ToDictionary(id => id, id => fresh.Packages.GetValueOrDefault(id) ?? "latest", StringComparer.OrdinalIgnoreCase);
                 var plan = await Task.Run(() => app.Planner.PlanBulkAsync([fresh.Path], selected, config.Copy(), cancellationToken: cancellation.Token));
                 if (plan.Projects.Any(p => p.Changes.Any(c => c.Kind != ChangeKind.Keep && !fresh.MissingPackages.Contains(c.Id, StringComparer.OrdinalIgnoreCase)) || p.LegacyAssetPaths.Any(x => File.Exists(Path.Combine(p.Path, x)) || Directory.Exists(Path.Combine(p.Path, x)))) || PackageDowngrades.RequiresConfirmation(plan))
                     throw new InvalidOperationException("Retry needs additional package changes. Review the project before continuing.");
-                if (app.Imports.Snapshot().Any(job => job.Active && job.Plan.Projects.Any(p => p.Path.Equals(fresh.Path, StringComparison.OrdinalIgnoreCase)))) continue;
+                if (IsClosingApp || ImportBlocksAutomaticRetry(fresh.Path)) continue;
                 applyingProjects = plan.Projects;
                 var report = await Run(plan, cancellation);
                 if (report.Success)
@@ -283,6 +273,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
     public async Task OpenProjectsAsync(ProjectSnapshot[] projects, bool reload = false)
     {
+        if (projects.Any(x => x.InitializationPending))
+        { ApplicationNotice = UiText.Text("Finish the import from the project warning before managing its packages."); return; }
         if (IsApplyingPackages && !(reload && ReferenceEquals(session, applyingSession)) && applyingSession?.Projects.Any(x => projects.Any(y => x.Path.Equals(y.Path, StringComparison.OrdinalIgnoreCase))) == true)
         { Status = "These projects are being updated. You can manage other projects in the meantime."; return; }
         if (!reload && CurrentPage == "Workspace" && session?.MatchesProjects(projects) == true)
@@ -304,7 +296,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(WorkspaceAttention)); OnPropertyChanged(nameof(WorkspaceAttentionVisibility)); OnPropertyChanged(nameof(MissingPackagesActionVisibility));
         WorkspaceTitle = projects.Length == 1 ? projects[0].Name : string.Format(UiText.Text("{0} projects"), projects.Length); PackageFilter = ""; LibraryFilter = ""; FavoritesOnly = false; BrowsingProjectPackages = true; RenderWorkspace(); RefreshLibraryRows(); CurrentPage = "Workspace";
         if (!reload && fresh.Count == 1 && fresh[0].Incomplete && fresh[0].PackageRetrySafe && fresh[0].MissingPackages.Length > 0 &&
-            !IsBusy && !IsApplyingPackages && !ProjectImportsActive([fresh[0].Path]) && automaticPackageRetries.Add(fresh[0].Path))
+            !IsClosingApp && !IsBusy && !IsApplyingPackages && !ImportBlocksAutomaticRetry(fresh[0].Path) && automaticPackageRetries.Add(fresh[0].Path))
             await RetryMissingPackages();
     }
     [RelayCommand] private async Task TogglePackage() => await Guard(async () =>
@@ -451,8 +443,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(UseImportPresetVisibility)); OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility));
     });
     private Dictionary<string, string>? creationOverrides;
-    [RelayCommand] private async Task CreateProject()
+    [RelayCommand(CanExecute = nameof(CanPrepareImportReview))] private async Task CreateProject()
     {
+        if (IsClosingApp || IsPreparingImport || IsInspectingPackage) return;
         ImportError = "";
         if (ImportDrafts.Count == 0 && string.IsNullOrWhiteSpace(PackageFile)) { ImportError = "Choose a UnityPackage. For an empty project, use Projects → New project."; return; }
         if (IsInstallingUpdate || IsBusy && !IsApplyingPackages) { ImportError = "Wait for the current operation to finish, then try again."; return; }
@@ -460,15 +453,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             await actionGate.WaitAsync(lifetime.Token);
-            try { await QueueCreationAsync(); }
+            try { if (!IsClosingApp) await QueueCreationAsync(); }
             finally { actionGate.Release(); }
         }
         catch (OperationCanceledException) { ImportError = "Import preparation cancelled. Your files are still selected."; }
         catch (Exception error)
         {
             app.Diagnostics.Write("Import review", error.Message, error);
-            ImportError = error.Message;
-            AppendActivity(new(DateTime.UtcNow, "Error", error.Message, EventSeverity.Error));
+            ImportError = UserErrors.Message(error, PackageDisplayName);
+            ImportErrorNeedsDiagnostics = !UserErrors.IsExpected(error);
+            AppendActivity(new(DateTime.UtcNow, "Error", DeveloperMode ? error.ToString() : ImportError, EventSeverity.Error));
         }
         finally { IsPreparingImport = false; }
     }
@@ -526,7 +520,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     });
     private async Task<Dictionary<string, string>?> EditPackageSet(Dictionary<string, string> working, string title)
     {
-        return await ui.EditPackagesAsync(title, working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync);
+        return await ui.EditPackagesAsync(title, working, config, await app.Catalog.KnownAsync(config, [working]), app.Catalog.SearchAsync, app.Catalog.GetVersionsAsync, preview: app.Catalog.GetVersionsForPreviewAsync);
     }
     [RelayCommand] private async Task FavoriteDefinition() => await Guard(async () =>
     {
@@ -570,38 +564,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (restart) await ui.RestartApplicationAsync();
         else if (LanguageRestartVisibility == Microsoft.UI.Xaml.Visibility.Visible) Status = "Language saved. It will apply the next time you open the app.";
     });
-    private async Task SaveSettingsCoreAsync()
-    {
-        if (!RequireImportsIdle()) throw new InvalidOperationException("Imports are in progress.");
-        // Validate the entire form before changing the working configuration.
-        if (!string.IsNullOrWhiteSpace(UnityEditorPath) && !UnityEditorPath.Equals(config.UnityEditorPath, StringComparison.OrdinalIgnoreCase))
-            UnityProjectDriver.ValidateEditor(ProjectRules.NormalizePath(UnityEditorPath));
-        if (setupMode && (!EditorReady || string.IsNullOrWhiteSpace(ProjectsRoot))) throw new InvalidOperationException("Choose Unity and a projects folder to continue.");
-        var patterns = NamingPatterns.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var pattern in patterns) _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
-        _ = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
-        _ = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? "" : ProjectRules.NormalizePath(ExtraImportsFolder);
-        var previous = config.Copy();
-        try
-        {
-        config.ManualImportPath = ManualImportPath;
-        config.AutoHideCompletedImports = AutoHideCompletedImports;
-        config.CheckUpdatesOnStartup = CheckUpdatesOnStartup; config.IncludeBetaUpdates = IncludeBetaUpdates;
-        config.AutomaticUpdates = AutomaticUpdateEnabled;
-        config.Language = SelectedLanguage;
-        config.UnityEditorPath = string.IsNullOrWhiteSpace(UnityEditorPath) ? "" : ProjectRules.NormalizePath(UnityEditorPath);
-        config.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
-        config.UnityPackagesFolder = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? null : ProjectRules.NormalizePath(ExtraImportsFolder);
-        config.Naming = new() { DefaultPrefix = NamingPrefix, DefaultSuffix = NamingSuffix, RegexRemovePatterns = patterns.ToList(), RememberUnityPackageNames = RememberNames }; config.Theme = Theme;
-        config.ColorPalette = ColorPalette; config.CanvasColor = CanvasColor; config.SurfaceColor = SurfaceColor; config.AccentColor = AccentColor;
-        config.Diagnostics = new() { DeveloperMode = DeveloperMode, Verbose = VerboseDiagnostics, TraceTools = TraceTools }; app.Diagnostics.Configure(config.Diagnostics);
-        await PersistConfigurationAsync();
-        }
-        catch { config = previous; app.Diagnostics.Configure(config.Diagnostics); throw; }
-        var wasSetup = setupMode; setupMode = false; settingsBaseline = SettingsSnapshot(); NotifySettingsState(); Status = "Settings saved";
-        if (wasSetup) CurrentPage = "Projects";
-        if (!string.IsNullOrWhiteSpace(config.UnityProjectsRoot)) await RefreshProjectsCore();
-    }
     [RelayCommand] private async Task PickEditor() => await Guard(async () =>
     { if (await ui.PickFileAsync(".exe") is { } file) await SetEditorAsync(file); });
     [RelayCommand] private async Task PickProjectsRoot() => await Guard(async () =>
@@ -658,21 +620,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async Task LaunchUnityAsync(string project)
     {
         if (!Directory.Exists(project)) throw new IOException("Project folder is unavailable: " + project);
+        if (!File.Exists(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt")))
+        { ApplicationNotice = UiText.Text("Finish the import from the project warning before opening Unity."); return; }
         if (ProjectApplyActive([project]) || ProjectImportsActive([project])) return;
         if (!await FindEditorAsync(true)) return;
-        if (app.Projects.IsBusy(project)) { Status = "Project is already open in Unity"; return; }
+        if (app.Projects.IsBusy(project)) { ApplicationNotice = UiText.Text("Project is already open in Unity"); return; }
         var start = new ProcessStartInfo(config.UnityEditorPath) { UseShellExecute = false }; start.ArgumentList.Add("-projectPath"); start.ArgumentList.Add(project); Process.Start(start); await Task.CompletedTask;
     }
     private static void OpenPath(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     private async Task Guard(Func<Task> action, bool allowWhileBusy = false, bool serialize = true)
     {
-        if (IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
+        if (IsClosingApp || IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
         var area = CurrentPage;
         var actionId = Guid.NewGuid().ToString("N");
         if (serialize) await actionGate.WaitAsync(lifetime.Token);
         try
         {
-            if (IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
+            if (IsClosingApp || IsInstallingUpdate || IsBusy && !allowWhileBusy) { Status = "Wait for the current operation to finish, then try again."; return; }
             ErrorMessage = ""; ErrorNeedsDiagnostics = true; ErrorSeverity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error;
             app.Diagnostics.RecordAction(area, actionId, "Started");
             await action();

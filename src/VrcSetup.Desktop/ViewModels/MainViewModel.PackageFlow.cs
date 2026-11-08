@@ -35,7 +35,7 @@ public sealed partial class MainViewModel
     public bool WorkspaceMatchesProject(ProjectSnapshot project) => CurrentPage == "Workspace" && session?.MatchesProjects([project]) == true;
     [RelayCommand] private async Task RetryMissingPackages()
     {
-        if (session?.Projects.Length != 1 || WorkspaceApplying || IsBusy && !IsApplyingPackages) return;
+        if (IsClosingApp || session?.Projects.Length != 1 || WorkspaceApplying || IsBusy && !IsApplyingPackages) return;
         if (session.HasPendingChanges) { ErrorMessage = UiText.Text("Finish or discard pending package changes before retrying."); return; }
         var project = session.Projects[0];
         if (!project.PackageRetrySafe || project.MissingPackages.Length == 0) return;
@@ -63,8 +63,8 @@ public sealed partial class MainViewModel
     }
     public async Task<bool> NavigateAsync(string page)
     {
+        if (navigating || IsClosingApp || IsInstallingUpdate) return false;
         if (page == CurrentPage) return true;
-        if (navigating || IsInstallingUpdate) return false;
         navigating = true;
         try
         {

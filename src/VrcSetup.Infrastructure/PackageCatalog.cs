@@ -68,7 +68,11 @@ public sealed partial class PackageCatalog(AppPaths paths, ToolRunner runner, Co
         return result.Values.Where(x => !PackagePresence.IsGenerated(x.Id)).OrderBy(x => x.DisplayName).ThenBy(x => x.Id).ToArray();
     }
 
-    public async Task<string[]> GetVersionsAsync(string packageId, CancellationToken cancellationToken = default)
+    public Task<string[]> GetVersionsAsync(string packageId, CancellationToken cancellationToken = default)
+        => GetVersionsCoreAsync(packageId, true, cancellationToken);
+    public Task<string[]> GetVersionsForPreviewAsync(string packageId, CancellationToken cancellationToken = default)
+        => GetVersionsCoreAsync(packageId, false, cancellationToken);
+    private async Task<string[]> GetVersionsCoreAsync(string packageId, bool allowSourceRegistration, CancellationToken cancellationToken)
     {
         ProjectRules.ValidatePackageId(packageId);
         if (versionsCache.TryGetValue(packageId, out var cached)) return cached;
@@ -96,7 +100,7 @@ public sealed partial class PackageCatalog(AppPaths paths, ToolRunner runner, Co
             if (metadata.TryGetValue(packageId, out var savedVersions)) versions.UnionWith(savedVersions.Versions);
         }
         if (versions.Count == 0 && registry.TryGetValue(packageId, out var saved)) versions.UnionWith(saved.Versions);
-        if (versions.Count == 0 && await EnsurePackageSourceAsync(packageId, cancellationToken) && paths.VrcGetPath is not null)
+        if (allowSourceRegistration && versions.Count == 0 && await EnsurePackageSourceAsync(packageId, cancellationToken) && paths.VrcGetPath is not null)
         {
             var retried = await runner.RunAsync(paths.VrcGetPath, ["info", "package", packageId, "--json-format", "1"], cancellationToken: cancellationToken);
             if (retried.ExitCode == 0)

@@ -11,6 +11,44 @@ public sealed class PackageInspectionTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "VrcSetup.Inspection.Tests", Guid.NewGuid().ToString("N"));
     private const string A = "11111111111111111111111111111111", B = "22222222222222222222222222222222", C = "33333333333333333333333333333333";
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void IncompleteCoverageDoesNotPromoteAnObservedReferenceToStrongAdvice(bool archiveComplete, bool textComplete)
+    {
+        var observation = new ArchiveObservation(2, 0, 0, archiveComplete, textComplete, [],
+            [new(A, "Assets/Main.prefab", [new(B, "script")], [], false)], 0);
+        var report = DependencyAdvisor.Match(observation, new("fixture", [new(B, "example.package", "1.0.0", "script", "release")]));
+        Assert.Equal(DependencyConfidence.Possible, Assert.Single(report.Suggestions).Confidence);
+        var proposal = Assert.Single(DependencyAdvisor.Propose(new Dictionary<string, string>(), report));
+        Assert.Equal(DependencyProposalKind.ReviewPossible, proposal.Kind);
+        Assert.Null(proposal.ProposedVersion);
+    }
+    [Theory]
+    [InlineData("script", DependencyConfidence.Detected)]
+    [InlineData("shader", DependencyConfidence.Possible)]
+    [InlineData("asset", DependencyConfidence.Possible)]
+    public void StrongDetectionRequiresMatchingSignatureKindAndKeepsObservedVersionsAsProvenance(string kind, DependencyConfidence expected)
+    {
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], [new(A, "Assets/Main.prefab", [new(B, "script"), new(B, "script")], [], false)], 0);
+        var report = DependencyAdvisor.Match(observation, new("fixture", [new(B, "example.package", "1.0.0", kind, "release-one"), new(B, "example.package", "3.0.0", kind, "release-three")]));
+        var hint = Assert.Single(report.Suggestions);
+        Assert.Equal(expected, hint.Confidence); Assert.Null(hint.VersionConstraint);
+        var proof = Assert.Single(hint.Evidence);
+        Assert.Equal(["3.0.0", "1.0.0"], proof.ObservedVersions);
+        Assert.Equal(["release-one", "release-three"], proof.SignatureSources);
+    }
+
+    [Fact] public void GenericAnchorInAnotherAvatarDoesNotEstablishASharedTypedRequirement()
+    {
+        const string other = "44444444444444444444444444444444", anchor = "55555555555555555555555555555555";
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], [
+            new(A, "Assets/PC.prefab", [new(C, "script"), new(B, "script")], [], false),
+            new(other, "Assets/Quest.prefab", [new(C, "script"), new(anchor, "script")], [], false)], 0);
+        var signatures = new SignatureSnapshot("fixture", [new(C, ProjectRules.AvatarSdk, "3.10.5", "script", "sdk"),
+            new(B, "example.package", "1.0.0", "script", "typed"), new(anchor, "example.package", "1.0.0", "asset", "generic")]);
+        Assert.Equal(DependencyConfidence.Possible, DependencyAdvisor.Match(observation, signatures).Suggestions.Single(x => x.Id == "example.package").Confidence);
+    }
     private PackageInspectionService Service(IUnityPackageInspector? reader = null) => new(new AppPaths(Path.Combine(root, "home")), reader);
     private sealed class LimitedReader(string limitation) : IUnityPackageInspector
     {
@@ -54,6 +92,24 @@ public sealed class PackageInspectionTests : IDisposable
         Assert.Equal(new AssetReference(B, "script"), report.Assets.Single().References.Single());
         Assert.False(File.Exists(Path.Combine(root, "escape.prefab")));
     }
+    [Fact] public async Task BinaryAssetsDoNotConsumeTheTextBudgetOrImplyIncompleteAnalysis()
+    {
+        var path = Archive(($"{A}/asset", "BM" + new string('\0', 4096)), ($"{A}/pathname", "Assets/texture.bmp"),
+            ($"{B}/asset", $"%YAML\nm_Script: {{guid: {C}}}"), ($"{B}/pathname", "Assets/Main.prefab"));
+        var observation = await new UnityPackageInspector().ReadAsync(path, new() { EntryTextBytes = 128, TotalTextBytes = 128 }, default);
+        Assert.True(observation.ArchiveComplete);
+        Assert.True(observation.TextComplete);
+        Assert.Empty(observation.Limitations);
+        Assert.Contains(new AssetReference(C, "script"), observation.Assets.Single(x => x.Guid == B).References);
+    }
+    [Fact] public async Task OversizedTextStillReportsIncompleteAnalysis()
+    {
+        var path = Archive(($"{A}/asset", "%YAML\n" + new string(' ', 4096)), ($"{A}/pathname", "Assets/Main.prefab"));
+        var observation = await new UnityPackageInspector().ReadAsync(path, new() { EntryTextBytes = 128 }, default);
+        Assert.True(observation.ArchiveComplete);
+        Assert.False(observation.TextComplete);
+        Assert.True(Assert.Single(observation.Assets).TextPartial);
+    }
     [Fact] public async Task InternalReferencesAreNotExternalDependencies()
     {
         var path = Archive(($"{A}/asset", $"%YAML\nm_Script: {{guid: {B}}}"), ($"{A}/pathname", "Assets/Main.prefab"), ($"{B}/pathname", "Assets/Included.cs"));
@@ -75,14 +131,30 @@ public sealed class PackageInspectionTests : IDisposable
         var report = DependencyAdvisor.Match(observation, new("test", [new(B, "first", "1.0.0", "shader", "test"), new(B, "second", "1.0.0", "shader", "test")]));
         Assert.Equal(2, report.Suggestions.Length); Assert.All(report.Suggestions, x => Assert.Equal(DependencyConfidence.Possible, x.Confidence));
     }
-    [Fact] public async Task CacheRematchesNewSignaturesWithoutReadingTheArchive()
+    [Fact] public async Task CacheRematchesNewSignaturesAfterVerifyingTheArchive()
     {
         var file = Archive(($"{A}/asset", $"%YAML\nm_Script: {{guid: {B}}}"), ($"{A}/pathname", "Assets/Main.prefab"));
         var service = Service(); Assert.Empty((await service.InspectAsync(file)).Suggestions);
         await service.RememberSignaturesAsync([new(B, "example.package", "1.0.0", "script", "test")]);
-        using var denied = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
         var report = await service.InspectAsync(file);
         Assert.True(report.FromCache); Assert.Equal("example.package", report.Suggestions.Single().Id);
+        Assert.NotNull(report.SourceIdentity);
+    }
+    [Fact] public async Task CacheDoesNotTrustReplacedBytesWithTheSameSizeAndTimestamp()
+    {
+        var file = Archive(($"{A}/asset", $"%YAML\nm_Script: {{guid: {B}}}"), ($"{A}/pathname", "Assets/Main.prefab"));
+        var service = Service();
+        var original = await service.InspectAsync(file);
+        Assert.True(original.Observation.ArchiveComplete);
+        var timestamp = File.GetLastWriteTimeUtc(file);
+        var bytes = await File.ReadAllBytesAsync(file);
+        bytes[bytes.Length / 2] ^= 0x40;
+        await File.WriteAllBytesAsync(file, bytes);
+        File.SetLastWriteTimeUtc(file, timestamp);
+        var replaced = await service.InspectAsync(file);
+        Assert.False(replaced.FromCache);
+        Assert.NotEqual(original.SourceIdentity, replaced.SourceIdentity);
+        Assert.Equal(timestamp, File.GetLastWriteTimeUtc(file));
     }
     [Fact] public async Task ManifestRequiresTheCorrectAssetPathAndPreservesRanges()
     {
@@ -111,6 +183,56 @@ public sealed class PackageInspectionTests : IDisposable
         var service = Service(); var report = await service.InspectAsync(file);
         Assert.DoesNotContain(report.Suggestions, x => x.Id == "example.embedded" && x.Confidence == DependencyConfidence.Included);
         Assert.DoesNotContain((await service.LoadIndexAsync()).Signatures, x => x.PackageId == "example.embedded");
+    }
+    [Theory]
+    [InlineData("Assets/Example/package.json", DependencyConfidence.Possible)]
+    [InlineData("Packages/another.package/package.json", DependencyConfidence.Possible)]
+    [InlineData("Packages/example.embedded/package.json", DependencyConfidence.Declared)]
+    public async Task OnlyAnEmbeddedPackageManifestDeclaresARequirement(string manifestPath, DependencyConfidence expected)
+    {
+        var json = "{\"name\":\"example.embedded\",\"version\":\"1.2.3\",\"vpmDependencies\":{\"example.dependency\":\"1.0.0\"}}";
+        var file = Archive(($"{A}/asset", json), ($"{A}/pathname", manifestPath));
+        var report = await Service().InspectAsync(file);
+        var suggestion = Assert.Single(report.Suggestions, x => x.Id == "example.dependency");
+        Assert.Equal(expected, suggestion.Confidence);
+        var proposal = Assert.Single(DependencyAdvisor.Propose(new Dictionary<string, string>(), report), x => x.Id == "example.dependency");
+        Assert.Equal(expected == DependencyConfidence.Declared ? DependencyProposalKind.Add : DependencyProposalKind.ReviewPossible, proposal.Kind);
+        if (expected == DependencyConfidence.Possible)
+            Assert.Equal("latest", Assert.Single(DependencyAdvisor.CombineSelection(new Dictionary<string, string>(), report), x => x.Id == "example.dependency").Version);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PossibleManifestRequirementsCannotChangeADeclaredVersion(bool reverse)
+    {
+        var declared = new InspectedAsset(A, "Packages/example.owner/package.json", [], [], false,
+            new("example.owner", "2.0.0", new() { ["example.dependency"] = "1.0.0" }));
+        var possible = new InspectedAsset(B, "Assets/Example/package.json", [], [], false,
+            new("example.other", "3.0.0", new() { ["example.dependency"] = "9.0.0" }));
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], reverse ? [possible, declared] : [declared, possible], 0);
+        var suggestion = Assert.Single(DependencyAdvisor.Match(observation, new("fixture", [])).Suggestions, x => x.Id == "example.dependency");
+        Assert.Equal(DependencyConfidence.Declared, suggestion.Confidence);
+        Assert.Equal("1.0.0", suggestion.VersionConstraint);
+        Assert.Equal("1.0.0", DependencyAdvisor.SuggestedVersion(suggestion));
+    }
+    [Fact] public void ConflictingEmbeddedDeclarationsDoNotChooseAVersionAutomatically()
+    {
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], [
+            new(A, "Packages/example.one/package.json", [], [], false,
+                new("example.one", "1.0.0", new() { ["example.dependency"] = "1.0.0" })),
+            new(B, "Packages/example.two/package.json", [], [], false,
+                new("example.two", "1.0.0", new() { ["example.dependency"] = "2.0.0" })),
+            new(C, "Packages/example.three/package.json", [], [], false,
+                new("example.three", "1.0.0", new() { ["example.dependency"] = "1.0.0" }))], 0);
+        var report = DependencyAdvisor.Match(observation, new("fixture", []));
+        var suggestion = Assert.Single(report.Suggestions, x => x.Id == "example.dependency");
+        Assert.Equal(DependencyConfidence.Declared, suggestion.Confidence);
+        Assert.Equal("1.0.0 & 2.0.0", suggestion.VersionConstraint);
+        Assert.Null(DependencyAdvisor.SuggestedVersion(suggestion));
+        var proposal = Assert.Single(DependencyAdvisor.Propose(new Dictionary<string, string>(), report), x => x.Id == "example.dependency");
+        Assert.Equal(DependencyProposalKind.Add, proposal.Kind);
+        Assert.Null(proposal.ProposedVersion);
+        Assert.Contains("Choose a version", proposal.Reason);
     }
     [Fact] public async Task EntryAndTextLimitsAreReportedAndDeepHasItsOwnCache()
     {

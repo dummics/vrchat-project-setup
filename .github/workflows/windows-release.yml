@@ -1,5 +1,6 @@
 name: Windows release
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       version:
@@ -65,10 +66,15 @@ jobs:
           VERIFY_ONLY: ${{ inputs.verify_only }}
         run: |
           $sourceVersion = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
-          $version = if ($env:GITHUB_EVENT_NAME -eq 'push') { $sourceVersion } else { $env:REQUESTED_VERSION }
+          $version = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:REQUESTED_VERSION } else { $sourceVersion }
           . ./scripts/ReleaseVersion.ps1
           $version = (Get-ReleaseVersion $version).Text
           if ($sourceVersion -ne $version) { throw 'Release version must match Directory.Build.props. Use scripts/Release.ps1.' }
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            # A candidate must compare lower than the eventual stable release.
+            $version = "$((Get-ReleaseVersion $sourceVersion).Core)-alpha.$env:GITHUB_RUN_NUMBER"
+            $version = (Get-ReleaseVersion $version).Text
+          }
           if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:RELEASE_COMMIT -eq 'true') {
             $tag = & git ls-remote --tags https://github.com/dummics/vrchat-project-setup.git "refs/tags/v$version"
             if ($LASTEXITCODE -ne 0 -or -not $tag -or ($tag -split '\s+')[0] -ne $env:GITHUB_SHA) { throw 'Atomic release tag must match this exact source commit.' }
@@ -105,10 +111,10 @@ jobs:
               $sums = $basis.assets | Where-Object name -eq SHA256SUMS.txt | Select-Object -First 1
               if ($asset -and $sums) {
                 $baseArchive = Join-Path $env:RUNNER_TEMP $name
-                Invoke-WebRequest $asset.browser_download_url -OutFile $baseArchive
-                $content = (Invoke-WebRequest $sums.browser_download_url).Content
-                $checksumText = if ($content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($content) } else { [string]$content }
-                $expected = @($checksumText -split '\n' | Where-Object { $_.Trim().EndsWith('  ' + $name) } | ForEach-Object { ($_.Trim() -split '\s+')[0] })
+                Invoke-WebRequest $asset.browser_download_url -OutFile $baseArchive -MaximumRetryCount 3 -RetryIntervalSec 2
+                $checksumLines = gh api "repos/dummics/vrchat-project-setup/releases/assets/$($sums.id)" -H 'Accept: application/octet-stream'
+                if ($LASTEXITCODE -ne 0) { throw 'Could not download previous release checksums.' }
+                $expected = @($checksumLines | Where-Object { $_.Trim().EndsWith('  ' + $name) } | ForEach-Object { ($_.Trim() -split '\s+')[0] })
                 if ($expected.Count -ne 1 -or (Get-FileHash $baseArchive).Hash -ne $expected[0]) { throw 'Previous archive checksum failed.' }
               }
             }
@@ -119,6 +125,15 @@ jobs:
         run: |
           dotnet run --project tests/VrcSetup.E2E/VrcSetup.E2E.csproj -c Release --property:Platform=x64 -- --verify-fresh-packages (Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64") (Join-Path $env:RUNNER_TEMP 'fresh-packages')
           if ($LASTEXITCODE -ne 0) { throw 'Fresh package verification failed.' }
+      - name: Verify Creator Companion registration on hosted profile
+        shell: pwsh
+        run: |
+          $toolPath = Join-Path $env:RUNNER_TEMP 'vpm-cli'
+          dotnet tool install vrchat.vpm.cli --tool-path $toolPath
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install the official VPM CLI.' }
+          $env:PATH = "$toolPath;$env:PATH"
+          dotnet run --project tests/VrcSetup.E2E/VrcSetup.E2E.csproj -c Release --property:Platform=x64 -- --verify-hosted-vcc (Join-Path $env:RUNNER_TEMP 'vcc-fixture')
+          if ($LASTEXITCODE -ne 0) { throw 'Hosted VCC registration verification failed.' }
       - name: Native UI smoke verification
         shell: pwsh
         run: |
@@ -136,6 +151,39 @@ jobs:
           }
           $result = Get-Content (Join-Path $artifacts 'ui-smoke.json') -Raw | ConvertFrom-Json
           if ($process.ExitCode -ne 0 -or -not $result.Passed) { throw 'Native UI verification failed.' }
+      - name: Verify Italian import layout without Unity configured
+        shell: pwsh
+        run: |
+          $exe = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64/app/desktop/VrcSetup.Desktop.exe"
+          $artifacts = Join-Path $env:RUNNER_TEMP 'vrcsetup-italian-import'
+          $start = [Diagnostics.ProcessStartInfo]::new($exe)
+          $start.UseShellExecute = $false
+          foreach ($argument in @('--smoke-localization', $artifacts, '--smoke-no-editor')) { $start.ArgumentList.Add($argument) }
+          $process = [Diagnostics.Process]::Start($start)
+          if (-not $process.WaitForExit(90000)) { $process.Kill($true); throw 'Italian import verification timed out.' }
+          $failure = Join-Path $artifacts 'failure.txt'
+          if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+          $result = Get-Content (Join-Path $artifacts 'localization.json') -Raw | ConvertFrom-Json
+          if ($process.ExitCode -ne 0 -or -not $result.Passed -or $result.Language -ne 'it') { throw 'Italian import verification failed.' }
+      - name: Verify appearance across restart
+        shell: pwsh
+        run: |
+          $exe = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64/app/desktop/VrcSetup.Desktop.exe"
+          $artifacts = Join-Path $env:RUNNER_TEMP 'vrcsetup-appearance-restart'
+          $ids = @()
+          foreach ($stage in @('save', 'verify')) {
+            $start = [Diagnostics.ProcessStartInfo]::new($exe)
+            $start.UseShellExecute = $false
+            foreach ($argument in @('--verify-appearance-restart', $artifacts, $stage)) { $start.ArgumentList.Add($argument) }
+            $process = [Diagnostics.Process]::Start($start)
+            if (-not $process.WaitForExit(90000)) { $process.Kill($true); throw "Appearance $stage timed out." }
+            $failure = Join-Path $artifacts "appearance-$stage-failure.txt"
+            if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+            $result = Get-Content (Join-Path $artifacts "appearance-$stage.json") -Raw | ConvertFrom-Json
+            if ($process.ExitCode -ne 0 -or -not $result.Passed) { throw "Appearance $stage failed." }
+            $ids += $result.ProcessId
+          }
+          if ($ids[0] -eq $ids[1]) { throw 'Appearance verification did not use a new process.' }
       - name: Build timing summary
         if: always()
         shell: pwsh
@@ -153,6 +201,8 @@ jobs:
           name: native-ui-verification
           path: |
             ${{ runner.temp }}/vrcsetup-ui
+            ${{ runner.temp }}/vrcsetup-appearance-restart
+            ${{ runner.temp }}/vrcsetup-italian-import
             release/release-build.json
             ${{ runner.temp }}/fresh-packages
           if-no-files-found: ignore
@@ -189,8 +239,40 @@ jobs:
           Expand-Archive -LiteralPath $env:UPDATE_BASE_ARCHIVE -DestinationPath $basis
           $full = Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe"
           ./scripts/Test-ApplicationUpdate.ps1 -BasePayload $basis -UpdateInstaller $full -OutputDirectory (Join-Path $env:RUNNER_TEMP 'update-full') -ComponentsDirectory (Join-Path $pwd release)
+      - name: Verify install from candidate archive
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          CANDIDATE_COMMIT: ${{ github.event.pull_request.head.sha }}
+          CANDIDATE_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          $archive = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64.zip"
+          $fixture = Join-Path $env:RUNNER_TEMP 'candidate-archive'
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $fixture)
+          $env:VRCSETUP_SKIP_PATH_UPDATE = '1'
+          $env:VRCSETUP_START_MENU_ROOT = Join-Path $env:RUNNER_TEMP 'candidate-shortcuts'
+          $env:VRCSETUP_HOME = Join-Path $env:RUNNER_TEMP 'candidate-home'
+          $target = Join-Path $env:RUNNER_TEMP 'candidate-install'
+          & (Join-Path $fixture 'app/cli/vrcsetup.exe') install --root $target
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $target 'app/desktop/VrcSetup.Desktop.exe'))) { throw 'Candidate archive installation failed.' }
+          $installed = Get-Content -LiteralPath (Join-Path $target '.vrcsetup-install.json') -Raw | ConvertFrom-Json
+          if ($installed.Version -ne $env:RELEASE_VERSION) { throw 'Candidate installation has the wrong version.' }
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          [IO.File]::WriteAllText((Join-Path $pwd 'release/CANDIDATE-SHA256.txt'), "$hash  $([IO.Path]::GetFileName($archive))`n")
+          @("Pull request candidate $env:RELEASE_VERSION", "Head commit: $env:CANDIDATE_COMMIT", "Build commit: $env:CANDIDATE_BUILD_COMMIT", 'Verify the SHA-256 checksum, extract the ZIP, then run Install VRC Project Setup.bat.', 'This artifact does not publish a release or provide an in-app update feed.') | Set-Content -LiteralPath (Join-Path $pwd 'release/CANDIDATE.txt') -Encoding utf8
+      - name: Preserve installable pull request candidate
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrcsetup-candidate-${{ github.event.pull_request.head.sha }}
+          path: |
+            release/VrcSetup-${{ env.RELEASE_VERSION }}-win-x64.zip
+            release/CANDIDATE-SHA256.txt
+            release/CANDIDATE.txt
+          if-no-files-found: error
+          retention-days: 7
       - name: Create release
-        if: "inputs.verify_only != true && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(release): '))"
+        if: "inputs.verify_only != true && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release): ')))"
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -203,6 +285,7 @@ jobs:
           $assets += 'release/components.json'
           $assets += @(Get-ChildItem release -File -Filter '*.zip' | Where-Object Name -Match '^[a-f0-9]{64}\.zip$' | ForEach-Object FullName)
           $notes = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          $channelNote = if ($env:RELEASE_VERSION.Contains('-')) { 'This is a prerelease for testing.' } else { 'This is a stable release.' }
           @"
           <!-- vrcsetup-download:start -->
           [![Download this version](https://img.shields.io/badge/Download_this_version-Windows_x64-2ea493?style=for-the-badge)](https://github.com/dummics/vrchat-project-setup/releases/download/$tag/Install-VrcSetup-$env:RELEASE_VERSION-win-x64.exe)
@@ -210,9 +293,9 @@ jobs:
 
           Use the button above to install or update this version. Setup preserves your settings. Choose Start/Desktop shortcuts and launch on the final page; automatic updates reopen the app without this step.
 
-          Internet is required for uncached components. The portable ZIP is optional. Hash-named ZIPs and components.json are internal installer assets: you do not need to download them manually. This is a beta for testing.
+          Internet is required for uncached components. The portable ZIP is optional. Hash-named ZIPs and components.json are internal installer assets: you do not need to download them manually. $channelNote
 
-          The app checks periodically while open, prepares supported updates in the background, and installs them on the next launch. Settings > Updates controls automatic updates; the footer still allows an immediate update. Existing installations need to install this version once to enable the new behavior.
+          The app checks periodically while open, prepares supported updates in the background, and installs them on the next launch. Settings > Updates controls automatic updates; the footer also allows an immediate update.
 
           Update checks now use a static feed instead of the GitHub REST API. If an older version reports an API rate limit, download and run the EXE above once; it updates the existing installation and preserves settings.
           "@ | Set-Content -LiteralPath $notes -Encoding utf8

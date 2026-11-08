@@ -33,7 +33,7 @@ public sealed class ImportDestinationInspector(ProjectWorkspace workspace)
                 if (string.IsNullOrWhiteSpace(state.ProjectName))
                     return new(ImportDestinationKind.InvalidState, "The project import state is invalid or newer than this app. Its files have been preserved.");
                 if (!Directory.Exists(Path.Combine(path, "Assets")) || !File.Exists(Path.Combine(path, "Packages", "manifest.json")))
-                    return new(ImportDestinationKind.Partial, "Project creation stopped before Unity initialized it. The partial folder is preserved; review it in Activity before restarting.");
+                    return new(ImportDestinationKind.Partial, "Project creation stopped before Unity initialized it. The partial folder is preserved; open its warning in Projects to continue.");
                 return new(state.Completed ? ImportDestinationKind.Completed : ImportDestinationKind.Recoverable,
                     state.Completed ? "Import completed." : "Choose Continue import to finish this project.", true);
             }
@@ -50,7 +50,7 @@ public sealed class ImportDestinationInspector(ProjectWorkspace workspace)
             catch (ArgumentException) { return new(ImportDestinationKind.InvalidState, "The recorded source path is invalid. Its files have been preserved."); }
             if (!recorded.Equals(source, StringComparison.OrdinalIgnoreCase)) return new(ImportDestinationKind.DifferentSource, "This unfinished project belongs to another source package. Select that file or choose a new project name.");
             if (!Directory.Exists(Path.Combine(path, "Assets")) || !File.Exists(Path.Combine(path, "Packages", "manifest.json")))
-                return new(ImportDestinationKind.Partial, "Project creation stopped before Unity initialized it. The partial folder is preserved; review it in Activity before restarting.");
+                return new(ImportDestinationKind.Partial, "Project creation stopped before Unity initialized it. The partial folder is preserved; open its warning in Projects to continue.");
             return new(ImportDestinationKind.Recoverable, "Complete the existing project by adding missing assets from this package. Existing files stay unchanged.");
         }
     }

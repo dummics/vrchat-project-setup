@@ -217,7 +217,12 @@ public sealed class ConfigurationStore(AppPaths paths)
         config.Diagnostics ??= new();
         config.RequiredPackages ??= [ProjectRules.BaseSdk, ProjectRules.AvatarSdk, ProjectRules.Resolver];
         config.FavoritePackages ??= []; config.DefaultPackages ??= [];
-        config.ProjectLibrarySort = config.ProjectLibrarySort == "name" ? "name" : "recent";
+        config.ProjectLibrarySort = config.ProjectLibrarySort switch
+        {
+            "name" or "name-reverse" or "created" or "created-reverse"
+                or "modified" or "modified-reverse" or "default" or "recent" => config.ProjectLibrarySort,
+            _ => "recent"
+        };
         config.Language = config.Language is "it" or "en" ? config.Language : "system";
     }
 }

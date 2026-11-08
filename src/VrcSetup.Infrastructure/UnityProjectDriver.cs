@@ -7,6 +7,12 @@ namespace VrcSetup.Infrastructure;
 
 public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner, ProjectWorkspace workspace, bool registerProjects = true) : IProjectDriver
 {
+    public async Task<IAsyncDisposable?> HoldImportSourceAsync(ProjectPlan plan, CancellationToken token)
+    {
+        var source = plan.Creation ?? plan.RecoverySource;
+        return source is { EmptyProject: false, SourceIdentity: { } identity }
+            ? await PackageSourceIdentity.OpenVerifiedAsync(source.UnityPackagePath, identity, token) : null;
+    }
     private static readonly SemaphoreSlim preparation = new(1);
     public async Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
@@ -16,7 +22,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
     }
     private async Task PrepareCoreAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
-        if (plan.Creation is not null || plan.RecoverySource is { EmptyProject: true })
+        if (plan.Creation is not null || plan.Initialization is not null || plan.RecoverySource is { EmptyProject: true })
         {
             await UnityProjectTemplate.EnsureBuiltinModulesAsync(plan.Path, plan.UnityEditorPath, cancellationToken);
             var file = Path.Combine(plan.Path, "Packages", "manifest.json");
@@ -84,8 +90,15 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             }
             if (request.EmptyProject) await UnityProjectTemplate.EnsureBuiltinModulesAsync(stage, request.UnityEditorPath, cancellationToken);
             await AtomicFile.WriteJsonAsync(Path.Combine(stage, ".vrcsetup", "state.json"), new SetupState
-            { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
+            { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, CreationId = request.CreationId, CreationRequest = request,
+                CreatedTargetPath = request.CreationId is null ? null : ProjectRules.NormalizePath(request.TargetPath),
+                CreatedDirectoryIdentity = request.CreationId is null ? null : ProjectDirectoryIdentity.TryRead(stage),
+                StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = false } }, cancellationToken);
             Directory.Move(stage, request.TargetPath);
+            var movedState = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(request.TargetPath, ".vrcsetup", "state.json"), cancellationToken);
+            if (movedState?.CreatedDirectoryIdentity is not null
+                && !ProjectCreationReceipt.Matches(request, movedState, ProjectDirectoryIdentity.TryRead(request.TargetPath)))
+                throw new IOException("Project creation location changed. Its files have been preserved.");
         }
         finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
         if (!request.EmptyProject)
@@ -96,8 +109,14 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             if (result.ExitCode != 0 || !Directory.Exists(Path.Combine(request.TargetPath, "Assets")) || !Directory.Exists(Path.Combine(request.TargetPath, "Packages")))
                 throw new IOException("Unity could not create the project. Log: " + log);
         }
-        await AtomicFile.WriteJsonAsync(Path.Combine(request.TargetPath, ".vrcsetup", "state.json"), new SetupState
-        { ProjectName = request.Name, UnityPackagePath = request.UnityPackagePath, StartedAt = DateTime.UtcNow, LastUpdatedAt = DateTime.UtcNow, Steps = new() { ["created"] = true } }, cancellationToken);
+        var stateFile = Path.Combine(request.TargetPath, ".vrcsetup", "state.json");
+        var created = await AtomicFile.ReadJsonAsync<SetupState>(stateFile, cancellationToken)
+            ?? throw new IOException("Project creation state is missing. Its files have been preserved.");
+        if (created.CreationId != request.CreationId || created.ProjectName != request.Name || created.UnityPackagePath != request.UnityPackagePath)
+            throw new IOException("Project creation state changed. Its files have been preserved.");
+        created.LastUpdatedAt = DateTime.UtcNow;
+        created.Steps["created"] = true;
+        await AtomicFile.WriteJsonAsync(stateFile, created, cancellationToken);
     }
 
     public async Task<ToolResult> ChangePackageAsync(string project, PackageChange change, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
@@ -146,6 +165,9 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
     public async Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
         if (!plan.RequiresUnityBatch) return;
+        var checkedSource = plan.Creation ?? plan.RecoverySource;
+        await using var sourceLease = checkedSource is { EmptyProject: false, SourceIdentity: { } expectedSource }
+            ? await PackageSourceIdentity.OpenVerifiedAsync(checkedSource.UnityPackagePath, expectedSource, cancellationToken) : null;
         if (workspace.IsBusy(plan.Path)) throw new IOException("The project is open in Unity. Close it before importing.");
         var editor = plan.UnityEditorPath;
         ValidateEditor(editor);
@@ -184,8 +206,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
         if (imports.Length > 0) arguments.AddRange(["-vrcsetupImportPlan", importPlan]);
         if ((plan.Creation ?? plan.RecoverySource) is { } importSource) arguments.AddRange(["-buildTarget", importSource.BuildTarget]);
         var log = NewUnityLog("import"); arguments.AddRange(["-logFile", log]);
-        var result = await runner.RunAsync(editor, arguments, progress: progress, phase: "Unity import", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(45), logFile: log);
-        await VerifyUnityLogAsync(result, log, cancellationToken);
+        await RunUnityAndVerifyAsync(editor, arguments, log, "Unity import", TimeSpan.FromMinutes(45), progress, cancellationToken);
         }
         finally { foreach (var file in temporary) if (File.Exists(file)) File.Delete(file); }
     }
@@ -197,14 +218,43 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
         var log = NewUnityLog("settle");
         var arguments = new List<string> { "-projectPath", plan.Path, "-executeMethod", "VrcSetupPostImport.Run", "-batchmode", "-logFile", log };
         if ((plan.Creation ?? plan.RecoverySource) is { } source) arguments.AddRange(["-buildTarget", source.BuildTarget]);
-        var result = await runner.RunAsync(editor, arguments, progress: progress, phase: "Unity settle", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(15), logFile: log);
-        await VerifyUnityLogAsync(result, log, cancellationToken);
+        await RunUnityAndVerifyAsync(editor, arguments, log, "Unity settle", TimeSpan.FromMinutes(15), progress, cancellationToken);
+    }
+    private async Task RunUnityAndVerifyAsync(string editor, List<string> arguments, string log, string phase, TimeSpan timeout, IProgress<OperationEvent>? progress, CancellationToken token)
+    {
+        ToolResult result;
+        try { result = await runner.RunAsync(editor, arguments, progress: progress, phase: phase, cancellationToken: token, timeout: timeout, logFile: log); }
+        catch (TimeoutException error)
+        {
+            string? message = null;
+            try { if (File.Exists(log)) message = AssetImportError(await SharedLog.ReadAsync(log, token), timedOut: true); }
+            catch (Exception readError) when (readError is IOException or UnauthorizedAccessException) { }
+            if (message is not null) throw new IOException(message, error);
+            throw;
+        }
+        await VerifyUnityLogAsync(result, log, token);
     }
     private static async Task VerifyUnityLogAsync(ToolResult result, string log, CancellationToken token)
     {
         var output = File.Exists(log) ? await SharedLog.ReadAsync(log, token) : "";
+        if (AssetImportError(output, timedOut: false) is { } importError) throw new IOException(importError);
         if (result.ExitCode != 0 || !output.Contains("[vrc-setup] Post-import settle complete", StringComparison.Ordinal) || Regex.IsMatch(output, @"(?im)(^.*error CS\d+|Script compilation failed|Import failed:|Import cancelled:|project remains incomplete|Fatal Error|Crash!!!)"))
             throw new IOException("Unity import or compilation did not complete. Project remains incomplete. Log: " + log);
+    }
+    private static string? AssetImportError(string output, bool timedOut)
+    {
+        if (Regex.IsMatch(output, @"(?im)^\s*Asset import failed(?:,|:)"))
+        {
+            var longPaths = Regex.Matches(output, @"(?im)^\s*Asset import failed[^\r\n]*DirectoryNotFoundException[^\r\n]*?""([^""]+)""")
+                .Cast<Match>().Any(match => match.Groups[1].Value.Length >= 260);
+            if (timedOut) return longPaths
+                ? "Unity did not finish and could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details."
+                : "Unity did not finish and could not import some project files. Open the log, fix the errors in Unity, then try again.";
+            return longPaths
+                ? "Unity could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details."
+                : "Unity could not import some project files. Open the log, fix the errors in Unity, then try again.";
+        }
+        return null;
     }
     public async Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
@@ -216,7 +266,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
         try
         {
             var result = await runner.VpmAsync(["add", "project", project], progress: progress, cancellationToken: cancellationToken);
-            var success = !ProjectRules.ToolFailed(result) && !Regex.IsMatch(result.Output, @"(?im)\b(ERR|ERROR)\b");
+            var success = RegistrationSucceeded(result);
             if (!success) progress?.Report(new(DateTime.UtcNow, "VCC", "Creator Companion registration did not complete.", EventSeverity.Warning, project, result.Output));
             return success;
         }
@@ -226,6 +276,8 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             return false;
         }
     }
+    public static bool RegistrationSucceeded(ToolResult result) => result.ExitCode == 0
+        && !Regex.IsMatch(result.Output, @"(?im)^\s*(?:\[(?!(?:ERR|ERROR)\])[\w :.+-]+\]\s*)?(?:\[(?:ERR|ERROR)\]|(?:ERR|ERROR)\s*:|(?:ERR|ERROR)\s*$|(?:failed|unable|could not) to (?:add|register)\b|path is not a valid unity project\b)");
     private string NewUnityLog(string phase)
     {
         Directory.CreateDirectory(paths.Logs); return Path.Combine(paths.Logs, $"unity-{phase}-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.log");

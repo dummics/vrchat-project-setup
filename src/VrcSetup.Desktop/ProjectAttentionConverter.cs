@@ -8,7 +8,11 @@ public sealed class ProjectAttentionConverter : IValueConverter
 {
     public static string Description(ProjectSnapshot project)
     {
-        var message = UiText.Text(project.IncompleteStep == "vpm" ? "The last package change did not finish. Check the packages and recent activity." : project.Incomplete ? "An operation on this project did not finish. Check its packages and recent activity." : "This project needs attention. Check its packages and recent activity.");
+        if (project.CreatorCompanionUnknown && !project.Incomplete && project.MissingPackages.Length == 0)
+            return UiText.Text("Your project is ready. Check whether it appears in Creator Companion; if needed, add it there as an existing project. You do not need to import it again.");
+        if (project.CreatorCompanionPending && !project.Incomplete && project.MissingPackages.Length == 0)
+            return UiText.Text("Your project is ready. It was not added to Creator Companion. Retry here, or add it there as an existing project. You do not need to import it again.");
+        var message = UiText.Text(project.IncompleteStep == "vpm" ? "The last package change did not finish. Your project was kept. Review its packages before continuing." : project.Incomplete ? "An operation on this project did not finish. Your project was kept. Review the project before continuing." : "This project needs attention. Review its packages before continuing.");
         if (project.MissingPackages.Length > 0)
             message += "\n" + string.Format(UiText.Text(project.PackageRetrySafe ? "Not installed: {0}. Try again to restore the missing packages." : "Packages not found: {0}"), string.Join(", ", project.MissingPackages.Select(VrcSetup.Infrastructure.PackageCatalog.FriendlyName)));
         if (project.MissingPackages.Contains("com.poiyomi.pro", StringComparer.OrdinalIgnoreCase))
@@ -19,7 +23,7 @@ public sealed class ProjectAttentionConverter : IValueConverter
     {
         if (value is not ProjectSnapshot project) return Visibility.Collapsed;
         if (parameter?.ToString() == "Label") return project.Incomplete ? "Setup unfinished" : project.Status;
-        return project.Incomplete || project.Status != "Ready" || project.MissingPackages.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        return project.CreatorCompanionPending || project.CreatorCompanionUnknown || project.Incomplete || project.Status != "Ready" || project.MissingPackages.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }

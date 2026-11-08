@@ -16,9 +16,13 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
 
     public Task<ProjectSnapshot> ReadAsync(string path, CancellationToken cancellationToken = default) => Task.Run(() => Read(path, cancellationToken), cancellationToken);
     public ProjectSnapshot Read(string path, CancellationToken cancellationToken = default)
+        => ReadCore(path, false, cancellationToken);
+    public ProjectSnapshot ReadPartial(string path, CancellationToken cancellationToken = default)
+        => ReadCore(path, true, cancellationToken);
+    private ProjectSnapshot ReadCore(string path, bool partial, CancellationToken cancellationToken)
     {
         path = ProjectRules.NormalizePath(path);
-        if (!Directory.Exists(Path.Combine(path, "Assets")) || !Directory.Exists(Path.Combine(path, "Packages"))) throw new IOException($"Not a Unity project: {path}");
+        if (!Directory.Exists(path) || (!partial && (!Directory.Exists(Path.Combine(path, "Assets")) || !Directory.Exists(Path.Combine(path, "Packages"))))) throw new IOException($"Not a Unity project: {path}");
         cancellationToken.ThrowIfCancellationRequested();
         var direct = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var locked = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -37,7 +41,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             }
             catch (JsonException) { status = "Invalid VPM manifest"; }
         }
-        foreach (var folder in Directory.EnumerateDirectories(Path.Combine(path, "Packages")))
+        foreach (var folder in Directory.Exists(Path.Combine(path, "Packages")) ? Directory.EnumerateDirectories(Path.Combine(path, "Packages")) : [])
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (new DirectoryInfo(folder).Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
@@ -128,7 +132,8 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
         }
         return new() { Path = path, Name = Path.GetFileName(path), Kind = kind, UnityVersion = unityVersion, UnityVersionSource = versionSource, PackageMetadataSource = source,
             Status = status, LastUpdatedUtc = updated, CreatedUtc = Directory.GetCreationTimeUtc(path), Fingerprint = Fingerprint(path), Packages = direct, LockedPackages = locked, InstalledVersions = installed, PackageDisplayNames = displayNames,
-            Incomplete = incomplete, IncompleteStep = incompleteStep, PackageRetrySafe = packageRetrySafe, MissingPackages = direct.Keys.Where(id => !PackagePresence.IsGenerated(id) && !installed.ContainsKey(id)).ToArray(), PresetName = preset, ProfileModified = modified, PresetChanged = presetChanged, Policy = policy, ConfigurationFingerprint = AtomicFile.Hash(paths.ConfigFile) };
+            Incomplete = incomplete, InitializationPending = partial || incomplete && (!Directory.Exists(Path.Combine(path, "Assets")) || !File.Exists(Path.Combine(path, "Packages", "manifest.json")) || !File.Exists(Path.Combine(path, "ProjectSettings", "ProjectVersion.txt"))),
+            IncompleteStep = incompleteStep, PackageRetrySafe = packageRetrySafe, MissingPackages = direct.Keys.Where(id => !PackagePresence.IsGenerated(id) && !installed.ContainsKey(id)).ToArray(), PresetName = preset, ProfileModified = modified, PresetChanged = presetChanged, Policy = policy, ConfigurationFingerprint = AtomicFile.Hash(paths.ConfigFile) };
     }
 
     public static JsonElement? TryProperty(JsonElement element, string property)
@@ -178,10 +183,10 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
                 try
                 {
                     var state = await AtomicFile.ReadJsonAsync<SetupState>(Path.Combine(item.Path, ".vrcsetup", "state.json"), cancellationToken);
-                    if (state is { Completed: false }) result.Add(new() { Path = item.Path, Name = Path.GetFileName(item.Path), Status = "Incomplete", Incomplete = true, Fingerprint = Fingerprint(item.Path), LastUpdatedUtc = state.LastUpdatedAt });
+                    if (state is { Completed: false }) result.Add(new() { Path = item.Path, Name = Path.GetFileName(item.Path), Status = "Incomplete", Incomplete = true, InitializationPending = true, Fingerprint = Fingerprint(item.Path), LastUpdatedUtc = state.LastUpdatedAt });
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
-                { diagnostics?.Write("Project state", item.Path, error); result.Add(new() { Path = item.Path, Name = Path.GetFileName(item.Path), Status = "Needs attention", Incomplete = true }); }
+                { diagnostics?.Write("Project state", item.Path, error); result.Add(new() { Path = item.Path, Name = Path.GetFileName(item.Path), Status = "Needs attention", Incomplete = true, InitializationPending = true }); }
                 continue;
             }
             if (Directory.Exists(Path.Combine(item.Path, "Assets")) && Directory.Exists(Path.Combine(item.Path, "Packages")))
@@ -297,7 +302,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
     {
         project = ProjectRules.NormalizePath(project);
         ProjectRules.EnsureContained(Path.Combine(project, ".vrcsetup", "backups"), backup.Directory);
-        if (File.Exists(Path.Combine(backup.Directory, "superseded"))) throw new IOException("A newer successful change replaced this recovery copy. Use the latest backup in Activity.");
+        if (File.Exists(Path.Combine(backup.Directory, "superseded"))) throw new IOException("A newer successful change replaced this recovery copy. Choose the latest backup in project options.");
         if (IsBusy(project)) return false;
         if (backup.ManifestFiles.Keys.Any(x => !ManifestNames.Contains(x))) throw new IOException("Backup contains an unexpected manifest destination.");
         foreach (var file in backup.ManifestFiles)
@@ -436,6 +441,13 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
 
 public sealed class SetupState
 {
+    // Written at creation so a lost import journal does not also lose the
+    // source, target platform and archive identity. This is recovery evidence,
+    // not authority to overwrite a project without the creation receipt.
+    public CreationRequest? CreationRequest { get; set; }
+    public string? CreationId { get; set; }
+    public string? CreatedTargetPath { get; set; }
+    public ProjectDirectoryIdentity? CreatedDirectoryIdentity { get; set; }
     public int SchemaVersion { get; set; } = 2;
     public string ProjectName { get; set; } = "";
     public string UnityPackagePath { get; set; } = "";

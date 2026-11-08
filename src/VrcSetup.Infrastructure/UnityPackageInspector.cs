@@ -51,12 +51,14 @@ public sealed partial class UnityPackageInspector : IUnityPackageInspector
                     asset.Path = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF').Split('\n')[0].TrimEnd('\r'); continue;
                 }
                 if (kind is not ("asset" or "asset.meta")) continue;
-                if (entry.Length > options.EntryTextBytes || entry.Length > options.TotalTextBytes - textBytes)
-                { asset.Partial = true; continue; }
                 var prefix = await ReadBounded(entry.DataStream, (int)Math.Min(512, entry.Length), token);
                 if (prefix.Contains((byte)0)) continue;
                 var start = Encoding.UTF8.GetString(prefix).TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
                 if (kind == "asset" && !new[] { "%YAML", "{", "[", "using ", "namespace ", "//", "#", "Shader", "fileFormatVersion" }.Any(start.StartsWith)) continue;
+                // The text budget applies to text, not large binary textures or meshes.
+                // Read the bounded header first even when pathname comes later in the tar.
+                if (entry.Length > options.EntryTextBytes || entry.Length > options.TotalTextBytes - textBytes)
+                { asset.Partial = true; continue; }
                 var remaining = await ReadBounded(entry.DataStream, (int)entry.Length - prefix.Length, token);
                 var data = Encoding.UTF8.GetString(prefix) + Encoding.UTF8.GetString(remaining); textBytes += entry.Length;
                 var typed = TypedGuids().Matches(data).ToDictionarySafe();

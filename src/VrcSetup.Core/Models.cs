@@ -118,6 +118,9 @@ public sealed record CreationRecipe
 
 public sealed record ProjectSnapshot
 {
+    public bool CreatorCompanionPending { get; init; }
+    public bool CreatorCompanionUnknown { get; init; }
+    public bool InitializationPending { get; init; }
     public required string Path { get; init; }
     public required string Name { get; init; }
     public string Kind { get; init; } = "Unity";
@@ -164,7 +167,10 @@ public sealed record OperationEvent(DateTime Timestamp, string Phase, string Mes
 {
     public PackageChange? Package { get; init; }
 }
-public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null);
+public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null)
+{
+    public bool CreatorCompanionPending { get; init; }
+}
 public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOutcome[] Results, string[] NotProcessed, string? ReportFile = null)
 {
     public OperationPlan? Plan { get; init; }
@@ -172,9 +178,30 @@ public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOu
     public bool Cancelled => NotProcessed.Length > 0 || Results.Any(x => x.Status == OperationStatus.Cancelled);
 }
 
-public sealed record CreationRequest(string UnityPackagePath, string Name, string TargetPath, string UnityEditorPath, string BuildTarget, string[] PublishingPlatforms, string[] ExtraImports, bool EmptyProject = false);
+public sealed record PackageIdentity(long Length, string Sha256);
+public sealed record CreationRequest(string UnityPackagePath, string Name, string TargetPath, string UnityEditorPath, string BuildTarget, string[] PublishingPlatforms, string[] ExtraImports, bool EmptyProject = false)
+{
+    public PackageIdentity? SourceIdentity { get; init; }
+    public Dictionary<string, string>? RecoveryPolicy { get; init; }
+    // Assigned only when planning a new creation; legacy/recovery inputs stay unattributed.
+    public string? CreationId { get; init; }
+    public bool MatchesInputs(CreationRequest? other) => other is not null && CreationId == other.CreationId && SourceIdentity == other.SourceIdentity && PoliciesMatch(RecoveryPolicy, other.RecoveryPolicy) && Name == other.Name
+        && EmptyProject == other.EmptyProject && BuildTarget == other.BuildTarget
+        && string.Equals(UnityPackagePath, other.UnityPackagePath, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(TargetPath, other.TargetPath, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(UnityEditorPath, other.UnityEditorPath, StringComparison.OrdinalIgnoreCase)
+        && PublishingPlatforms.SequenceEqual(other.PublishingPlatforms, StringComparer.OrdinalIgnoreCase)
+        && ExtraImports.SequenceEqual(other.ExtraImports, StringComparer.OrdinalIgnoreCase);
+    private static bool PoliciesMatch(Dictionary<string, string>? first, Dictionary<string, string>? second) =>
+        first is null ? second is null : second is not null && first.Count == second.Count &&
+        first.All(pair => second.TryGetValue(pair.Key, out var value) && string.Equals(pair.Value, value, StringComparison.Ordinal));
+}
+public sealed record PartialProjectInitialization(CreationRequest Source, string ExpectedDirectoryIdentity,
+    IReadOnlyDictionary<string, string> ExistingFileFingerprints);
+
 public sealed record ProjectPlan
 {
+    public PartialProjectInitialization? Initialization { get; init; }
     public required string Path { get; init; }
     public required string Name { get; init; }
     public required string ExpectedFingerprint { get; init; }
@@ -226,6 +253,9 @@ public interface IProjectWorkspace
 
 public interface IProjectDriver
 {
+    Task<IAsyncDisposable?> HoldImportSourceAsync(ProjectPlan plan, CancellationToken token) => Task.FromResult<IAsyncDisposable?>(null);
+    Task InitializePartialAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) =>
+        throw new NotSupportedException("Partial project initialization is not available in this driver.");
     Task<IAsyncDisposable?> BeginPackageChangesAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) => Task.FromResult<IAsyncDisposable?>(null);
     Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);

@@ -84,13 +84,16 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
         catch (OperationCanceledException)
         {
             try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
-            try { await process.WaitForExitAsync(CancellationToken.None); await Task.WhenAll(outputTask, errorTask); } catch (IOException) { }
+            try { await process.WaitForExitAsync(CancellationToken.None); await Task.WhenAll(outputTask, errorTask); }
+            catch (OperationCanceledException) when (linked.IsCancellationRequested) { }
+            catch (IOException) { }
             if (!cancellationToken.IsCancellationRequested) throw new TimeoutException($"{phase} exceeded its timeout after {DateTime.UtcNow - startTime:g}.");
             throw;
         }
         async Task Capture(StreamReader reader, StringBuilder target)
         {
-            while (await reader.ReadLineAsync() is { } line) { target.AppendLine(line); Emit(line); }
+            // A descendant can retain a redirected pipe even after the root process exits.
+            while (await reader.ReadLineAsync(linked.Token) is { } line) { target.AppendLine(line); Emit(line); }
         }
         void Emit(string line)
         {

@@ -26,6 +26,26 @@ public sealed class CliProcessTests : IDisposable
     {
         var result = await Run("projects", "--invalid-option"); Assert.Equal(1, result.ExitCode); Assert.Contains("Unknown option", result.StdErr);
     }
+    [Fact] public async Task InspectAdviceReturnsTheDocumentedProposalEnvelope()
+    {
+        var archive = Path.Combine(root, "empty.unitypackage");
+        using (var file = File.Create(archive))
+        using (var gzip = new System.IO.Compression.GZipStream(file, System.IO.Compression.CompressionMode.Compress))
+        using (var tar = new System.Formats.Tar.TarWriter(gzip))
+        {
+            foreach (var (name, text) in new[] { ("pathname", "Assets/Fixture.prefab"), ("asset", "%YAML 1.1\n--- !u!1 &1\nGameObject:\n  m_Name: Fixture\n") })
+            {
+                using var content = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text));
+                tar.WriteEntry(new System.Formats.Tar.PaxTarEntry(System.Formats.Tar.TarEntryType.RegularFile, "11111111111111111111111111111111/" + name) { DataStream = content });
+            }
+        }
+        var result = await Run("inspect", archive, "--deep", "--json", "--advice", "--no-catalog-refresh", "--no-vcc-registration");
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.StdOut);
+        Assert.Equal(1, json.RootElement.GetProperty("AdviceSchema").GetInt32());
+        Assert.True(json.RootElement.GetProperty("Inspection").GetProperty("Observation").GetProperty("ArchiveComplete").GetBoolean());
+        Assert.Equal(JsonValueKind.Array, json.RootElement.GetProperty("Proposals").ValueKind);
+    }
     [Fact] public async Task ReadonlyJsonProjectAndPackageContractsKeepTheirFields()
     {
         var project = Path.Combine(root, "Project [PC] & café"); Directory.CreateDirectory(Path.Combine(project, "Assets")); Directory.CreateDirectory(Path.Combine(project, "Packages")); Directory.CreateDirectory(Path.Combine(project, "ProjectSettings"));

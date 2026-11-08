@@ -4,6 +4,7 @@
     <Compile Include="../../src/VrcSetup.Bootstrapper/ComponentDelivery.cs" Link="Bootstrapper/ComponentDelivery.cs" />
     <ProjectReference Include="../../src/VrcSetup.Infrastructure/VrcSetup.Infrastructure.csproj" />
     <ProjectReference Include="../../src/VrcSetup.Cli/VrcSetup.Cli.csproj" />
+    <ProjectReference Include="../Fixtures/UnityEditorMetadata/UnityEditorMetadata.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5"><PrivateAssets>all</PrivateAssets></PackageReference>

@@ -7,7 +7,7 @@ namespace VrcSetup_Desktop;
 // One native flyout per row. Loading never queues ContentDialogs or blocks the dispatcher.
 public sealed class PackageVersionSelector : DropDownButton
 {
-    public static readonly DependencyProperty PackageIdProperty = DependencyProperty.Register(nameof(PackageId), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata(""));
+    public static readonly DependencyProperty PackageIdProperty = DependencyProperty.Register(nameof(PackageId), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata("", Changed));
     public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(nameof(Value), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata("latest", Changed));
     public static readonly DependencyProperty DisplayVersionProperty = DependencyProperty.Register(nameof(DisplayVersion), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata("", Changed));
     public static readonly DependencyProperty InstalledVersionProperty = DependencyProperty.Register(nameof(InstalledVersion), typeof(string), typeof(PackageVersionSelector), new PropertyMetadata(""));
@@ -17,6 +17,7 @@ public sealed class PackageVersionSelector : DropDownButton
     public string InstalledVersion { get => (string)GetValue(InstalledVersionProperty); set => SetValue(InstalledVersionProperty, value); }
     public Func<string, Task<string[]>>? VersionSource { get; set; }
     public Func<string, string[]>? CachedSource { get; set; }
+    public Func<string, Task<string[]>>? PreviewSource { get; set; }
     public event EventHandler<string>? VersionPicked;
     private readonly ListView choices = new() { MaxHeight = 260, MinWidth = 220, DisplayMemberPath = nameof(VersionItem.Label), IsItemClickEnabled = true };
     private readonly CheckBox betas = new() { Content = UiText.Text("Include betas") };
@@ -24,6 +25,8 @@ public sealed class PackageVersionSelector : DropDownButton
     private string[] versions = [];
     private bool rendering;
     private long request;
+    private long previewRequest;
+    private string previewId = "", previewVersion = "";
     public PackageVersionSelector()
     {
         MinWidth = 104; MinHeight = 32; Padding = new Thickness(10, 4, 10, 4);
@@ -35,17 +38,46 @@ public sealed class PackageVersionSelector : DropDownButton
         {
             var id = PackageId; var generation = ++request;
             versions = CachedSource?.Invoke(id) ?? []; Render(); status.Text = versions.Length == 0 ? UiText.Text("Loading versions…") : "";
-            try { if (VersionSource is not null) { var loaded = await VersionSource(id); if (generation != request || PackageId != id) return; versions = loaded; Render(); status.Text = loaded.Length == 0 ? UiText.Text("No saved releases available") : ""; } }
+            try { if (VersionSource is not null) { var loaded = await VersionSource(id); if (generation != request || PackageId != id) return; versions = loaded; previewId = id; previewVersion = SemanticVersion.Sort(loaded, false).FirstOrDefault() ?? SemanticVersion.Sort(loaded).FirstOrDefault() ?? "Version unavailable"; UpdateCaption(); Render(); status.Text = loaded.Length == 0 ? UiText.Text("No saved releases available") : ""; } }
             catch (Exception) { if (generation == request) status.Text = UiText.Text("Versions unavailable. Saved choices are still usable."); }
         };
         flyout.Closed += (_, _) => request++;
         betas.Checked += (_, _) => Render(); betas.Unchecked += (_, _) => Render();
         choices.ItemClick += (_, args) => { if (args.ClickedItem is VersionItem picked) PickVersion(picked.Value); };
         choices.KeyDown += (_, args) => { if (args.Key == Windows.System.VirtualKey.Enter && choices.SelectedItem is VersionItem picked) { PickVersion(picked.Value); args.Handled = true; } };
+        Unloaded += (_, _) => previewRequest++;
         UpdateCaption();
     }
-    private static void Changed(DependencyObject value, DependencyPropertyChangedEventArgs args) => ((PackageVersionSelector)value).UpdateCaption();
-    private void UpdateCaption() => Content = UiText.Text(string.IsNullOrWhiteSpace(DisplayVersion) ? Value is "latest" or "Not installed" ? "Latest" : Value : DisplayVersion);
+    private static void Changed(DependencyObject value, DependencyPropertyChangedEventArgs args)
+    {
+        var selector = (PackageVersionSelector)value;
+        selector.UpdateCaption();
+        if (selector.IsLoaded) selector.RefreshPreview();
+    }
+    private void UpdateCaption()
+    {
+        var label = UiText.Text(string.IsNullOrWhiteSpace(DisplayVersion) ? Value is "latest" or "Not installed" ? "Latest" : Value : DisplayVersion);
+        if (Value != "latest") { Content = label; return; }
+        var panel = new StackPanel { Spacing = 0 };
+        panel.Children.Add(new TextBlock { Text = label, TextTrimming = TextTrimming.CharacterEllipsis });
+        panel.Children.Add(new TextBlock { Text = UiText.Text(previewId == PackageId && previewVersion.Length > 0 ? previewVersion : PreviewSource is null ? "Version unavailable" : "Checking version…"), FontSize = 11, Opacity = 0.7, TextTrimming = TextTrimming.CharacterEllipsis });
+        Content = panel;
+    }
+    public async void RefreshPreview()
+    {
+        var id = PackageId;
+        if (Value != "latest" || string.IsNullOrWhiteSpace(id) || PreviewSource is null) { previewRequest++; return; }
+        if (previewId.Equals(id, StringComparison.OrdinalIgnoreCase) && previewVersion.Length > 0 && previewVersion != "Version unavailable") { UpdateCaption(); return; }
+        var generation = ++previewRequest; previewId = id; previewVersion = ""; UpdateCaption();
+        try
+        {
+            var available = await PreviewSource(id);
+            if (generation != previewRequest || !PackageId.Equals(id, StringComparison.OrdinalIgnoreCase) || Value != "latest") return;
+            previewVersion = SemanticVersion.Sort(available, false).FirstOrDefault() ?? SemanticVersion.Sort(available).FirstOrDefault() ?? "Version unavailable";
+        }
+        catch (Exception) { if (generation != previewRequest || !PackageId.Equals(id, StringComparison.OrdinalIgnoreCase) || Value != "latest") return; previewVersion = "Version unavailable"; }
+        UpdateCaption();
+    }
     internal void PickVersion(string value)
     { if (!rendering) { VersionPicked?.Invoke(this, value); Flyout.Hide(); } }
     private void Render()

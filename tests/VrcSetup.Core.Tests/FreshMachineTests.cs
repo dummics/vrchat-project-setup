@@ -34,6 +34,8 @@ public sealed class FreshMachineTests : IDisposable
             return Task.FromResult(new ToolResult(0, ready ? """{"versions":[{"version":"1.2.3"}]}""" : """{"versions":[]}""", ""));
         });
         var catalog = new PackageCatalog(paths, runner, new ConfigurationStore(paths), Path.Combine(root, "empty-repos"));
+        Assert.Empty(await catalog.GetVersionsForPreviewAsync(ProjectRules.EasyLogin));
+        Assert.Equal(0, added); Assert.False(ready);
         Assert.Equal(["1.2.3"], await catalog.GetVersionsAsync(ProjectRules.EasyLogin));
         Assert.Equal(["1.2.3"], await catalog.GetVersionsAsync(ProjectRules.EasyLogin));
         Assert.Equal(1, added);

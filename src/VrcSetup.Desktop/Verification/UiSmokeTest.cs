@@ -1,5 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System.Formats.Tar;
+using System.IO.Compression;
+using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 using Windows.Graphics.Imaging;
@@ -40,6 +43,8 @@ public static class UiSmokeTest
         await File.WriteAllTextAsync(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
         var config = await application.Configuration.LoadAsync(); config.UnityProjectsRoot = Path.GetDirectoryName(project)!;
         config.Language = "en";
+        config.ColorPalette = "Custom";
+        config.CanvasColor = "#17212B"; // Distinct startup color, below the dark-theme brightness clamp.
         config.UnityEditorPath = Path.Combine(artifacts, "saved-editor", "Unity.exe");
         config.VpmPackages = new(packages); // Existing user configuration; fresh defaults have a separate contract test.
         config.PackagePresets["Creator PC"] = packages; await application.Configuration.SaveAsync(config);
@@ -57,8 +62,31 @@ public static class UiSmokeTest
         Require(window.AppWindow.Size.Width >= 720 && window.AppWindow.Size.Height >= 580, "Native window enforces a usable minimum size");
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
         Require(viewModel.ErrorMessage.Length == 0, "Startup has no hidden errors");
+        var numericCreationPreview = new VrcSetup_Desktop.ViewModels.UiCreationPackage(new("fixture.package", "latest", true, null), "Fixture");
+        numericCreationPreview.SetLatestVersion("1.2.3");
+        Require(numericCreationPreview.Version == "Latest" && numericCreationPreview.AvailableVersion == "1.2.3" && numericCreationPreview.Data.Version == "latest", "Numeric package preview preserves floating version policy");
+        numericCreationPreview.Update(new("fixture.package", "1.0.0", true, null), "Fixture");
+        numericCreationPreview.SetLatestVersion("2.0.0");
+        Require(numericCreationPreview.Version == "1.0.0", "An asynchronous available version never replaces an explicit pin");
+        var previewCompletion = new TaskCompletionSource<string[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var versionPreview = new PackageVersionSelector { PackageId = "fixture.tool", Value = "latest", PreviewSource = _ => previewCompletion.Task };
+        versionPreview.RefreshPreview();
+        previewCompletion.SetResult(["1.0.0", "2.3.4"]);
+        var previewDeadline = DateTime.UtcNow.AddSeconds(3);
+        while (versionPreview.Content is Microsoft.UI.Xaml.Controls.StackPanel pending && ((Microsoft.UI.Xaml.Controls.TextBlock)pending.Children[1]).Text != "2.3.4" && DateTime.UtcNow < previewDeadline) await Task.Delay(20);
+        Require(versionPreview.Content is Microsoft.UI.Xaml.Controls.StackPanel previewShown && ((Microsoft.UI.Xaml.Controls.TextBlock)previewShown.Children[0]).Text == UiText.Text("Latest") && ((Microsoft.UI.Xaml.Controls.TextBlock)previewShown.Children[1]).Text == "2.3.4" && versionPreview.Value == "latest",
+            "The shared selector shows the numeric latest release while preserving the floating policy");
+        versionPreview.Value = "1.0.0";
+        Require(versionPreview.Content is string pin && pin == "1.0.0", "A pinned version does not display the latest release as its selected value");
+        var possibleWithVersion = new DependencySuggestion("fixture.possible", DependencyConfidence.Possible, "9.0.0", [new("Assets/package.json", "declared dependency")]);
+        var possiblePreview = new VrcSetup_Desktop.ViewModels.UiCreationPackage(new("fixture.possible", "latest", false, possibleWithVersion), "Fixture");
+        possiblePreview.SetLatestVersion("1.2.3");
+        Require(possiblePreview.Version == "Latest" && possiblePreview.AvailableVersion == "1.2.3" && !possiblePreview.Tooltip.Contains("9.0.0"), "A possible package shows the available version without presenting a weak hint as a requirement");
+        await AppearanceVerification.RunAsync(page, Require);
         Require(viewModel.UnityEditorPath == Path.Combine(artifacts, "saved-editor", "Unity.exe"), "Startup preserves a saved editor path even when its drive is unavailable");
         var installedEditor = UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path;
+        if (Environment.GetCommandLineArgs().Contains("--smoke-unity-recovery") && installedEditor is null)
+            throw new IOException("The pinned Unity editor is required for real recovery verification.");
         if (installedEditor is not null)
         {
             await viewModel.FindEditorCommand.ExecuteAsync(null);
@@ -97,10 +125,10 @@ public static class UiSmokeTest
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(skipped).State == "Not applied", "Skipped projects are not labelled failed");
         var partial = skipped with { Results = [new("Done", "done", OperationStatus.Completed, ""), new("Skipped", "skip", OperationStatus.Skipped, "Open in Unity")] };
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(partial).State == "Partially applied", "Mixed batch outcomes remain explicit");
-        Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 2, "Diagnostics tab is absent in normal mode");
+        Require(((Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs")).Items.Count == 1, "Normal Activity exposes one unified history without the diagnostics tab");
         Require(viewModel.PresetLabel == "Default", "Default preset is the initial editing context");
         viewModel.CurrentPage = "Presets"; await Task.Delay(100); page.UpdateLayout();
-        Require(((Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("PresetWheelTitle")).Text == "Default", "Preset wheel has a visible selection after binding");
+        Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == viewModel.EditingPreset, "Preset selector reflects the current preset");
         Require(viewModel.ApplicationProgressVisibility == Visibility.Collapsed, "Idle application progress is hidden");
         Require(!((Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails")).IsExpanded, "Creation packages start as a compact summary");
         viewModel.IsInspectingPackage = true;
@@ -116,13 +144,16 @@ public static class UiSmokeTest
         var retryCache = new AsyncVersionCache((_, _) => Task.FromResult(Interlocked.Increment(ref retries) == 1 ? Array.Empty<string>() : new[] { "1.0.0" }));
         Require((await retryCache.GetAsync("retry.package")).Length == 0 && (await retryCache.GetAsync("retry.package")).Length == 1, "Empty version responses can retry after recovery");
         var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)page.FindName("Navigation");
-        Require(page.FindName("ActivityNavigationItem") is Microsoft.UI.Xaml.Controls.Button, "Activity is in the navigation footer");
+        Require(page.FindName("ActivityNavigationItem") is Microsoft.UI.Xaml.Controls.NavigationViewItem activityItem && ((Microsoft.UI.Xaml.Controls.NavigationView)page.FindName("Navigation")).FooterMenuItems.Contains(activityItem), "Activity uses native footer navigation");
         foreach (var footerPage in new[] { "Activity", "Settings" })
         {
-            var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer((Microsoft.UI.Xaml.Controls.Button)page.FindName(footerPage + "NavigationItem"));
-            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            var item = (Microsoft.UI.Xaml.Controls.NavigationViewItem)page.FindName(footerPage + "NavigationItem");
+            var peer = new Microsoft.UI.Xaml.Automation.Peers.NavigationViewItemAutomationPeer(item);
+            if (peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke) is Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider invoke) invoke.Invoke();
+            else if (peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.SelectionItem) is Microsoft.UI.Xaml.Automation.Provider.ISelectionItemProvider select) select.Select();
+            else throw new IOException("Native navigation exposes no activation pattern: " + footerPage);
             await Task.Delay(200);
-            Require(viewModel.CurrentPage == footerPage && ((FrameworkElement)page.FindName(footerPage + "NavigationMarker")).Visibility == Visibility.Visible, "Footer button navigates and marks the active page: " + footerPage);
+            Require(viewModel.CurrentPage == footerPage && ReferenceEquals(navigation.SelectedItem, item) && item.IsSelected, "Native footer activation navigates and selects the active page: " + footerPage);
         }
         viewModel.CurrentPage = "Presets";
         viewModel.ErrorMessage = "Fixture error"; await Task.Delay(150);
@@ -139,10 +170,33 @@ public static class UiSmokeTest
             await Render(contact, Path.Combine(artifacts, "contact-dialog.png"));
         }
         finally { contact.Hide(); await contactTask; }
+        var guideLanguage = UiText.Language;
+        try
+        {
+            foreach (var language in new[] { "it", "en" })
+            {
+                UiText.Language = language;
+                var guide = page.CreateQuickGuideDialog(); guide.XamlRoot = page.XamlRoot;
+                var guideTask = guide.ShowAsync(); await Task.Delay(150);
+                try
+                {
+                    var topics = Descendants(guide).OfType<Microsoft.UI.Xaml.Controls.Expander>().ToArray();
+                    Require(topics.Length == MainPage.QuickGuideTopics.Length, "Quick guide exposes each topic in " + language);
+                    foreach (var topic in topics) topic.IsExpanded = true;
+                    await Task.Delay(180);
+                    Require(topics.All(x => ((FrameworkElement)x.Content).ActualHeight > 0), "Expanded guide topics remain readable in " + language);
+                    Require(language != "it" || MainPage.QuickGuideTopics.All(x => UiText.Text(x.Title) != x.Title && UiText.Text(x.Description) != x.Description), "Every guide topic has Italian copy");
+                    await Render(guide, Path.Combine(artifacts, "quick-guide-" + language + ".png"));
+                }
+                finally { guide.Hide(); await guideTask; }
+            }
+        }
+        finally { UiText.Language = guideLanguage; }
         var information = (FrameworkElement)page.FindName("InformationItem");
         var informationMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase.GetAttachedFlyout(information);
         informationMenu.ShowAt(information); await Task.Delay(100);
-        Require(informationMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().All(x => x.Command is not null), "Information opens a contextual popup with bound support commands"); informationMenu.Hide();
+        var supportItems = informationMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().ToArray();
+        Require(supportItems.Length == 5 && supportItems[0].Text == UiText.Text("Quick guide") && supportItems.Skip(1).All(x => x.Command is not null), "Information offers the guide and bound support commands"); informationMenu.Hide();
         window.AppWindow.Resize(new(1180, 800)); navigation.IsPaneOpen = true; await Task.Delay(250);
         var informationHeights = new List<double>(); page.ToggleInformation();
         for (var i = 0; i < 6; i++) { await Task.Delay(40); informationHeights.Add(((FrameworkElement)page.FindName("InformationSurface")).ActualHeight); }
@@ -176,7 +230,7 @@ public static class UiSmokeTest
         Require(viewModel.NewProjectNameErrorVisibility == Visibility.Visible && !viewModel.CreateConfiguredProjectCommand.CanExecute(null) && !viewModel.IsErrorVisible, "Invalid native name input is explained beside the field");
         nameInput.Text = "Fresh project"; await Task.Delay(350); page.UpdateLayout();
         Require(viewModel.NewProjectName == "Fresh project" && viewModel.NewProjectNameErrorVisibility == Visibility.Collapsed && viewModel.CreateConfiguredProjectCommand.CanExecute(null), "Native input updates creation intent and clears field validation");
-        Require(viewModel.PresetCarouselVisibility == Visibility.Visible, "New project retains the centered preset wheel");
+        Require(((FrameworkElement)page.FindName("PresetHeader")).Visibility == Visibility.Visible, "New project exposes preset selection");
         Require(viewModel.CurrentPage == "NewProject" && viewModel.NewProjectVisibility == Visibility.Visible && viewModel.NewProjectPlatform == "StandaloneWindows64", "New project has its own page with platform, preset and editable packages");
         Require(viewModel.UseImportPresetVisibility == Visibility.Collapsed && viewModel.PresetOptionsVisibility == Visibility.Collapsed, "New project packages are local to the creation form");
         Require(viewModel.NewProjectSavePresetVisibility == Visibility.Collapsed, "Unchanged creation packages do not offer a duplicate preset");
@@ -193,13 +247,13 @@ public static class UiSmokeTest
         Require(viewModel.ErrorMessage.Length == 0, "Transient cleared template selection is safe");
         viewModel.EditingPreset = "Creator PC";
         var currentPreset = viewModel.EditingPreset;
-        var arrowButtons = Descendants((DependencyObject)page.FindName("PresetCarousel")).OfType<Microsoft.UI.Xaml.Controls.Button>().Where(x => x.Content is Microsoft.UI.Xaml.Controls.FontIcon).ToArray();
-        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(arrowButtons[1]).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
-        await Task.Delay(300);
-        Require(viewModel.EditingPreset != currentPreset, "Preset next arrow changes the selection through the native button");
-        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(arrowButtons[0]).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
-        await Task.Delay(300);
-        Require(viewModel.EditingPreset == currentPreset, "Preset arrows cycle and wrap without losing the selected preset");
+        var presetSelector = (Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector");
+        presetSelector.SelectedItem = viewModel.Presets.First(x => x != currentPreset);
+        await Task.Delay(100);
+        Require(viewModel.EditingPreset == presetSelector.SelectedItem?.ToString() && viewModel.EditingPreset != currentPreset, "Native preset selection updates the editing context");
+        presetSelector.SelectedItem = currentPreset;
+        await Task.Delay(100);
+        Require(viewModel.EditingPreset == currentPreset, "Native preset selection can restore the previous context");
         var stablePresetRows = viewModel.PresetPackages.ToArray();
         viewModel.StagePresetVersion("gogoloco", "1.8.7");
         Require(stablePresetRows.SequenceEqual(viewModel.PresetPackages) && viewModel.PresetPackages.First(x => x.Id == "gogoloco").Version == "1.8.7", "Changing one preset version preserves every row instance");
@@ -264,6 +318,10 @@ public static class UiSmokeTest
         Require(viewModel.BuildTarget == "StandaloneWindows64" && viewModel.DestinationPreview.Contains("My avatar"), "Single platform and editable name bind to creation: " + viewModel.BuildTarget);
         Require(viewModel.Projects.Count == 1, "Native project library loaded");
         viewModel.ProjectFilter = "Quest"; Require(viewModel.Projects.Count == 0, "Project filter empty state");
+        Require(viewModel.EmptyProjectsActionLabel == "Clear search", "No search results offer search recovery instead of changing the project root");
+        var searchRoot = viewModel.ProjectsRoot;
+        await viewModel.ResolveEmptyProjectsCommand.ExecuteAsync(null);
+        Require(viewModel.ProjectFilter.Length == 0 && viewModel.ProjectsRoot == searchRoot && viewModel.Projects.Count > 0, "Clearing an empty search restores projects without changing folders");
         viewModel.ProjectFilter = "PC"; Require(viewModel.Projects.Count == 1, "Project filter recovers matches");
         await viewModel.OpenProjectPackagesCommand.ExecuteAsync(viewModel.Projects[0]);
         Require(viewModel.CurrentPage == "Workspace", "Project package action opens the shared workspace");
@@ -292,6 +350,238 @@ public static class UiSmokeTest
         using (var flow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, decisions))
         {
             await flow.InitializeAsync();
+            var queue = flow.Application.Imports;
+            var firstFixtureProject = flow.Projects.First();
+            var uncertainSource = new CreationRequest("", firstFixtureProject.Name, firstFixtureProject.Path, "", "StandaloneWindows64", [], [], true);
+            var uncertainJob = new ImportJob("uncertain-display-fixture", new OperationPlan("uncertain", DateTime.UtcNow, []), uncertainSource, "Recovered", "Completed", 100, "", "") { CreatorCompanionUnknown = true };
+            flow.RefreshRegistrationNotices([uncertainJob]);
+            Require(flow.Projects.Single(x => x.Path == firstFixtureProject.Path).CreatorCompanionUnknown, "Recovered project shows the uncertain VCC notice in Projects");
+            flow.RefreshRegistrationNotices([uncertainJob with { HiddenFromImports = true }]);
+            Require(!flow.Projects.Single(x => x.Path == firstFixtureProject.Path).CreatorCompanionUnknown, "Clearing the import row removes the corresponding uncertain VCC notice");
+            flow.RefreshRegistrationNotices([]);
+            var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+            var refreshNames = new[] { "Refresh completion A", "Refresh completion B" };
+            var refreshJobs = refreshNames.Select((name, index) =>
+            {
+                var path = Path.Combine(flow.ProjectsRoot, name);
+                return new ImportJob("refresh-fixture-" + index, new OperationPlan("refresh", DateTime.UtcNow, []),
+                    new CreationRequest("fixture.unitypackage", name, path, "", "StandaloneWindows64", [], []), "Running", "Import", 50, "", "");
+            }).ToArray();
+            try
+            {
+                flow.CurrentPage = "Create";
+                flow.ObserveCreationResults(refreshJobs);
+                foreach (var job in refreshJobs)
+                {
+                    Directory.CreateDirectory(Path.Combine(job.ProjectPath, "Assets"));
+                    Directory.CreateDirectory(Path.Combine(job.ProjectPath, "Packages"));
+                    Directory.CreateDirectory(Path.Combine(job.ProjectPath, "ProjectSettings"));
+                    await File.WriteAllTextAsync(Path.Combine(job.ProjectPath, "Packages", "manifest.json"), "{\"dependencies\":{}}");
+                    await File.WriteAllTextAsync(Path.Combine(job.ProjectPath, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
+                }
+                flow.ObserveCreationResults([refreshJobs[0] with { State = "Completed" }, refreshJobs[1]]);
+                flow.CurrentPage = "Projects";
+                flow.ObserveCreationResults([refreshJobs[0] with { State = "Completed" }, refreshJobs[1] with { State = "Completed" }]);
+                await flow.PendingProjectRefresh;
+                Require(refreshNames.All(name => flow.Projects.Any(x => x.Name == name)), "Closely spaced import completions refresh the project list after navigation");
+            }
+            finally
+            {
+                foreach (var job in refreshJobs) if (Directory.Exists(job.ProjectPath)) Directory.Delete(job.ProjectPath, true);
+                await flow.RefreshProjectsCommand.ExecuteAsync(null);
+            }
+            var absentCreationPath = Path.Combine(flow.ProjectsRoot, "Cancelled before creation");
+            var absentCreationSource = new CreationRequest("", "Cancelled before creation", absentCreationPath, "", "StandaloneWindows64", [], [], true)
+                { CreationId = Guid.NewGuid().ToString("N") };
+            var absentCreationPlan = new ProjectPlan { Name = absentCreationSource.Name, Path = absentCreationPath, ExpectedFingerprint = "",
+                DesiredPolicy = new Dictionary<string, string>(), Changes = [], Creation = absentCreationSource };
+            var absentCreation = new ImportJob("absent-creation", new OperationPlan("absent-plan", DateTime.UtcNow, [absentCreationPlan]),
+                absentCreationSource, "Paused", "Paused", 0, "", "");
+            lock (queueSync) queueJobs.Add(absentCreation);
+            try
+            {
+                decisions.ConfirmResult = false;
+                await flow.CancelCreationAsync(absentCreation.Id);
+                Require(!queue.Snapshot().Single(x => x.Id == absentCreation.Id).DiscardRequested, "Declining cancellation keeps the uncreated project request");
+                decisions.ConfirmResult = true;
+                await flow.CancelCreationAsync(absentCreation.Id);
+                Require(queue.Snapshot().Single(x => x.Id == absentCreation.Id).DiscardCompleted && !Directory.Exists(absentCreationPath),
+                    "Cancelling before project creation finishes without deleting a folder");
+                Require(new VrcSetup_Desktop.ViewModels.UiImportRow(queue.Snapshot().Single(x => x.Id == absentCreation.Id)).Message == "Request cancelled. No project folder was removed.",
+                    "The stored cancellation outcome does not claim a project folder was deleted");
+                Require(flow.ApplicationNotice.Contains("No project folder was removed", StringComparison.Ordinal), "Cancellation explains that no folder was removed");
+            }
+            finally { lock (queueSync) queueJobs.RemoveAll(x => x.Id == absentCreation.Id); decisions.ConfirmResult = false; }
+            // The fixture inserts and removes this job directly; publish the cleaned
+            // snapshot so other view models cannot retain its last queued update.
+            await queue.ClearFinishedAsync();
+            var lateFolderPath = Path.Combine(artifacts, "folder-appeared-during-cancellation");
+            Directory.CreateDirectory(lateFolderPath);
+            var lateFolder = absentCreation with { Source = absentCreationSource with { TargetPath = lateFolderPath }, DiscardRequested = true };
+            var refusedLateFolder = false;
+            try { await VrcSetup_Desktop.ViewModels.MainViewModel.ConfirmNoProjectFolderAsync(lateFolder, default); }
+            catch (IOException) { refusedLateFolder = true; }
+            Require(refusedLateFolder && Directory.Exists(lateFolderPath), "A folder that appears during cancellation is preserved and requires another review");
+            var unavailablePath = Path.Combine(artifacts, "unavailable-parent", "project");
+            var unavailable = absentCreation with { Source = absentCreationSource with { TargetPath = unavailablePath }, DiscardRequested = true };
+            var refusedUnavailable = false;
+            try { await VrcSetup_Desktop.ViewModels.MainViewModel.ConfirmNoProjectFolderAsync(unavailable, default); }
+            catch (IOException error) { refusedUnavailable = error.Message.Contains("unavailable", StringComparison.OrdinalIgnoreCase); }
+            Require(refusedUnavailable && !VrcSetup_Desktop.ViewModels.MainViewModel.CanCancelWithoutFolder(unavailablePath),
+                "An unavailable project parent is not mistaken for a verified missing project");
+            Require(VrcSetup_Desktop.ViewModels.MainViewModel.CurrentRunningImports([absentCreation with { DiscardRequested = true }]).Length == 1,
+                "Pending cancellation of an empty project remains visible");
+            var restoreProject = Path.Combine(artifacts, "restore-ui-fixture");
+            Directory.CreateDirectory(Path.Combine(restoreProject, "Assets"));
+            Directory.CreateDirectory(Path.Combine(restoreProject, "Packages"));
+            Directory.CreateDirectory(Path.Combine(restoreProject, "ProjectSettings"));
+            var restoreAsset = Path.Combine(restoreProject, "Assets", "fixture.txt");
+            await File.WriteAllTextAsync(restoreAsset, "before backup");
+            await File.WriteAllTextAsync(Path.Combine(restoreProject, "Packages", "manifest.json"), "{\"dependencies\":{}}");
+            var restorePlan = new ProjectPlan { Name = "Restore fixture", Path = restoreProject, ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(),
+                Changes = [new PackageChange("fixture.package", null, "1.0.0", "1.0.0", ChangeKind.Add)] };
+            var restoreBackup = await flow.Application.Projects.BackupAsync(restorePlan, default);
+            await File.WriteAllTextAsync(restoreAsset, "current work");
+            var restoreReport = new OperationReport("restore-fixture", DateTime.UtcNow,
+                [new ProjectOutcome("Restore fixture", restoreProject, OperationStatus.Failed, "", BackupPath: restoreBackup.Directory)], []);
+            var restoreEntry = new VrcSetup_Desktop.ViewModels.UiHistoryEntry(restoreReport);
+            decisions.ConfirmResult = false;
+            await flow.RestoreHistoryBackupAsync(restoreEntry);
+            Require(await File.ReadAllTextAsync(restoreAsset) == "current work", "Declining backup restoration leaves current files untouched");
+            decisions.ConfirmResult = true;
+            Directory.CreateDirectory(Path.Combine(restoreProject, "Temp"));
+            using (var editorLock = new FileStream(Path.Combine(restoreProject, "Temp", "UnityLockfile"), FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+            {
+                await flow.RestoreHistoryBackupAsync(restoreEntry);
+                Require(await File.ReadAllTextAsync(restoreAsset) == "current work" && flow.ErrorMessage.Contains("Close Unity", StringComparison.Ordinal),
+                    "Backup restoration explains the open editor and preserves current work");
+            }
+            await flow.RestoreHistoryBackupAsync(restoreEntry);
+            Require(await File.ReadAllTextAsync(restoreAsset) == "before backup" && flow.ApplicationNotice.Contains("Backup restored", StringComparison.Ordinal),
+                "Confirmed backup restoration updates the project and reports success");
+            decisions.ConfirmResult = false;
+            var orphanPath = Path.Combine(flow.ProjectsRoot, "Orphan recovery fixture");
+            Directory.CreateDirectory(orphanPath);
+            var originalArchive = Path.Combine(artifacts, "original-orphan.unitypackage");
+            var movedArchive = Path.Combine(artifacts, "moved-orphan.unitypackage");
+            var wrongArchive = Path.Combine(artifacts, "wrong-orphan.unitypackage");
+            var verifyRealRecovery = Environment.GetCommandLineArgs().Contains("--smoke-unity-recovery");
+            if (verifyRealRecovery) CreateRecoveryArchive(originalArchive);
+            else await File.WriteAllTextAsync(originalArchive, "original");
+            var sourceIdentity = await PackageSourceIdentity.ReadAsync(originalArchive);
+            File.Move(originalArchive, movedArchive);
+            await File.WriteAllTextAsync(wrongArchive, "replaced");
+            var orphanSource = new CreationRequest(originalArchive, "Orphan recovery fixture", orphanPath, "", "StandaloneWindows64", [], [])
+            { CreationId = Guid.NewGuid().ToString("N"), SourceIdentity = sourceIdentity, RecoveryPolicy = new() };
+            var physicalIdentity = ProjectDirectoryIdentity.TryRead(orphanPath);
+            Require(physicalIdentity is not null, "Orphan recovery fixture has a physical directory identity");
+            var orphanStateFile = Path.Combine(orphanPath, ".vrcsetup", "state.json");
+            await AtomicFile.WriteJsonAsync(orphanStateFile, new SetupState { ProjectName = orphanSource.Name, UnityPackagePath = originalArchive,
+                CreationId = orphanSource.CreationId, CreationRequest = orphanSource, CreatedTargetPath = orphanPath, CreatedDirectoryIdentity = physicalIdentity });
+            var orphanSnapshot = new ProjectSnapshot { Name = orphanSource.Name, Path = orphanPath, Incomplete = true, InitializationPending = true };
+            var orphanCandidate = await flow.OrphanRecoveryForProjectAsync(orphanSnapshot);
+            Require(orphanCandidate is not null && orphanCandidate.MatchesInputs(orphanSource), "Project view finds verified orphan recovery without a queue record");
+            decisions.ConfirmResult = true; decisions.FileChoice = wrongArchive;
+            await flow.ResumeOrphanImportAsync(orphanSnapshot, orphanCandidate!);
+            Require(flow.ErrorMessage.Contains("differs from the original", StringComparison.OrdinalIgnoreCase), "Orphan recovery explains a selected archive mismatch");
+            Require(!queue.Snapshot().Any(x => x.ProjectPath == orphanPath) && !Directory.Exists(Path.Combine(orphanPath, "Assets")), "A different archive cannot enqueue or initialize the orphan project");
+            decisions.ConfirmResult = false; decisions.FileChoice = movedArchive;
+            await flow.ResumeOrphanImportAsync(orphanSnapshot, orphanCandidate!);
+            Require(!queue.Snapshot().Any(x => x.ProjectPath == orphanPath) && !Directory.Exists(Path.Combine(orphanPath, "Assets")), "Declining source selection preserves the orphan project");
+            if (installedEditor is not null)
+            {
+                decisions.ConfirmResult = true; decisions.ReviewResult = false; decisions.ClearReview();
+                await flow.ResumeOrphanImportAsync(orphanSnapshot, orphanCandidate!).WaitAsync(TimeSpan.FromSeconds(60));
+                Require(decisions.LastReview?.Projects.Single().RecoverySource?.UnityPackagePath == movedArchive,
+                    "Matching relocated archive reaches the orphan recovery review");
+                Require(!queue.Snapshot().Any(x => x.ProjectPath == orphanPath) && !Directory.Exists(Path.Combine(orphanPath, "Assets")),
+                    "Declining the reviewed orphan plan does not enqueue or mutate the project");
+                if (verifyRealRecovery)
+                {
+                    decisions.ReviewResult = true;
+                    await flow.ResumeOrphanImportAsync(orphanSnapshot, orphanCandidate!).WaitAsync(TimeSpan.FromSeconds(60));
+                    var resumed = queue.Snapshot().Single(x => x.ProjectPath == orphanPath);
+                    using var recoveryTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                    await queue.WaitForStoppedAsync(resumed.Id, recoveryTimeout.Token);
+                    resumed = queue.Snapshot().Single(x => x.Id == resumed.Id);
+                    Require(resumed.State == "Completed", "Relocated archive completes the real recovery queue: " + resumed.Message);
+                    Require(File.Exists(Path.Combine(orphanPath, "Assets", "VrcSetupRecoveryProbe.txt")),
+                        "Real Unity imports the relocated archive into the recovered project");
+                    var recoveredState = await AtomicFile.ReadJsonAsync<SetupState>(orphanStateFile);
+                    Require(recoveredState?.Completed == true, "Real recovered project records completion");
+                    await queue.ClearFinishedAsync();
+                }
+                decisions.ReviewResult = null;
+                decisions.ClearReview();
+            }
+            decisions.ConfirmResult = false;
+            decisions.FileChoice = null;
+            if (installedEditor is not null)
+            {
+                var legacyPath = Path.Combine(flow.ProjectsRoot, "Legacy recovery fixture");
+                Directory.CreateDirectory(Path.Combine(legacyPath, "Assets"));
+                Directory.CreateDirectory(Path.Combine(legacyPath, "Packages"));
+                await File.WriteAllTextAsync(Path.Combine(legacyPath, "Packages", "manifest.json"), "{}");
+                var legacySource = new CreationRequest(wrongArchive, "Legacy recovery fixture", legacyPath, installedEditor, "StandaloneWindows64", [], []);
+                await AtomicFile.WriteJsonAsync(Path.Combine(legacyPath, ".vrcsetup", "state.json"),
+                    new SetupState { ProjectName = legacySource.Name, UnityPackagePath = wrongArchive });
+                var legacyPlan = new ProjectPlan { Name = legacySource.Name, Path = legacyPath, ExpectedFingerprint = "", Changes = [], Creation = legacySource,
+                    DesiredPolicy = new Dictionary<string, string>() };
+                var legacyJob = new ImportJob("legacy-recovery", new("legacy-recovery", DateTime.UtcNow, [legacyPlan]), legacySource, "Interrupted", "Interrupted", 0, "", "");
+                lock (queueSync) queueJobs.Add(legacyJob);
+                try
+                {
+                    decisions.ReviewResult = false; decisions.ClearReview(); decisions.ConfirmResult = false;
+                    await flow.RepairHistoryImportAsync(new(legacyJob));
+                    Require(decisions.LastReview is null, "A legacy archive is not used if the user declines its unverified identity");
+                    decisions.ConfirmResult = true;
+                    await flow.RepairHistoryImportAsync(new(legacyJob));
+                    Require(decisions.LastReview?.Projects.Single().RecoverySource?.SourceIdentity == await PackageSourceIdentity.ReadAsync(wrongArchive),
+                        "A confirmed legacy archive receives an identity before the reviewed recovery");
+                    Require(!queue.Snapshot().Any(x => x.Id != legacyJob.Id && x.ProjectPath == legacyPath),
+                        "Declining the reviewed legacy recovery does not enqueue another job");
+                }
+                finally
+                {
+                    lock (queueSync) queueJobs.RemoveAll(x => x.Id == legacyJob.Id);
+                    decisions.ReviewResult = null; decisions.ClearReview(); decisions.ConfirmResult = false;
+                }
+            }
+            var unrecoverablePath = Path.Combine(flow.ProjectsRoot, "Unrecoverable fixture");
+            Directory.CreateDirectory(unrecoverablePath);
+            await File.WriteAllTextAsync(Path.Combine(unrecoverablePath, "preserve.txt"), "owner edits");
+            await AtomicFile.WriteJsonAsync(Path.Combine(unrecoverablePath, ".vrcsetup", "state.json"), new SetupState { ProjectName = "Unrecoverable fixture" });
+            Directory.CreateDirectory(Path.Combine(flow.ProjectsRoot, "Unrecoverable fixture (new)"));
+            var unavailableProject = (await flow.Application.Projects.ScanAsync(flow.ProjectsRoot, refresh: true)).Single(x => x.Path == unrecoverablePath);
+            Require(unavailableProject.InitializationPending && await flow.OrphanRecoveryForProjectAsync(unavailableProject) is null,
+                "The project scan exposes an incomplete legacy folder without claiming recoverable inputs");
+            var pendingSource = new CreationRequest(wrongArchive, unavailableProject.Name, unrecoverablePath, "", "StandaloneWindows64", [], []);
+            var pendingPlan = new ProjectPlan { Name = pendingSource.Name, Path = unrecoverablePath, ExpectedFingerprint = "", Changes = [], Creation = pendingSource, DesiredPolicy = new Dictionary<string, string>() };
+            var pendingJob = new ImportJob("fallback-stale", new("fallback-stale", DateTime.UtcNow, [pendingPlan]), pendingSource, "Running", "Starting", 0, "", "");
+            lock (queueSync) queueJobs.Add(pendingJob);
+            decisions.FileChoice = wrongArchive; var beforePending = flow.ImportDrafts.Count; flow.ApplicationNotice = "";
+            try
+            {
+                await flow.StartNewImportForUnrecoverableProjectAsync(unavailableProject);
+                Require(flow.ImportDrafts.Count == beforePending, "A newly active import prevents the stale fallback action");
+                Require(flow.ApplicationNotice.Contains("import changed", StringComparison.OrdinalIgnoreCase), "A stale recovery action explains how to continue");
+                flow.ApplicationNotice = "";
+                await flow.RetryCreatorCompanionAsync(new(pendingJob));
+                Require(flow.ApplicationNotice.Contains("import changed", StringComparison.OrdinalIgnoreCase), "A stale Creator Companion retry gives visible feedback");
+            }
+            finally { lock (queueSync) queueJobs.RemoveAll(x => x.Id == pendingJob.Id); }
+            var draftCount = flow.ImportDrafts.Count; decisions.FileChoice = null;
+            await flow.StartNewImportForUnrecoverableProjectAsync(unavailableProject);
+            Require(flow.ImportDrafts.Count == draftCount, "Cancelling package selection leaves the incomplete project and drafts alone");
+            decisions.FileChoice = wrongArchive;
+            await flow.StartNewImportForUnrecoverableProjectAsync(unavailableProject);
+            Require(flow.CurrentPage == "Create" && flow.SelectedImportDraft?.File == wrongArchive && flow.ProjectName == "Unrecoverable fixture (new 2)",
+                "An unavailable import can start a separately named project with the selected package");
+            Require(await File.ReadAllTextAsync(Path.Combine(unrecoverablePath, "preserve.txt")) == "owner edits" && !queue.Snapshot().Any(x => x.ProjectPath == unrecoverablePath),
+                "Preparing the new import leaves the original project and queue untouched");
+            if (flow.SelectedImportDraft is { } fallbackDraft) flow.RemoveImportDraft(fallbackDraft);
+            decisions.FileChoice = null; await flow.NavigateAsync("Projects");
             foreach (var partialRetry in new[] { false, true })
             {
                 var retryName = partialRetry ? "Partial creation retry" : "Missing creation retry";
@@ -306,7 +596,72 @@ public static class UiSmokeTest
                     DesiredPolicy = new Dictionary<string, string> { ["gogoloco"] = "latest" } };
                 var retryJob = new ImportJob("retry-" + partialRetry, new("retry-" + partialRetry, DateTime.UtcNow, [retryPlan]), request, "Failed", "Create", 0, "stopped", "");
                 decisions.ConfirmResult = true;
-                await flow.RepairHistoryImportAsync(new(retryJob)).WaitAsync(TimeSpan.FromSeconds(5));
+                var ownedPartial = retryJob with { Source = request with { CreationId = Guid.NewGuid().ToString("N") } };
+                var placeholders = VrcSetup_Desktop.ViewModels.MainViewModel.IncludePendingProjectFolders([], [ownedPartial], flow.ProjectsRoot);
+                Require(placeholders.Length == (partialRetry ? 1 : 0) && (!partialRetry || placeholders[0].InitializationPending),
+                    "Only existing owned partial folders appear as pending project placeholders: " + partialRetry);
+                if (partialRetry)
+                {
+                    var readySnapshot = placeholders[0] with { InitializationPending = false, UnityVersion = "2022.3.22f1" };
+                    Require(VrcSetup_Desktop.ViewModels.MainViewModel.IncludePendingProjectFolders([readySnapshot], [ownedPartial], flow.ProjectsRoot).Length == 1,
+                        "A scanned project is not duplicated by its import journal entry");
+                    Require(VrcSetup_Desktop.ViewModels.MainViewModel.IncludePendingProjectFolders([], [ownedPartial], Path.Combine(flow.ProjectsRoot, "OtherRoot")).Length == 0,
+                        "Pending project placeholders never escape the selected projects root");
+                    Require(VrcSetup_Desktop.ViewModels.MainViewModel.IncludePendingProjectFolders([], [ownedPartial, ownedPartial with { State = "Completed" }], flow.ProjectsRoot).Length == 0,
+                        "A later completion does not revive an older partial project placeholder");
+                    var currentPage = flow.CurrentPage;
+                    await flow.OpenProjectsAsync(placeholders);
+                    Require(flow.CurrentPage == currentPage && flow.ApplicationNotice.Length > 0,
+                        "Pending project placeholders cannot enter package management before initialization");
+                }
+                var discard = retryJob with { DiscardRequested = true, State = "Completed", Source = request with { EmptyProject = false } };
+                var discardRow = new VrcSetup_Desktop.ViewModels.UiImportRow(discard);
+                Require(discardRow.Step == "Cancellation needs finishing" && discardRow.RecoverVisibility == Visibility.Collapsed
+                    && new VrcSetup_Desktop.ViewModels.UiHistoryEntry(discard).ImportActionsVisibility == Visibility.Collapsed,
+                    "Pending cancellation is not shown as completed or resumable: " + partialRetry);
+                Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([discard], true).Length == 1,
+                    "Auto-hide completed imports retains pending cancellation: " + partialRetry);
+                var newer = retryJob with { Id = retryJob.Id + "-newer", State = "Completed", Plan = retryJob.Plan with { CreatedUtc = retryJob.Plan.CreatedUtc.AddSeconds(1) } };
+                var active = retryJob with { Id = retryJob.Id + "-active", State = "Running" };
+                Require(ImportQueue.CurrentForProject([retryJob, newer], retryPath)?.Id == newer.Id,
+                    "A completed newer import supersedes an older recoverable record: " + partialRetry);
+                Require(ImportQueue.CurrentForProject([retryJob, newer, active], retryPath)?.Id == active.Id,
+                    "An active import takes priority over terminal history for its project: " + partialRetry);
+                Require(VrcSetup_Desktop.ViewModels.MainViewModel.CurrentRunningImports([retryJob, newer, active]).Single().Id == active.Id,
+                    "Running operations show the current retry without resurrecting the older failure: " + partialRetry);
+                lock (queueSync) { queueJobs.Add(retryJob); queueJobs.Add(newer); }
+                try
+                {
+                    var recoveryProject = new ProjectSnapshot { Name = retryName, Path = retryPath };
+                    Require(flow.RecoverableImportForProject(recoveryProject) is null,
+                        "Project recovery does not expose an older import after a newer completion: " + partialRetry);
+                    var pageBefore = flow.CurrentPage; var confirmationsBefore = decisions.Confirmations;
+                    await flow.RepairHistoryImportAsync(new(retryJob)).WaitAsync(TimeSpan.FromSeconds(5));
+                    Require(flow.CurrentPage == pageBefore && decisions.Confirmations == confirmationsBefore,
+                        "A stale repair request cannot open creation or confirmation: " + partialRetry);
+                    lock (queueSync) queueJobs.RemoveAll(x => x.Id == newer.Id);
+                    var cancellable = retryJob with { Id = Guid.NewGuid().ToString("N"),
+                        Source = request with { CreationId = Guid.NewGuid().ToString("N") } };
+                    lock (queueSync) queueJobs.Add(cancellable);
+                    try
+                    {
+                        decisions.ConfirmResult = false;
+                        await flow.DiscardImportAsync(new(cancellable)).WaitAsync(TimeSpan.FromSeconds(5));
+                        Require(!queue.Snapshot().Single(x => x.Id == cancellable.Id).DiscardRequested,
+                            "Declining discard leaves the import request unchanged: " + partialRetry);
+                        Require(new VrcSetup_Desktop.ViewModels.UiImportRow(cancellable).DiscardVisibility == Visibility.Visible,
+                            "Owned unfinished creation exposes the explicit discard action: " + partialRetry);
+                    }
+                    finally
+                    {
+                        decisions.ConfirmResult = true;
+                        lock (queueSync) queueJobs.RemoveAll(x => x.Id == cancellable.Id);
+                    }
+                    Require(flow.RecoverableImportForProject(recoveryProject)?.Id == retryJob.Id,
+                        "Project recovery finds the current unfinished import: " + partialRetry);
+                    await flow.RecoverProjectImportAsync(recoveryProject, retryJob.Id).WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                finally { lock (queueSync) queueJobs.RemoveAll(x => x.Id == retryJob.Id || x.Id == newer.Id); }
                 Require(flow.CurrentPage == "NewProject" && flow.PresetPackages.Any(x => x.Id == "gogoloco") && !flow.LibraryPackages.Any(x => x.Id == "gogoloco"), "Retry opens captured one-time choices without a nested action lock or duplicate catalogue entry: " + partialRetry);
                 if (partialRetry) Require(flow.NewProjectName != retryName && await File.ReadAllTextAsync(Path.Combine(retryPath, "preserve.txt")) == "owner data", "Partial retry preserves the old folder and suggests a separate destination");
                 await flow.NavigateAsync("Projects");
@@ -321,6 +676,19 @@ public static class UiSmokeTest
             await flow.ExportLogsCommand.ExecuteAsync(null);
             Require(decisions.SaveFileRequests == pickerRequests + 1 && flow.IsBusy, "Diagnostic export remains accessible while busy without changing operation state");
             flow.IsBusy = false;
+            flow.IsClosingApp = true;
+            try
+            {
+                Require(!flow.CanPrepareImportReview && !flow.CanCreateConfiguredProject && !flow.CanUseUpdateAction,
+                    "Closing reserves import, project creation and update actions");
+                var requestsBeforeClosing = decisions.SaveFileRequests;
+                await flow.ExportLogsCommand.ExecuteAsync(null);
+                Require(decisions.SaveFileRequests == requestsBeforeClosing && !await flow.NavigateAsync("Settings"),
+                    "Closing guards queued actions and navigation without disabling the window");
+                Require(flow.ApplicationWorking && flow.ApplicationStatus.Length > 0,
+                    "Closing exposes progress in the application status area");
+            }
+            finally { flow.IsClosingApp = false; }
             var initialConfigText = await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile);
             var initialImportFile = flow.PackageFile;
             await flow.BeginNewProjectAsync(); flow.EditingPreset = "Creator renamed"; flow.NewProjectName = "Local creation fixture";
@@ -434,8 +802,24 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             await flow.NavigateAsync("Settings");
             var savedPrefix = flow.NamingPrefix; flow.NamingPrefix = "Unsaved fixture";
             Require(flow.SettingsDirty && !await flow.NavigateAsync("Projects") && !await flow.ConfirmCloseAsync(), "Settings cancellation protects edits on navigation and close");
+            Require(!await flow.PrepareToCloseAsync() && !flow.IsClosingApp && flow.SettingsDirty,
+                "Cancelling the dirty-settings close prompt restores actions and preserves edits");
             decisions.SettingsChoice = "Discard";
             Require(await flow.NavigateAsync("Projects") && !flow.SettingsDirty && flow.NamingPrefix == savedPrefix, "Discard reloads saved settings");
+            var unsavedClose = new ImportJob("unsaved-close-fixture", new OperationPlan("unsaved", DateTime.UtcNow, []),
+                new CreationRequest("", "Unsaved", Path.Combine(artifacts, "unsaved-close"), "", "StandaloneWindows64", [], [], true),
+                "Completed", "Completed", 100, "", "") { HistorySaveFailed = true };
+            var previousConfirmation = decisions.ConfirmResult;
+            lock (queueSync) queueJobs.Add(unsavedClose);
+            try
+            {
+                decisions.ConfirmResult = false;
+                Require(!await flow.PrepareToCloseAsync() && !flow.IsClosingApp && flow.CurrentPage == "Create" &&
+                    VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([unsavedClose], true).Length == 1,
+                    "Declining close with unsaved import status returns to a visible save action, including empty projects");
+            }
+            finally { lock (queueSync) queueJobs.Remove(unsavedClose); decisions.ConfirmResult = previousConfirmation; }
+            flow.CurrentPage = "Projects";
             await flow.NavigateAsync("Settings"); flow.UnityEditorPath = ""; flow.NamingPrefix = "Saved fixture"; decisions.SettingsChoice = "Save";
             Require(await flow.NavigateAsync("Projects") && !flow.SettingsDirty && (await flow.Application.Configuration.LoadAsync()).Naming.DefaultPrefix == "Saved fixture", "Saving before navigation persists the settings");
             await flow.NavigateAsync("Settings"); flow.NamingPatterns = "[";
@@ -469,13 +853,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require((await flow.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(presetBefore.OrderBy(x => x.Key)), "Project-only customization cannot save over the shared preset");
             await flow.UsePresetForImportCommand.ExecuteAsync(null);
             Require(flow.CurrentPage == "Create" && flow.PackageFile == importFile && flow.CreationPackages.Any(x => x.Id == importOptional.Id && x.Selected), "Using a local package selection returns to the unchanged import draft");
-            var queue = flow.Application.Imports;
-            var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
-            var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             var protectedJob = new ImportJob("protected-fixture", new OperationPlan("protected", DateTime.UtcNow, []), new CreationRequest("", "Protected", "fixture", "", "StandaloneWindows64", [], []), "Running", "Import", 20, "", "", DateTime.UtcNow);
             lock (queueSync) queueJobs.Add(protectedJob);
             try
             {
+                var protectedProject = new ProjectSnapshot { Name = "Protected", Path = protectedJob.ProjectPath };
+                Require(flow.ActiveImportForProject(protectedProject)?.Id == protectedJob.Id && flow.RecoverableImportForProject(protectedProject) is null,
+                    "An active project import is distinguished from interrupted work");
                 var confirmations = decisions.Confirmations; var configuration = await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile);
                 await flow.ResetSettingsCommand.ExecuteAsync(null); await flow.RepairInstallationCommand.ExecuteAsync(null);
                 await flow.UninstallApplicationCommand.ExecuteAsync(null); await flow.ImportSettingsCommand.ExecuteAsync(null);
@@ -485,6 +869,16 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             }
             finally { lock (queueSync) queueJobs.Remove(protectedJob); }
         }
+        // The flow fixture injects queue entries directly. Publish its final
+        // snapshot and wait for the real UI dispatcher to reconcile the rows.
+        await viewModel.Application.Imports.ClearFinishedAsync();
+        var reconcileUntil = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < reconcileUntil && !viewModel.ImportJobs.Select(x => x.Id).ToHashSet(StringComparer.Ordinal)
+            .SetEquals(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs(viewModel.Application.Imports.Snapshot(), viewModel.AutoHideCompletedImports).Select(x => x.Id)))
+            await Task.Delay(25);
+        Require(viewModel.ImportJobs.Select(x => x.Id).ToHashSet(StringComparer.Ordinal)
+            .SetEquals(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs(viewModel.Application.Imports.Snapshot(), viewModel.AutoHideCompletedImports).Select(x => x.Id)),
+            "The queue fixture is reconciled before measuring empty import layout");
         Require((await new VrcSetupApplication(Path.Combine(artifacts, "seed-check-home")).Inspection.LoadIndexAsync()).Signatures.Length > 1000, "Published bundle includes the offline dependency signature seed");
         var inspectionFile = Path.Combine(artifacts, "Lullaby by Skittie - PC Package.unitypackage");
         using (var file = File.Create(inspectionFile))
@@ -502,16 +896,193 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             page.DispatcherQueue.TryEnqueue(() => dispatched.TrySetResult());
             await dispatched.Task.WaitAsync(TimeSpan.FromSeconds(1));
             Require(responsive.IsInspectingPackage, "Dispatcher remains usable while package analysis is pending");
+            Require(responsive.InspectionStatus.Length > 0 && responsive.InspectionBusyVisibility == Visibility.Visible && !responsive.CreateProjectCommand.CanExecute(null), "File selection immediately exposes analysis progress and blocks premature review");
             responsive.PackageFile = ""; delayed.Release.TrySetResult(); await Task.Delay(120);
             Require(responsive.CreationInspection is null && responsive.InspectionStatus.Length == 0, "Replacing a file rejects stale inspection results");
+            Require(!responsive.CreateProjectCommand.CanExecute(null) && responsive.InspectionBusyVisibility == Visibility.Collapsed, "Clearing the source stops analysis feedback and leaves review unavailable");
         }
-        var proof = new DependencyEvidence("Assets/Test.prefab", "script");
+        var proof = new DependencyEvidence("Assets/Test.prefab", "script") { ObservedVersions = ["9.9.9"], SignatureSources = ["Packages/private/path.cs"] };
         var advice = new PackageInspectionReport(new(1, 0, 0, true, true, [], [], 0), "fixture", "Avatar prefab", 0,
-            [new("com.vrcfury.vrcfury", DependencyConfidence.Detected, null, [proof]), new("com.poiyomi.toon", DependencyConfidence.Detected, null, [proof]), new(ProjectRules.WorldSdk, DependencyConfidence.Detected, null, [proof]), new("example.range", DependencyConfidence.Declared, ">=2.0.0", [proof])], false);
+            [new("com.vrcfury.vrcfury", DependencyConfidence.Detected, null, [proof]), new("com.poiyomi.toon", DependencyConfidence.Detected, null, [proof]), new(ProjectRules.WorldSdk, DependencyConfidence.Detected, null, [proof]), new("example.range", DependencyConfidence.Declared, ">=2.0.0", [proof]), new("com.llealloo.audiolink", DependencyConfidence.Possible, null, [proof])], false);
+        var readableEvidence = PackageSetDialog.EvidenceTooltip(advice.Suggestions[0]);
+        Require(!readableEvidence.Contains("Assets/") && !readableEvidence.Contains("Packages/") && !readableEvidence.Contains("9.9.9") && readableEvidence.Contains("refers"),
+            "Package guidance describes the finding without presenting internal paths or observed versions as requirements");
+        Require(UiText.Text("This package may be needed. Check before adding it.", "it").Contains("potrebbe servire"),
+            "Uncertain package guidance is available in Italian");
         viewModel.CurrentPage = "Create"; viewModel.CreationInspection = advice; await Task.Delay(150);
         Require(viewModel.DetectedCreationPackagesVisibility == Visibility.Visible && viewModel.DetectedCreationPackages.Any(x => x.Id == "example.range"), "Strong package suggestions appear before the import review");
         Require(!viewModel.DetectedCreationPackages.Any(x => x.Id == ProjectRules.WorldSdk), "Avatar suggestions exclude the world SDK");
+        Require(viewModel.PossibleCreationPackagesVisibility == Visibility.Visible && viewModel.PossibleCreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && !x.Selected), "Possible packages are offered separately without being selected automatically");
+        var possibleExpander = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("PossiblePackagesExpander");
+        possibleExpander.IsExpanded = true; await Task.Delay(150); page.UpdateLayout();
+        Require(possibleExpander.Visibility == Visibility.Visible && Descendants(possibleExpander).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.DataContext is VrcSetup_Desktop.ViewModels.UiCreationPackage item && item.Id == "com.llealloo.audiolink"), "Possible packages expose an individual add action in the native view");
+        await Render(page, Path.Combine(artifacts, "possible-package-suggestions.png"));
+        possibleExpander.IsExpanded = false;
         viewModel.CreationInspection = null;
+        var selectedForBundled = viewModel.CreationPackages.First(x => x.Selected && x.Id == "gogoloco");
+        viewModel.CreationInspection = advice with { Suggestions = [new(selectedForBundled.Id, DependencyConfidence.Included, "1.0.0", [new("Packages/fixture/package.json", "manifest")])] };
+        await Task.Delay(100); page.UpdateLayout();
+        var bundledNotice = (FrameworkElement)page.FindName("BundledReviewNotice");
+        var bundledButton = (Microsoft.UI.Xaml.Controls.Button)page.FindName("BundledReviewButton");
+        var ordinaryCustomize = (Microsoft.UI.Xaml.Controls.Button)page.FindName("CustomizePackagesButton");
+        Require(bundledNotice.Visibility == Visibility.Visible && bundledNotice.ActualWidth > 0 && bundledButton.ActualWidth > 0 && ordinaryCustomize.Visibility == Visibility.Visible,
+            "The bundled review action and full customization are both available");
+        Require(UiText.Text("Also in file · may still be needed", "it") == "Anche nel file · potrebbero servire",
+            "The bundled review notice explains the uncertainty in Italian");
+        await Render(page, Path.Combine(artifacts, "bundled-review.png"));
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 580));
+        await Task.Delay(150); page.UpdateLayout();
+        var bundledRight = bundledButton.TransformToVisual(bundledNotice).TransformPoint(new(0, 0)).X + bundledButton.ActualWidth;
+        var createView = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreateView");
+        var bundledTop = bundledButton.TransformToVisual(createView).TransformPoint(new(0, 0)).Y;
+        if (bundledTop + bundledButton.ActualHeight > createView.ActualHeight)
+        {
+            createView.ChangeView(null, createView.VerticalOffset + bundledTop + bundledButton.ActualHeight - createView.ActualHeight + 8, null, true);
+            await Task.Delay(100); page.UpdateLayout();
+            bundledTop = bundledButton.TransformToVisual(createView).TransformPoint(new(0, 0)).Y;
+        }
+        Require(bundledButton.ActualWidth > 0 && bundledRight <= bundledNotice.ActualWidth + 1 && bundledTop >= 0 && bundledTop + bundledButton.ActualHeight <= createView.ActualHeight + 1,
+            "The package review action is reachable at minimum window size");
+        await Render(page, Path.Combine(artifacts, "bundled-review-compact.png"));
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
+        await Task.Delay(100); page.UpdateLayout();
+        viewModel.CreationInspection = null;
+        var suggestionDecisions = new FlowInteraction(page);
+        using (var focusedReview = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
+        {
+            await focusedReview.InitializeAsync(); focusedReview.CurrentPage = "Create";
+            focusedReview.CreationInspection = advice with { Suggestions = [
+                new("gogoloco", DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")]),
+                advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
+            var snapshot = focusedReview.CreateSuggestionReview();
+            Require(snapshot.Items.Length == 2 && snapshot.Items.Any(x => x.Id == "gogoloco" && x.Selected) && snapshot.Items.Any(x => x.Id == "com.llealloo.audiolink" && !x.Selected),
+                "Focused review contains only the suggested addition and the selected package listed in the file");
+            var dialog = new SuggestionReviewDialog(snapshot, _ => Task.FromResult(new[] { "2.3.4" }));
+            var staged = dialog.Result();
+            Require(staged["gogoloco"] && !staged["com.llealloo.audiolink"], "Opening suggested package review does not change selections");
+            dialog.Dialog.XamlRoot = page.XamlRoot;
+            var suggestionShown = dialog.Dialog.ShowAsync(); await Task.Delay(150); dialog.Dialog.UpdateLayout();
+            Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.CheckBox>().Count() == 2, "Focused review renders just the two relevant package choices");
+            Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Any(x => x.Text.Contains("2.3.4")), "Suggested package review shows the fetched latest version");
+            await Render(dialog.Dialog, Path.Combine(artifacts, "suggestion-review.png"));
+            dialog.Dialog.Hide(); await suggestionShown;
+            Require(focusedReview.CreationPackages.Any(x => x.Id == "gogoloco" && x.Selected) && !focusedReview.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected),
+                "Closing suggested package review preserves the existing selection");
+            staged["gogoloco"] = false; staged["com.llealloo.audiolink"] = true;
+            Require(focusedReview.ApplySuggestionReview(snapshot, staged) && !focusedReview.CreationPackages.Any(x => x.Id == "gogoloco" && x.Selected) &&
+                focusedReview.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected),
+                "Suggested addition and possible removal apply only after explicit choices");
+            Require(!focusedReview.ApplySuggestionReview(snapshot, staged), "An outdated suggestion review cannot overwrite newer choices");
+        }
+        using (var versionReview = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
+        {
+            await versionReview.InitializeAsync(); versionReview.CurrentPage = "Create";
+            versionReview.CreationInspection = advice with { Suggestions = [
+                new("gogoloco", DependencyConfidence.Declared, ">=2.0.0", [new("Packages/example/package.json", "manifest")])] };
+            var snapshot = versionReview.CreateSuggestionReview();
+            var item = snapshot.Items.Single(x => x.Id == "gogoloco");
+            Require(item.Selected && item.SelectedVersion == "1.8.6" && item.RequiredVersion == ">=2.0.0" && versionReview.SuggestedReviewOnlyVisibility == Visibility.Visible,
+                "A selected version that differs from a declared requirement is visible for review");
+            var dialog = new SuggestionReviewDialog(snapshot);
+            Require(dialog.Dialog.PrimaryButtonText == "" && dialog.Dialog.CloseButtonText == "Close", "A read-only version review does not offer an empty apply action");
+            dialog.Dialog.XamlRoot = page.XamlRoot;
+            var displayed = dialog.Dialog.ShowAsync(); await Task.Delay(150); dialog.Dialog.UpdateLayout();
+            Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Any(x => x.Text.Contains(">=2.0.0") && x.Text.Contains("1.8.6")),
+                "Version review displays both the selected version and declared requirement");
+            await Render(dialog.Dialog, Path.Combine(artifacts, "declared-version-review.png"));
+            dialog.Dialog.Hide(); await displayed;
+            Require(versionReview.ApplySuggestionReview(snapshot, dialog.Result()) && versionReview.CreationPackages.Single(x => x.Id == "gogoloco").Data.Version == "1.8.6",
+                "Reviewing a version requirement never replaces the selected pin");
+        }
+        using (var reviewFlow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
+        {
+            await reviewFlow.InitializeAsync(); reviewFlow.CurrentPage = "Create";
+            var beforeBundled = reviewFlow.CreationPackages.Where(x => x.Selected).Select(x => x.Id).Order(StringComparer.Ordinal).ToArray();
+            reviewFlow.CreationInspection = advice with { Suggestions = [new("gogoloco", DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")])] };
+            Require(reviewFlow.BundledReviewVisibility == Visibility.Visible && reviewFlow.NormalCustomizeVisibility == Visibility.Visible && reviewFlow.BundledReviewText.Contains("gogo", StringComparison.OrdinalIgnoreCase) &&
+                reviewFlow.CreationPackages.Where(x => x.Selected).Select(x => x.Id).Order(StringComparer.Ordinal).SequenceEqual(beforeBundled),
+                "A selected package listed in the archive is offered for review without removing it");
+            Require(reviewFlow.InspectionStatus.Length == 0, "The bundled review notice does not compete with a redundant empty-result message");
+            reviewFlow.CreationInspection = advice with { Suggestions = [new(ProjectRules.BaseSdk, DependencyConfidence.Included, "3.10.5", [new("Packages/com.vrchat.base/package.json", "manifest")])] };
+            Require(reviewFlow.BundledReviewVisibility == Visibility.Collapsed, "Required foundation packages are not proposed for removal review");
+            reviewFlow.CreationInspection = null;
+            Require(reviewFlow.BundledReviewVisibility == Visibility.Collapsed && reviewFlow.NormalCustomizeVisibility == Visibility.Visible, "The bundled review action disappears and the normal customize action returns without matching metadata");
+            reviewFlow.CreationInspection = advice with { Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
+            var possible = reviewFlow.PossibleCreationPackages.Single(x => x.Id == "com.llealloo.audiolink");
+            Require(reviewFlow.InspectionStatus == "Check other possible packages below.", "Possible-only results do not report that no packages were found");
+            var presetBefore = new Dictionary<string, string>((await reviewFlow.Application.Configuration.LoadAsync()).VpmPackages);
+            await reviewFlow.AddCreationSuggestionAsync(possible);
+            Require(reviewFlow.CreationPackages.Single(x => x.Id == possible.Id).Selected && !reviewFlow.PossibleCreationPackages.Any(x => x.Id == possible.Id), "Explicitly adding a possible package updates the import selection");
+            Require(reviewFlow.InspectionStatus == "No additional packages found.", "The package summary updates after accepting the last possible suggestion");
+            Require((await reviewFlow.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(presetBefore.OrderBy(x => x.Key)), "Adding a possible package does not modify the saved default preset");
+            var secondFile = Path.Combine(artifacts, "second-suggestion-fixture.unitypackage");
+            File.Copy(inspectionFile, secondFile);
+            reviewFlow.StageImportFiles([inspectionFile, secondFile]);
+            var firstDraft = reviewFlow.ImportDrafts.Single(x => x.File == inspectionFile);
+            var secondDraft = reviewFlow.ImportDrafts.Single(x => x.File == secondFile);
+            reviewFlow.SelectedImportDraft = firstDraft;
+            var inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
+            Require(!reviewFlow.IsInspectingPackage, "The first fixture inspection settles before selecting a suggestion");
+            var firstIdentity = await PackageSourceIdentity.ReadAsync(inspectionFile);
+            reviewFlow.CreationInspection = advice with { SourceIdentity = firstIdentity, Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
+            await reviewFlow.AddCreationSuggestionAsync(reviewFlow.PossibleCreationPackages.Single(x => x.Id == "com.llealloo.audiolink"));
+            Require(firstDraft.SelectionSourceIdentity == firstIdentity && secondDraft.SelectionSourceIdentity is null, "An accepted suggestion records the source identity only for its own draft");
+            reviewFlow.SelectedImportDraft = secondDraft;
+            Require(!reviewFlow.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected), "A package chosen for one import is not selected for another");
+            reviewFlow.SelectedImportDraft = firstDraft;
+            Require(reviewFlow.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected), "Returning to the first import retains its explicitly selected package");
+            Require(firstDraft.SelectionSourceIdentity == firstIdentity, "Switching drafts retains the identity of the analyzed source");
+            if (installedEditor is not null && UnityProjectDriver.HasBuildSupport(installedEditor, firstDraft.Platform))
+            {
+                reviewFlow.UnityEditorPath = installedEditor;
+                inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
+                while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
+                var originalBytes = await File.ReadAllBytesAsync(inspectionFile);
+                var originalTimestamp = File.GetLastWriteTimeUtc(inspectionFile);
+                var replacedBytes = (byte[])originalBytes.Clone();
+                replacedBytes[4] ^= 1; // gzip mtime changes the archive without changing its payload or length.
+                await File.WriteAllBytesAsync(inspectionFile, replacedBytes);
+                File.SetLastWriteTimeUtc(inspectionFile, originalTimestamp);
+                var replacementIdentity = await PackageSourceIdentity.ReadAsync(inspectionFile);
+                Require(replacementIdentity != firstIdentity && replacementIdentity.Length == firstIdentity.Length && File.GetLastWriteTimeUtc(inspectionFile) == originalTimestamp,
+                    "The source fixture is replaced with different bytes while keeping its size and timestamp");
+                suggestionDecisions.ConfirmResult = false; suggestionDecisions.ReviewResult = false;
+                var priorConfirmations = suggestionDecisions.Confirmations;
+                await reviewFlow.CreateProjectCommand.ExecuteAsync(null);
+                Require(suggestionDecisions.Confirmations == priorConfirmations + 1 && suggestionDecisions.LastReview is null && firstDraft.SelectionSourceIdentity == firstIdentity,
+                    "A changed source blocks review and cancellation keeps its selection and original identity");
+                suggestionDecisions.ConfirmResult = true;
+                await reviewFlow.CreateProjectCommand.ExecuteAsync(null);
+                Require(suggestionDecisions.LastReview is null && firstDraft.SelectionSourceIdentity == replacementIdentity &&
+                    firstDraft.Packages?.ContainsKey("com.llealloo.audiolink") == true && reviewFlow.ImportError.Length > 0,
+                    "Rechecking a changed source keeps package choices and asks for a fresh review");
+                await File.WriteAllBytesAsync(inspectionFile, originalBytes);
+                File.SetLastWriteTimeUtc(inspectionFile, originalTimestamp);
+                var invalidArchive = Path.Combine(artifacts, "invalid-import.unitypackage");
+                await File.WriteAllTextAsync(invalidArchive, "not an archive");
+                reviewFlow.PackageFile = invalidArchive;
+                inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
+                while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
+                await reviewFlow.CreateProjectCommand.ExecuteAsync(null);
+                Require(reviewFlow.ImportError == UiText.Text("This file is not a valid UnityPackage. Choose the original .unitypackage file.") &&
+                    reviewFlow.ImportDiagnosticVisibility == Visibility.Collapsed,
+                    "An invalid import explains which file to choose without exposing a technical exception");
+                reviewFlow.ImportError = UiText.Text("This action could not be completed. Open logs for details.");
+                reviewFlow.ImportErrorNeedsDiagnostics = true;
+                Require(reviewFlow.ImportDiagnosticVisibility == Visibility.Visible, "Unexpected import preparation errors provide a log action");
+                reviewFlow.ImportError = "";
+                Require(reviewFlow.ImportDiagnosticVisibility == Visibility.Collapsed, "Clearing an import error also clears its diagnostic action");
+                var savedLanguage = UiText.Language;
+                try
+                {
+                    UiText.Language = "it";
+                    reviewFlow.ImportError = UiText.Text("Choose the projects folder in Settings before creating a project.");
+                    Require(reviewFlow.ImportSettingsVisibility == Visibility.Visible, "The settings action remains available with an Italian import error");
+                }
+                finally { UiText.Language = savedLanguage; reviewFlow.ImportError = ""; }
+            }
+        }
         using (var suggested = new PackageSetDialog("Packages for this project", new() { ["com.poiyomi.toon"] = "8.0.0", [ProjectRules.AvatarSdk] = "3.10.5" }, new(), viewModel.Registry.ToArray(),
             (_, _) => Task.FromResult(Array.Empty<PackageDefinition>()), (_, _) => Task.FromResult(Array.Empty<string>()), advice))
         {
@@ -521,6 +1092,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke(); await Task.Delay(100);
             Require(suggested.Result()["com.vrcfury.vrcfury"] == "latest" && suggested.Result()["com.poiyomi.toon"] == "8.0.0", "Detected packages stage additions without replacing existing pins");
             Require(!suggested.Result().ContainsKey(ProjectRules.WorldSdk) && !suggested.Result().ContainsKey("example.range"), "Suggestions preserve SDK kind and do not convert declared ranges into latest");
+            Require(!suggested.Result().ContainsKey("com.llealloo.audiolink"), "Adding detected packages in bulk never includes possible matches");
             await Render(suggested.Dialog, Path.Combine(artifacts, "detected-packages.png")); suggested.Dialog.Hide(); await shown;
             Require(!suggested.Accepted, "Detected selection stays staged until the user accepts");
         }
@@ -676,7 +1248,8 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     scroll.ChangeView(null, 0, null, true);
                 }
                 if (screen == "Create")
-                    Require(((FrameworkElement)page.FindName("ImportQueueSection")).Visibility == Visibility.Collapsed && viewModel.ImportsIdle, "Empty imports reserve no workspace: " + size.Width);
+                    Require(((FrameworkElement)page.FindName("ImportQueueSection")).Visibility == Visibility.Collapsed && viewModel.ImportsIdle,
+                        $"Empty imports reserve no workspace: {size.Width}, visibility={((FrameworkElement)page.FindName("ImportQueueSection")).Visibility}, idle={viewModel.ImportsIdle}, rows={viewModel.ImportJobs.Count}, queue={string.Join(",", viewModel.Application.Imports.Snapshot().Select(job => job.Id + ":" + job.State + ":" + job.Source.EmptyProject))}");
                 if (screen is "Create" or "Settings")
                 {
                     var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");
@@ -716,8 +1289,11 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     await Task.Delay(650); page.UpdateLayout();
                     Require(Math.Abs(details.ActualWidth - collapsedWidth) < 2, "Package disclosure keeps a stable width while expanding: " + size.Width);
                     var importAction = (FrameworkElement)page.FindName("ImportPrimaryAction");
-                    Require(importAction.TransformToVisual(details).TransformPoint(new(0, 0)).Y >= details.ActualHeight,
-                        "Import action stays below package details: " + size.Width);
+                    var importViewport = (FrameworkElement)page.FindName("CreateView");
+                    var actionTop = importAction.TransformToVisual(page).TransformPoint(new(0, 0)).Y;
+                    var viewportBottom = importViewport.TransformToVisual(page).TransformPoint(new(0, importViewport.ActualHeight)).Y;
+                    Require(actionTop >= viewportBottom - 2 && actionTop + importAction.ActualHeight <= page.ActualHeight,
+                        "Import action stays outside the scrolling package details and within the page: " + size.Width);
                     var footer = (FrameworkElement)page.FindName("StatusBar");
                     var text = (Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("ApplicationStatusText");
                     Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);
@@ -738,7 +1314,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 }
                 if (screen == "Presets")
                 {
-                    var carousel = (FrameworkElement)page.FindName("PresetCarousel");
+                    var presetHeader = (FrameworkElement)page.FindName("PresetHeader");
                     var pageScroll = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("PresetPageScroll");
                     var includedList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("PresetPackageList");
                     Require(double.IsPositiveInfinity(includedList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(includedList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled, "Included packages have no height cap or nested scrolling: " + size.Width);
@@ -747,7 +1323,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     Require(pageScroll.ScrollableHeight == 0 || pageScroll.VerticalOffset > 0, "Catalog is reachable with the shared page scroll: " + size.Width);
                     await Render(page, Path.Combine(artifacts, "presets-scrolled-" + size.Width + ".png"));
                     pageScroll.ChangeView(null, 0, null, true); await Task.Delay(100);
-                    Require(carousel.ActualWidth > 0 && page.FindName("PackageTabs") is null, "Preset editor is one unified page without duplicate tabs: " + size.Width);
+                    Require(presetHeader.ActualWidth > 0 && page.FindName("PackageTabs") is null, "Preset editor is one unified page without duplicate tabs: " + size.Width);
                     var editorBounds = (FrameworkElement)page.FindName("PresetEditor");
                     var editorRight = editorBounds.TransformToVisual(page).TransformPoint(new(editorBounds.ActualWidth, 0)).X;
                     Require(Descendants((DependencyObject)page.FindName("PresetPackageList")).OfType<PackageActionIcon>().All(x => x.TransformToVisual(page).TransformPoint(new(x.ActualWidth, 0)).X <= editorRight + 1), "Preset minus icons fit without right-edge clipping: " + size.Width);
@@ -765,23 +1341,20 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     if (size.Width == 1180)
                     {
                         var selectorBefore = ((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X;
-                        page.SetPresetActions(true); await Task.Delay(260); page.UpdateLayout();
-                        var strip = (FrameworkElement)page.FindName("PresetActionsClip");
-                        Require(strip.ActualWidth == 128 && Math.Abs(((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X - selectorBefore) < 1, "Inline preset actions expand without shifting the preset title");
-                        await Render(page, Path.Combine(artifacts, "preset-inline-actions.png"));
-                        var shareButton = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetShareButton");
-                        shareButton.Flyout.ShowAt(shareButton); await Task.Delay(250);
-                        var shareMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)shareButton.Flyout;
-                        Require(shareMenu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().Count(x => x.Command is not null) == 2, "Preset share menu exposes working Import and Export actions");
-                        await Render(page, Path.Combine(artifacts, "preset-sharing.png")); shareMenu.Hide();
-                        page.SetPresetActions(false); await Task.Delay(260);
-                        Require(strip.Visibility == Visibility.Collapsed, "Inline preset actions collapse cleanly");
-                        var wheel = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetSelector"); wheel.Flyout.ShowAt(wheel); await Task.Delay(500);
-                        var choices = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("PresetChoices");
-                        Require(choices.ActualHeight >= 36 && choices.Items.Count == viewModel.Presets.Count, "Preset wheel opens the complete choice list");
-                        var presenter = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(choices) as FrameworkElement ?? choices;
-                        await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "preset-wheel-bounds.json"), new { choices.ActualWidth, choices.ActualHeight, DesiredHeight = choices.DesiredSize.Height, ParentWidth = presenter.ActualWidth, ParentHeight = presenter.ActualHeight, Items = choices.Items.Select(x => { var row = (FrameworkElement)choices.ContainerFromItem(x); return new { Name = x.ToString(), row.ActualHeight, Top = row.TransformToVisual(choices).TransformPoint(new(0, 0)).Y }; }).ToArray() });
-                        await Render(presenter, Path.Combine(artifacts, "preset-wheel-choices.png")); wheel.Flyout.Hide();
+                        var options = (Microsoft.UI.Xaml.Controls.Button)page.FindName("PresetActionsToggle");
+                        options.Flyout.ShowAt(options); await Task.Delay(250); page.UpdateLayout();
+                        var menu = (Microsoft.UI.Xaml.Controls.MenuFlyout)options.Flyout;
+                        var actions = menu.Items.OfType<Microsoft.UI.Xaml.Controls.MenuFlyoutItem>().ToArray();
+                        Require(actions.Length == 5 && actions.All(x => x.Command is not null), "Preset menu exposes all five commands");
+                        Require(actions[0].Command == viewModel.CreatePresetCommand && actions[1].Command == viewModel.RenamePresetCommand && actions[2].Command == viewModel.DeletePresetCommand && actions[3].Command == viewModel.ImportPresetCommand && actions[4].Command == viewModel.ExportPresetCommand, "Preset menu retains creation, rename, delete, import and export behavior");
+                        Require(actions[1].IsEnabled == viewModel.IsCustomPreset && actions[2].IsEnabled == viewModel.IsCustomPreset, "Preset menu protects the default preset from rename and deletion");
+                        Require(Math.Abs(((FrameworkElement)page.FindName("PresetSelector")).TransformToVisual(page).TransformPoint(new(0, 0)).X - selectorBefore) < 1, "Opening preset options does not shift the selection");
+                        await Render(page, Path.Combine(artifacts, "preset-options.png")); menu.Hide();
+                        var choices = (Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector");
+                        Require(choices.Items.Count == viewModel.Presets.Count, "Preset selector exposes every saved preset");
+                        choices.IsDropDownOpen = true; await Task.Delay(500);
+                        await Render(page, Path.Combine(artifacts, "preset-choices.png"));
+                        choices.IsDropDownOpen = false;
                     }
                     if (size.Width == 1180)
                     {
@@ -814,6 +1387,22 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             }
         }
         viewModel.CurrentPage = "Create";
+        var backupProject = Path.Combine(artifacts, "backup-choice-project");
+        var backupRoot = Path.Combine(backupProject, ".vrcsetup", "backups");
+        var olderBackup = Path.Combine(backupRoot, "older"); var newestBackup = Path.Combine(backupRoot, "newest");
+        Directory.CreateDirectory(olderBackup); Directory.CreateDirectory(newestBackup);
+        await File.WriteAllTextAsync(Path.Combine(olderBackup, "backup.json"), "{}");
+        await File.WriteAllTextAsync(Path.Combine(newestBackup, "backup.json"), "{}");
+        var backupSnapshot = new ProjectSnapshot { Name = "Fixture", Path = backupProject };
+        OperationReport BackupReport(string id, string folder, int minutes, string? path = null) => new(id, DateTime.UtcNow.AddMinutes(minutes),
+            [new("Fixture", path ?? backupProject, OperationStatus.Failed, "", BackupPath: folder)], []);
+        var backupReports = new[] { BackupReport("older", olderBackup, -3), BackupReport("newest", newestBackup, -1),
+            BackupReport("other-project", newestBackup, 0, Path.Combine(artifacts, "other-project")) };
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.LatestProjectBackup(backupSnapshot, backupReports)?.Id == "newest", "Project warning selects the latest backup for the same project");
+        await File.WriteAllTextAsync(Path.Combine(newestBackup, "superseded"), "");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.LatestProjectBackup(backupSnapshot, backupReports)?.Id == "older", "Project warning excludes superseded backups");
+        File.Delete(Path.Combine(olderBackup, "backup.json"));
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.LatestProjectBackup(backupSnapshot, backupReports) is null, "Project warning excludes missing backup records");
         var jobList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("ImportQueueList");
         var jobSection = (FrameworkElement)page.FindName("ImportQueueSection");
         var fixtureJobs = new[] { "First avatar", "Second avatar" }.Select((name, index) => new VrcSetup_Desktop.ViewModels.UiImportRow(
@@ -824,20 +1413,59 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedEmpty) is { RecoverVisibility: Visibility.Visible, RetryLabel: "Try again" }, "Failed empty project exposes Try again");
         var failedImport = fixtureJobs[0].Job with { Id = "failed-import", State = "Failed", Plan = fixtureJobs[0].Job.Plan with { CreatedUtc = DateTime.UtcNow.AddMinutes(-5) } };
         var interruptedImport = failedImport with { State = "Interrupted" };
+        var changedSource = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "This package differs from the original. Choose the original UnityPackage to continue." });
+        Require(fixtureJobs[0].MessageVisibility == Visibility.Collapsed && changedSource.MessageVisibility == Visibility.Visible,
+            "Import outcome uses space only when there is a message to show");
+        Require(changedSource.Message.Contains("UnityPackage changed", StringComparison.Ordinal) && changedSource.RetryLabel == "Try again", "Changed source shows the actionable reason and retry");
+        var failedRestore = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "Import failed. Automatic restore incomplete; use recovery." });
+        Require(failedRestore.Message.Contains("could not be restored automatically", StringComparison.Ordinal), "Incomplete restore remains visible instead of a generic import error");
+        var pathFailure = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "Unity did not finish and could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details." });
+        Require(pathFailure.Message.Contains("shorter projects folder", StringComparison.Ordinal) && pathFailure.Message.Contains("kept", StringComparison.Ordinal),
+            "A long-path import failure tells the user what was preserved and how to proceed");
+        var closingUnity = new VrcSetup_Desktop.ViewModels.UiImportRow(fixtureJobs[0].Job with { Step = "ClosingUnity" });
+        Require(closingUnity.Step == "Waiting for Unity to close…" && UiText.Text(closingUnity.Step, "it") == "In attesa della chiusura di Unity…",
+            "An import still waiting for Unity displays a clear localized phase without claiming completion");
+        var registrationNotice = failedImport with { State = "Completed", CreatorCompanionPending = true, Progress = 100 };
+        var registrationRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice);
+        Require(registrationRow.RegistrationVisibility == Visibility.Visible && registrationRow.RecoverVisibility == Visibility.Collapsed && registrationRow.Step == "Completed with a notice",
+            "Optional VCC failure offers registration retry without suggesting another import");
+        var unsavedRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { HistorySaveFailed = true });
+        var unknownRegistration = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { CreatorCompanionPending = false, CreatorCompanionUnknown = true, State = "Recovered" });
+        var unknownProject = new ProjectSnapshot { Name = "Recovered fixture", Path = artifacts, CreatorCompanionUnknown = true };
+        Require((Visibility)new ProjectAttentionConverter().Convert(unknownProject, typeof(Visibility), null!, "en") == Visibility.Visible &&
+            ProjectAttentionConverter.Description(unknownProject).Contains("Check whether"), "Recovered project offers the same uncertain registration notice in Projects");
+        var unknownHistory = new VrcSetup_Desktop.ViewModels.UiHistoryEntry(unknownRegistration.Job);
+        Require(unknownHistory.State == "Completed with a notice" && unknownHistory.Result.Contains("Check whether"),
+            "Activity preserves the uncertain Creator Companion outcome for a recovered import");
+        Require(unknownRegistration.Message.Contains("Check whether") && unknownRegistration.AttentionVisibility == Visibility.Visible &&
+            VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([unknownRegistration.Job], true).Length == 1,
+            "Recovered project does not claim an unknown Creator Companion registration failed or succeeded");
+        Require(unsavedRow.HistorySaveVisibility == Visibility.Visible && unsavedRow.RegistrationVisibility == Visibility.Collapsed && unsavedRow.Message.Contains("could not be saved") &&
+            VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([unsavedRow.Job], true).Length == 1,
+            "Unsaved import status stays visible with a save-only action before other retries");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([registrationNotice], true).Length == 1,
+            "A pending VCC notice is not automatically hidden as a completed import");
+        Require(ProjectAttentionConverter.Description(new ProjectSnapshot { Name = "Ready fixture", Path = artifacts, CreatorCompanionPending = true }) == UiText.Text(registrationRow.Message),
+            "Project and import show the same ready-project notice for optional registration");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport) is { RetryLabel: "Try again", AttentionVisibility: Visibility.Visible }, "Failed imports have a retry action and a quiet warning marker");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(interruptedImport) is { RetryLabel: "Continue import", AttentionVisibility: Visibility.Visible }, "Interrupted imports retain Continue with a quiet warning marker");
+        Require(UiText.Text("Interrupted", "it") == "Interrotta" && UiText.Text("Cancelling", "it") == "Annullamento in corso", "Interrupted and cancelling states are understandable in Italian");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport with { HiddenFromImports = true }], false).Length == 1,
+            "Legacy hidden recoverable imports are still visible for continuation");
+        Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([registrationNotice], true).Length == 1,
+            "Pending registration notices are not hidden automatically");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedImport).RepairLabel == "Try again", "Activity uses the same retry label for failures");
         var attempts = new[] { failedImport, fixtureJobs[0].Job, fixtureJobs[1].Job };
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs(attempts, false).Length == 2, "Retry replaces the older failed row for the same destination");
         var hiddenNewest = fixtureJobs[0].Job with { State = "Completed", HiddenFromImports = true };
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport, hiddenNewest], false).Length == 0, "Clearing the latest attempt does not resurrect older failures");
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport, hiddenNewest with { HiddenFromImports = false }], true).Length == 0, "Auto-hiding a completed retry does not resurrect older failures");
-        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty).ImportActionsVisibility == Visibility.Visible, "Empty project recovery is available in Activity");
+        Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty).ImportActionsVisibility == Visibility.Visible, "Failed empty project retains its recovery metadata");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Running" }).Summary.Length > 0, "Creation history summary works before its report exists");
         Require(new VrcSetup_Desktop.ViewModels.UiHistoryEntry(failedEmpty with { State = "Completed" }).ImportActionsVisibility == Visibility.Collapsed, "Completed empty project has no archive recovery action");
         viewModel.CurrentPage = "Activity";
-        var historyList = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => ReferenceEquals(x.ItemsSource, viewModel.ImportHistory));
-        var emptyHistory = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().First(x => x.Text == "No import history yet");
+        var historyList = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.ListView>().First(x => ReferenceEquals(x.ItemsSource, viewModel.History));
+        var emptyHistory = Descendants((DependencyObject)page.FindName("ActivityView")).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().First(x => x.Text == "No operations yet");
         emptyHistory.Visibility = Visibility.Collapsed;
         historyList.ItemsSource = fixtureJobs.Select(x => new VrcSetup_Desktop.ViewModels.UiHistoryEntry(x.Job)).ToArray();
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(1180, 800) })
@@ -845,14 +1473,14 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             window.AppWindow.Resize(size); await Task.Delay(450); page.UpdateLayout();
             await Render(page, Path.Combine(artifacts, "activity-fixture-" + size.Width + ".png"));
         }
-        historyList.ItemsSource = viewModel.ImportHistory; viewModel.CurrentPage = "Create";
+        historyList.ItemsSource = viewModel.History; viewModel.CurrentPage = "Create";
         emptyHistory.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportHistoryEmptyVisibility)) });
         jobList.ItemsSource = fixtureJobs; jobList.Visibility = Visibility.Visible; jobSection.Visibility = Visibility.Visible;
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(1180, 800) })
         {
             window.AppWindow.Resize(size); await Task.Delay(600); page.UpdateLayout();
             var view = (FrameworkElement)page.FindName("CreateView");
-            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 1, "Imports stay in the bottom area at every window size: " + size.Width);
+            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 2, "Imports stay in the bottom area at every window size: " + size.Width);
             Require(jobList.ActualHeight >= 100, "Active job rows are visible in the adaptive import area: " + size.Width);
             var host = (FrameworkElement)page.FindName("CreateHost");
             var viewOrigin = view.TransformToVisual(host).TransformPoint(new(0, 0));
@@ -860,29 +1488,52 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(jobsOrigin.Y >= viewOrigin.Y + view.ActualHeight - 1, "Import jobs do not overlap the form viewport: " + size.Width);
             Require(Math.Abs(jobsOrigin.Y + jobSection.ActualHeight - host.ActualHeight) < 2, "Imports are anchored to the bottom: " + size.Width);
             var row = (FrameworkElement)jobList.ContainerFromIndex(0);
-            var cancel = Descendants(row).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "CancelImportAction");
-            Require(!fixtureJobs[0].DetailsOpen && cancel.Visibility == Visibility.Visible && cancel.IsEnabled && cancel.ActualWidth >= 32 && cancel.ActualWidth <= 40,
-                "Cancel import is directly visible on a collapsed active row: " + size.Width);
-            Require(cancel.TransformToVisual(jobList).TransformPoint(new(cancel.ActualWidth, 0)).X <= jobList.ActualWidth,
-                "Cancel import remains inside the usable list width: " + size.Width);
+            var pause = Descendants(row).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "PauseImportAction");
+            Require(!fixtureJobs[0].DetailsOpen && pause.Visibility == Visibility.Visible && pause.IsEnabled && pause.ActualWidth >= 32 && pause.ActualWidth <= 40,
+                "Pause import is directly visible on a collapsed active row: " + size.Width);
+            Require(pause.TransformToVisual(jobList).TransformPoint(new(pause.ActualWidth, 0)).X <= jobList.ActualWidth,
+                "Pause import remains inside the usable list width: " + size.Width);
             await Render(page, Path.Combine(artifacts, "create-jobs-fixture-" + size.Width + ".png"));
         }
-        fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Cancelling" });
+        fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Pausing" });
         await Task.Delay(100);
-        var firstCancel = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "CancelImportAction");
-        Require(firstCancel.Visibility == Visibility.Visible && !firstCancel.IsEnabled && Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(firstCancel) == "Cancelling…",
-            "Cancellation request stays visible with immediate disabled feedback");
+        var firstPause = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "PauseImportAction");
+        Require(firstPause.Visibility == Visibility.Visible && !firstPause.IsEnabled && Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(firstPause) == "Pausing…",
+            "Pause request stays visible with immediate disabled feedback");
         fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Completed" });
         await Task.Delay(100);
-        Require(firstCancel.Visibility == Visibility.Collapsed, "Finished imports do not show a cancel action");
+        Require(firstPause.Visibility == Visibility.Collapsed, "Finished imports do not show a pause action");
         fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Failed" });
         await Task.Delay(100);
         var retryImport = Descendants((DependencyObject)jobList.ContainerFromIndex(0)).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "RetryImportAction");
         Require(retryImport.Visibility == Visibility.Visible && Equals(retryImport.Content, "Try again") && !fixtureJobs[0].DetailsOpen, "Failed import exposes Try again without opening details");
         await Render(page, Path.Combine(artifacts, "create-failed-retry.png"));
         fixtureJobs[0].Update(fixtureJobs[0].Job with { State = "Running" });
+        var animatedContainer = (FrameworkElement)jobList.ContainerFromIndex(1);
+        var collapsedHeight = animatedContainer.ActualHeight;
         fixtureJobs[1].DetailsOpen = true;
-        await Task.Delay(600);
+        var heights = new List<double>();
+        for (var sample = 0; sample < 8; sample++) { await Task.Delay(45); page.UpdateLayout(); heights.Add(animatedContainer.ActualHeight); }
+        await Task.Delay(240); page.UpdateLayout();
+        var finalHeight = animatedContainer.ActualHeight;
+        Require(finalHeight > collapsedHeight + 20, "Expanding import details increases the whole row height");
+        if (new Windows.UI.ViewManagement.UISettings().AnimationsEnabled)
+            Require(heights.Any(height => height > collapsedHeight + 2 && height < finalHeight - 2),
+                "Import row expands through intermediate heights instead of jumping immediately");
+        fixtureJobs[1].DetailsOpen = false; await Task.Delay(40);
+        fixtureJobs[1].DetailsOpen = true; await Task.Delay(450); page.UpdateLayout();
+        var reopened = Descendants((DependencyObject)jobList.ContainerFromIndex(1)).OfType<Microsoft.UI.Xaml.Controls.Expander>().Single();
+        Require(reopened.IsExpanded && reopened.Content is FrameworkElement { Clip: null } && animatedContainer.ActualHeight > collapsedHeight + 20,
+            "Rapid collapse and reopening leave import details fully visible");
+        try
+        {
+            MainPage.MotionOverrideForVerification = false;
+            fixtureJobs[1].DetailsOpen = false; await Task.Delay(60);
+            fixtureJobs[1].DetailsOpen = true; await Task.Delay(80); page.UpdateLayout();
+            Require(reopened.IsExpanded && reopened.Content is FrameworkElement { Clip: null },
+                "Import details remain unclipped when app animations are disabled");
+        }
+        finally { MainPage.MotionOverrideForVerification = null; }
         fixtureJobs[1].LogText = string.Join("\n", Enumerable.Range(1, 160).Select(x => "Import log line " + x));
         Require(fixtureJobs[1].PreviousLogText.StartsWith("Import log line 159\n"), "Previous log entries start with the most recent");
         page.UpdateLayout(); await Task.Delay(180);
@@ -932,10 +1583,15 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         await AtomicFile.WriteJsonAsync(Path.Combine(viewModel.Application.Paths.Logs, "operation-fixture-partial.json"), partial);
         viewModel.CurrentPage = "Activity"; await viewModel.RefreshSavedHistoryAsync(); await Task.Delay(200);
         var historyEntry = viewModel.OperationHistory.Single(x => x.Id == partial.Id); historyEntry.Expanded = true;
-        var activityTabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs"); activityTabs.SelectedIndex = 1;
+        var activityTabs = (Microsoft.UI.Xaml.Controls.Pivot)page.FindName("ActivityTabs"); activityTabs.SelectedIndex = 0;
         await Task.Delay(550); page.UpdateLayout(); await Render(page, Path.Combine(artifacts, "activity-outcome-fixture.png"));
-        viewModel.DeveloperMode = true; Require(activityTabs.Items.Count == 3, "Developer mode adds diagnostics tab");
-        viewModel.DeveloperMode = false; Require(activityTabs.Items.Count == 2, "Disabling developer mode removes diagnostics header");
+        Require(viewModel.History.Any(x => x.Id == partial.Id) && viewModel.History.Select(x => x.Id).Distinct().Count() == viewModel.History.Count,
+            "Unified history includes operations without duplicate entries");
+        Require(!Descendants(activityTabs).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.Content is string caption &&
+            (caption == VrcSetup.Core.UiText.Text("Check project") || caption == VrcSetup.Core.UiText.Text("Continue import") || caption == VrcSetup.Core.UiText.Text("Restore backup"))),
+            "History contains no recovery or mutation actions");
+        viewModel.DeveloperMode = true; Require(activityTabs.Items.Count == 2, "Developer mode adds diagnostics beside unified history");
+        viewModel.DeveloperMode = false; Require(activityTabs.Items.Count == 1, "Disabling developer mode leaves one history");
         viewModel.Theme = "Light"; viewModel.CurrentPage = "Settings"; await Task.Delay(150);
         await Render(page, Path.Combine(artifacts, "settings-light.png"));
         var savedAccent = viewModel.AccentColor;
@@ -977,6 +1633,21 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         {
             var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i); yield return child;
             foreach (var descendant in Descendants(child)) yield return descendant;
+        }
+    }
+    private static void CreateRecoveryArchive(string path)
+    {
+        using var file = File.Create(path);
+        using var gzip = new GZipStream(file, CompressionLevel.Fastest);
+        using var tar = new TarWriter(gzip, TarEntryFormat.Ustar);
+        var guid = Guid.NewGuid().ToString("N");
+        Add("pathname", "Assets/VrcSetupRecoveryProbe.txt");
+        Add("asset", "recovered archive imported");
+        Add("asset.meta", "fileFormatVersion: 2\nguid: " + guid + "\n");
+        void Add(string suffix, string content)
+        {
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
+            tar.WriteEntry(new UstarTarEntry(TarEntryType.RegularFile, guid + "/" + suffix) { DataStream = stream });
         }
     }
     private sealed class DelayedInspectionReader : IUnityPackageInspector

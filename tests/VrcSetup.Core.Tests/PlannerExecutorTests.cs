@@ -5,6 +5,43 @@ namespace VrcSetup.Tests;
 
 public sealed class PlannerExecutorTests
 {
+    [Fact] public async Task InvalidSourceStopsBeforeAnyProjectMutation()
+    {
+        var workspace = new MemoryWorkspace();
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path,
+            new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var driver = new MemoryDriver(workspace) { RejectSource = true };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("invalid-source", DateTime.UtcNow, [project]));
+        Assert.False(report.Success);
+        Assert.Equal(0, workspace.Backups);
+        Assert.Equal(0, workspace.Restores);
+        Assert.Equal(0, driver.Calls);
+        Assert.False(workspace.Completed);
+    }
+    [Fact] public async Task SourceLeaseIsReleasedAfterPackageFailure()
+    {
+        var workspace = new MemoryWorkspace();
+        var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path,
+            new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        var driver = new MemoryDriver(workspace) { Fail = true, TrackSourceLease = true };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("source-failure", DateTime.UtcNow, [project]));
+        Assert.False(report.Success);
+        Assert.True(driver.SourceLeaseReleased);
+    }
+    [Theory, InlineData(true), InlineData(false)]
+    public async Task RecoveryOfPreexistingProjectBacksUpBeforeMutationAndPreservesOpenEditor(bool editorOpen)
+    {
+        var workspace = new MemoryWorkspace { Busy = editorOpen };
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path,
+            new Dictionary<string, string> { ["tool"] = "latest" }, new());
+        plan = plan with { RecoverySource = new("", workspace.Project.Name, workspace.Project.Path, "Unity.exe", "StandaloneWindows64", [], [], true) };
+        var report = await new ProjectExecutor(workspace, new MemoryDriver(workspace) { Fail = true }).ApplyAsync(new("recovery-backup", DateTime.UtcNow, [plan]));
+        Assert.False(report.Success);
+        Assert.Equal(1, workspace.Backups);
+        Assert.Equal(editorOpen ? 0 : 1, workspace.Restores);
+        Assert.Equal("backup", report.Results.Single().BackupPath);
+    }
+
     private sealed class CaptureProgress(List<OperationEvent> events) : IProgress<OperationEvent>
     { public void Report(OperationEvent value) => events.Add(value); }
     [Fact] public async Task PackageExecutionPublishesStructuredActionAndVersion()
@@ -170,19 +207,41 @@ public sealed class PlannerExecutorTests
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
         Assert.True(report.Success); Assert.Equal("1.1.0", workspace.Project.InstalledVersions["tool"]); Assert.True(workspace.Completed);
     }
-    [Fact] public async Task ReimportDoesNotCreateOrRestoreABackup()
+    [Fact] public async Task ReimportOfPreexistingProjectKeepsABackupWithoutRestoringOnSuccess()
     {
         var workspace = new MemoryWorkspace(); var driver = new MemoryDriver(workspace);
         var project = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path, new Dictionary<string, string> { ["tool"] = "latest" }, new());
         project = project with { RecoverySource = new("source.unitypackage", project.Name, project.Path, "Unity.exe", "StandaloneWindows64", [], []) };
         var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("id", DateTime.UtcNow, [project]));
-        Assert.True(report.Success); Assert.Equal(0, workspace.Backups); Assert.Equal(0, workspace.Restores); Assert.Null(report.Results.Single().BackupPath);
+        Assert.True(report.Success); Assert.Equal(1, workspace.Backups); Assert.Equal(0, workspace.Restores); Assert.Equal("backup", report.Results.Single().BackupPath);
         Assert.Equal(1, driver.Registrations);
     }
     [Fact] public async Task PrereleaseSdkMustExistForEveryLinkedComponent()
     {
         var catalog = new FixtureCatalog(); catalog.Versions[ProjectRules.BaseSdk] = ["3.10.5-beta.1"];
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ProjectPlanner(new MemoryWorkspace(), catalog).PlanAsync(Path.GetFullPath("avatar"), new Dictionary<string, string> { [ProjectRules.BaseSdk] = "3.10.5-beta.1" }, new()));
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OptionalRegistrationFailureNeverRollsBackAReadyProject(bool throws)
+    {
+        var root = Path.GetFullPath("registration-fixture");
+        var target = Path.Combine(root, "project");
+        var request = new CreationRequest("", "project", target, "Unity.exe", "StandaloneWindows64", ["StandaloneWindows64"], [], EmptyProject: true);
+        var workspace = new MemoryWorkspace();
+        var driver = new MemoryDriver(workspace) { FailRegistration = true, RegistrationFailure = throws ? new InvalidOperationException("VCC unavailable") : null };
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(target, new Dictionary<string, string> { [ProjectRules.BaseSdk] = "latest", [ProjectRules.Resolver] = "latest" }, new() { UnityProjectsRoot = root }, creation: request);
+        var events = new List<OperationEvent>();
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("registration", DateTime.UtcNow, [plan]), new CaptureProgress(events));
+        Assert.True(report.Success);
+        var outcome = Assert.Single(report.Results);
+        Assert.Equal(OperationStatus.CompletedWithWarnings, outcome.Status);
+        Assert.True(outcome.CreatorCompanionPending);
+        Assert.True(workspace.Completed);
+        Assert.Equal(0, workspace.Restores);
+        Assert.DoesNotContain(events, x => x.Severity == EventSeverity.Error);
+        Assert.Contains(events, x => x.Phase == "VCC" && x.Severity == EventSeverity.Warning);
     }
     [Fact] public async Task CancelledOptionalRegistrationKeepsCreatedProjectSuccessful()
     {
@@ -228,8 +287,8 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
         InstalledVersions = new() { [ProjectRules.BaseSdk] = "3.10.5", [ProjectRules.AvatarSdk] = "3.10.5", [ProjectRules.Resolver] = "0.1.29", ["tool"] = "1.0.0", ["custom"] = "1.0.0" },
         LockedPackages = new() { ["tool"] = "1.0.0" }
     };
-    public bool Busy; public bool BackupFailure; public int Backups, Restores; public bool Completed; public bool LeaseHeld, LockHeldDuringRestore; public CancellationTokenSource? CancelOnComplete;
-    public Task<ProjectSnapshot> ReadAsync(string path, CancellationToken cancellationToken = default) => Task.FromResult(Project with { Path = path });
+    public bool Busy; public bool BackupFailure; public int Backups, Restores, Reads; public bool Completed; public bool LeaseHeld, LockHeldDuringRestore; public CancellationTokenSource? CancelOnComplete;
+    public Task<ProjectSnapshot> ReadAsync(string path, CancellationToken cancellationToken = default) { Reads++; return Task.FromResult(Project with { Path = path }); }
     public bool IsBusy(string path) => Busy;
     public Task<IDisposable> AcquireAsync(string path, CancellationToken cancellationToken) { LeaseHeld = true; return Task.FromResult<IDisposable>(new Lease(() => LeaseHeld = false)); }
     public Task<BackupRecord> BackupAsync(ProjectPlan plan, CancellationToken cancellationToken) { Backups++; if (BackupFailure) throw new IOException("Backup denied"); return Task.FromResult(new BackupRecord("backup", new Dictionary<string, string?>())); }
@@ -241,9 +300,20 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
+    public bool RejectSource, TrackSourceLease, SourceLeaseReleased;
+    public Task<IAsyncDisposable?> HoldImportSourceAsync(ProjectPlan plan, CancellationToken token) => RejectSource
+        ? Task.FromException<IAsyncDisposable?>(new IOException("Source changed")) : Task.FromResult<IAsyncDisposable?>(TrackSourceLease ? new SourceLease(() => SourceLeaseReleased = true) : null);
+    private sealed class SourceLease(Action release) : IAsyncDisposable
+    { public ValueTask DisposeAsync() { release(); return ValueTask.CompletedTask; } }
+    public int Initializations;
+    public bool InitializationLeaseHeld;
+    public Task InitializePartialAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token)
+    { Initializations++; InitializationLeaseHeld = workspace.LeaseHeld; workspace.Project = workspace.Project with { Fingerprint = "initialized" }; return Task.CompletedTask; }
     public IAsyncDisposable? EditorSession;
     public Task<IAsyncDisposable?> BeginPackageChangesAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token) => Task.FromResult(EditorSession);
-    public bool Fail, CancelRegistration; public int Calls, UnityCalls, Registrations;
+    public bool Fail, CancelRegistration, FailRegistration;
+    public Exception? RegistrationFailure;
+    public int Calls, UnityCalls, Registrations;
     public Action? AfterResolve;
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -258,5 +328,11 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
     public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { AfterResolve?.Invoke(); return Task.FromResult(new ToolResult(0, "Resolved", "")); }
     public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
-    public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Registrations++; return CancelRegistration && cancellationToken.IsCancellationRequested ? Task.FromCanceled<bool>(cancellationToken) : Task.FromResult(true); }
+    public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
+    {
+        Registrations++;
+        if (FailRegistration) progress?.Report(new(DateTime.UtcNow, "VPM", "[ERROR] Cannot add project", EventSeverity.Error, project));
+        if (RegistrationFailure is not null) throw RegistrationFailure;
+        return CancelRegistration && cancellationToken.IsCancellationRequested ? Task.FromCanceled<bool>(cancellationToken) : Task.FromResult(!FailRegistration);
+    }
 }

@@ -32,7 +32,7 @@ function Invoke-Dotnet {
 }
 Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Cli\VrcSetup.Cli.csproj'),'-c','Release','-r','win-x64','--self-contained','true',('-p:Version=' + $Version),'-o',(Join-Path $payload 'app\cli'),'--nologo')
 Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Desktop\VrcSetup.Desktop.csproj'),'-c','Release','-p:Platform=x64',('-p:Version=' + $Version),'-o',(Join-Path $payload 'app\desktop'),'--nologo')
-foreach ($resource in @('MainWindow.xbf','MainPage.xbf','PackageBrowserView.xbf','VrcSetup.Desktop.pri')) {
+foreach ($resource in @('MainWindow.xbf','MainPage.xbf','PackageBrowserView.xbf','AppearanceEditor.xbf','VrcSetup.Desktop.pri')) {
     if (-not (Test-Path -LiteralPath (Join-Path $payload ('app\desktop\' + $resource)))) { throw "Native XAML publish resource missing: $resource" }
 }
 foreach ($client in @('cli','desktop')) {
