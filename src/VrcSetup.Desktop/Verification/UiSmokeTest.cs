@@ -962,6 +962,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             Require(item.Selected && item.SelectedVersion == "1.8.6" && item.RequiredVersion == ">=2.0.0" && versionReview.SuggestedReviewOnlyVisibility == Visibility.Visible,
                 "A selected version that differs from a declared requirement is visible for review");
             var dialog = new SuggestionReviewDialog(snapshot);
+            Require(dialog.Dialog.PrimaryButtonText == "" && dialog.Dialog.CloseButtonText == "Close", "A read-only version review does not offer an empty apply action");
+            dialog.Dialog.XamlRoot = page.XamlRoot;
+            var displayed = dialog.Dialog.ShowAsync(); await Task.Delay(150); dialog.Dialog.UpdateLayout();
+            Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Any(x => x.Text.Contains(">=2.0.0") && x.Text.Contains("1.8.6")),
+                "Version review displays both the selected version and declared requirement");
+            await Render(dialog.Dialog, Path.Combine(artifacts, "declared-version-review.png"));
+            dialog.Dialog.Hide(); await displayed;
             Require(versionReview.ApplySuggestionReview(snapshot, dialog.Result()) && versionReview.CreationPackages.Single(x => x.Id == "gogoloco").Data.Version == "1.8.6",
                 "Reviewing a version requirement never replaces the selected pin");
         }

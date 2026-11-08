@@ -40,15 +40,24 @@ internal sealed class SuggestionReviewDialog
                 details.Children.Add(version);
                 if (item.Version == "latest" && versions is not null) _ = UpdateVersionAsync(version, item.Id, versions);
             }
-            var choice = new CheckBox { Content = details, IsChecked = item.Selected, IsEnabled = item.RequiredVersion is null && (item.Selected || item.Version is not null), HorizontalAlignment = HorizontalAlignment.Stretch };
-            choices.Add(item.Id, choice); panel.Children.Add(choice);
+            if (item.RequiredVersion is not null || !item.Selected && item.Version is null)
+            {
+                details.Margin = new Thickness(28, 0, 0, 0);
+                panel.Children.Add(details);
+            }
+            else
+            {
+                var choice = new CheckBox { Content = details, IsChecked = item.Selected, HorizontalAlignment = HorizontalAlignment.Stretch };
+                choices.Add(item.Id, choice); panel.Children.Add(choice);
+            }
         }
         if (snapshot.Items.Length == 0) panel.Children.Add(new TextBlock { Text = UiText.Text("No packages to review."), TextWrapping = TextWrapping.Wrap });
         Dialog = new ContentDialog
         {
             Title = UiText.Text("Review suggested packages"),
             Content = new ScrollViewer { Content = panel, MaxHeight = 420, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
-            PrimaryButtonText = UiText.Text("Apply choices"), CloseButtonText = UiText.Text("Cancel"), DefaultButton = ContentDialogButton.Close
+            PrimaryButtonText = choices.Count > 0 ? UiText.Text("Apply choices") : "",
+            CloseButtonText = UiText.Text(choices.Count > 0 ? "Cancel" : "Close"), DefaultButton = ContentDialogButton.Close
         };
     }
     public Dictionary<string, bool> Result() => choices.ToDictionary(x => x.Key, x => x.Value.IsChecked == true, StringComparer.OrdinalIgnoreCase);
