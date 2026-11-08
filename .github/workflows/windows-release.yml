@@ -106,8 +106,8 @@ jobs:
               $sums = $basis.assets | Where-Object name -eq SHA256SUMS.txt | Select-Object -First 1
               if ($asset -and $sums) {
                 $baseArchive = Join-Path $env:RUNNER_TEMP $name
-                Invoke-WebRequest $asset.browser_download_url -OutFile $baseArchive
-                $content = (Invoke-WebRequest $sums.browser_download_url).Content
+                Invoke-WebRequest $asset.browser_download_url -OutFile $baseArchive -MaximumRetryCount 3 -RetryIntervalSec 2
+                $content = (Invoke-WebRequest $sums.browser_download_url -MaximumRetryCount 3 -RetryIntervalSec 2).Content
                 $checksumText = if ($content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($content) } else { [string]$content }
                 $expected = @($checksumText -split '\n' | Where-Object { $_.Trim().EndsWith('  ' + $name) } | ForEach-Object { ($_.Trim() -split '\s+')[0] })
                 if ($expected.Count -ne 1 -or (Get-FileHash $baseArchive).Hash -ne $expected[0]) { throw 'Previous archive checksum failed.' }
@@ -137,6 +137,25 @@ jobs:
           }
           $result = Get-Content (Join-Path $artifacts 'ui-smoke.json') -Raw | ConvertFrom-Json
           if ($process.ExitCode -ne 0 -or -not $result.Passed) { throw 'Native UI verification failed.' }
+      - name: Verify appearance across restart
+        shell: pwsh
+        run: |
+          $exe = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64/app/desktop/VrcSetup.Desktop.exe"
+          $artifacts = Join-Path $env:RUNNER_TEMP 'vrcsetup-appearance-restart'
+          $ids = @()
+          foreach ($stage in @('save', 'verify')) {
+            $start = [Diagnostics.ProcessStartInfo]::new($exe)
+            $start.UseShellExecute = $false
+            foreach ($argument in @('--verify-appearance-restart', $artifacts, $stage)) { $start.ArgumentList.Add($argument) }
+            $process = [Diagnostics.Process]::Start($start)
+            if (-not $process.WaitForExit(90000)) { $process.Kill($true); throw "Appearance $stage timed out." }
+            $failure = Join-Path $artifacts "appearance-$stage-failure.txt"
+            if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+            $result = Get-Content (Join-Path $artifacts "appearance-$stage.json") -Raw | ConvertFrom-Json
+            if ($process.ExitCode -ne 0 -or -not $result.Passed) { throw "Appearance $stage failed." }
+            $ids += $result.ProcessId
+          }
+          if ($ids[0] -eq $ids[1]) { throw 'Appearance verification did not use a new process.' }
       - name: Build timing summary
         if: always()
         shell: pwsh

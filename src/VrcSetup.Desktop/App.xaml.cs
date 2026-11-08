@@ -18,6 +18,27 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var arguments = Environment.GetCommandLineArgs();
+        var appearanceRestart = Array.IndexOf(arguments, "--verify-appearance-restart");
+        if (appearanceRestart >= 0 && appearanceRestart + 2 < arguments.Length)
+        {
+            var output = arguments[appearanceRestart + 1]; var stage = arguments[appearanceRestart + 2];
+            try
+            {
+                var application = stage == "save" ? await Verification.UiSmokeTest.PrepareAsync(output)
+                    : new VrcSetup.Infrastructure.VrcSetupApplication(System.IO.Path.Combine(output, "home"), ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery", "--no-vcc-registration"]);
+                var main = new MainWindow(application); window = main;
+                main.AppWindow.Move(new(-12000, -12000)); main.AppWindow.Show(false);
+                await Verification.AppearanceRestartVerification.RunAsync(main, output, stage);
+                main.Close(); Exit();
+            }
+            catch (Exception error)
+            {
+                System.IO.Directory.CreateDirectory(output);
+                await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(output, "appearance-" + stage + "-failure.txt"), error.ToString());
+                Environment.ExitCode = 1; Exit();
+            }
+            return;
+        }
         var languageSmoke = Array.IndexOf(arguments, "--smoke-localization");
         if (languageSmoke >= 0 && languageSmoke + 1 < arguments.Length)
         {

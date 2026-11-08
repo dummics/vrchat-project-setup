@@ -444,3 +444,10 @@ whether a later Unity refresh might have recovered an earlier failure. While the
 bridge has finished but the editor is still running, the queue indicates that it
 is waiting for Unity to close rather than claiming completion.
 
+Appearance persistence has a separate two-process WinUI verification: the
+first process changes colors through the Settings pickers and saves the isolated
+configuration; a new process verifies the loaded values, startup brush and
+picker state. Both windows run offscreen. This verifies restart persistence but
+does not reproduce or explain the previously reported appearance crash, and it
+does not test an actual Windows high-contrast transition.
+
