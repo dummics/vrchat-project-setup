@@ -89,6 +89,19 @@ public sealed class UnityImportDriverTests : IDisposable
     }
 
     [Theory]
+    [InlineData(0, "Added project C:\\Avatars\\Error Recovery", true)]
+    [InlineData(0, "Completed with 0 error messages", true)]
+    [InlineData(0, "ERROR: registration was rejected", false)]
+    [InlineData(0, "[ERROR] registration was rejected", false)]
+    [InlineData(0, "[12:00:00] ERR: registration was rejected", false)]
+    [InlineData(0, "Failed to register project", false)]
+    [InlineData(1, "", false)]
+    public void CreatorCompanionRegistrationDistinguishesErrorsFromProjectNames(int exitCode, string output, bool expected)
+    {
+        Assert.Equal(expected, UnityProjectDriver.RegistrationSucceeded(new ToolResult(exitCode, output, "")));
+    }
+
+    [Theory]
     [InlineData("2.0.0", "1.0.0", "downgrade")]
     [InlineData("2.0.0-beta.3", "1.0.0-beta.2", "downgrade")]
     [InlineData("1.0.0", "2.0.0", "install")]

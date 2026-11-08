@@ -266,7 +266,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
         try
         {
             var result = await runner.VpmAsync(["add", "project", project], progress: progress, cancellationToken: cancellationToken);
-            var success = !ProjectRules.ToolFailed(result) && !Regex.IsMatch(result.Output, @"(?im)\b(ERR|ERROR)\b");
+            var success = RegistrationSucceeded(result);
             if (!success) progress?.Report(new(DateTime.UtcNow, "VCC", "Creator Companion registration did not complete.", EventSeverity.Warning, project, result.Output));
             return success;
         }
@@ -276,6 +276,8 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
             return false;
         }
     }
+    public static bool RegistrationSucceeded(ToolResult result) => !ProjectRules.ToolFailed(result)
+        && !Regex.IsMatch(result.Output, @"(?im)^\s*(?:\[(?!(?:ERR|ERROR)\])[\w :.+-]+\]\s*)?(?:\[(?:ERR|ERROR)\]|(?:ERR|ERROR)\s*:|(?:ERR|ERROR)\s*$|(?:failed|unable|could not) to (?:add|register)\b)");
     private string NewUnityLog(string phase)
     {
         Directory.CreateDirectory(paths.Logs); return Path.Combine(paths.Logs, $"unity-{phase}-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.log");
