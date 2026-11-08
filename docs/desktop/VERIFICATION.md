@@ -434,3 +434,13 @@ The native smoke passed 570 checks, including project scanning, a stale action,
 cancelled selection, and preservation of a fixture file. The picker and decisions
 were simulated; this check stops before starting the new import in Unity.
 
+Unity asset import errors are treated conservatively as an incomplete operation,
+even when the editor returns exit code zero and writes the bridge completion
+marker. A timeout retains its diagnostic exception; when the log also contains
+asset import failures, the user receives a concise recovery action. Long paths
+are presented as a possible cause only when the corresponding file-not-found
+message contains a path of at least 260 characters. The validator does not prove
+whether a later Unity refresh might have recovered an earlier failure. While the
+bridge has finished but the editor is still running, the queue indicates that it
+is waiting for Unity to close rather than claiming completion.
+

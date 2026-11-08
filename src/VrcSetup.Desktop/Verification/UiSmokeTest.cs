@@ -1270,6 +1270,12 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(changedSource.Message.Contains("UnityPackage changed", StringComparison.Ordinal) && changedSource.RetryLabel == "Try again", "Changed source shows the actionable reason and retry");
         var failedRestore = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "Import failed. Automatic restore incomplete; use recovery." });
         Require(failedRestore.Message.Contains("could not be restored automatically", StringComparison.Ordinal), "Incomplete restore remains visible instead of a generic import error");
+        var pathFailure = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "Unity did not finish and could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details." });
+        Require(pathFailure.Message.Contains("shorter projects folder", StringComparison.Ordinal) && pathFailure.Message.Contains("kept", StringComparison.Ordinal),
+            "A long-path import failure tells the user what was preserved and how to proceed");
+        var closingUnity = new VrcSetup_Desktop.ViewModels.UiImportRow(fixtureJobs[0].Job with { Step = "ClosingUnity" });
+        Require(closingUnity.Step == "Waiting for Unity to close…" && UiText.Text(closingUnity.Step, "it") == "In attesa della chiusura di Unity…",
+            "An import still waiting for Unity displays a clear localized phase without claiming completion");
         var registrationNotice = failedImport with { State = "Completed", CreatorCompanionPending = true, Progress = 100 };
         var registrationRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice);
         Require(registrationRow.RegistrationVisibility == Visibility.Visible && registrationRow.RecoverVisibility == Visibility.Collapsed && registrationRow.Step == "Completed with a notice",

@@ -614,5 +614,12 @@
   "This file changed after you chose packages. Check the suggestions again before importing. Your selection will be kept.": "Il file è cambiato dopo la scelta dei pacchetti. Ricontrolla i suggerimenti prima di importare: la tua selezione sarà conservata.",
   "Check packages": "Controlla i pacchetti",
   "The file changed. Check your package selection, then review the import again.": "Il file è cambiato. Controlla i pacchetti selezionati, poi rivedi di nuovo l’importazione.",
-  "The UnityPackage is unavailable. Reconnect its drive or choose the file again.": "Il UnityPackage non è disponibile. Ricollega l’unità oppure seleziona di nuovo il file."
+  "The UnityPackage is unavailable. Reconnect its drive or choose the file again.": "Il UnityPackage non è disponibile. Ricollega l’unità oppure seleziona di nuovo il file.",
+  "Unity could not import some project files. Open the log, fix the errors in Unity, then try again.": "Unity non è riuscito a importare alcuni file del progetto. Apri il log, correggi gli errori in Unity e riprova.",
+  "Unity could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details.": "Unity non è riuscito a importare alcuni file. Il percorso del progetto potrebbe essere troppo lungo: prova una cartella più corta oppure apri il log per i dettagli.",
+  "Unity did not finish and could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details.": "Unity non ha terminato e non è riuscito a importare alcuni file. Il percorso del progetto potrebbe essere troppo lungo: prova una cartella più corta oppure apri il log per i dettagli.",
+  "Unity did not finish and could not import some project files. Open the log, fix the errors in Unity, then try again.": "Unity non ha terminato e non è riuscito a importare alcuni file. Apri il log, correggi gli errori in Unity e riprova.",
+  "Waiting for Unity to close…": "In attesa della chiusura di Unity…",
+  "The project was kept. Its path may be too long for Unity. Choose a shorter projects folder in Settings and import again, or open the log for details.": "Il progetto è stato conservato. Il percorso potrebbe essere troppo lungo per Unity: scegli una cartella progetti più corta nelle Impostazioni e importa di nuovo, oppure apri il log per i dettagli.",
+  "The project was kept. Unity could not import some files. Open the log, fix the errors in Unity, then try again.": "Il progetto è stato conservato. Unity non è riuscito a importare alcuni file: apri il log, correggi gli errori in Unity e riprova."
 }

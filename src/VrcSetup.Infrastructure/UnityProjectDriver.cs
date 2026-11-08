@@ -206,8 +206,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
         if (imports.Length > 0) arguments.AddRange(["-vrcsetupImportPlan", importPlan]);
         if ((plan.Creation ?? plan.RecoverySource) is { } importSource) arguments.AddRange(["-buildTarget", importSource.BuildTarget]);
         var log = NewUnityLog("import"); arguments.AddRange(["-logFile", log]);
-        var result = await runner.RunAsync(editor, arguments, progress: progress, phase: "Unity import", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(45), logFile: log);
-        await VerifyUnityLogAsync(result, log, cancellationToken);
+        await RunUnityAndVerifyAsync(editor, arguments, log, "Unity import", TimeSpan.FromMinutes(45), progress, cancellationToken);
         }
         finally { foreach (var file in temporary) if (File.Exists(file)) File.Delete(file); }
     }
@@ -219,14 +218,43 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
         var log = NewUnityLog("settle");
         var arguments = new List<string> { "-projectPath", plan.Path, "-executeMethod", "VrcSetupPostImport.Run", "-batchmode", "-logFile", log };
         if ((plan.Creation ?? plan.RecoverySource) is { } source) arguments.AddRange(["-buildTarget", source.BuildTarget]);
-        var result = await runner.RunAsync(editor, arguments, progress: progress, phase: "Unity settle", cancellationToken: cancellationToken, timeout: TimeSpan.FromMinutes(15), logFile: log);
-        await VerifyUnityLogAsync(result, log, cancellationToken);
+        await RunUnityAndVerifyAsync(editor, arguments, log, "Unity settle", TimeSpan.FromMinutes(15), progress, cancellationToken);
+    }
+    private async Task RunUnityAndVerifyAsync(string editor, List<string> arguments, string log, string phase, TimeSpan timeout, IProgress<OperationEvent>? progress, CancellationToken token)
+    {
+        ToolResult result;
+        try { result = await runner.RunAsync(editor, arguments, progress: progress, phase: phase, cancellationToken: token, timeout: timeout, logFile: log); }
+        catch (TimeoutException error)
+        {
+            string? message = null;
+            try { if (File.Exists(log)) message = AssetImportError(await SharedLog.ReadAsync(log, token), timedOut: true); }
+            catch (Exception readError) when (readError is IOException or UnauthorizedAccessException) { }
+            if (message is not null) throw new IOException(message, error);
+            throw;
+        }
+        await VerifyUnityLogAsync(result, log, token);
     }
     private static async Task VerifyUnityLogAsync(ToolResult result, string log, CancellationToken token)
     {
         var output = File.Exists(log) ? await SharedLog.ReadAsync(log, token) : "";
+        if (AssetImportError(output, timedOut: false) is { } importError) throw new IOException(importError);
         if (result.ExitCode != 0 || !output.Contains("[vrc-setup] Post-import settle complete", StringComparison.Ordinal) || Regex.IsMatch(output, @"(?im)(^.*error CS\d+|Script compilation failed|Import failed:|Import cancelled:|project remains incomplete|Fatal Error|Crash!!!)"))
             throw new IOException("Unity import or compilation did not complete. Project remains incomplete. Log: " + log);
+    }
+    private static string? AssetImportError(string output, bool timedOut)
+    {
+        if (Regex.IsMatch(output, @"(?im)^\s*Asset import failed(?:,|:)"))
+        {
+            var longPaths = Regex.Matches(output, @"(?im)^\s*Asset import failed[^\r\n]*DirectoryNotFoundException[^\r\n]*?""([^""]+)""")
+                .Cast<Match>().Any(match => match.Groups[1].Value.Length >= 260);
+            if (timedOut) return longPaths
+                ? "Unity did not finish and could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details."
+                : "Unity did not finish and could not import some project files. Open the log, fix the errors in Unity, then try again.";
+            return longPaths
+                ? "Unity could not import some files. The project path may be too long. Try a shorter project folder, or open the log for details."
+                : "Unity could not import some project files. Open the log, fix the errors in Unity, then try again.";
+        }
+        return null;
     }
     public async Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {

@@ -557,6 +557,31 @@ public sealed class ImportQueueTests : IDisposable
         var timeout = DateTime.UtcNow.AddSeconds(5);
         while (!ready()) { if (DateTime.UtcNow > timeout) throw new TimeoutException("Queue did not settle."); await Task.Delay(10); }
     }
+    [Theory]
+    [InlineData("Unity import")]
+    [InlineData("Unity settle")]
+    public async Task ImportProgressWaitsForUnityToExitAfterTheCompletionMarker(string phase)
+    {
+        var marker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var queue = new ImportQueue(App, async (plan, progress, token) =>
+        {
+            progress!.Report(new(DateTime.UtcNow, phase, "[vrc-setup] Post-import settle complete, quitting."));
+            progress.Report(new(DateTime.UtcNow, phase, "Unity shutdown details"));
+            marker.SetResult();
+            await release.Task.WaitAsync(token);
+            return Completed(plan);
+        });
+        await queue.EnqueueAsync(Plan("Closing"), 1);
+        await marker.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var current = Assert.Single(queue.Snapshot());
+        Assert.True(current.Active);
+        Assert.Equal("ClosingUnity", current.Step);
+        Assert.Equal(phase == "Unity settle" ? 85 : 80, current.Progress);
+        release.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal("Completed", Assert.Single(queue.Snapshot()).State);
+    }
     [Fact] public async Task ParallelLimitAndCompletedHistoryAreDurable()
     {
         var app = App; var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

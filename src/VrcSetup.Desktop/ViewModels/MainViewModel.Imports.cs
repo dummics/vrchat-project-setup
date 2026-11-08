@@ -254,7 +254,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     {
         "Create" => "Creating project", "Prepare" => "Preparing project", "Packages" => "Adding packages",
         "Import" => Job.Plan.Projects.FirstOrDefault()?.RecoverySource is null ? "Importing assets" : "Reimporting assets",
-        "Validate" => "Checking project", "Finish" => "Finishing", "Starting" => "Starting…", _ => Job.Step
+        "Validate" => "Checking project", "Finish" => "Finishing", "ClosingUnity" => "Waiting for Unity to close…", "Starting" => "Starting…", _ => Job.Step
     } : Job.State == "Queued" ? "Starting…" : Job.State;
     public string Message => Job.CreatorCompanionPending ? "Your project is ready. It was not added to Creator Companion. Retry here, or add it there as an existing project. You do not need to import it again."
         : Job.DiscardRequested ? "Your cancellation request is saved. The project is preserved until cleanup finishes."
@@ -265,6 +265,8 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
             "Interrupted" or "Cancelled" => "The import stopped. Your project is kept. Choose Continue import to resume.",
             "Failed" when Job.Message.Contains("Automatic restore incomplete", StringComparison.OrdinalIgnoreCase) => "The import stopped and the previous files could not be restored automatically. Your recovery copy was kept. Open the project options to review and restore a backup.",
             "Failed" when Job.Message.StartsWith("This package differs from the original.", StringComparison.Ordinal) || Job.Message.StartsWith("UnityPackage changed after review.", StringComparison.Ordinal) => "The UnityPackage changed after it was selected. Choose Try again to select the original file or review the import again.",
+            "Failed" when Job.Message.Contains("The project path may be too long.", StringComparison.Ordinal) => "The project was kept. Its path may be too long for Unity. Choose a shorter projects folder in Settings and import again, or open the log for details.",
+            "Failed" when Job.Message.Contains("could not import some project files.", StringComparison.Ordinal) => "The project was kept. Unity could not import some files. Open the log, fix the errors in Unity, then try again.",
             "Failed" => "The import could not finish. Your project and recovery information are kept. Choose Try again, or open the log for details.",
             "Pausing" or "Cancelling" => "Waiting for the import to stop safely. Keep the app open until it finishes.",
             "Completed" or "Recovered" => "The project is ready. You can open it from Projects.",

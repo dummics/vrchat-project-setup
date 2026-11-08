@@ -210,7 +210,9 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             await PersistAsync();
             cancellation.Token.ThrowIfCancellationRequested();
             var progress = new InlineProgress(value => Update(item.Id, x => x with
-            { Step = Phase(value.Phase), Progress = Math.Max(x.Progress, Percent(value.Phase)), Message = value.Message,
+            { Step = (value.Phase is "Unity import" or "Unity settle") && (x.Step == "ClosingUnity" || value.Message.Contains("[vrc-setup] Post-import settle complete", StringComparison.Ordinal))
+                    ? "ClosingUnity" : Phase(value.Phase),
+                Progress = Math.Max(x.Progress, (value.Phase is "Unity import" or "Unity settle") && value.Message.Contains("[vrc-setup] Post-import settle complete", StringComparison.Ordinal) ? 80 : Percent(value.Phase)), Message = value.Message,
                 LogFile = x.LogFile.Length > 0 ? x.LogFile : FindLog(item.Id) }));
             var report = execute is null ? await app.ApplyAsync(item.Plan, progress, cancellation.Token, rememberCreation: false) : await execute(item.Plan, progress, cancellation.Token);
             var outcome = report.Results.FirstOrDefault();
