@@ -107,9 +107,9 @@ jobs:
               if ($asset -and $sums) {
                 $baseArchive = Join-Path $env:RUNNER_TEMP $name
                 Invoke-WebRequest $asset.browser_download_url -OutFile $baseArchive -MaximumRetryCount 3 -RetryIntervalSec 2
-                $content = (Invoke-WebRequest $sums.browser_download_url -MaximumRetryCount 3 -RetryIntervalSec 2).Content
-                $checksumText = if ($content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($content) } else { [string]$content }
-                $expected = @($checksumText -split '\n' | Where-Object { $_.Trim().EndsWith('  ' + $name) } | ForEach-Object { ($_.Trim() -split '\s+')[0] })
+                $checksumLines = gh api "repos/dummics/vrchat-project-setup/releases/assets/$($sums.id)" -H 'Accept: application/octet-stream'
+                if ($LASTEXITCODE -ne 0) { throw 'Could not download previous release checksums.' }
+                $expected = @($checksumLines | Where-Object { $_.Trim().EndsWith('  ' + $name) } | ForEach-Object { ($_.Trim() -split '\s+')[0] })
                 if ($expected.Count -ne 1 -or (Get-FileHash $baseArchive).Hash -ne $expected[0]) { throw 'Previous archive checksum failed.' }
               }
             }
