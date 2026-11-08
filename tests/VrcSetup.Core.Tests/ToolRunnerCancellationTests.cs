@@ -58,9 +58,10 @@ public sealed class ToolRunnerCancellationTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task CancellationStopsReadingAPipeInheritedByAChild(bool keepParentAlive)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task InheritedPipeIsReleasedOnCancellationOrTimeout(bool keepParentAlive, bool timeout)
     {
         if (!OperatingSystem.IsWindows()) return;
         var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
@@ -108,7 +109,7 @@ public sealed class ToolRunnerCancellationTests
             {
                 if (value.Message.StartsWith("parent:") && int.TryParse(value.Message[7..], out var parent)) parentId.TrySetResult(parent);
                 if (value.Message.StartsWith("child:") && int.TryParse(value.Message[6..], out var spawned)) childId.TrySetResult(spawned);
-            }), cancellationToken: cancellation.Token, timeout: TimeSpan.FromMinutes(1));
+            }), cancellationToken: cancellation.Token, timeout: timeout ? TimeSpan.FromSeconds(20) : TimeSpan.FromMinutes(1));
         try
         {
             var parent = await parentId.Task.WaitAsync(TimeSpan.FromSeconds(15));
@@ -126,9 +127,13 @@ public sealed class ToolRunnerCancellationTests
             catch (ArgumentException) { /* The parent already exited before its handle was acquired. */ }
             // The child keeps the inherited output pipe open, including after the root exits.
             Assert.False(running.IsCompleted);
-            cancellation.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running.WaitAsync(TimeSpan.FromSeconds(3)));
-            if (keepParentAlive)
+            if (timeout) await Assert.ThrowsAsync<TimeoutException>(() => running.WaitAsync(TimeSpan.FromSeconds(25)));
+            else
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running.WaitAsync(TimeSpan.FromSeconds(3)));
+            }
+            if (keepParentAlive || timeout)
             {
                 await descendant.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.True(descendant.HasExited);
@@ -146,6 +151,7 @@ public sealed class ToolRunnerCancellationTests
             }
             try { await running.WaitAsync(TimeSpan.FromSeconds(5)); }
             catch (OperationCanceledException) { }
+            catch (TimeoutException) when (timeout) { }
         }
     }
 
