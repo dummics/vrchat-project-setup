@@ -351,6 +351,14 @@ public static class UiSmokeTest
         {
             await flow.InitializeAsync();
             var queue = flow.Application.Imports;
+            var firstFixtureProject = flow.Projects.First();
+            var uncertainSource = new CreationRequest("", firstFixtureProject.Name, firstFixtureProject.Path, "", "StandaloneWindows64", [], [], true);
+            var uncertainJob = new ImportJob("uncertain-display-fixture", new OperationPlan("uncertain", DateTime.UtcNow, []), uncertainSource, "Recovered", "Completed", 100, "", "") { CreatorCompanionUnknown = true };
+            flow.RefreshRegistrationNotices([uncertainJob]);
+            Require(flow.Projects.Single(x => x.Path == firstFixtureProject.Path).CreatorCompanionUnknown, "Recovered project shows the uncertain VCC notice in Projects");
+            flow.RefreshRegistrationNotices([uncertainJob with { HiddenFromImports = true }]);
+            Require(!flow.Projects.Single(x => x.Path == firstFixtureProject.Path).CreatorCompanionUnknown, "Clearing the import row removes the corresponding uncertain VCC notice");
+            flow.RefreshRegistrationNotices([]);
             var queueSync = typeof(ImportQueue).GetField("sync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             var queueJobs = (List<ImportJob>)typeof(ImportQueue).GetField("jobs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
             var refreshNames = new[] { "Refresh completion A", "Refresh completion B" };

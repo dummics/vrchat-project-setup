@@ -9,7 +9,7 @@ public sealed partial class MainViewModel
     private HashSet<string> unknownRegistrationPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> registrationRetries = [];
 
-    private void RefreshRegistrationNotices(ImportJob[] jobs)
+    internal void RefreshRegistrationNotices(ImportJob[] jobs)
     {
         var next = jobs.GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
             .Where(group => ImportQueue.CurrentForProject(group, group.Key) is { CreatorCompanionPending: true, Active: false })
