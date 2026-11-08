@@ -5,6 +5,8 @@ namespace VrcSetup_Desktop.ViewModels;
 
 public sealed partial class MainViewModel
 {
+    public ImportJob? ActiveImportForProject(ProjectSnapshot project) =>
+        ImportQueue.CurrentForProject(app.Imports.Snapshot(), project.Path) is { Active: true } job ? job : null;
     public ImportJob? PendingRegistrationForProject(ProjectSnapshot project) =>
         ImportQueue.CurrentForProject(app.Imports.Snapshot(), project.Path) is { CreatorCompanionPending: true, Active: false } job ? job : null;
     public ImportJob? RecoverableImportForProject(ProjectSnapshot project) =>

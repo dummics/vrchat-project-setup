@@ -295,6 +295,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (ViewModel.IsClosingApp || (sender as FrameworkElement)?.DataContext is not ProjectSnapshot project) return;
         await ViewModel.RefreshSavedHistoryAsync();
         if (ViewModel.IsClosingApp) return;
+        if (ViewModel.ActiveImportForProject(project) is not null)
+        {
+            var action = await ShowDialog(new() { Title = "Import in progress.",
+                Content = UiText.Text("This project is still being prepared. You can follow its progress in Import package."),
+                PrimaryButtonText = "View import", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Close });
+            if (action == ContentDialogResult.Primary && !ViewModel.IsClosingApp) await ViewModel.NavigateAsync("Create");
+            return;
+        }
         var recovery = ViewModel.RecoverableImportForProject(project);
         var registration = ViewModel.PendingRegistrationForProject(project);
         var orphan = recovery is null && registration is null ? await ViewModel.OrphanRecoveryForProjectAsync(project) : null;

@@ -558,6 +558,8 @@
   "The import did not finish. The project and recovery information were kept.": "L’importazione non è terminata. Il progetto e i dati di recupero sono stati conservati.",
   "The import stopped. The project was kept.": "L’importazione si è fermata. Il progetto è stato conservato.",
   "Import in progress.": "Importazione in corso.",
+  "This project is still being prepared. You can follow its progress in Import package.": "Il progetto è ancora in preparazione. Puoi seguire l’avanzamento in Importa package.",
+  "View import": "Mostra importazione",
   "Add to Creator Companion": "Aggiungi a Creator Companion",
   "Review packages": "Controlla i pacchetti",
   "Cancel creation": "Annulla creazione",

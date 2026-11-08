@@ -835,6 +835,9 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             lock (queueSync) queueJobs.Add(protectedJob);
             try
             {
+                var protectedProject = new ProjectSnapshot { Name = "Protected", Path = protectedJob.ProjectPath };
+                Require(flow.ActiveImportForProject(protectedProject)?.Id == protectedJob.Id && flow.RecoverableImportForProject(protectedProject) is null,
+                    "An active project import is distinguished from interrupted work");
                 var confirmations = decisions.Confirmations; var configuration = await File.ReadAllTextAsync(flow.Application.Paths.ConfigFile);
                 await flow.ResetSettingsCommand.ExecuteAsync(null); await flow.RepairInstallationCommand.ExecuteAsync(null);
                 await flow.UninstallApplicationCommand.ExecuteAsync(null); await flow.ImportSettingsCommand.ExecuteAsync(null);
