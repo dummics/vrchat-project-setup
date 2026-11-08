@@ -1423,6 +1423,9 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             "Optional VCC failure offers registration retry without suggesting another import");
         var unsavedRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { HistorySaveFailed = true });
         var unknownRegistration = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { CreatorCompanionPending = false, CreatorCompanionUnknown = true, State = "Recovered" });
+        var unknownHistory = new VrcSetup_Desktop.ViewModels.UiHistoryEntry(unknownRegistration.Job);
+        Require(unknownHistory.State == "Completed with a notice" && unknownHistory.Result.Contains("Check whether"),
+            "Activity preserves the uncertain Creator Companion outcome for a recovered import");
         Require(unknownRegistration.Message.Contains("Check whether") && unknownRegistration.AttentionVisibility == Visibility.Visible &&
             VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([unknownRegistration.Job], true).Length == 1,
             "Recovered project does not claim an unknown Creator Companion registration failed or succeeded");

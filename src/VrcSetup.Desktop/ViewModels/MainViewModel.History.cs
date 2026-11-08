@@ -225,7 +225,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public DateTime Timestamp => job?.Plan.CreatedUtc ?? report!.CompletedUtc;
     public string Date => Timestamp.ToLocalTime().ToString("g");
     public string Name => job?.Name ?? (report!.Results.Length == 1 ? report.Results[0].Project : string.Format(UiText.Text("{0} projects"), report.Results.Length));
-    public string State => job?.DiscardRequested == true ? job.Active ? "Stopping import…" : "Cancellation needs finishing" : job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (job.CreatorCompanionPending || report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
+    public string State => job?.CreatorCompanionUnknown == true ? "Completed with a notice" : job?.DiscardRequested == true ? job.Active ? "Stopping import…" : "Cancellation needs finishing" : job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (job.CreatorCompanionPending || report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
         : report!.Success ? report.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) ? "Completed with a notice" : "Completed" : report.Cancelled ? "Cancelled"
         : report.Results.Length > 0 && report.Results.All(x => x.Status == OperationStatus.Skipped) ? "Not applied"
         : report.Results.Any(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings) ? "Partially applied" : "Failed";
@@ -239,6 +239,7 @@ public sealed class UiHistoryEntry : ObservableObject
         PackageReview.Group(plan).Select(group => (group.Projects.Length == Projects.Length ? "All projects" : string.Join(", ", group.Projects.Select(x => x.Name))) + Environment.NewLine
             + string.Join(Environment.NewLine, group.Changes.Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"))));
     public string Result => job is not null ? UiText.Text(job.DiscardCompleted ? "Import cancelled." : job.DiscardRequested ? "Cancellation needs finishing"
+        : job.CreatorCompanionUnknown ? "Your project is ready. Check whether it appears in Creator Companion; if needed, add it there as an existing project. You do not need to import it again."
         : job.CreatorCompanionPending ? "The project was created; it was not added to Creator Companion."
         : job.State is "Completed" or "Recovered" ? "Import completed."
         : job.State == "Failed" ? "The import did not finish. The project and recovery information were kept."
