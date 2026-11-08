@@ -451,3 +451,12 @@ picker state. Both windows run offscreen. This verifies restart persistence but
 does not reproduce or explain the previously reported appearance crash, and it
 does not test an actual Windows high-contrast transition.
 
+An isolated journal-write failure fixture completes the operation, makes the
+journal path unwritable and checks that the in-memory outcome remains visible.
+Retry writes the existing outcome without running the import again; a new queue
+instance can then read the completed state. Native UI verification covers the
+save-only action and declining to close with an unsaved result. The warning is
+in memory: a crash or an explicit decision to close without saving can still
+leave only the earlier journal and project marker, which may not preserve an
+optional Creator Companion registration outcome.
+

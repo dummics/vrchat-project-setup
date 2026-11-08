@@ -798,6 +798,20 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 "Cancelling the dirty-settings close prompt restores actions and preserves edits");
             decisions.SettingsChoice = "Discard";
             Require(await flow.NavigateAsync("Projects") && !flow.SettingsDirty && flow.NamingPrefix == savedPrefix, "Discard reloads saved settings");
+            var unsavedClose = new ImportJob("unsaved-close-fixture", new OperationPlan("unsaved", DateTime.UtcNow, []),
+                new CreationRequest("", "Unsaved", Path.Combine(artifacts, "unsaved-close"), "", "StandaloneWindows64", [], [], true),
+                "Completed", "Completed", 100, "", "") { HistorySaveFailed = true };
+            var previousConfirmation = decisions.ConfirmResult;
+            lock (queueSync) queueJobs.Add(unsavedClose);
+            try
+            {
+                decisions.ConfirmResult = false;
+                Require(!await flow.PrepareToCloseAsync() && !flow.IsClosingApp && flow.CurrentPage == "Create" &&
+                    VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([unsavedClose], true).Length == 1,
+                    "Declining close with unsaved import status returns to a visible save action, including empty projects");
+            }
+            finally { lock (queueSync) queueJobs.Remove(unsavedClose); decisions.ConfirmResult = previousConfirmation; }
+            flow.CurrentPage = "Projects";
             await flow.NavigateAsync("Settings"); flow.UnityEditorPath = ""; flow.NamingPrefix = "Saved fixture"; decisions.SettingsChoice = "Save";
             Require(await flow.NavigateAsync("Projects") && !flow.SettingsDirty && (await flow.Application.Configuration.LoadAsync()).Naming.DefaultPrefix == "Saved fixture", "Saving before navigation persists the settings");
             await flow.NavigateAsync("Settings"); flow.NamingPatterns = "[";
@@ -1407,6 +1421,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         var registrationRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice);
         Require(registrationRow.RegistrationVisibility == Visibility.Visible && registrationRow.RecoverVisibility == Visibility.Collapsed && registrationRow.Step == "Completed with a notice",
             "Optional VCC failure offers registration retry without suggesting another import");
+        var unsavedRow = new VrcSetup_Desktop.ViewModels.UiImportRow(registrationNotice with { HistorySaveFailed = true });
+        Require(unsavedRow.HistorySaveVisibility == Visibility.Visible && unsavedRow.RegistrationVisibility == Visibility.Collapsed && unsavedRow.Message.Contains("could not be saved") &&
+            VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([unsavedRow.Job], true).Length == 1,
+            "Unsaved import status stays visible with a save-only action before other retries");
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([registrationNotice], true).Length == 1,
             "A pending VCC notice is not automatically hidden as a completed import");
         Require(ProjectAttentionConverter.Description(new ProjectSnapshot { Name = "Ready fixture", Path = artifacts, CreatorCompanionPending = true }) == UiText.Text(registrationRow.Message),

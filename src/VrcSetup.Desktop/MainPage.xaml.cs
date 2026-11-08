@@ -450,6 +450,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.OpenImportLog(row); }
     private async void ImportRecoverClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.RecoverImportAsync(row); }
+    private async void ImportSaveHistoryClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.RetryImportHistorySaveAsync(row); }
     private async void ImportRegisterClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.RetryCreatorCompanionAsync(row); }
     private async void ImportDiscardClicked(object sender, RoutedEventArgs args)

@@ -630,6 +630,50 @@ public sealed class ImportQueueTests : IDisposable
         Assert.Equal("Interrupted", queue.Snapshot().Single().State);
         Assert.True(queue.Snapshot().Single().Recoverable);
     }
+    [Fact] public async Task FinalHistoryFailureKeepsTheOutcomeVisibleUntilSavingSucceeds()
+    {
+        var app = App; var plan = Plan("History write failure");
+        var project = plan.Projects.Single(); var source = project.Creation!;
+        var journal = Path.Combine(app.Paths.Home, "imports.json"); var saved = journal + ".saved";
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        await using (var queue = new ImportQueue(app, async (current, _, _) =>
+        {
+            Interlocked.Increment(ref calls); entered.TrySetResult(); await release.Task;
+            Directory.CreateDirectory(project.Path);
+            await AtomicFile.WriteJsonAsync(Path.Combine(project.Path, ".vrcsetup", "state.json"),
+                new SetupState { Completed = true, ProjectName = source.Name, UnityPackagePath = source.UnityPackagePath });
+            return Completed(current);
+        }))
+        {
+            await queue.EnqueueAsync(plan); await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var id = Assert.Single(queue.Snapshot()).Id;
+            File.Move(journal, saved); Directory.CreateDirectory(journal);
+            try
+            {
+                release.TrySetResult();
+                await queue.WaitForStoppedAsync(id).WaitAsync(TimeSpan.FromSeconds(10));
+                var job = Assert.Single(queue.Snapshot());
+                Assert.Equal("Completed", job.State); Assert.True(job.HistorySaveFailed); Assert.False(job.CanHide);
+                await queue.DismissAsync(id);
+                Assert.False(Assert.Single(queue.Snapshot()).HiddenFromImports);
+                var error = await Record.ExceptionAsync(() => queue.RetryHistorySaveAsync(id));
+                Assert.True(error is IOException or UnauthorizedAccessException, error?.ToString());
+                Assert.True(Assert.Single(queue.Snapshot()).HistorySaveFailed);
+            }
+            finally
+            {
+                release.TrySetResult(); Directory.Delete(journal); File.Move(saved, journal);
+            }
+            Assert.True(await queue.RetryHistorySaveAsync(id));
+            Assert.False(Assert.Single(queue.Snapshot()).HistorySaveFailed);
+        }
+        await using var reopened = new ImportQueue(app, (_, _, _) => throw new InvalidOperationException("Must not reimport"));
+        await reopened.InitializeAsync();
+        Assert.Equal("Completed", Assert.Single(reopened.Snapshot()).State);
+        Assert.Equal(1, calls);
+    }
     [Fact] public async Task RecoveryReconciliationKeepsExplicitSourceOwnershipWhenArchiveWasRelocated()
     {
         var app = App; var plan = Plan("Relocated", "Unrelated");

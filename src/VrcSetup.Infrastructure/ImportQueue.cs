@@ -12,9 +12,10 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool DiscardCompleted { get; init; }
     public bool DiscardNoFolder { get; init; }
     public bool CreatorCompanionPending { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public bool HistorySaveFailed { get; init; }
     public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
     public bool Recoverable => !DiscardRequested && !DiscardCompleted && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
-    public bool CanHide => !Active && !Recoverable && !DiscardRequested;
+    public bool CanHide => !Active && !Recoverable && !DiscardRequested && !HistorySaveFailed;
 }
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
@@ -238,7 +239,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         {
             lock (sync) { if (acquired) claimed.Remove(item.Id); cancellations.Remove(item.Id); PulseCapacity(); }
             cancellation.Dispose();
-            await PersistAsync();
+            if (!await PersistAsync()) Update(item.Id, x => x with { HistorySaveFailed = true, HiddenFromImports = false });
         }
     }
 
@@ -339,7 +340,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                 if (previous.Active && !next.Active) next = next with { FinishedAt = DateTime.UtcNow };
                 jobs[index] = next;
                 var now = Environment.TickCount64;
-                publish = previous.State != next.State || previous.Step != next.Step || now - lastPublication.GetValueOrDefault(id) >= 200;
+                publish = previous.State != next.State || previous.Step != next.Step || previous.HistorySaveFailed != next.HistorySaveFailed || now - lastPublication.GetValueOrDefault(id) >= 200;
                 if (publish) lastPublication[id] = now;
             }
         }
@@ -347,12 +348,30 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
     }
     private void Publish() => Changed?.Invoke(Snapshot());
     private Task SaveAsync(CancellationToken token = default) => AtomicFile.WriteJsonAsync(Journal, Snapshot(), token);
-    private async Task PersistAsync()
+    private async Task<bool> PersistAsync()
     {
         await journalGate.WaitAsync();
-        try { await SaveAsync(); }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Import history", error.Message, error); }
+        try { await SaveAsync(); return true; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Import history", error.Message, error); return false; }
         finally { journalGate.Release(); }
+    }
+    public async Task<bool> RetryHistorySaveAsync(string id, CancellationToken token = default)
+    {
+        await InitializeAsync(token); await journalGate.WaitAsync(token);
+        try
+        {
+            ImportJob? before; lock (sync) before = jobs.FirstOrDefault(x => x.Id == id);
+            if (before is null || !before.HistorySaveFailed || before.Active) return false;
+            await SaveAsync(token);
+            lock (sync)
+            {
+                var index = jobs.FindIndex(x => x.Id == id);
+                if (index < 0 || jobs[index] != before) return false;
+                jobs[index] = before with { HistorySaveFailed = false };
+            }
+        }
+        finally { journalGate.Release(); }
+        Publish(); return true;
     }
     public ValueTask DisposeAsync() => new(ShutdownAsync());
 

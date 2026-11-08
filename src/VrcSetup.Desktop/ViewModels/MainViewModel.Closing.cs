@@ -36,6 +36,10 @@ public sealed partial class MainViewModel
             if (!await ConfirmCloseAsync()) return false;
             using var finishWait = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             finishWait.CancelAfter(TimeSpan.FromSeconds(20));
+            foreach (var job in app.Imports.Snapshot()) await app.Imports.WaitForStoppedAsync(job.Id, finishWait.Token);
+            if (app.Imports.Snapshot().Any(x => x.HistorySaveFailed) &&
+                !await ui.ConfirmAsync("Import status not saved", "Some import status could not be saved. If you close now, the app may need to check the project again. You can retry saving from Import package.", "Close anyway"))
+            { CurrentPage = "Create"; return false; }
             await app.Imports.ShutdownAsync(finishWait.Token);
             ready = true;
             return true;
