@@ -70,6 +70,11 @@ jobs:
           . ./scripts/ReleaseVersion.ps1
           $version = (Get-ReleaseVersion $version).Text
           if ($sourceVersion -ne $version) { throw 'Release version must match Directory.Build.props. Use scripts/Release.ps1.' }
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            # A candidate must compare lower than the eventual stable release.
+            $version = "$((Get-ReleaseVersion $sourceVersion).Core)-alpha.$env:GITHUB_RUN_NUMBER"
+            $version = (Get-ReleaseVersion $version).Text
+          }
           if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:RELEASE_COMMIT -eq 'true') {
             $tag = & git ls-remote --tags https://github.com/dummics/vrchat-project-setup.git "refs/tags/v$version"
             if ($LASTEXITCODE -ne 0 -or -not $tag -or ($tag -split '\s+')[0] -ne $env:GITHUB_SHA) { throw 'Atomic release tag must match this exact source commit.' }
@@ -230,6 +235,7 @@ jobs:
         shell: pwsh
         env:
           CANDIDATE_COMMIT: ${{ github.event.pull_request.head.sha }}
+          CANDIDATE_BUILD_COMMIT: ${{ github.sha }}
         run: |
           $archive = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64.zip"
           $fixture = Join-Path $env:RUNNER_TEMP 'candidate-archive'
@@ -240,9 +246,11 @@ jobs:
           $target = Join-Path $env:RUNNER_TEMP 'candidate-install'
           & (Join-Path $fixture 'app/cli/vrcsetup.exe') install --root $target
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $target 'app/desktop/VrcSetup.Desktop.exe'))) { throw 'Candidate archive installation failed.' }
+          $installed = Get-Content -LiteralPath (Join-Path $target '.vrcsetup-install.json') -Raw | ConvertFrom-Json
+          if ($installed.Version -ne $env:RELEASE_VERSION) { throw 'Candidate installation has the wrong version.' }
           $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
           [IO.File]::WriteAllText((Join-Path $pwd 'release/CANDIDATE-SHA256.txt'), "$hash  $([IO.Path]::GetFileName($archive))`n")
-          @("Pull request candidate $env:RELEASE_VERSION", "Commit: $env:CANDIDATE_COMMIT", 'Verify the SHA-256 checksum, extract the ZIP, then run Install VRC Project Setup.bat.', 'This artifact does not publish a release or provide an in-app update feed.') | Set-Content -LiteralPath (Join-Path $pwd 'release/CANDIDATE.txt') -Encoding utf8
+          @("Pull request candidate $env:RELEASE_VERSION", "Head commit: $env:CANDIDATE_COMMIT", "Build commit: $env:CANDIDATE_BUILD_COMMIT", 'Verify the SHA-256 checksum, extract the ZIP, then run Install VRC Project Setup.bat.', 'This artifact does not publish a release or provide an in-app update feed.') | Set-Content -LiteralPath (Join-Path $pwd 'release/CANDIDATE.txt') -Encoding utf8
       - name: Preserve installable pull request candidate
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
