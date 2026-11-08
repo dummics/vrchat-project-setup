@@ -52,9 +52,15 @@ the import screen names it and offers a dedicated review containing only relevan
 suggested additions and bundled-package overlaps. The user explicitly chooses
 whether to add or remove each item; closing the review leaves the selection
 unchanged. The full preset editor remains available separately. Metadata alone
-does not prove the external package is redundant, so the selection is unchanged
-and the user decides whether to remove it in the package editor. Foundation and
+does not prove the external package is redundant, so the user decides whether to
+remove it. Foundation and
 VRChat SDK packages are excluded from this removal-review prompt.
+
+The file can also declare a version requirement for an already selected package.
+When the selected value differs from that declaration, the review asks the user
+to check the version in package settings; it does not infer incompatibility or
+replace a pin automatically. A version range is shown as declared, not as an
+installed version.
 
 Import automatically retries a budget-limited scan once with the larger local budget. The first result stays available during that cancellable retry. Invalid archives are not retried. The existing creation review notes a still-running or partial analysis. The plan uses the user's selected packages; a result arriving later never modifies a pending operation.
 

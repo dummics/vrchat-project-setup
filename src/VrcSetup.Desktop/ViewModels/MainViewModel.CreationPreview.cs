@@ -20,7 +20,11 @@ public sealed partial class MainViewModel
     }
     public Visibility BundledReviewVisibility => BundledReviewCandidates().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility NormalCustomizeVisibility => Visibility.Visible;
-    public Visibility SuggestedReviewOnlyVisibility => BundledReviewVisibility == Visibility.Collapsed && (DetectedCreationPackages.Count > 0 || PossibleCreationPackages.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SuggestedReviewOnlyVisibility => BundledReviewVisibility == Visibility.Collapsed && (DetectedCreationPackages.Count > 0 || PossibleCreationPackages.Count > 0 || VersionReviewCandidates().Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+    private Dictionary<string, DependencyProposal> VersionReviewCandidates() => CreationInspection is null
+        ? new(StringComparer.OrdinalIgnoreCase)
+        : DependencyAdvisor.Propose(CurrentCreationSelection(), CreationInspection).Where(x => x.Kind == DependencyProposalKind.ReviewVersion)
+            .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
     public string BundledReviewText
     {
         get
@@ -50,10 +54,12 @@ public sealed partial class MainViewModel
     {
         var selected = CurrentCreationSelection();
         var removable = BundledReviewCandidates().Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var versionReviews = VersionReviewCandidates();
         var rows = CreationPackages.Where(x => x.Data.Evidence is not null &&
-            (removable.Contains(x.Id) || !x.Selected && x.Data.Evidence.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared or DependencyConfidence.Possible))
+            (removable.Contains(x.Id) || versionReviews.ContainsKey(x.Id) || !x.Selected && x.Data.Evidence.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared or DependencyConfidence.Possible))
             .Select(x => new SuggestionReviewItem(x.Id, x.Name, x.Selected, x.Data.Evidence!.Confidence,
-                x.Data.Evidence.Confidence == DependencyConfidence.Possible ? "latest" : DependencyAdvisor.SuggestedVersion(x.Data.Evidence), x.AvailableVersion)).ToArray();
+                x.Data.Evidence.Confidence == DependencyConfidence.Possible ? "latest" : DependencyAdvisor.SuggestedVersion(x.Data.Evidence), x.AvailableVersion,
+                versionReviews.GetValueOrDefault(x.Id)?.SelectedVersion, versionReviews.GetValueOrDefault(x.Id)?.Evidence.VersionConstraint)).ToArray();
         return new(PackageFile, SelectedImportDraft, SelectedImportDraft?.Revision, SelectedPreset, SelectedRecipe, CreationInspection, selected, rows);
     }
     public bool ApplySuggestionReview(SuggestionReviewSnapshot snapshot, IReadOnlyDictionary<string, bool> choices)
@@ -130,7 +136,7 @@ public sealed partial class MainViewModel
     }
 }
 
-public sealed record SuggestionReviewItem(string Id, string Name, bool Selected, DependencyConfidence Confidence, string? Version, string AvailableVersion);
+public sealed record SuggestionReviewItem(string Id, string Name, bool Selected, DependencyConfidence Confidence, string? Version, string AvailableVersion, string? SelectedVersion, string? RequiredVersion);
 public sealed record SuggestionReviewSnapshot(string File, UiImportDraft? Draft, int? Revision, string Preset, string Recipe, PackageInspectionReport? Inspection, Dictionary<string, string> Selection, SuggestionReviewItem[] Items);
 
 public sealed class UiCreationPackage(PackageSelectionPreview data, string name) : ObservableObject

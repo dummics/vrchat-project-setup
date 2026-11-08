@@ -952,6 +952,19 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 "Suggested addition and possible removal apply only after explicit choices");
             Require(!focusedReview.ApplySuggestionReview(snapshot, staged), "An outdated suggestion review cannot overwrite newer choices");
         }
+        using (var versionReview = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
+        {
+            await versionReview.InitializeAsync(); versionReview.CurrentPage = "Create";
+            versionReview.CreationInspection = advice with { Suggestions = [
+                new("gogoloco", DependencyConfidence.Declared, ">=2.0.0", [new("Packages/example/package.json", "manifest")])] };
+            var snapshot = versionReview.CreateSuggestionReview();
+            var item = snapshot.Items.Single(x => x.Id == "gogoloco");
+            Require(item.Selected && item.SelectedVersion == "1.8.6" && item.RequiredVersion == ">=2.0.0" && versionReview.SuggestedReviewOnlyVisibility == Visibility.Visible,
+                "A selected version that differs from a declared requirement is visible for review");
+            var dialog = new SuggestionReviewDialog(snapshot);
+            Require(versionReview.ApplySuggestionReview(snapshot, dialog.Result()) && versionReview.CreationPackages.Single(x => x.Id == "gogoloco").Data.Version == "1.8.6",
+                "Reviewing a version requirement never replaces the selected pin");
+        }
         using (var reviewFlow = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
         {
             await reviewFlow.InitializeAsync(); reviewFlow.CurrentPage = "Create";
