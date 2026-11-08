@@ -173,6 +173,7 @@ jobs:
           name: native-ui-verification
           path: |
             ${{ runner.temp }}/vrcsetup-ui
+            ${{ runner.temp }}/vrcsetup-appearance-restart
             release/release-build.json
             ${{ runner.temp }}/fresh-packages
           if-no-files-found: ignore
