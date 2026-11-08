@@ -90,6 +90,7 @@ public sealed class UnityImportDriverTests : IDisposable
 
     [Theory]
     [InlineData(0, "Added project C:\\Avatars\\Error Recovery", true)]
+    [InlineData(0, "Added project C:\\Avatars\\Error failed\\Avatar", true)]
     [InlineData(0, "Completed with 0 error messages", true)]
     [InlineData(0, "ERROR: registration was rejected", false)]
     [InlineData(0, "[ERROR] registration was rejected", false)]
