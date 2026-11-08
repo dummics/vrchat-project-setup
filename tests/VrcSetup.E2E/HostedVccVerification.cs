@@ -24,6 +24,8 @@ internal static class HostedVccVerification
         var driver = new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths));
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         var progress = new ImmediateProgress<OperationEvent>(item => Console.WriteLine($"[{item.Phase}] {item.Message} {item.RawMessage}"));
+        if (await driver.RegisterAsync(project, progress, timeout.Token)) throw new IOException("VCC accepted an invalid fixture as a successful registration.");
+        Directory.CreateDirectory(Path.Combine(project, "Assets"));
         if (!await driver.RegisterAsync(project, progress, timeout.Token)) throw new IOException("VCC registration failed on the hosted fixture.");
         var listed = await runner.VpmAsync(["list", "projects"], cancellationToken: timeout.Token);
         if (listed.ExitCode != 0 || !listed.Output.Contains("VccRegistrationFixture", StringComparison.OrdinalIgnoreCase))

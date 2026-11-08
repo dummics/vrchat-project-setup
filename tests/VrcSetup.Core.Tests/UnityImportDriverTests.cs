@@ -96,6 +96,8 @@ public sealed class UnityImportDriverTests : IDisposable
     [InlineData(0, "[ERROR] registration was rejected", false)]
     [InlineData(0, "[12:00:00] ERR: registration was rejected", false)]
     [InlineData(0, "Failed to register project", false)]
+    [InlineData(0, "Path is not a valid Unity project", false)]
+    [InlineData(0, "Added D:\\Path is not a valid Unity project\\Avatar", true)]
     [InlineData(1, "", false)]
     public void CreatorCompanionRegistrationDistinguishesErrorsFromProjectNames(int exitCode, string output, bool expected)
     {

@@ -277,7 +277,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
         }
     }
     public static bool RegistrationSucceeded(ToolResult result) => result.ExitCode == 0
-        && !Regex.IsMatch(result.Output, @"(?im)^\s*(?:\[(?!(?:ERR|ERROR)\])[\w :.+-]+\]\s*)?(?:\[(?:ERR|ERROR)\]|(?:ERR|ERROR)\s*:|(?:ERR|ERROR)\s*$|(?:failed|unable|could not) to (?:add|register)\b)");
+        && !Regex.IsMatch(result.Output, @"(?im)^\s*(?:\[(?!(?:ERR|ERROR)\])[\w :.+-]+\]\s*)?(?:\[(?:ERR|ERROR)\]|(?:ERR|ERROR)\s*:|(?:ERR|ERROR)\s*$|(?:failed|unable|could not) to (?:add|register)\b|path is not a valid unity project\b)");
     private string NewUnityLog(string phase)
     {
         Directory.CreateDirectory(paths.Logs); return Path.Combine(paths.Logs, $"unity-{phase}-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.log");
