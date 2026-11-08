@@ -31,6 +31,7 @@ public sealed partial class ImportQueue
                     candidate = jobs.Select(x => x.Id != id ? x : x with
                     {
                         CreatorCompanionPending = false,
+                        CreatorCompanionUnknown = false,
                         Message = x.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC." ? "" : x.Message
                     }).ToArray();
                 }

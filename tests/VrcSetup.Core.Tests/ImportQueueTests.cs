@@ -96,6 +96,22 @@ public sealed class ImportQueueTests : IDisposable
         }
         finally { Directory.Delete(journal); File.Move(saved, journal); }
     }
+    [Fact] public async Task SuccessfulRegistrationRetryClearsPriorUncertainty()
+    {
+        var app = App; var plan = Plan("Registration uncertainty");
+        var job = new ImportJob("vcc-uncertain", plan, plan.Projects.Single().Creation!, "Recovered", "Completed", 100, "", "")
+            { CreatorCompanionPending = true, CreatorCompanionUnknown = true };
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using (var queue = new ImportQueue(app))
+        {
+            await queue.InitializeAsync();
+            Assert.True(await queue.RetryRegistrationAsync(job.Id, (_, _) => Task.FromResult(true)));
+            Assert.False(Assert.Single(queue.Snapshot()).CreatorCompanionUnknown);
+        }
+        await using var reopened = new ImportQueue(app); await reopened.InitializeAsync();
+        var saved = Assert.Single(reopened.Snapshot());
+        Assert.False(saved.CreatorCompanionPending); Assert.False(saved.CreatorCompanionUnknown);
+    }
     [Fact] public async Task SupersededRegistrationNoticeCannotRetryAnOlderImport()
     {
         var app = App; var plan = Plan("Newer import");
