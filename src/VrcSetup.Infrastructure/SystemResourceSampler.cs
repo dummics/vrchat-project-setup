@@ -6,7 +6,7 @@ public sealed record SystemResourceUsage(double TotalGiB, double AvailableGiB, d
 {
     // Conservative admission, not a guarantee about a particular Unity import.
     // Do not start a second editor before the first CPU sample is available.
-    public int SuggestedParallelism => CpuPercent is not < 80 || MemoryHigh || LogicalProcessors < 4
+    public int SuggestedParallelism => !double.IsFinite(TotalGiB) || TotalGiB <= 0 || !double.IsFinite(AvailableGiB) || AvailableGiB < 0 || AvailableGiB > TotalGiB || !double.IsFinite(AvailableCommitGiB) || AvailableCommitGiB < 0 || CpuPercent is not >= 0 or >= 80 || MemoryHigh || LogicalProcessors < 4
         ? 1 : (int)Math.Clamp(Math.Min(AvailableGiB, AvailableCommitGiB) / 3, 1, 2);
     public bool MemoryHigh => AvailableGiB < 1 || AvailableCommitGiB < 1 || TotalGiB > 0 && AvailableGiB / TotalGiB < 0.1;
 }

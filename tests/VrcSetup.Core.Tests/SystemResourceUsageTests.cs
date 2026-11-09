@@ -23,4 +23,14 @@ public sealed class SystemResourceUsageTests
     [Fact]
     public void AutomaticAdmissionWaitsForCpuSampleBeforeStartingSecondEditor()
         => Assert.Equal(1, new SystemResourceUsage(32, 24, 24, null, 16).SuggestedParallelism);
+
+    [Fact]
+    public void InvalidResourceSamplesUseSingleImport()
+    {
+        Assert.Equal(1, new SystemResourceUsage(32, double.NaN, 24, 10, 8).SuggestedParallelism);
+        Assert.Equal(1, new SystemResourceUsage(32, 24, double.PositiveInfinity, 10, 8).SuggestedParallelism);
+        Assert.Equal(1, new SystemResourceUsage(32, 24, 24, -1, 8).SuggestedParallelism);
+        Assert.Equal(1, new SystemResourceUsage(0, 24, 24, 10, 8).SuggestedParallelism);
+        Assert.Equal(1, new SystemResourceUsage(16, 24, 24, 10, 8).SuggestedParallelism);
+    }
 }
