@@ -10,6 +10,8 @@ Isolated queue tests exercise changing CPU and memory samples, missing samples, 
 
 The E2E fixture records import duration separately from its full lifecycle. One isolated run measured 91.56 s; a later three-job run completed in 209.96 s overall, with individual import phases of 97.96, 93.51 and 89.69 s and a peak of two admitted jobs. These are single observations without controlled load or cache; they are not a performance guarantee or a large-avatar benchmark.
 
+A further three-job run completed in 209.30 s with the same peak admission of two. Sampling the runner and descendants by parent PID observed a peak summed working set of 2,428.3 MiB over 91 samples, with up to 57 processes. The sum may double-count shared memory; short-lived or reparented descendants may be missed. It does not measure commit, CPU, or large-avatar behavior.
+
 The optional E2E `--verify-unity-cancellation <Unity.exe> <new-fixture-directory>` starts Unity only on a new synthetic fixture, observes the owned process while it is alive, requests cancellation and waits for that process to exit. The local `uc3` run passed. It exercises one point during startup/import; it does not reproduce the reported Trixie stall, establish its cause, or cover every Unity phase.
 
 ## 0.3.0 refactor candidate — verification pending
