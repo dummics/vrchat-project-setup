@@ -9,6 +9,7 @@ namespace VrcSetup.Infrastructure;
 public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundledPackageTool = null,
     Func<string, string[], CancellationToken, Task<ToolResult>>? commandOverride = null)
 {
+    internal Action<Process>? ProcessStarted { get; init; }
     public async Task<ToolResult> RunAsync(string executable, IEnumerable<string> arguments, string? workingDirectory = null,
         IProgress<OperationEvent>? progress = null, string phase = "Tool", CancellationToken cancellationToken = default, TimeSpan? timeout = null,
         string? logFile = null, string? standardInput = null)
@@ -25,6 +26,7 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
         try { if (!process.Start()) throw new IOException($"Could not start {executable}."); }
         catch (System.ComponentModel.Win32Exception error) { throw new IOException($"Cannot start {Path.GetFileName(executable)}. Check its installation and runtime prerequisites.", error); }
         using var guard = new WindowsJob(process);
+        ProcessStarted?.Invoke(process);
         if (standardInput is not null) { await process.StandardInput.WriteAsync(standardInput); process.StandardInput.Close(); }
         var stdout = new StringBuilder(); var stderr = new StringBuilder();
         var outputTask = Capture(process.StandardOutput, stdout);

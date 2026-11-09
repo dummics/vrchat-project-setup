@@ -8,16 +8,17 @@ using VrcSetup.Infrastructure;
 // package registration, user settings, existing projects or avatar files touched.
 internal static class UnityImportVerification
 {
-    public static async Task RunAsync(string editor, string evidence)
+    public static async Task RunAsync(string editor, string evidence, CancellationToken cancellationToken = default, Action<System.Diagnostics.Process>? processStarted = null)
     {
         evidence = Path.GetFullPath(evidence);
         if (Directory.Exists(evidence)) throw new IOException("Choose a new evidence directory.");
         UnityProjectDriver.ValidateEditor(editor);
         var project = Path.Combine(evidence, "Project [PC] & città");
         var paths = new AppPaths(Path.Combine(evidence, "home"));
-        var runner = new ToolRunner(new DiagnosticLog(paths));
+        var runner = new ToolRunner(new DiagnosticLog(paths)) { ProcessStarted = processStarted };
         var driver = new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths));
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(10));
         var creation = new CreationRequest("", "Fixture", project, editor, "StandaloneWindows64", ["StandaloneWindows64"], [], EmptyProject: true);
         var watch = System.Diagnostics.Stopwatch.StartNew();
         await driver.CreateAsync(creation, null, timeout.Token);

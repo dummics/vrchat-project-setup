@@ -3,6 +3,34 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+if (args is ["--verify-unity-cancellation", var cancelEditor, var cancelEvidence])
+{
+    var cancelRoot = Path.GetFullPath(cancelEvidence);
+    if (Directory.Exists(cancelRoot)) throw new IOException("Choose a new evidence directory.");
+    using var cancellation = new CancellationTokenSource();
+    var processStarted = new TaskCompletionSource<System.Diagnostics.Process>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var run = UnityImportVerification.RunAsync(cancelEditor, cancelRoot, cancellation.Token, process =>
+    {
+        if (process.ProcessName.Equals("Unity", StringComparison.OrdinalIgnoreCase))
+            processStarted.TrySetResult(System.Diagnostics.Process.GetProcessById(process.Id));
+    });
+    try
+    {
+        var first = await Task.WhenAny(processStarted.Task, run).WaitAsync(TimeSpan.FromMinutes(3));
+        if (first == run) { await run; throw new IOException("Unity import ended before process observation."); }
+        using var ownedUnity = await processStarted.Task;
+        if (ownedUnity.HasExited) throw new IOException("Unity exited before cancellation could be tested.");
+        var ownedPid = ownedUnity.Id;
+        cancellation.Cancel();
+        try { await run.WaitAsync(TimeSpan.FromSeconds(30)); throw new IOException("Unity import completed instead of cancelling."); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        await ownedUnity.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        await AtomicFile.WriteJsonAsync(Path.Combine(cancelRoot, "cancellation.json"), new { Passed = true, CancellationObserved = true, UnityPid = ownedPid, UnityExited = ownedUnity.HasExited });
+        Console.WriteLine("PASS: cancellation stopped the owned isolated Unity process.");
+    }
+    finally { cancellation.Cancel(); }
+    return;
+}
 if (args is ["--verify-multi-import", var multiEditor, var multiEvidence])
 {
     await MultiImportVerification.RunAsync(multiEditor, multiEvidence);

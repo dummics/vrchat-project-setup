@@ -18,7 +18,7 @@ internal static class MultiImportVerification
             lock (gate) peak = Math.Max(peak, count);
             try
             {
-                await UnityImportVerification.RunAsync(editor, Path.Combine(evidence, plan.Projects[0].Name));
+                await UnityImportVerification.RunAsync(editor, Path.Combine(evidence, plan.Projects[0].Name), token);
                 return new OperationReport(plan.Id, DateTime.UtcNow,
                     plan.Projects.Select(x => new ProjectOutcome(x.Name, x.Path, OperationStatus.Completed, "Done")).ToArray(), []);
             }
