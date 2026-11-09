@@ -1,5 +1,13 @@
 # Desktop migration verification
 
+## 0.3.0 release and subsequent multi-import work
+
+Version 0.3.0 was published from merge commit `ee399f9`; Windows release run `42527738219` passed, and the public installer checksum and update feed were checked. Earlier candidate notes below describe historical checkpoints, not the current release status.
+
+The subsequent desktop change requests automatic scheduling. The queue admits at most two imports, starts with one until CPU data is available, and falls back to one when CPU or memory is under pressure or sampling is unavailable. A lower limit does not interrupt work already running. This is a conservative admission policy, not a guarantee against resource exhaustion, and it is not included in the 0.3.0 release.
+
+Isolated queue tests exercise changing CPU and memory samples, missing samples, sampler errors, cancellation, pause, failed journal writes, and concurrent configuration. A synthetic Unity queue run completed three imports with a peak of two concurrent jobs. The synthetic archives are small; these results do not establish resource use for large avatars, child processes, or sustained system load. Further measurement and concurrency review remain necessary before delivery.
+
 ## 0.3.0 refactor candidate — verification pending
 
 The desktop history is integrated into main at f347f1a with source version 0.3.0;

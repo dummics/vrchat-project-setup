@@ -598,6 +598,328 @@ public sealed class ImportQueueTests : IDisposable
         await WaitUntil(() => !queue.HasActiveJobs);
         Assert.Equal("Completed", Assert.Single(queue.Snapshot()).State);
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AutomaticAdmissionRespondsToResourcePressureWithoutStoppingRunningWork(bool memoryPressure)
+    {
+        var pressure = 1; var entered = 0;
+        var firstRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var remainingRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            Interlocked.Increment(ref entered);
+            await (plan.Projects[0].Name == "Pressure first" ? firstRelease.Task : remainingRelease.Task).WaitAsync(token);
+            return Completed(plan);
+        }, () => Volatile.Read(ref pressure) == 1
+            ? memoryPressure ? new SystemResourceUsage(32, 2, 2, 10, 8) : new SystemResourceUsage(32, 24, 24, 95, 8)
+            : new SystemResourceUsage(32, 24, 24, 10, 8), TimeSpan.FromMilliseconds(30));
+        await queue.EnqueueAsync(Plan("Pressure first", "Pressure second", "Pressure third"), 0);
+        await WaitUntil(() => Volatile.Read(ref entered) == 1 && queue.Resources?.SuggestedParallelism == 1);
+        await Task.Delay(150); Assert.Equal(1, Volatile.Read(ref entered));
+        Volatile.Write(ref pressure, 0);
+        await WaitUntil(() => Volatile.Read(ref entered) == 2);
+        Volatile.Write(ref pressure, 1);
+        await WaitUntil(() => queue.Resources?.SuggestedParallelism == 1);
+        firstRelease.SetResult();
+        await WaitUntil(() => queue.Snapshot().Count(x => x.State == "Completed") == 1);
+        await Task.Delay(150); Assert.Equal(2, Volatile.Read(ref entered));
+        Assert.Single(queue.Snapshot(), x => x.State == "Running");
+        Volatile.Write(ref pressure, 0);
+        await WaitUntil(() => Volatile.Read(ref entered) == 3);
+        remainingRelease.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.All(queue.Snapshot(), x => Assert.Equal("Completed", x.State));
+    }
+    [Fact] public async Task AutomaticAdmissionMakesProgressWithoutAnyResourceSamples()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = 0; var active = 0; var peak = 0;
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            var count = Interlocked.Increment(ref active);
+            lock (release) peak = Math.Max(peak, count);
+            Interlocked.Increment(ref started);
+            try { await release.Task.WaitAsync(token); return Completed(plan); }
+            finally { Interlocked.Decrement(ref active); }
+        }, () => null, TimeSpan.FromMilliseconds(30));
+        await queue.EnqueueAsync(Plan("No sample one", "No sample two"), 0);
+        await WaitUntil(() => Volatile.Read(ref started) == 1);
+        await Task.Delay(150); Assert.Equal(1, Volatile.Read(ref started));
+        release.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(2, Volatile.Read(ref started)); Assert.Equal(1, peak);
+        Assert.All(queue.Snapshot(), job => Assert.Equal("Completed", job.State));
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AutomaticAdmissionFallsBackWhenResourceSamplingIsUnavailable(bool throws)
+    {
+        var missing = 0; var entered = 0;
+        var firstRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var restRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            Interlocked.Increment(ref entered);
+            await (plan.Projects[0].Name == "Sampling first" ? firstRelease.Task : restRelease.Task).WaitAsync(token);
+            return Completed(plan);
+        }, () => Volatile.Read(ref missing) == 1
+            ? throws ? throw new IOException("Resource sample unavailable") : null
+            : new SystemResourceUsage(32, 24, 24, 10, 8), TimeSpan.FromMilliseconds(30));
+        await queue.EnqueueAsync(Plan("Sampling first", "Sampling second", "Sampling third"), 0);
+        await WaitUntil(() => Volatile.Read(ref entered) == 2);
+        Volatile.Write(ref missing, 1);
+        await WaitUntil(() => queue.Resources is null);
+        firstRelease.SetResult();
+        await WaitUntil(() => queue.Snapshot().Count(x => x.State == "Completed") == 1);
+        await Task.Delay(150); Assert.Equal(2, Volatile.Read(ref entered));
+        Volatile.Write(ref missing, 0);
+        await WaitUntil(() => Volatile.Read(ref entered) == 3);
+        restRelease.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.All(queue.Snapshot(), x => Assert.Equal("Completed", x.State));
+    }
+    [Fact] public async Task AutomaticAdmissionShutdownPausesRunningAndQueuedJobs()
+    {
+        var app = App;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        await using var queue = new ImportQueue(app, async (plan, _, token) =>
+        {
+            Interlocked.Increment(ref starts); entered.TrySetResult();
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, token); }
+            catch (OperationCanceledException) { stopping.TrySetResult(); await release.Task; throw; }
+            return Completed(plan);
+        }, () => new SystemResourceUsage(16, 8, 8, 95, 8), TimeSpan.FromMilliseconds(30));
+        try
+        {
+            await queue.EnqueueAsync(Plan("Shutdown active", "Shutdown queued"), 0);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var shutdown = queue.ShutdownAsync();
+            await stopping.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(shutdown.IsCompleted);
+            Assert.Equal(1, Volatile.Read(ref starts));
+            release.TrySetResult();
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(1, Volatile.Read(ref starts));
+            await using var reopened = new ImportQueue(app);
+            await reopened.InitializeAsync();
+            Assert.All(reopened.Snapshot(), job => Assert.Equal("Paused", job.State));
+        }
+        finally { release.TrySetResult(); }
+    }
+    [Fact] public async Task AutomaticAdmissionWaitsForPausedWorkerBeforeStartingNext()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            var name = plan.Projects[0].Name; started.Enqueue(name);
+            if (name == "Pause active")
+            {
+                entered.TrySetResult();
+                try { await Task.Delay(Timeout.InfiniteTimeSpan, token); }
+                catch (OperationCanceledException) { cancellationObserved.TrySetResult(); await stopped.Task; throw; }
+            }
+            return Completed(plan);
+        }, () => new SystemResourceUsage(16, 8, 8, 95, 8), TimeSpan.FromMilliseconds(30));
+        try
+        {
+            await queue.EnqueueAsync(Plan("Pause active", "After pause"), 0);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var first = queue.Snapshot().Single(x => x.Name == "Pause active");
+            await queue.PauseAsync(first.Id);
+            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(150);
+            Assert.Equal(new[] { "Pause active" }, started.ToArray());
+            stopped.TrySetResult();
+            await WaitUntil(() => !queue.HasActiveJobs);
+            Assert.Equal(new[] { "Pause active", "After pause" }, started.ToArray());
+            Assert.Equal("Paused", queue.Snapshot().Single(x => x.Id == first.Id).State);
+            Assert.Equal("Completed", queue.Snapshot().Single(x => x.Name == "After pause").State);
+        }
+        finally { stopped.TrySetResult(); }
+    }
+    [Fact] public async Task AutomaticAdmissionWaitsForCancelledWorkerBeforeStartingNext()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            var name = plan.Projects[0].Name; started.Enqueue(name);
+            if (name == "Cancel active")
+            {
+                entered.TrySetResult();
+                try { await Task.Delay(Timeout.InfiniteTimeSpan, token); }
+                catch (OperationCanceledException) { cancellationObserved.TrySetResult(); await stopped.Task; throw; }
+            }
+            return Completed(plan);
+        }, () => new SystemResourceUsage(16, 8, 8, 95, 8), TimeSpan.FromMilliseconds(30));
+        try
+        {
+            await queue.EnqueueAsync(Plan("Cancel active", "After cancellation"), 0);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var first = queue.Snapshot().Single(x => x.Name == "Cancel active");
+            queue.Cancel(first.Id);
+            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(150);
+            Assert.Equal(new[] { "Cancel active" }, started.ToArray());
+            stopped.TrySetResult();
+            await WaitUntil(() => !queue.HasActiveJobs);
+            Assert.Equal(new[] { "Cancel active", "After cancellation" }, started.ToArray());
+            Assert.Equal("Cancelled", queue.Snapshot().Single(x => x.Id == first.Id).State);
+            Assert.Equal("Completed", queue.Snapshot().Single(x => x.Name == "After cancellation").State);
+        }
+        finally { stopped.TrySetResult(); }
+    }
+    [Fact] public async Task AutomaticAdmissionReleasesCapacityAfterWorkerFailure()
+    {
+        var started = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        await using var queue = new ImportQueue(App, (plan, _, _) =>
+        {
+            var name = plan.Projects[0].Name;
+            started.Enqueue(name);
+            return name == "Failure first"
+                ? Task.FromException<OperationReport>(new IOException("Fixture failure"))
+                : Task.FromResult(Completed(plan));
+        }, () => new SystemResourceUsage(16, 8, 8, 95, 8), TimeSpan.FromMilliseconds(30));
+        await queue.EnqueueAsync(Plan("Failure first", "After failure"), 0);
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(new[] { "Failure first", "After failure" }, started.ToArray());
+        Assert.Equal("Failed", queue.Snapshot().Single(x => x.Name == "Failure first").State);
+        Assert.Equal("Completed", queue.Snapshot().Single(x => x.Name == "After failure").State);
+    }
+    [Fact] public async Task AutomaticAdmissionSkipsPausedQueuedWork()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            started.Enqueue(plan.Projects[0].Name);
+            await release.Task.WaitAsync(token);
+            return Completed(plan);
+        }, () => new SystemResourceUsage(16, 8, 8, 95, 8), TimeSpan.FromMilliseconds(30));
+        await queue.EnqueueAsync(Plan("First paused queue", "Pause queued", "Last paused queue"), 0);
+        await WaitUntil(() => started.Count == 1);
+        var paused = queue.Snapshot().Single(x => x.Name == "Pause queued");
+        await queue.PauseAsync(paused.Id);
+        await WaitUntil(() => queue.Snapshot().Single(x => x.Id == paused.Id).State == "Paused");
+        release.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(new[] { "First paused queue", "Last paused queue" }, started.ToArray());
+        Assert.Equal("Paused", queue.Snapshot().Single(x => x.Id == paused.Id).State);
+    }
+    [Fact] public async Task AutomaticAdmissionSkipsCancelledQueuedWorkAndPreservesOrder()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            started.Enqueue(plan.Projects[0].Name);
+            await release.Task.WaitAsync(token);
+            return Completed(plan);
+        }, () => new SystemResourceUsage(16, 8, 8, 95, 8), TimeSpan.FromMilliseconds(30));
+        await queue.EnqueueAsync(Plan("First automatic", "Cancel automatic", "Last automatic"), 0);
+        await WaitUntil(() => started.Count == 1);
+        var cancelled = queue.Snapshot().Single(x => x.Name == "Cancel automatic");
+        queue.Cancel(cancelled.Id);
+        await WaitUntil(() => queue.Snapshot().Single(x => x.Id == cancelled.Id).State == "Cancelled");
+        release.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(new[] { "First automatic", "Last automatic" }, started.ToArray());
+        Assert.Equal("Cancelled", queue.Snapshot().Single(x => x.Id == cancelled.Id).State);
+    }
+    [Fact] public async Task ConcurrentConfigurationSurvivesEnqueueJournalWrite()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var queue = new ImportQueue(App, (plan, _, _) => Task.FromResult(Completed(plan)))
+        { BeforeEnqueueSave = async token => { entered.TrySetResult(); await release.Task.WaitAsync(token); } };
+        await queue.InitializeAsync();
+        var enqueue = queue.EnqueueAsync(Plan("Concurrent configuration"), 1);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            queue.ConfigureParallelism(3);
+        }
+        finally { release.TrySetResult(); }
+        await enqueue;
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(3, queue.EffectiveParallelism);
+        Assert.Equal("Completed", Assert.Single(queue.Snapshot()).State);
+    }
+    [Fact] public async Task FailedEnqueuePreservesExistingParallelism()
+    {
+        var app = App;
+        await using var queue = new ImportQueue(app);
+        await queue.InitializeAsync();
+        queue.ConfigureParallelism(3);
+        var journal = Path.Combine(app.Paths.Home, "imports.json");
+        var saved = journal + ".saved";
+        File.Move(journal, saved);
+        Directory.CreateDirectory(journal);
+        try
+        {
+            var error = await Record.ExceptionAsync(() => queue.EnqueueAsync(Plan("Failed admission"), 1));
+            Assert.True(error is IOException or UnauthorizedAccessException, error?.ToString());
+            Assert.Equal(3, queue.EffectiveParallelism);
+            Assert.Empty(queue.Snapshot());
+        }
+        finally { Directory.Delete(journal); File.Move(saved, journal); }
+    }
+    [Fact] public async Task AutomaticAdmissionLimitsSeparatelyEnqueuedImports()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var active = 0; var peak = 0; var started = 0;
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            var count = Interlocked.Increment(ref active);
+            lock (release) peak = Math.Max(peak, count);
+            Interlocked.Increment(ref started);
+            try { await release.Task.WaitAsync(token); return Completed(plan); }
+            finally { Interlocked.Decrement(ref active); }
+        }, () => new SystemResourceUsage(32, 24, 24, 10, 8), TimeSpan.FromMilliseconds(30));
+        await queue.EnqueueAsync(Plan("Separate one"), 0);
+        await queue.EnqueueAsync(Plan("Separate two"), 0);
+        await queue.EnqueueAsync(Plan("Separate three"), 0);
+        await WaitUntil(() => Volatile.Read(ref started) == 2);
+        await Task.Delay(150);
+        Assert.Equal(2, Volatile.Read(ref started));
+        Assert.Equal(2, peak);
+        release.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(3, Volatile.Read(ref started));
+        Assert.All(queue.Snapshot(), job => Assert.Equal("Completed", job.State));
+    }
+    [Fact] public async Task AutomaticAdmissionKeepsAtMostTwoImportsActive()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var running = 0; var maximum = 0; var executed = 0;
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            var active = Interlocked.Increment(ref running); Interlocked.Increment(ref executed);
+            lock (release) maximum = Math.Max(maximum, active);
+            try { await release.Task.WaitAsync(token); return Completed(plan); }
+            finally { Interlocked.Decrement(ref running); }
+        });
+        await queue.EnqueueAsync(Plan("Automatic first", "Automatic second", "Automatic third"), 0);
+        await WaitUntil(() => Volatile.Read(ref executed) >= 1);
+        // Allow the resource sampler to take a second CPU reading.
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        Assert.InRange(maximum, 1, 2);
+        Assert.InRange(Volatile.Read(ref executed), 1, 2);
+        release.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(3, Volatile.Read(ref executed));
+        Assert.All(queue.Snapshot(), x => Assert.Equal("Completed", x.State));
+    }
     [Fact] public async Task ParallelLimitAndCompletedHistoryAreDurable()
     {
         var app = App; var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

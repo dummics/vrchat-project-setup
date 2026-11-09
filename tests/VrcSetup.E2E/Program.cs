@@ -3,6 +3,11 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+if (args is ["--verify-multi-import", var multiEditor, var multiEvidence])
+{
+    await MultiImportVerification.RunAsync(multiEditor, multiEvidence);
+    return;
+}
 if (args is ["--verify-hosted-vcc", var vccEvidence])
 {
     await HostedVccVerification.RunAsync(vccEvidence);

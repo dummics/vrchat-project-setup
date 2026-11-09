@@ -21,8 +21,9 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
 // No startup auto-resume and no project deletion/cache deletion on cancellation.
-public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IProgress<OperationEvent>?, CancellationToken, Task<OperationReport>>? execute = null) : IAsyncDisposable
+public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationPlan, IProgress<OperationEvent>?, CancellationToken, Task<OperationReport>>? execute = null, Func<SystemResourceUsage?>? sampleResources = null, TimeSpan? resourceInterval = null) : IAsyncDisposable
 {
+    internal Func<CancellationToken, Task>? BeforeEnqueueSave { get; init; }
     private readonly object sync = new();
     private readonly SemaphoreSlim journalGate = new(1);
     private readonly SemaphoreSlim disposalGate = new(1);
@@ -37,12 +38,13 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
     private Task? resourceWorker;
     private SystemResourceUsage? resources;
     private int requestedParallelism = 1;
+    private long parallelismRevision;
     public SystemResourceUsage? Resources { get { lock (sync) return resources; } }
     public int EffectiveParallelism { get { lock (sync) return requestedParallelism > 0 ? requestedParallelism : resources?.SuggestedParallelism ?? 1; } }
     public void ConfigureParallelism(int value)
     {
         if (value < 0) throw new ArgumentException("Use zero for automatic scheduling or a positive parallel import count.");
-        lock (sync) { requestedParallelism = value; PulseCapacity(); }
+        lock (sync) { requestedParallelism = value; parallelismRevision++; PulseCapacity(); }
         Publish();
     }
     private void PulseCapacity()
@@ -70,10 +72,16 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         var sampler = new SystemResourceSampler();
         try
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            using var timer = new PeriodicTimer(resourceInterval ?? TimeSpan.FromSeconds(3));
             do
             {
-                var usage = sampler.Sample();
+                SystemResourceUsage? usage;
+                try { usage = sampleResources is null ? sampler.Sample() : sampleResources(); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+                {
+                    app.Diagnostics.Write("Resource monitor", error.Message, error);
+                    usage = null;
+                }
                 lock (sync) { resources = usage; if (requestedParallelism == 0) PulseCapacity(); }
                 Publish();
             } while (await timer.WaitForNextTickAsync(monitoring.Token));
@@ -161,6 +169,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         await journalGate.WaitAsync(token);
         try
         {
+            long observedParallelismRevision;
             lock (sync)
             {
                 if (stopping) throw new IOException("Import queue is closing.");
@@ -170,11 +179,11 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                     throw new IOException("This import changed. Choose it again to continue.");
                 var active = jobs.Where(x => x.Active || x.DiscardRequested).Select(x => ProjectRules.NormalizePath(x.ProjectPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 if (pending.Any(x => active.Contains(ProjectRules.NormalizePath(x.ProjectPath)))) throw new IOException("An import for this project is already queued.");
-                requestedParallelism = parallelism;
+                observedParallelismRevision = parallelismRevision;
                 jobs.AddRange(pending);
                 foreach (var item in pending) cancellations[item.Id] = new();
             }
-            try { await SaveAsync(token); }
+            try { if (BeforeEnqueueSave is not null) await BeforeEnqueueSave(token); await SaveAsync(token); }
             catch
             {
                 lock (sync)
@@ -186,6 +195,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             }
             lock (sync)
             {
+                if (parallelismRevision == observedParallelismRevision) { requestedParallelism = parallelism; parallelismRevision++; }
                 workers.RemoveAll(x => x.IsCompletedSuccessfully);
                 foreach (var id in jobWorkers.Where(x => x.Value.IsCompletedSuccessfully).Select(x => x.Key).ToArray()) jobWorkers.Remove(id);
                 foreach (var item in pending)

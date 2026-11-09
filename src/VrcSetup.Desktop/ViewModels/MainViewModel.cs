@@ -89,7 +89,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public VrcSetupApplication Application => app;
 
     public MainViewModel(VrcSetupApplication app, IDesktopInteraction interaction)
-    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); app.Imports.ConfigureParallelism(int.MaxValue); app.Imports.Changed += ImportsChanged; InitializeApplicationStatus();
+    { this.app = app; ui = interaction; context = SynchronizationContext.Current ?? new(); versionCache = new(app.Catalog.GetVersionsAsync, lifetime.Token); app.Imports.ConfigureParallelism(0); app.Imports.Changed += ImportsChanged; InitializeApplicationStatus();
         PropertyChanged += (_, e) => { if (!loadingSettings && e.PropertyName is { } name && SettingsProperties.Contains(name)) NotifySettingsState(); };
     }
     public async Task InitializeAsync()

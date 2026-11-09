@@ -15,7 +15,7 @@ public sealed partial class MainViewModel
         if (await app.Imports.RetryHistorySaveAsync(row.Id, lifetime.Token))
             ApplicationNotice = UiText.Text("Import status saved.");
     }, allowWhileBusy: true);
-    private const int RequestedParallelism = int.MaxValue;
+    private const int RequestedParallelism = 0; // Adapt to available CPU and memory.
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportReviewLabel)), NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
     public partial bool IsPreparingImport { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportErrorVisibility)), NotifyPropertyChangedFor(nameof(ImportSettingsVisibility))]

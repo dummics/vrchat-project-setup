@@ -75,7 +75,7 @@ internal static class UnityImportVerification
         await AtomicFile.WriteJsonAsync(queue, new { packages = Array.Empty<string>() }, timeout.Token);
         var log = Path.Combine(evidence, "empty-queue.log");
         var result = await runner.RunAsync(editor, ["-projectPath", project, "-batchmode", "-executeMethod", "VrcSetupPostImport.RunImport", "-vrcsetupImportPlan", queue, "-logFile", log], cancellationToken: timeout.Token, logFile: log);
-        var output = await File.ReadAllTextAsync(log, timeout.Token);
+        var output = await SharedLog.ReadAsync(log, timeout.Token);
         if (result.ExitCode != 0 || !output.Contains("[vrc-setup] Post-import settle complete"))
             throw new IOException("Bridge rejected the valid empty queue.");
         await AtomicFile.WriteJsonAsync(Path.Combine(evidence, "unity-import.json"), new
