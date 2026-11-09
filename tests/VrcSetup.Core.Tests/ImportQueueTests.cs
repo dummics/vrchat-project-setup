@@ -631,6 +631,24 @@ public sealed class ImportQueueTests : IDisposable
         await WaitUntil(() => !queue.HasActiveJobs);
         Assert.All(queue.Snapshot(), x => Assert.Equal("Completed", x.State));
     }
+    [Fact] public async Task ResourceMonitorContinuesAfterNotificationFailure()
+    {
+        var samples = 0; var notifications = 0;
+        await using var queue = new ImportQueue(App, sampleResources: () =>
+        {
+            Interlocked.Increment(ref samples);
+            return new SystemResourceUsage(16, 8, 8, 20, 8);
+        }, resourceInterval: TimeSpan.FromMilliseconds(30));
+        await queue.InitializeAsync();
+        Action<ImportJob[]> handler = _ => { if (Interlocked.Increment(ref notifications) == 1) throw new IOException("Fixture notification failure"); };
+        queue.Changed += handler;
+        try
+        {
+            await WaitUntil(() => Volatile.Read(ref notifications) >= 2);
+            Assert.True(Volatile.Read(ref samples) >= 2);
+        }
+        finally { queue.Changed -= handler; }
+    }
     [Fact] public async Task AutomaticAdmissionMakesProgressWithoutAnyResourceSamples()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

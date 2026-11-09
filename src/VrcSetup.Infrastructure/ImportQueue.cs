@@ -83,7 +83,8 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                     usage = null;
                 }
                 lock (sync) { resources = usage; if (requestedParallelism == 0) PulseCapacity(); }
-                Publish();
+                try { Publish(); }
+                catch (Exception error) { app.Diagnostics.Write("Resource monitor notification", error.Message, error); }
             } while (await timer.WaitForNextTickAsync(monitoring.Token));
         }
         catch (OperationCanceledException) { }
