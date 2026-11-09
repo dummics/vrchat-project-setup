@@ -8,10 +8,12 @@ The subsequent desktop change requests automatic scheduling. The queue admits at
 
 Isolated queue tests exercise changing CPU and memory samples, missing samples, sampler errors, cancellation, pause, failed journal writes, and concurrent configuration. A synthetic Unity queue run completed three imports with a peak of two concurrent jobs. The synthetic archives are small; these results do not establish resource use for large avatars, child processes, or sustained system load. Further measurement and concurrency review remain necessary before delivery.
 
+The optional E2E `--verify-unity-cancellation <Unity.exe> <new-fixture-directory>` starts Unity only on a new synthetic fixture, observes the owned process while it is alive, requests cancellation and waits for that process to exit. The local `uc3` run passed. It exercises one point during startup/import; it does not reproduce the reported Trixie stall, establish its cause, or cover every Unity phase.
+
 ## 0.3.0 refactor candidate — verification pending
 
-The desktop history is integrated into main at f347f1a with source version 0.3.0;
-no 0.3.0 release or tag was published. The integration passed 346 core tests and
+At this historical checkpoint, the desktop history was integrated into main at f347f1a with source version 0.3.0;
+the 0.3.0 release and tag did not yet exist. The integration passed 346 core tests and
 the Release x64 desktop build. Those results predate the refactor below.
 
 The refactor branch replaces the preset carousel with a native ComboBox and
