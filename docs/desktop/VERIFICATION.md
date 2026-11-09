@@ -8,6 +8,8 @@ The subsequent desktop change requests automatic scheduling. The queue admits at
 
 Isolated queue tests exercise changing CPU and memory samples, missing samples, sampler errors, cancellation, pause, failed journal writes, and concurrent configuration. A synthetic Unity queue run completed three imports with a peak of two concurrent jobs. The synthetic archives are small; these results do not establish resource use for large avatars, child processes, or sustained system load. Further measurement and concurrency review remain necessary before delivery.
 
+The E2E fixture records import duration separately from its full lifecycle. One isolated run measured 91.56 s; a later three-job run completed in 209.96 s overall, with individual import phases of 97.96, 93.51 and 89.69 s and a peak of two admitted jobs. These are single observations without controlled load or cache; they are not a performance guarantee or a large-avatar benchmark.
+
 The optional E2E `--verify-unity-cancellation <Unity.exe> <new-fixture-directory>` starts Unity only on a new synthetic fixture, observes the owned process while it is alive, requests cancellation and waits for that process to exit. The local `uc3` run passed. It exercises one point during startup/import; it does not reproduce the reported Trixie stall, establish its cause, or cover every Unity phase.
 
 ## 0.3.0 refactor candidate — verification pending

@@ -57,6 +57,7 @@ internal static class UnityImportVerification
         }
         var identity = await PackageSourceIdentity.ReadAsync(archive, timeout.Token);
         var archivePlan = plan with { Creation = creation with { EmptyProject = false, UnityPackagePath = archive, SourceIdentity = identity } };
+        var importWatch = System.Diagnostics.Stopwatch.StartNew();
         await using (var lease = await driver.HoldImportSourceAsync(archivePlan, timeout.Token))
         {
             if (lease is null) throw new IOException("Source protection was not acquired.");
@@ -67,6 +68,7 @@ internal static class UnityImportVerification
             }
             await driver.ImportAsync(archivePlan, null, timeout.Token);
         }
+        importWatch.Stop();
         if (!File.Exists(Path.Combine(project, "Assets", "VrcSetupBridgeProbe.txt")) ||
             !File.Exists(Path.Combine(project, "Library", "ScriptAssemblies", "Assembly-CSharp.dll")))
             throw new IOException("Imported asset or recompiled assembly missing.");
@@ -81,7 +83,7 @@ internal static class UnityImportVerification
             throw new IOException("Bridge rejected the valid empty queue.");
         await AtomicFile.WriteJsonAsync(Path.Combine(evidence, "unity-import.json"), new
         {
-            Passed = true, CreationSeconds = creationSeconds, InstalledTemplateUsed = usedTemplate,
+            Passed = true, CreationSeconds = creationSeconds, ImportSeconds = importWatch.Elapsed.TotalSeconds, InstalledTemplateUsed = usedTemplate,
             EmptyCreationNoUnity = true, ArchiveImported = true, ScriptRecompiled = true,
             EmptyQueueFallbackSettled = true, EmptyProjectRecoveryNoUnity = true, VerifiedSourceProtectedDuringImport = true, ExistingProjectsChanged = false
         }, timeout.Token);
