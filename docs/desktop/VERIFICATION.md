@@ -2,6 +2,18 @@
 
 ## Priority import recovery verification after 0.3.1
 
+Released as 0.3.2 from `b993212`. Windows release run
+[43499972984](https://github.com/dummics/vrchat-project-setup/actions/runs/43499972984)
+passed the full hosted checks, including native UI, Italian layout, appearance
+restart, VPM registration, installation, repair and application update. The
+public release contains the installer, portable archive, components and checksums;
+the static update feed lists `v0.3.2`. Local core suite: 514 passed. Main and
+the development branch were aligned after the automated README/feed updates.
+
+The two-job automatic admission cap remains deliberate; raising it and extending
+the detector corpus are separate follow-up work. The original Trixie stall and
+appearance crash were not reproduced and are not claimed fixed by these results.
+
 The local real-Unity fixture `.work/c1/compilation-import.json` passed on
 Unity 2022.3.22f1: importing a deliberately broken script did not stop the
 following text-asset archive, the driver reported a completed compilation
