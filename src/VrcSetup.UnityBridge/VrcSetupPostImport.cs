@@ -111,7 +111,6 @@ public static class VrcSetupPostImport
         if (EditorApplication.timeSinceStartup - stableSince < 2) return;
         try
         {
-            if (EditorUtility.scriptCompilationFailed) { Debug.LogError("[vrc-setup] Script compilation failed; project remains incomplete."); Finish(1); return; }
             if (!string.IsNullOrEmpty(planJson))
             {
                 var plan = JsonUtility.FromJson<ImportPlan>(planJson);
@@ -127,6 +126,7 @@ public static class VrcSetupPostImport
                 }
             }
             AssetDatabase.SaveAssets();
+            if (EditorUtility.scriptCompilationFailed) Debug.LogWarning("[vrc-setup] Import complete; script compilation requires attention.");
             Debug.Log("[vrc-setup] Post-import settle complete, quitting.");
             Finish(0);
         }

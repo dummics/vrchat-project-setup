@@ -12,11 +12,14 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool DiscardCompleted { get; init; }
     public bool DiscardNoFolder { get; init; }
     public bool CreatorCompanionPending { get; init; }
+    public bool UnityCompilationNeedsAttention { get; init; }
     public bool CreatorCompanionUnknown { get; init; }
+    public bool RecoveryNoticeDismissed { get; init; }
     [System.Text.Json.Serialization.JsonIgnore] public bool HistorySaveFailed { get; init; }
     public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
     public bool Recoverable => !DiscardRequested && !DiscardCompleted && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
     public bool CanHide => !Active && !Recoverable && !DiscardRequested && !HistorySaveFailed;
+    public bool CanDismiss => CanHide || Recoverable && !Source.EmptyProject && !HistorySaveFailed;
 }
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
@@ -83,8 +86,12 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                     usage = null;
                 }
                 lock (sync) { resources = usage; if (requestedParallelism == 0) PulseCapacity(); }
-                try { Publish(); }
-                catch (Exception error) { app.Diagnostics.Write("Resource monitor notification", error.Message, error); }
+                var snapshot = Snapshot();
+                foreach (Action<ImportJob[]> subscriber in Changed?.GetInvocationList() ?? [])
+                {
+                    try { subscriber(snapshot); }
+                    catch (Exception error) { app.Diagnostics.Write("Resource monitor notification", error.Message, error); }
+                }
             } while (await timer.WaitForNextTickAsync(monitoring.Token));
         }
         catch (OperationCanceledException) { }
@@ -113,7 +120,9 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                     throw new IOException("Import history is invalid; the original file was preserved.");
                 foreach (var entry in saved)
                 {
-                    var job = entry.Active ? entry with { State = entry.PauseRequested ? "Paused" : "Interrupted", Step = entry.PauseRequested ? "Paused" : "Interrupted", Message = "Ready to continue.", FinishedAt = DateTime.UtcNow } : entry;
+                    var restoredState = entry.PauseRequested || entry.State == "Pausing" ? "Paused"
+                        : entry.State == "Cancelling" && !entry.DiscardRequested ? "Cancelled" : "Interrupted";
+                    var job = entry.Active ? entry with { State = restoredState, Step = entry.Step, Message = "Ready to continue.", FinishedAt = DateTime.UtcNow } : entry;
                     if (job.State == "Completed" && job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.")
                         job = job with { CreatorCompanionPending = true };
                     if (job.Recoverable)
@@ -232,20 +241,20 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             Update(item.Id, x =>
             {
                 var state = report.Success ? "Completed" : report.Cancelled ? x.PauseRequested ? "Paused" : "Cancelled" : "Failed";
-                return x with { State = state, Step = state, Progress = report.Success ? 100 : x.Progress,
+                return x with { State = state, Step = report.Success ? state : x.Step, Progress = report.Success ? 100 : x.Progress,
                     Message = state == "Paused" ? "Ready to continue." : outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile,
-                    CreatorCompanionPending = outcome?.CreatorCompanionPending == true };
+                    CreatorCompanionPending = outcome?.CreatorCompanionPending == true, UnityCompilationNeedsAttention = outcome?.UnityCompilationNeedsAttention == true };
             });
         }
         catch (OperationCanceledException)
         {
-            Update(item.Id, x => x with { State = x.PauseRequested ? "Paused" : "Cancelled", Step = x.PauseRequested ? "Paused" : "Cancelled",
+            Update(item.Id, x => x with { State = x.PauseRequested ? "Paused" : "Cancelled",
                 Message = x.PauseRequested ? "Ready to continue." : "Import cancelled; project data preserved." });
         }
         catch (Exception error)
         {
             app.Diagnostics.Write("Import queue", error.Message, error);
-            Update(item.Id, x => x with { State = "Failed", Step = "Failed", Message = error.Message });
+            Update(item.Id, x => x with { State = "Failed", Message = error.Message });
         }
         finally
         {
@@ -261,7 +270,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             if (cancellations.TryGetValue(id, out var cancellation))
             {
                 var index = jobs.FindIndex(x => x.Id == id);
-                if (index >= 0 && jobs[index].Active) jobs[index] = jobs[index] with { State = "Cancelling", Step = "Stopping safely" };
+                if (index >= 0 && jobs[index].Active) jobs[index] = jobs[index] with { State = "Cancelling" };
                 cancellation.Cancel();
                 PulseCapacity();
             }
@@ -318,21 +327,23 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
         await InitializeAsync(token); await journalGate.WaitAsync(token);
         try
         {
-            var changed = false;
+            ImportJob previous;
             lock (sync)
             {
                 var index = jobs.FindIndex(x => x.Id == id);
-                if (index < 0 || !jobs[index].CanHide) return;
-                changed = !jobs[index].HiddenFromImports;
-                jobs[index] = jobs[index] with { HiddenFromImports = true };
+                if (index < 0 || !jobs[index].CanDismiss) return;
+                previous = jobs[index];
+                if (previous.Recoverable && !Directory.Exists(previous.ProjectPath)) return;
+                jobs[index] = previous.Recoverable ? previous with { RecoveryNoticeDismissed = true }
+                    : previous with { HiddenFromImports = true };
             }
             try { await SaveAsync(token); }
             catch
             {
-                if (changed) lock (sync)
+                lock (sync)
                 {
                     var index = jobs.FindIndex(x => x.Id == id);
-                    if (index >= 0) jobs[index] = jobs[index] with { HiddenFromImports = false };
+                    if (index >= 0) jobs[index] = jobs[index] with { HiddenFromImports = previous.HiddenFromImports, RecoveryNoticeDismissed = previous.RecoveryNoticeDismissed };
                 }
                 throw;
             }

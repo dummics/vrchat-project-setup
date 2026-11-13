@@ -170,7 +170,9 @@ public sealed record OperationEvent(DateTime Timestamp, string Phase, string Mes
 public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null)
 {
     public bool CreatorCompanionPending { get; init; }
+    public bool UnityCompilationNeedsAttention { get; init; }
 }
+public sealed class UnityCompilationWarningException(string message) : Exception(message);
 public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOutcome[] Results, string[] NotProcessed, string? ReportFile = null)
 {
     public OperationPlan? Plan { get; init; }

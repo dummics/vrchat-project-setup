@@ -461,6 +461,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.RetryCreatorCompanionAsync(row); }
     private async void ImportDiscardClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.DiscardImportAsync(row); }
+    private async void ImportDismissClicked(object sender, RoutedEventArgs args)
+    { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.DismissImportAsync(row); }
     public async Task<string?> PickFileAsync(string extension)
     {
         var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(extension);

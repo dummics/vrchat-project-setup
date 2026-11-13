@@ -472,6 +472,27 @@ public sealed class ImportQueueTests : IDisposable
         Assert.Equal(job.Source.UnityPackagePath, queue.Snapshot().Single().Source.UnityPackagePath);
     }
 
+    [Fact] public async Task DismissedInterruptedImportRemainsRecoverableAfterRestart()
+    {
+        var app = App;
+        var plan = Plan("Dismissed import");
+        var job = new ImportJob("dismissed", plan, plan.Projects[0].Creation!, "Running", "Import", 55, "", "");
+        Directory.CreateDirectory(job.ProjectPath);
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using (var queue = new ImportQueue(app))
+        {
+            await queue.InitializeAsync();
+            Assert.Equal("Interrupted", Assert.Single(queue.Snapshot()).State);
+            await queue.DismissAsync(job.Id);
+        }
+        await using var reopened = new ImportQueue(app);
+        await reopened.InitializeAsync();
+        var saved = Assert.Single(reopened.Snapshot());
+        Assert.True(saved.RecoveryNoticeDismissed);
+        Assert.True(saved.Recoverable);
+        Assert.Equal("Import", saved.Step);
+    }
+
     [Fact] public async Task FailedCreationCannotBeHiddenWhileItCanBeRetried()
     {
         var app = App; var plan = Plan("Failed", "Active");
@@ -633,7 +654,7 @@ public sealed class ImportQueueTests : IDisposable
     }
     [Fact] public async Task ResourceMonitorContinuesAfterNotificationFailure()
     {
-        var samples = 0; var notifications = 0;
+        var samples = 0; var notifications = 0; var secondNotifications = 0;
         await using var queue = new ImportQueue(App, sampleResources: () =>
         {
             Interlocked.Increment(ref samples);
@@ -641,13 +662,16 @@ public sealed class ImportQueueTests : IDisposable
         }, resourceInterval: TimeSpan.FromMilliseconds(30));
         await queue.InitializeAsync();
         Action<ImportJob[]> handler = _ => { if (Interlocked.Increment(ref notifications) == 1) throw new IOException("Fixture notification failure"); };
+        Action<ImportJob[]> secondHandler = _ => Interlocked.Increment(ref secondNotifications);
         queue.Changed += handler;
+        queue.Changed += secondHandler;
         try
         {
             await WaitUntil(() => Volatile.Read(ref notifications) >= 2);
             Assert.True(Volatile.Read(ref samples) >= 2);
+            Assert.True(Volatile.Read(ref secondNotifications) >= 2);
         }
-        finally { queue.Changed -= handler; }
+        finally { queue.Changed -= handler; queue.Changed -= secondHandler; }
     }
     [Fact] public async Task AutomaticAdmissionMakesProgressWithoutAnyResourceSamples()
     {

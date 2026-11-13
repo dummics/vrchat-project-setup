@@ -10,6 +10,32 @@ public sealed class UnityImportDriverTests : IDisposable
     private readonly string root = Path.Combine(Path.GetTempPath(), "vrcsetup-import [PC] & città-" + Guid.NewGuid().ToString("N"));
 
     [Theory]
+    [InlineData(0, true, true)]
+    [InlineData(1, true, false)]
+    [InlineData(0, false, false)]
+    public async Task CompilationErrorsAreOnlyACompletedWarningWithProofOfCompletion(int exitCode, bool completed, bool warning)
+    {
+        Directory.CreateDirectory(root);
+        var editor = Path.Combine(root, "Unity.exe"); await File.WriteAllTextAsync(editor, "fixture");
+        var archive = Path.Combine(root, "Avatar.unitypackage"); await File.WriteAllTextAsync(archive, "fixture");
+        var project = Path.Combine(root, "Project");
+        var runner = new ToolRunner(commandOverride: async (_, args, _) =>
+        {
+            var log = args[Array.IndexOf(args, "-logFile") + 1];
+            Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+            await File.WriteAllTextAsync(log, "error CS0227: Unsafe code\n" + (completed ? "[vrc-setup] Import complete; script compilation requires attention.\n[vrc-setup] Post-import settle complete, quitting.\n" : ""));
+            return new ToolResult(exitCode, "", "");
+        });
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var driver = new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths));
+        var plan = new ProjectPlan { Path = project, Name = "Fixture", ExpectedFingerprint = "missing", DesiredPolicy = new Dictionary<string, string>(), Changes = [], UnityEditorPath = editor,
+            Creation = new(archive, "Fixture", project, editor, "StandaloneWindows64", ["StandaloneWindows64"], []) };
+        var error = await Record.ExceptionAsync(() => driver.ImportAsync(plan, null, CancellationToken.None));
+        if (warning) Assert.IsType<UnityCompilationWarningException>(error);
+        else Assert.IsType<IOException>(error);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]

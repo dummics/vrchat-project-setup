@@ -82,7 +82,8 @@ public sealed partial class MainViewModel
     private bool CanRecoverCurrentImport(ImportJob job)
     {
         var current = ImportQueue.CurrentForProject(app.Imports.Snapshot(), job.ProjectPath);
-        if (!IsClosingApp && current is { Active: false, DiscardRequested: false, DiscardCompleted: false } && current.Id == job.Id) return true;
+        if (!IsClosingApp && current is { Recoverable: true, HistorySaveFailed: false } && current.Id == job.Id) return true;
+        if (current is { Active: true }) return false;
         ApplicationNotice = UiText.Text("This import changed. Choose it again to continue.");
         return false;
     }

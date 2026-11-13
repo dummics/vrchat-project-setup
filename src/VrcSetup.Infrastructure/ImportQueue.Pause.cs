@@ -18,7 +18,7 @@ public sealed partial class ImportQueue
                 var index = jobs.FindIndex(x => x.Id == id);
                 if (index < 0 || !jobs[index].Active || jobs[index].State is "Pausing" or "Cancelling") return;
                 previous = jobs[index];
-                jobs[index] = previous with { PauseRequested = true, State = "Pausing", Step = "Pausing", Message = "Pausing…" };
+                jobs[index] = previous with { PauseRequested = true, State = "Pausing", Message = "Pausing…" };
                 PulseCapacity();
             }
             try { await SaveAsync(token); }

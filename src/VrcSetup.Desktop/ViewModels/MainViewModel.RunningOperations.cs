@@ -21,7 +21,7 @@ public sealed partial class MainViewModel
         {
             var creation = job.Source.EmptyProject;
             var step = new UiImportRow(job).Step;
-            rows.Add(new(UiText.Text(creation ? job.DiscardRequested ? "Cancellation needs finishing" : job.Active ? "Creating project" : "Project creation stopped" : "Importing assets"), job.Name,
+            rows.Add(new(UiText.Text(creation ? job.DiscardRequested ? "Cancellation needs finishing" : job.Active ? "Creating project" : "Project creation stopped" : "Import"), job.Name,
                 job.Active ? UiText.Text(step) : UserErrors.Message(new IOException(job.Message)), job.Id, creation && job.Recoverable,
                 creation && !job.DiscardCompleted && (job.DiscardRequested || job.Source.CreationId is not null || CanCancelWithoutFolder(job.ProjectPath)), job.DiscardRequested));
         }

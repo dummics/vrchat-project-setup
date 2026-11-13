@@ -100,22 +100,28 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 await workspace.SetStepAsync(project.Path, "vpm", true, cancellationToken);
                 if (editorSession is not null) { await editorSession.DisposeAsync(); editorSession = null; }
 
+                var compilationNeedsAttention = false;
+                async Task CompleteUnityStep(Func<Task> action)
+                {
+                    try { await action(); }
+                    catch (UnityCompilationWarningException warning) { compilationNeedsAttention = true; warnings.Add(warning.Message); }
+                }
                 if (project.RequiresUnityBatch && (project.Creation is not null || project.ExtraImports.Length > 0))
                 {
                     phase = "Import";
-                    await driver.ImportAsync(project, progress, cancellationToken);
+                    await CompleteUnityStep(() => driver.ImportAsync(project, progress, cancellationToken));
                     await workspace.SetStepAsync(project.Path, "importMain", true, cancellationToken);
                     await workspace.SetStepAsync(project.Path, "importExtras", true, cancellationToken);
                     phase = "Post-import validation";
                     var repaired = await VerifyPackages(project, progress, cancellationToken, warnings);
-                    if (repaired) await driver.SettleAsync(project, progress, cancellationToken);
+                    if (repaired) await CompleteUnityStep(() => driver.SettleAsync(project, progress, cancellationToken));
                 }
                 else
                 {
                     if (project.RecoverySource is not null && project.RequiresUnityBatch)
                     {
                         phase = "Post-import validation";
-                        await driver.SettleAsync(project, progress, cancellationToken);
+                        await CompleteUnityStep(() => driver.SettleAsync(project, progress, cancellationToken));
                     }
                     await workspace.SetStepAsync(project.Path, "importMain", true, cancellationToken);
                     await workspace.SetStepAsync(project.Path, "importExtras", true, cancellationToken);
@@ -142,7 +148,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                     if (!registered) warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
                 }
                 var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;
-                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory) { CreatorCompanionPending = registrationPending });
+                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory) { CreatorCompanionPending = registrationPending, UnityCompilationNeedsAttention = compilationNeedsAttention });
                 Emit("Completed", warnings.Count > 0 ? warnings[0] : "Project saved.", warnings.Count > 0 ? EventSeverity.Warning : EventSeverity.Info);
             }
             catch (ProjectSkippedException error)

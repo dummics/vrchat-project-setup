@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+using VrcSetup_Desktop.ViewModels;
 using Windows.Graphics.Imaging;
 using Windows.Security.Cryptography;
 using Windows.Storage;
@@ -1412,6 +1413,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         var failedEmpty = fixtureJobs[0].Job with { State = "Failed", Source = fixtureJobs[0].Job.Source with { UnityPackagePath = "", EmptyProject = true } };
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedEmpty) is { RecoverVisibility: Visibility.Visible, RetryLabel: "Try again" }, "Failed empty project exposes Try again");
         var failedImport = fixtureJobs[0].Job with { Id = "failed-import", State = "Failed", Plan = fixtureJobs[0].Job.Plan with { CreatedUtc = DateTime.UtcNow.AddMinutes(-5) } };
+        Require(new UiImportRow(failedImport with { State = "Interrupted" }).Step == "Unexpected interruption"
+            && new UiImportRow(failedImport with { State = "Cancelled" }).Step == "Stopped by you"
+            && new UiImportRow(failedImport with { State = "Running", Step = "Preflight" }).Step == "Preparing project",
+            "Import labels distinguish interruption, manual stop and preflight");
         var interruptedImport = failedImport with { State = "Interrupted" };
         var changedSource = new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport with { Message = "This package differs from the original. Choose the original UnityPackage to continue." });
         Require(fixtureJobs[0].MessageVisibility == Visibility.Collapsed && changedSource.MessageVisibility == Visibility.Visible,
