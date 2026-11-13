@@ -1453,6 +1453,8 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(ProjectAttentionConverter.Description(new ProjectSnapshot { Name = "Ready fixture", Path = artifacts, CreatorCompanionPending = true }) == UiText.Text(registrationRow.Message),
             "Project and import show the same ready-project notice for optional registration");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport) is { RetryLabel: "Try again", AttentionVisibility: Visibility.Visible }, "Failed imports have a retry action and a quiet warning marker");
+        Require(new UiImportRow(failedImport with { UnityCompilationBlockedImport = true }) is { RetryLabel: "Open in Unity", Step: "Script errors in Unity" }, "Compilation blocks offer Unity instead of retrying the archive");
+        Require(new UiImportRow(failedImport with { Message = "Unity reported script compilation errors." }).RetryLabel == "Open in Unity", "Legacy compilation failures use the same action");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(interruptedImport) is { RetryLabel: "Continue import", AttentionVisibility: Visibility.Visible }, "Interrupted imports retain Continue with a quiet warning marker");
         Require(UiText.Text("Interrupted", "it") == "Interrotta" && UiText.Text("Cancelling", "it") == "Annullamento in corso", "Interrupted and cancelling states are understandable in Italian");
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport with { HiddenFromImports = true }], false).Length == 1,

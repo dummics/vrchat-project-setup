@@ -171,8 +171,10 @@ public sealed record ProjectOutcome(string Project, string Path, OperationStatus
 {
     public bool CreatorCompanionPending { get; init; }
     public bool UnityCompilationNeedsAttention { get; init; }
+    public bool UnityCompilationBlockedImport { get; init; }
 }
 public sealed class UnityCompilationWarningException(string message) : Exception(message);
+public sealed class UnityCompilationBlockedException(string message) : IOException(message);
 public sealed record OperationReport(string Id, DateTime CompletedUtc, ProjectOutcome[] Results, string[] NotProcessed, string? ReportFile = null)
 {
     public OperationPlan? Plan { get; init; }

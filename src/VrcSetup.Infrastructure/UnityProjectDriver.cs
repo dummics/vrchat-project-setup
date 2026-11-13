@@ -240,7 +240,7 @@ public sealed partial class UnityProjectDriver(AppPaths paths, ToolRunner runner
         if (AssetImportError(output, timedOut: false) is { } importError) throw new IOException(importError);
         var complete = result.ExitCode == 0 && output.Contains("[vrc-setup] Post-import settle complete", StringComparison.Ordinal);
         if (!complete && Regex.IsMatch(output, @"(?im)(^.*error CS\d+|Script compilation failed)"))
-            throw new IOException("Unity reported script compilation errors. Open the project in Unity and fix the errors; the import may not have finished. Log: " + log);
+            throw new UnityCompilationBlockedException("Unity reported script compilation errors. Open the project in Unity and fix the errors; the import may not have finished. Log: " + log);
         if (!complete || Regex.IsMatch(output, @"(?im)(Import failed:|Import cancelled:|project remains incomplete|Fatal Error|Crash!!!)"))
             throw new IOException("Unity import or compilation did not complete. Project remains incomplete. Log: " + log);
         if (output.Contains("[vrc-setup] Import complete; script compilation requires attention.", StringComparison.Ordinal))

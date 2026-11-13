@@ -13,13 +13,15 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool DiscardNoFolder { get; init; }
     public bool CreatorCompanionPending { get; init; }
     public bool UnityCompilationNeedsAttention { get; init; }
+    public bool UnityCompilationBlockedImport { get; init; }
+    public bool HasCompilationBlock => UnityCompilationBlockedImport || State == "Failed" && Message.Contains("Unity reported script compilation errors.", StringComparison.Ordinal);
     public bool CreatorCompanionUnknown { get; init; }
     public bool RecoveryNoticeDismissed { get; init; }
     [System.Text.Json.Serialization.JsonIgnore] public bool HistorySaveFailed { get; init; }
     public bool Active => State is "Queued" or "Running" or "Cancelling" or "Pausing";
     public bool Recoverable => !DiscardRequested && !DiscardCompleted && State is ("Failed" or "Cancelled" or "Interrupted" or "Paused");
     public bool CanHide => !Active && !Recoverable && !DiscardRequested && !HistorySaveFailed;
-    public bool CanDismiss => CanHide || Recoverable && !Source.EmptyProject && !HistorySaveFailed;
+    public bool CanDismiss => CanHide || Recoverable && (!Source.EmptyProject || HasCompilationBlock) && !HistorySaveFailed;
 }
 
 // A durable, opt-in queue around the same reviewed plans used by both clients.
@@ -243,7 +245,8 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                 var state = report.Success ? "Completed" : report.Cancelled ? x.PauseRequested ? "Paused" : "Cancelled" : "Failed";
                 return x with { State = state, Step = report.Success ? state : x.Step, Progress = report.Success ? 100 : x.Progress,
                     Message = state == "Paused" ? "Ready to continue." : outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile,
-                    CreatorCompanionPending = outcome?.CreatorCompanionPending == true, UnityCompilationNeedsAttention = outcome?.UnityCompilationNeedsAttention == true };
+                    CreatorCompanionPending = outcome?.CreatorCompanionPending == true, UnityCompilationNeedsAttention = outcome?.UnityCompilationNeedsAttention == true,
+                    UnityCompilationBlockedImport = outcome?.UnityCompilationBlockedImport == true };
             });
         }
         catch (OperationCanceledException)

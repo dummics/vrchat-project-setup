@@ -32,7 +32,7 @@ public sealed class UnityImportDriverTests : IDisposable
             Creation = new(archive, "Fixture", project, editor, "StandaloneWindows64", ["StandaloneWindows64"], []) };
         var error = await Record.ExceptionAsync(() => driver.ImportAsync(plan, null, CancellationToken.None));
         if (warning) Assert.IsType<UnityCompilationWarningException>(error);
-        else Assert.IsType<IOException>(error);
+        else Assert.IsType<UnityCompilationBlockedException>(error);
     }
 
     [Theory]

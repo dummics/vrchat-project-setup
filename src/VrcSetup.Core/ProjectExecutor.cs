@@ -168,7 +168,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
             {
                 var recovered = !mutated || backup is null || await TryRestore(project, backup, editorWasOpen);
                 var message = error.Message + (recovered ? "" : " Automatic restore incomplete; use recovery.");
-                results.Add(new(project.Name, project.Path, OperationStatus.Failed, message, BackupPath: backup?.Directory));
+                results.Add(new(project.Name, project.Path, OperationStatus.Failed, message, BackupPath: backup?.Directory) { UnityCompilationBlockedImport = error is UnityCompilationBlockedException });
                 Emit(phase, message, EventSeverity.Error);
             }
             finally

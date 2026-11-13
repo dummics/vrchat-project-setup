@@ -472,6 +472,25 @@ public sealed class ImportQueueTests : IDisposable
         Assert.Equal(job.Source.UnityPackagePath, queue.Snapshot().Single().Source.UnityPackagePath);
     }
 
+    [Fact] public async Task CompilationBlockedImportCanBeDismissedWithoutDeletingItsProject()
+    {
+        var app = App;
+        var plan = Plan("Compilation blocked");
+        var job = new ImportJob("compilation", plan, plan.Projects[0].Creation! with { EmptyProject = true }, "Failed", "Import", 55, "", "") { UnityCompilationBlockedImport = true };
+        Directory.CreateDirectory(job.ProjectPath);
+        var preserved = Path.Combine(job.ProjectPath, "preserved.txt");
+        await File.WriteAllTextAsync(preserved, "keep");
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using (var queue = new ImportQueue(app)) { await queue.InitializeAsync(); await queue.DismissAsync(job.Id); }
+        await using var reopened = new ImportQueue(app);
+        await reopened.InitializeAsync();
+        var saved = Assert.Single(reopened.Snapshot());
+        Assert.True(saved.HasCompilationBlock);
+        Assert.True(saved.RecoveryNoticeDismissed);
+        Assert.True(saved.Recoverable);
+        Assert.Equal("keep", await File.ReadAllTextAsync(preserved));
+    }
+
     [Fact] public async Task DismissedInterruptedImportRemainsRecoverableAfterRestart()
     {
         var app = App;

@@ -191,7 +191,9 @@ public sealed partial class MainViewModel
     public Task FinishImportsAsync() => app.Imports.DisposeAsync().AsTask();
     public void OpenImportLog(UiImportRow row)
     { if (File.Exists(row.Job.LogFile)) RevealLog(row.Job.LogFile); else OpenLogsCommand.Execute(null); }
-    public Task RecoverImportAsync(UiImportRow row) => RepairHistoryImportAsync(new(row.Job));
+    public Task RecoverImportAsync(UiImportRow row) => row.Job.HasCompilationBlock || row.Job.UnityCompilationNeedsAttention
+        ? Guard(() => LaunchUnityAsync(row.Job.ProjectPath), allowWhileBusy: true)
+        : RepairHistoryImportAsync(new(row.Job));
     public async Task RefreshImportLogAsync(UiImportRow row, bool force = false)
     {
         if (row.LoadingLog || !row.DetailsOpen) return;
@@ -268,6 +270,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public Visibility LastPhaseVisibility => LastPhase.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public string Step => Job.HistorySaveFailed ? "Save needs attention" : Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? PhaseLabel ?? "Working…" : Job.State switch
     {
+        "Failed" when Job.HasCompilationBlock => "Script errors in Unity",
         "Queued" => "Waiting in queue", "Interrupted" => "Unexpected interruption",
         "Cancelled" when !Job.DiscardCompleted => "Stopped by you",
         "Pausing" or "Cancelling" => "Stopping safely…", _ => Job.State
@@ -284,7 +287,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
             "Paused" => "The import is paused. Your project is kept. Choose Continue import when you are ready.",
             "Interrupted" => "The previous session ended before the import finished. Your project is kept. You can continue the import.",
             "Cancelled" => "You stopped this import. Your project is kept. You can continue the import.",
-            "Failed" when Job.Message.Contains("Unity reported script compilation errors.", StringComparison.Ordinal) => "Unity could not finish importing because of script errors. Open the project in Unity, fix the errors, then continue the import.",
+            "Failed" when Job.HasCompilationBlock => "Unity stopped because of script errors. Your project is kept. Open it in Unity to check the packages and scripts; importing again may not fix this.",
             "Failed" when Job.Message.Contains("Automatic restore incomplete", StringComparison.OrdinalIgnoreCase) => "The import stopped and the previous files could not be restored automatically. Your recovery copy was kept. Open the project options to review and restore a backup.",
             "Failed" when Job.Message.StartsWith("This package differs from the original.", StringComparison.Ordinal) || Job.Message.StartsWith("UnityPackage changed after review.", StringComparison.Ordinal) => "The UnityPackage changed after it was selected. Choose Try again to select the original file or review the import again.",
             "Failed" when Job.Message.Contains("The project path may be too long.", StringComparison.Ordinal) => "The project was kept. Its path may be too long for Unity. Choose a shorter projects folder in Settings and import again, or open the log for details.",
@@ -298,12 +301,12 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public Visibility MessageVisibility => Message.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
-    public string RetryLabel => Job.State is "Interrupted" or "Paused" or "Cancelled" || Job.Message.Contains("Unity reported script compilation errors.", StringComparison.Ordinal) ? "Continue import" : "Try again";
+    public string RetryLabel => Job.HasCompilationBlock || Job.UnityCompilationNeedsAttention ? "Open in Unity" : Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
     public Visibility AttentionVisibility => Job.Recoverable || Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention || Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility HistorySaveVisibility => Job.HistorySaveFailed && !Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility RecoverVisibility => Job.Recoverable && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility DismissVisibility => Job.Recoverable && Job.CanDismiss && Directory.Exists(Job.ProjectPath) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RecoverVisibility => (Job.Recoverable || Job.UnityCompilationNeedsAttention) && !Job.Active && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility DismissVisibility => Job.CanDismiss && (!Job.Recoverable || Directory.Exists(Job.ProjectPath)) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RegistrationVisibility => Job.CreatorCompanionPending && !Job.Active && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DiscardVisibility => !Job.HistorySaveFailed && !Job.DiscardCompleted && (Job.Source.CreationId is not null || Job.DiscardRequested || MainViewModel.CanCancelWithoutFolder(Job.ProjectPath))
         && (Job.Active || Job.Recoverable || Job.DiscardRequested) ? Visibility.Visible : Visibility.Collapsed;

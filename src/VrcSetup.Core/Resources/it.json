@@ -53,6 +53,8 @@
   "Clear search": "Cancella ricerca",
   "Project ready; Creator Companion registration failed. Add the existing project in VCC.": "Progetto creato. Non è stato aggiunto automaticamente a Creator Companion: puoi aggiungerlo lì come progetto esistente.",
   "Completed with a notice": "Completato con avviso",
+  "Script errors in Unity": "Errori negli script Unity",
+  "Unity stopped because of script errors. Your project is kept. Open it in Unity to check the packages and scripts; importing again may not fix this.": "Unity si è fermato per errori negli script. Il progetto è conservato. Aprilo in Unity per controllare pacchetti e script: ripetere l’importazione potrebbe non risolvere il problema.",
   "Unity could not finish importing because of script errors. Open the project in Unity, fix the errors, then continue the import.": "Unity non ha completato l’importazione a causa di errori negli script. Apri il progetto in Unity, correggi gli errori e poi continua l’importazione.",
   "The import finished. Open the project in Unity to fix script errors. You do not need to import it again.": "Importazione completata. Apri il progetto in Unity e correggi gli errori degli script. Non serve importarlo di nuovo.",
   "The import finished. Open the project in Unity to fix script errors. Also check that the project appears in Creator Companion.": "Importazione completata. Apri il progetto in Unity e correggi gli errori degli script. Controlla anche che il progetto compaia in Creator Companion.",
