@@ -5,6 +5,29 @@ namespace VrcSetup.Tests;
 
 public sealed class PlannerExecutorTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CompilationNoticeAndBlockedImportHaveDistinctDurableOutcomes(bool imported)
+    {
+        var root = Path.GetFullPath("compilation-fixture");
+        var target = Path.Combine(root, "project");
+        var request = new CreationRequest("", "project", target, "Unity.exe", "StandaloneWindows64", ["StandaloneWindows64"], [], EmptyProject: true);
+        var workspace = new MemoryWorkspace();
+        var driver = new MemoryDriver(workspace) { ImportFailure = imported ? new UnityCompilationWarningException("Imported with script errors") : new UnityCompilationBlockedException("Unity reported script compilation errors.") };
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(target, new Dictionary<string, string> { [ProjectRules.BaseSdk] = "latest", [ProjectRules.Resolver] = "latest" }, new() { UnityProjectsRoot = root }, creation: request);
+        plan = plan with { ExtraImports = ["fixture.unitypackage"] };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("compilation", DateTime.UtcNow, [plan]));
+        var outcome = Assert.Single(report.Results);
+        Assert.Equal(imported, report.Success);
+        Assert.Equal(imported, workspace.Completed);
+        Assert.Equal(imported, outcome.UnityCompilationNeedsAttention);
+        Assert.Equal(!imported, outcome.UnityCompilationBlockedImport);
+        Assert.Equal(imported ? OperationStatus.CompletedWithWarnings : OperationStatus.Failed, outcome.Status);
+        Assert.Equal(imported ? 1 : 0, driver.Registrations);
+        Assert.Equal(0, workspace.Backups);
+        Assert.Null(outcome.BackupPath);
+    }
     [Fact] public async Task InvalidSourceStopsBeforeAnyProjectMutation()
     {
         var workspace = new MemoryWorkspace();
@@ -300,6 +323,7 @@ internal sealed class MemoryWorkspace : IProjectWorkspace
 }
 internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
 {
+    public Exception? ImportFailure;
     public bool RejectSource, TrackSourceLease, SourceLeaseReleased;
     public Task<IAsyncDisposable?> HoldImportSourceAsync(ProjectPlan plan, CancellationToken token) => RejectSource
         ? Task.FromException<IAsyncDisposable?>(new IOException("Source changed")) : Task.FromResult<IAsyncDisposable?>(TrackSourceLease ? new SourceLease(() => SourceLeaseReleased = true) : null);
@@ -326,7 +350,7 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
         return Task.FromResult(new ToolResult(0, "Added package " + change.Id, ""));
     }
     public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { AfterResolve?.Invoke(); return Task.FromResult(new ToolResult(0, "Resolved", "")); }
-    public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
+    public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return ImportFailure is null ? Task.CompletedTask : Task.FromException(ImportFailure); }
     public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {

@@ -402,6 +402,24 @@ public static class UiSmokeTest
             lock (queueSync) queueJobs.Add(absentCreation);
             try
             {
+                if (installedEditor is not null)
+                {
+                    var confirmationsBeforeResume = decisions.Confirmations;
+                    ImportJob? resumed = null;
+                    var hook = typeof(ImportQueue).GetProperty("BeforeEnqueueSave", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                    hook.SetValue(queue, (Func<CancellationToken, Task>)(_ =>
+                    {
+                        resumed = queue.Snapshot().Single(x => x.Id != absentCreation.Id && x.ProjectPath == absentCreationPath);
+                        return Task.FromException(new IOException("Queued resume fixture stopped before execution."));
+                    }));
+                    try { await flow.RepairHistoryImportAsync(new(absentCreation)); }
+                    finally { hook.SetValue(queue, null); flow.ErrorMessage = ""; }
+                    Require(resumed?.Plan.Projects.Single().Creation?.CreationId == absentCreationSource.CreationId
+                        && resumed.ProjectPath == absentCreationPath && !Directory.Exists(absentCreationPath),
+                        "Resuming an owned unstarted creation requeues its original destination and ownership without creating files");
+                    Require(decisions.Confirmations == confirmationsBeforeResume,
+                        "Resuming a queued creation does not ask to create a separate copy");
+                }
                 decisions.ConfirmResult = false;
                 await flow.CancelCreationAsync(absentCreation.Id);
                 Require(!queue.Snapshot().Single(x => x.Id == absentCreation.Id).DiscardRequested, "Declining cancellation keeps the uncreated project request");
@@ -1455,6 +1473,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(failedImport) is { RetryLabel: "Try again", AttentionVisibility: Visibility.Visible }, "Failed imports have a retry action and a quiet warning marker");
         Require(new UiImportRow(failedImport with { UnityCompilationBlockedImport = true }) is { RetryLabel: "Open in Unity", Step: "Script errors in Unity" }, "Compilation blocks offer Unity instead of retrying the archive");
         Require(new UiImportRow(failedImport with { Message = "Unity reported script compilation errors." }).RetryLabel == "Open in Unity", "Legacy compilation failures use the same action");
+        Require(new UiHistoryEntry(failedImport with { UnityCompilationBlockedImport = true }).State == "Script errors in Unity",
+            "Activity history preserves the script-error classification");
+        Require(new UiImportRow(failedImport with { State = "Queued" }) { QueueLimit = 2 }.Message.Contains("2", StringComparison.Ordinal),
+            "Queued imports explain the currently allowed import count");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(interruptedImport) is { RetryLabel: "Continue import", AttentionVisibility: Visibility.Visible }, "Interrupted imports retain Continue with a quiet warning marker");
         Require(UiText.Text("Interrupted", "it") == "Interrotta" && UiText.Text("Cancelling", "it") == "Annullamento in corso", "Interrupted and cancelling states are understandable in Italian");
         Require(VrcSetup_Desktop.ViewModels.MainViewModel.VisibleImportJobs([failedImport with { HiddenFromImports = true }], false).Length == 1,

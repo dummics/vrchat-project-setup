@@ -61,6 +61,7 @@ public static class UserErrors
     }
     private static string? Advice(string message) => message switch
     {
+        _ when message.StartsWith("VPM resolve failed.", StringComparison.Ordinal) => "The packages could not be prepared. Check their versions and sources in Packages, then continue. Your project is kept.",
         "This package differs from the original. Choose the original UnityPackage to continue." => message,
         "This import changed. Choose it again to continue." => message,
         "A project folder appeared. Review the cancellation again before continuing." => message,

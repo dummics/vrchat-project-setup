@@ -3,6 +3,11 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+if (args is ["--verify-compilation-import", var compilationEditor, var compilationEvidence])
+{
+    await CompilationImportVerification.RunAsync(compilationEditor, compilationEvidence);
+    return;
+}
 if (args is ["--verify-unity-cancellation", var cancelEditor, var cancelEvidence])
 {
     var cancelRoot = Path.GetFullPath(cancelEvidence);

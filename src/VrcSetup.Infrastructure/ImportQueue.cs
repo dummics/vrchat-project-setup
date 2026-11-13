@@ -14,7 +14,7 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool CreatorCompanionPending { get; init; }
     public bool UnityCompilationNeedsAttention { get; init; }
     public bool UnityCompilationBlockedImport { get; init; }
-    public bool HasCompilationBlock => UnityCompilationBlockedImport || State == "Failed" && Message.Contains("Unity reported script compilation errors.", StringComparison.Ordinal);
+    public bool HasCompilationBlock => State == "Failed" && (UnityCompilationBlockedImport || Message.Contains("Unity reported script compilation errors.", StringComparison.Ordinal));
     public bool CreatorCompanionUnknown { get; init; }
     public bool RecoveryNoticeDismissed { get; init; }
     [System.Text.Json.Serialization.JsonIgnore] public bool HistorySaveFailed { get; init; }
@@ -127,6 +127,27 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                     var job = entry.Active ? entry with { State = restoredState, Step = entry.Step, Message = "Ready to continue.", FinishedAt = DateTime.UtcNow } : entry;
                     if (job.State == "Completed" && job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.")
                         job = job with { CreatorCompanionPending = true };
+                    if (job.State == "Failed" && !job.UnityCompilationBlockedImport && job.Message.StartsWith("Unity import or compilation did not complete.", StringComparison.Ordinal))
+                    {
+                        // Old versions only stored a generic failure. Reclassify
+                        // solely with explicit bridge evidence, never from the
+                        // word "compilation" in that generic message.
+                        try
+                        {
+                            if (File.Exists(job.LogFile) && new FileInfo(job.LogFile).Length <= 8 * 1024 * 1024)
+                            {
+                                var log = await SharedLog.ReadAsync(job.LogFile, token);
+                                if (log.Contains("[vrc-setup] Script compilation failed; project remains incomplete.", StringComparison.Ordinal)
+                                    && !log.Contains("Asset import failed", StringComparison.OrdinalIgnoreCase)
+                                    && !log.Contains("Import failed:", StringComparison.OrdinalIgnoreCase)
+                                    && !log.Contains("Import cancelled:", StringComparison.OrdinalIgnoreCase)
+                                    && !log.Contains("Crash!!!", StringComparison.OrdinalIgnoreCase)
+                                    && !log.Contains("Fatal Error", StringComparison.OrdinalIgnoreCase))
+                                    job = job with { UnityCompilationBlockedImport = true };
+                            }
+                        }
+                        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { app.Diagnostics.Write("Import classification", error.Message, error); }
+                    }
                     if (job.Recoverable)
                     {
                         try

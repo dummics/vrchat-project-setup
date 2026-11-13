@@ -6,6 +6,21 @@ namespace VrcSetup.Tests;
 public sealed class LocalizationTests
 {
     [Theory]
+    [InlineData("Importing assets", "Importazione dei contenuti")]
+    [InlineData("Open in Unity", "Apri in Unity")]
+    [InlineData("Create a new copy", "Crea una nuova copia")]
+    [InlineData("Script errors in Unity", "Errori negli script Unity")]
+    public void ImportActionsHaveItalianLabels(string key, string translated) => Assert.Equal(translated, UiText.Text(key, "it"));
+
+    [Fact] public void VpmResolverErrorsExplainNextActionWithoutExposingToolOutput()
+    {
+        var error = new IOException("VPM resolve failed. [ERR] raw internal tool diagnostic");
+        var message = UserErrors.Message(error);
+        Assert.Equal(UiText.Text("The packages could not be prepared. Check their versions and sources in Packages, then continue. Your project is kept."), message);
+        Assert.DoesNotContain("[ERR]", message);
+        Assert.True(UserErrors.IsExpected(error));
+    }
+    [Theory]
     [InlineData("system", "it-IT", "it")]
     [InlineData("system", "fr-FR", "en")]
     [InlineData("en", "it-IT", "en")]

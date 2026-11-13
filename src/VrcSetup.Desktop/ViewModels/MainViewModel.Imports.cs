@@ -108,7 +108,8 @@ public sealed partial class MainViewModel
             foreach (var job in jobs)
             {
                 var row = ImportJobs.FirstOrDefault(x => x.Id == job.Id);
-                if (row is null) ImportJobs.Add(new(job)); else row.Update(job);
+                if (row is null) { row = new(job); ImportJobs.Add(row); } else row.Update(job);
+                row.QueueLimit = app.Imports.EffectiveParallelism;
             }
             for (var index = 0; index < jobs.Length; index++)
             {
@@ -271,7 +272,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public string Step => Job.HistorySaveFailed ? "Save needs attention" : Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? PhaseLabel ?? "Working…" : Job.State switch
     {
         "Failed" when Job.HasCompilationBlock => "Script errors in Unity",
-        "Queued" => "Waiting in queue", "Interrupted" => "Unexpected interruption",
+        "Queued" => "Waiting for available resources", "Interrupted" => "Unexpected interruption",
         "Cancelled" when !Job.DiscardCompleted => "Stopped by you",
         "Pausing" or "Cancelling" => "Stopping safely…", _ => Job.State
     };
@@ -284,10 +285,12 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         : Job.DiscardCompleted ? Job.DiscardNoFolder ? "Request cancelled. No project folder was removed." : "The import was cancelled and its created project was removed."
         : Job.State switch
         {
+            "Queued" => QueueLimit is { } limit ? string.Format(UiText.Text("The app currently allows {0} imports at a time. This import will start automatically when a slot is available."), limit) : "This import will start automatically when resources are available.",
             "Paused" => "The import is paused. Your project is kept. Choose Continue import when you are ready.",
             "Interrupted" => "The previous session ended before the import finished. Your project is kept. You can continue the import.",
             "Cancelled" => "You stopped this import. Your project is kept. You can continue the import.",
             "Failed" when Job.HasCompilationBlock => "Unity stopped because of script errors. Your project is kept. Open it in Unity to check the packages and scripts; importing again may not fix this.",
+            "Failed" when Job.Message.StartsWith("VPM resolve failed.", StringComparison.Ordinal) => "The packages could not be prepared. Check their versions and sources in Packages, then continue. Your project is kept.",
             "Failed" when Job.Message.Contains("Automatic restore incomplete", StringComparison.OrdinalIgnoreCase) => "The import stopped and the previous files could not be restored automatically. Your recovery copy was kept. Open the project options to review and restore a backup.",
             "Failed" when Job.Message.StartsWith("This package differs from the original.", StringComparison.Ordinal) || Job.Message.StartsWith("UnityPackage changed after review.", StringComparison.Ordinal) => "The UnityPackage changed after it was selected. Choose Try again to select the original file or review the import again.",
             "Failed" when Job.Message.Contains("The project path may be too long.", StringComparison.Ordinal) => "The project was kept. Its path may be too long for Unity. Choose a shorter projects folder in Settings and import again, or open the log for details.",
@@ -298,6 +301,8 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
             _ => ""
         };
     public int Progress => Job.Progress;
+    private int? queueLimit;
+    public int? QueueLimit { get => queueLimit; set { if (SetProperty(ref queueLimit, value)) { OnPropertyChanged(nameof(Message)); OnPropertyChanged(nameof(MessageVisibility)); } } }
     public Visibility MessageVisibility => Message.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";

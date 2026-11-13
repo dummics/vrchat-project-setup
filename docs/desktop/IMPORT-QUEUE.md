@@ -1,5 +1,38 @@
 # Multiple imports
 
+## Current recovery behavior (November 2026)
+
+This section supersedes the historical preview descriptions below. The desktop
+uses resource-based admission with a maximum of two simultaneous jobs. CPU or
+memory pressure can reduce new starts; running jobs are never stopped to lower
+the limit. A queued row explains the currently allowed count. Two editors were
+measured on three-import isolated runs (209.3 and 210.0 seconds total); these
+measurements do not establish safe capacity for three large avatar imports.
+
+Pause keeps the reviewed request and project. Resuming a queued creation whose
+folder does not yet exist requeues that same reviewed creation and destination,
+without asking for a separate copy. Existing owned partial projects retain their
+recovery checks. Cancel import is visible on the collapsed row and asks before
+removing a created folder; ownership checks protect unrelated projects.
+
+New project imports do not create operation backups. Recovery of a creation
+with a verified creation ID also skips backups. Transactions on pre-existing
+projects keep their rollback protection. Old backups are not deleted by this
+change.
+
+Script compilation errors are distinct from asset import and VPM preparation
+errors. An import is complete only with a successful Unity exit and completion
+marker. A completed import with script errors offers Open in Unity rather than
+archive retry. An incomplete compilation-blocked import preserves its project
+and can hide its notice, open Unity, or explicitly continue after correcting the
+scripts. Activity retains the classification and log. Older generic failures are
+reclassified only if the saved log contains the explicit compilation-failed
+bridge marker and no asset-import, cancellation, or fatal-error evidence.
+
+Real fixture command: `--verify-compilation-import <Unity.exe> <new-short-path>`.
+It imports a broken script followed by a text asset, checks both completion and
+the distinct notice, then corrects the script and settles without reimporting.
+
 Empty-project jobs use the queue engine but are excluded from persistent import-page bars. Active creations appear in the compact footer flyout; success leaves a brief notice, while interrupted/failed creations offer Retry/Dismiss and remain in Activity. Dismissal persists without deleting project files or reports. Retrying a missing destination preloads its captured one-time package choices; a partial destination offers a separate name and preserves the old folder. No startup auto-resume is introduced.
 
 ## Preview 12: state-aware imports and recovery

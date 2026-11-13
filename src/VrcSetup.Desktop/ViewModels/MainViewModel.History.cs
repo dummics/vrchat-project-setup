@@ -114,6 +114,27 @@ public sealed partial class MainViewModel
         }
         var destination = await Task.Run(() => new ImportDestinationInspector(app.Projects).InspectAsync(job.ProjectPath, original, lifetime.Token, source.EmptyProject));
         if (!CanRecoverCurrentImport(job)) return;
+        if (destination.Kind == ImportDestinationKind.New && source.CreationId is not null && job.Plan.Projects.Single().Creation is not null)
+        {
+            // Pausing while queued has not created a project yet. Re-enqueue the
+            // reviewed creation at the same destination, never suggest a new copy.
+            if (!await FindEditorAsync(true) || !CanRecoverCurrentImport(job)) return;
+            source = source with { UnityEditorPath = config.UnityEditorPath };
+            foreach (var platform in source.PublishingPlatforms.Append(source.BuildTarget).Distinct())
+                if (!UnityProjectDriver.HasBuildSupport(source.UnityEditorPath, platform)) throw new IOException("Unity build support is missing for " + platform);
+            var originalPlan = job.Plan.Projects.Single();
+            var fingerprints = new Dictionary<string, string>(originalPlan.ImportFingerprints, StringComparer.OrdinalIgnoreCase);
+            if (!source.EmptyProject)
+            {
+                source = source with { SourceIdentity = await PackageSourceIdentity.ReadAsync(source.UnityPackagePath, lifetime.Token) };
+                fingerprints.Remove(job.Source.UnityPackagePath);
+                fingerprints[source.UnityPackagePath] = ProjectRules.FileIdentity(source.UnityPackagePath);
+            }
+            var creationPlan = originalPlan with { Creation = source, UnityEditorPath = source.UnityEditorPath, ImportFingerprints = fingerprints };
+            await app.Imports.EnqueueAsync(new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [creationPlan]), RequestedParallelism, token: lifetime.Token, expectedImportId: job.Id);
+            await NavigateAsync(source.EmptyProject ? "Projects" : "Create");
+            return;
+        }
         if (destination.Kind == ImportDestinationKind.New || destination.Kind == ImportDestinationKind.Partial && source.CreationId is null)
         {
             if (source.EmptyProject)
@@ -225,7 +246,7 @@ public sealed class UiHistoryEntry : ObservableObject
     public DateTime Timestamp => job?.Plan.CreatedUtc ?? report!.CompletedUtc;
     public string Date => Timestamp.ToLocalTime().ToString("g");
     public string Name => job?.Name ?? (report!.Results.Length == 1 ? report.Results[0].Project : string.Format(UiText.Text("{0} projects"), report.Results.Length));
-    public string State => job?.CreatorCompanionUnknown == true ? "Completed with a notice" : job?.DiscardRequested == true ? job.Active ? "Stopping import…" : "Cancellation needs finishing" : job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (job.CreatorCompanionPending || report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
+    public string State => job?.HasCompilationBlock == true ? "Script errors in Unity" : job?.UnityCompilationNeedsAttention == true || job?.CreatorCompanionUnknown == true ? "Completed with a notice" : job?.DiscardRequested == true ? job.Active ? "Stopping import…" : "Cancellation needs finishing" : job?.State is { } state ? state == "Queued" ? "Starting…" : state == "Completed" && (job.CreatorCompanionPending || report?.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) == true || job.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC.") ? "Completed with a notice" : state
         : report!.Success ? report.Results.Any(x => x.Status == OperationStatus.CompletedWithWarnings) ? "Completed with a notice" : "Completed" : report.Cancelled ? "Cancelled"
         : report.Results.Length > 0 && report.Results.All(x => x.Status == OperationStatus.Skipped) ? "Not applied"
         : report.Results.Any(x => x.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings) ? "Partially applied" : "Failed";
@@ -239,6 +260,7 @@ public sealed class UiHistoryEntry : ObservableObject
         PackageReview.Group(plan).Select(group => (group.Projects.Length == Projects.Length ? "All projects" : string.Join(", ", group.Projects.Select(x => x.Name))) + Environment.NewLine
             + string.Join(Environment.NewLine, group.Changes.Select(x => $"{x.Kind} · {PackageCatalog.FriendlyName(x.Id)} · {x.InstalledVersion ?? "—"} → {x.ResolvedVersion ?? "removed"}"))));
     public string Result => job is not null ? UiText.Text(job.DiscardCompleted ? "Import cancelled." : job.DiscardRequested ? "Cancellation needs finishing"
+        : job.HasCompilationBlock || job.UnityCompilationNeedsAttention ? new UiImportRow(job).Message
         : job.CreatorCompanionUnknown ? "Your project is ready. Check whether it appears in Creator Companion; if needed, add it there as an existing project. You do not need to import it again."
         : job.CreatorCompanionPending ? "The project was created; it was not added to Creator Companion."
         : job.State is "Completed" or "Recovered" ? "Import completed."
@@ -248,6 +270,8 @@ public sealed class UiHistoryEntry : ObservableObject
         : string.Join(Environment.NewLine, report!.Results.Select(x => x.Project + ": " + UiText.Text(x.Status switch
         {
             OperationStatus.Completed => "Completed",
+            _ when x.UnityCompilationBlockedImport => "Unity stopped because of script errors. Your project is kept. Open it in Unity to check the packages and scripts; importing again may not fix this.",
+            _ when x.UnityCompilationNeedsAttention => "The import finished. Open the project in Unity to fix script errors. You do not need to import it again.",
             OperationStatus.Unchanged => "Packages are already up to date",
             OperationStatus.CompletedWithWarnings when x.CreatorCompanionPending || x.Message == "Project ready; Creator Companion registration failed. Add the existing project in VCC." => "The project was created; it was not added to Creator Companion.",
             OperationStatus.CompletedWithWarnings => "Completed. Check the details in the log.",

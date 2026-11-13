@@ -302,6 +302,14 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             return;
         }
         var recovery = ViewModel.RecoverableImportForProject(project);
+        if (recovery?.HasCompilationBlock == true)
+        {
+            var scriptChoice = await ShowDialog(new() { Title = "Script errors in Unity", Content = new UiImportRow(recovery).Message,
+                PrimaryButtonText = "Open in Unity", SecondaryButtonText = "Continue import", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary });
+            if (scriptChoice == ContentDialogResult.Primary) await ViewModel.LaunchProjectCommand.ExecuteAsync(project);
+            if (scriptChoice == ContentDialogResult.Secondary) await ViewModel.RecoverProjectImportAsync(project, recovery.Id);
+            return;
+        }
         var registration = ViewModel.PendingRegistrationForProject(project);
         var orphan = recovery is null && registration is null ? await ViewModel.OrphanRecoveryForProjectAsync(project) : null;
         if (ViewModel.IsClosingApp) return;

@@ -491,6 +491,25 @@ public sealed class ImportQueueTests : IDisposable
         Assert.Equal("keep", await File.ReadAllTextAsync(preserved));
     }
 
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("[vrc-setup] Script compilation failed; project remains incomplete.", true)]
+    [InlineData("Asset import failed\n[vrc-setup] Script compilation failed; project remains incomplete.", false)]
+    [InlineData("Fatal Error\n[vrc-setup] Script compilation failed; project remains incomplete.", false)]
+    public async Task LegacyGenericFailureNeedsExplicitCompilationEvidence(string log, bool compilation)
+    {
+        var app = App; var plan = Plan("Legacy script failure");
+        Directory.CreateDirectory(app.Paths.Logs);
+        var logFile = Path.Combine(app.Paths.Logs, "legacy.log");
+        await File.WriteAllTextAsync(logFile, log);
+        var job = new ImportJob("legacy-script", plan, plan.Projects[0].Creation!, "Failed", "Import", 55, "Unity import or compilation did not complete. Project remains incomplete.", logFile);
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using (var queue = new ImportQueue(app)) { await queue.InitializeAsync(); Assert.Equal(compilation, queue.Snapshot().Single().HasCompilationBlock); }
+        await using var reopened = new ImportQueue(app);
+        await reopened.InitializeAsync();
+        Assert.Equal(compilation, reopened.Snapshot().Single().UnityCompilationBlockedImport);
+    }
+
     [Fact] public async Task DismissedInterruptedImportRemainsRecoverableAfterRestart()
     {
         var app = App;

@@ -1,5 +1,25 @@
 # Desktop migration verification
 
+## Priority import recovery verification after 0.3.1
+
+The local real-Unity fixture `.work/c1/compilation-import.json` passed on
+Unity 2022.3.22f1: importing a deliberately broken script did not stop the
+following text-asset archive, the driver reported a completed compilation
+notice, and correcting the script settled without reimporting the archives.
+This is synthetic evidence, not an audit of a personal avatar or its packages.
+
+Native smoke `.work/artifacts/ui-priority-import/ui-smoke.json` passed 633
+checks, including requeueing an owned paused creation at its original absent
+destination without a new-copy prompt. The enqueue was intercepted before
+execution; the test does not launch Unity for that paused request. Screenshots
+at 720 pixels show cancellation directly on each collapsed import row.
+
+Core tests cover compilation warning versus blocked import, absence of backups
+for new creation, persistence of dismissed notices, and conservative migration
+of older generic failures using explicit saved log evidence. Italian labels
+and a short VPM resolver failure message have separate tests. Existing
+pause/cancellation, project ownership and restore tests remain in the suite.
+
 ## 0.3.0 release and subsequent multi-import work
 
 Version 0.3.0 was published from merge commit `ee399f9`; Windows release run `42527738219` passed, and the public installer checksum and update feed were checked. Earlier candidate notes below describe historical checkpoints, not the current release status.
