@@ -167,6 +167,33 @@ public sealed class PlannerExecutorTests
         Assert.Equal("1.1.0", workspace.Project.InstalledVersions["tool"]);
         Assert.Equal(0, driver.UnityCalls);
     }
+    [Theory, InlineData(false), InlineData(true)]
+    public async Task PackageReinstallRejectsIncompleteProjectsAndPreservesOpenEditorWhenToolFails(bool editorOpen)
+    {
+        var workspace = new MemoryWorkspace { Busy = editorOpen };
+        var planner = new ProjectPlanner(workspace, new FixtureCatalog());
+        var plan = await planner.PlanPackageReinstallAsync(workspace.Project.Path);
+        var driver = new MemoryDriver(workspace);
+        driver.AfterReinstall = ids =>
+        {
+            Assert.Equal(new[] { "tool" }, ids);
+            Assert.True(workspace.LeaseHeld);
+            return new ToolResult(1, "", "repository unavailable");
+        };
+        var executor = new ProjectExecutor(workspace, driver);
+        workspace.Project = workspace.Project with { Incomplete = true };
+        var rejected = await executor.ApplyAsync(plan);
+        Assert.Equal(OperationStatus.Failed, Assert.Single(rejected.Results).Status);
+        Assert.Equal(0, workspace.Backups);
+        workspace.Project = workspace.Project with { Incomplete = false };
+        var failed = Assert.Single((await executor.ApplyAsync(plan)).Results);
+        Assert.Equal(OperationStatus.Failed, failed.Status);
+        Assert.Contains("repository unavailable", failed.Message);
+        Assert.Equal(1, workspace.Backups);
+        Assert.Equal(editorOpen ? 0 : 1, workspace.Restores);
+        Assert.Equal(0, driver.UnityCalls);
+        Assert.False(workspace.Completed);
+    }
     [Fact] public async Task ChangedProjectAfterReviewIsSkipped()
     {
         var workspace = new MemoryWorkspace(); var driver = new MemoryDriver(workspace);
@@ -358,6 +385,7 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
     public Exception? RegistrationFailure;
     public int Calls, UnityCalls, Registrations;
     public Action? AfterResolve;
+    public Func<string[], ToolResult>? AfterReinstall;
     public List<PackageChange> ChangedPackages = [];
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -371,6 +399,8 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
         return Task.FromResult(new ToolResult(0, "Added package " + change.Id, ""));
     }
     public Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { AfterResolve?.Invoke(); return Task.FromResult(new ToolResult(0, "Resolved", "")); }
+    public Task<ToolResult> ReinstallPackagesAsync(string project, string[] ids, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) =>
+        Task.FromResult(AfterReinstall?.Invoke(ids) ?? new ToolResult(0, "Reinstalled", ""));
     public Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return ImportFailure is null ? Task.CompletedTask : Task.FromException(ImportFailure); }
     public Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { UnityCalls++; return Task.CompletedTask; }
     public Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
