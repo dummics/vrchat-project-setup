@@ -61,6 +61,8 @@ public static class UserErrors
     }
     private static string? Advice(string message) => message switch
     {
+        "Operation refused on a linked file." or "Operation refused on a linked directory." => "This project contains linked files or folders. Use a local project folder before changing packages.",
+        "The avatar was imported, but some package files need restoring. Open the project's packages and choose Restore packages." => message,
         _ when message.StartsWith("VPM resolve failed.", StringComparison.Ordinal) => "The packages could not be prepared. Check their versions and sources in Packages, then continue. Your project is kept.",
         _ when message.StartsWith("Could not restore VPM packages.", StringComparison.Ordinal) => "Could not restore the packages. Check that their sources are available, then try Restore packages again.",
         _ when message.StartsWith("Package restore changed the selected versions or left files missing.", StringComparison.Ordinal) => "The restored packages could not be verified. Open the log to see which versions or files need attention.",

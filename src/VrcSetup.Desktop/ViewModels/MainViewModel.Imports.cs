@@ -102,7 +102,7 @@ public sealed partial class MainViewModel
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
         .Select(group => ImportQueue.CurrentForProject(group, group.Key)!)
         .Where(x => !(x.RecoveryNoticeDismissed && x.Recoverable && x.CanDismiss && Directory.Exists(x.ProjectPath))
-            && (!x.HiddenFromImports || !x.CanHide) && !(hideCompleted && x.CanHide && !x.CreatorCompanionPending && !x.CreatorCompanionUnknown && !x.UnityCompilationNeedsAttention && x.State is "Completed" or "Recovered"))
+            && (!x.HiddenFromImports || !x.CanHide) && !(hideCompleted && x.CanHide && !x.CreatorCompanionPending && !x.CreatorCompanionUnknown && !x.UnityCompilationNeedsAttention && !x.PackageContentsNeedRestore && x.State is "Completed" or "Recovered"))
         .OrderByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)
@@ -203,7 +203,9 @@ public sealed partial class MainViewModel
     public Task FinishImportsAsync() => app.Imports.DisposeAsync().AsTask();
     public void OpenImportLog(UiImportRow row)
     { if (File.Exists(row.Job.LogFile)) RevealLog(row.Job.LogFile); else OpenLogsCommand.Execute(null); }
-    public Task RecoverImportAsync(UiImportRow row) => row.Job.HasCompilationBlock || row.Job.UnityCompilationNeedsAttention
+    public Task RecoverImportAsync(UiImportRow row) => row.Job.PackageContentsNeedRestore
+        ? Guard(async () => await OpenProjectsAsync([await app.Projects.ReadAsync(row.Job.ProjectPath, lifetime.Token)]), allowWhileBusy: true)
+        : row.Job.HasCompilationBlock || row.Job.UnityCompilationNeedsAttention
         ? Guard(() => LaunchUnityAsync(row.Job.ProjectPath), allowWhileBusy: true)
         : RepairHistoryImportAsync(new(row.Job));
     public async Task RefreshImportLogAsync(UiImportRow row, bool force = false)
@@ -280,7 +282,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public string LastPhase => Job.Recoverable && PhaseLabel is { } phase
         ? string.Format(UiText.Text("Last step: {0}"), UiText.Text(phase)) : "";
     public Visibility LastPhaseVisibility => LastPhase.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public string Step => Job.HistorySaveFailed ? "Save needs attention" : Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? PhaseLabel ?? "Working…" : Job.State switch
+    public string Step => Job.HistorySaveFailed ? "Save needs attention" : Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention || Job.PackageContentsNeedRestore ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? PhaseLabel ?? "Working…" : Job.State switch
     {
         "Failed" when Job.HasCompilationBlock => "Script errors in Unity",
         "Queued" => "Waiting for available resources", "Interrupted" => "Unexpected interruption",
@@ -288,6 +290,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         "Pausing" or "Cancelling" => "Stopping safely…", _ => Job.State
     };
     public string Message => Job.HistorySaveFailed ? "The import status could not be saved. Check storage and retry saving before closing the app."
+        : Job.PackageContentsNeedRestore ? "The avatar was imported, but some package files need restoring. Open the project's packages and choose Restore packages."
         : Job.UnityCompilationNeedsAttention && (Job.CreatorCompanionPending || Job.CreatorCompanionUnknown) ? "The import finished. Open the project in Unity to fix script errors. Also check that the project appears in Creator Companion."
         : Job.UnityCompilationNeedsAttention ? "The import finished. Open the project in Unity to fix script errors. You do not need to import it again."
         : Job.CreatorCompanionUnknown ? "Your project is ready. Check whether it appears in Creator Companion; if needed, add it there as an existing project. You do not need to import it again."
@@ -318,11 +321,11 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public Visibility MessageVisibility => Message.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
-    public string RetryLabel => Job.HasCompilationBlock || Job.UnityCompilationNeedsAttention ? "Open in Unity" : Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
-    public Visibility AttentionVisibility => Job.Recoverable || Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention || Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
+    public string RetryLabel => Job.PackageContentsNeedRestore ? "Manage packages" : Job.HasCompilationBlock || Job.UnityCompilationNeedsAttention ? "Open in Unity" : Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
+    public Visibility AttentionVisibility => Job.Recoverable || Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention || Job.PackageContentsNeedRestore || Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility HistorySaveVisibility => Job.HistorySaveFailed && !Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility RecoverVisibility => (Job.Recoverable || Job.UnityCompilationNeedsAttention) && !Job.Active && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RecoverVisibility => (Job.Recoverable || Job.UnityCompilationNeedsAttention || Job.PackageContentsNeedRestore) && !Job.Active && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DismissVisibility => Job.CanDismiss && (!Job.Recoverable || Directory.Exists(Job.ProjectPath)) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RegistrationVisibility => Job.CreatorCompanionPending && !Job.Active && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DiscardVisibility => !Job.HistorySaveFailed && !Job.DiscardCompleted && (Job.Source.CreationId is not null || Job.DiscardRequested || MainViewModel.CanCancelWithoutFolder(Job.ProjectPath))

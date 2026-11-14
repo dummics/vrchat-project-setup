@@ -6,6 +6,28 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task PackageContentNoticeIsPreservedAcrossRestartWithoutQueuingAnotherImport()
+    {
+        var app = App;
+        var plan = Plan("Changed package");
+        await using (var queue = new ImportQueue(app, (actual, _, _) => Task.FromResult(
+            new OperationReport(actual.Id, DateTime.UtcNow,
+                [new("Changed package", actual.Projects.Single().Path, OperationStatus.CompletedWithWarnings, "Package files need restoring.")
+                { PackageContentsNeedRestore = true }], []))))
+        {
+            await queue.EnqueueAsync(plan);
+            var id = Assert.Single(queue.Snapshot()).Id;
+            await queue.WaitForStoppedAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(Assert.Single(queue.Snapshot()).PackageContentsNeedRestore);
+        }
+        await using var reopened = new ImportQueue(app);
+        await reopened.InitializeAsync();
+        var saved = Assert.Single(reopened.Snapshot());
+        Assert.Equal("Completed", saved.State);
+        Assert.True(saved.PackageContentsNeedRestore);
+        Assert.False(saved.Active);
+        Assert.False(saved.Recoverable);
+    }
     [Fact] public async Task CancelWithoutProjectFolderPersistsItsDistinctOutcome()
     {
         var app = App; var plan = Plan("Never created");

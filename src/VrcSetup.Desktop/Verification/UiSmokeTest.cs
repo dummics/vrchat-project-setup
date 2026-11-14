@@ -690,7 +690,13 @@ public static class UiSmokeTest
                 if (partialRetry) Require(flow.NewProjectName != retryName && await File.ReadAllTextAsync(Path.Combine(retryPath, "preserve.txt")) == "owner data", "Partial retry preserves the old folder and suggests a separate destination");
                 await flow.NavigateAsync("Projects");
             }
-            await flow.OpenProjectsAsync([flow.Projects[0]]);
+            var packageProject = flow.Projects[0];
+            var changedPackageJob = new ImportJob("package-overwrite-navigation", new("overwrite-navigation", DateTime.UtcNow, []),
+                new("avatar.unitypackage", packageProject.Name, packageProject.Path, "", "StandaloneWindows64", [], []),
+                "Completed", "Completed", 100, "", "") { PackageContentsNeedRestore = true };
+            await flow.RecoverImportAsync(new(changedPackageJob));
+            Require(flow.CurrentPage == "Workspace" && flow.PackageReinstallVisibility == Visibility.Visible,
+                "Package integrity guidance opens the project's package manager with Restore packages available");
             Require(flow.PackageReinstallVisibility == Visibility.Visible, "A single ready project with locked VPM packages offers package restore");
             var confirmationCount = decisions.Confirmations;
             var reviewIntercepted = false;
@@ -1515,6 +1521,14 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(new UiImportRow(failedImport with { Message = "Unity reported script compilation errors." }).RetryLabel == "Open in Unity", "Legacy compilation failures use the same action");
         Require(new UiHistoryEntry(failedImport with { UnityCompilationBlockedImport = true }).State == "Script errors in Unity",
             "Activity history preserves the script-error classification");
+        var packageNotice = failedImport with { State = "Completed", PackageContentsNeedRestore = true, UnityCompilationNeedsAttention = true };
+        var packageRow = new UiImportRow(packageNotice);
+        Require(packageRow.RetryLabel == "Manage packages" && packageRow.Step == "Completed with a notice" &&
+            packageRow.RecoverVisibility == Visibility.Visible && packageRow.Message.Contains("Restore packages"),
+            "Overwritten VPM packages offer package management instead of archive retry");
+        Require(MainViewModel.VisibleImportJobs([packageNotice], true).Length == 1 &&
+            new UiHistoryEntry(packageNotice).Result.Contains(UiText.Text("The avatar was imported, but some package files need restoring. Open the project's packages and choose Restore packages.")),
+            "Package integrity notices remain visible and retain the restore guidance in history");
         Require(new UiImportRow(failedImport with { State = "Queued" }) { QueueLimit = 2 }.Message.Contains("2", StringComparison.Ordinal),
             "Queued imports explain the currently allowed import count");
         Require(new VrcSetup_Desktop.ViewModels.UiImportRow(interruptedImport) is { RetryLabel: "Continue import", AttentionVisibility: Visibility.Visible }, "Interrupted imports retain Continue with a quiet warning marker");

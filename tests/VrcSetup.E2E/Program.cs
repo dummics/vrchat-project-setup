@@ -3,6 +3,11 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+if (args is ["--verify-package-overwrite", var overwriteEditor, var overwriteEvidence])
+{
+    await PackageOverwriteVerification.RunAsync(overwriteEditor, overwriteEvidence);
+    return;
+}
 if (args is ["--verify-package-repair", var repairEvidence])
 {
     await PackageRepairVerification.RunAsync(repairEvidence);

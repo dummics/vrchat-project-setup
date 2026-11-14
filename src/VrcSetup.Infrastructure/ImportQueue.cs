@@ -13,6 +13,7 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool DiscardNoFolder { get; init; }
     public bool CreatorCompanionPending { get; init; }
     public bool UnityCompilationNeedsAttention { get; init; }
+    public bool PackageContentsNeedRestore { get; init; }
     public bool UnityCompilationBlockedImport { get; init; }
     public bool HasCompilationBlock => State == "Failed" && (UnityCompilationBlockedImport || Message.Contains("Unity reported script compilation errors.", StringComparison.Ordinal));
     public bool CreatorCompanionUnknown { get; init; }
@@ -274,6 +275,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                 return x with { State = state, Step = report.Success ? state : x.Step, Progress = report.Success ? 100 : x.Progress,
                     Message = state == "Paused" ? "Ready to continue." : outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile,
                     CreatorCompanionPending = outcome?.CreatorCompanionPending == true, UnityCompilationNeedsAttention = outcome?.UnityCompilationNeedsAttention == true,
+                    PackageContentsNeedRestore = outcome?.PackageContentsNeedRestore == true,
                     UnityCompilationBlockedImport = outcome?.UnityCompilationBlockedImport == true };
             });
         }

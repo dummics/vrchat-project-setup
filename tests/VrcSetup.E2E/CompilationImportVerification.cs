@@ -46,12 +46,12 @@ internal static class CompilationImportVerification
         }, token);
     }
 
-    private static void Archive(string path, string asset, string content)
+    internal static void Archive(string path, string asset, string content, string? assetGuid = null)
     {
         using var file = File.Create(path);
         using var gzip = new GZipStream(file, CompressionLevel.Fastest);
         using var tar = new TarWriter(gzip, TarEntryFormat.Ustar);
-        var guid = Guid.NewGuid().ToString("N");
+        var guid = assetGuid ?? Guid.NewGuid().ToString("N");
         Entry(guid + "/pathname", asset);
         Entry(guid + "/asset", content);
         Entry(guid + "/asset.meta", "fileFormatVersion: 2\nguid: " + guid + "\n");

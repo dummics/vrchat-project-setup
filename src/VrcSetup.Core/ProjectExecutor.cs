@@ -133,6 +133,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 if (editorSession is not null) { await editorSession.DisposeAsync(); editorSession = null; }
 
                 var compilationNeedsAttention = false;
+                var packageContentsNeedRestore = false;
                 async Task CompleteUnityStep(Func<Task> action)
                 {
                     try { await action(); }
@@ -140,6 +141,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 if (project.RequiresUnityBatch && (project.Creation is not null || project.ExtraImports.Length > 0))
                 {
+                    var contentsBefore = await driver.CapturePackageContentsAsync(project.Path, cancellationToken);
                     phase = "Import";
                     await CompleteUnityStep(() => driver.ImportAsync(project, progress, cancellationToken));
                     await workspace.SetStepAsync(project.Path, "importMain", true, cancellationToken);
@@ -147,6 +149,14 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                     phase = "Post-import validation";
                     var repaired = await VerifyPackages(project, progress, cancellationToken, warnings);
                     if (repaired) await CompleteUnityStep(() => driver.SettleAsync(project, progress, cancellationToken));
+                    var contentsAfter = await driver.CapturePackageContentsAsync(project.Path, cancellationToken);
+                    var changedPackages = contentsBefore.Where(x => contentsAfter.GetValueOrDefault(x.Key) != x.Value).Select(x => x.Key).ToArray();
+                    if (changedPackages.Length > 0)
+                    {
+                        packageContentsNeedRestore = true;
+                        warnings.Add("The avatar was imported, but some package files need restoring. Open the project's packages and choose Restore packages.");
+                        Emit("Verify", "VPM package contents changed during import: " + string.Join(", ", changedPackages), EventSeverity.Warning);
+                    }
                 }
                 else
                 {
@@ -180,7 +190,7 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                     if (!registered) warnings.Add("Project ready; Creator Companion registration failed. Add the existing project in VCC.");
                 }
                 var status = warnings.Count > 0 ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed;
-                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory) { CreatorCompanionPending = registrationPending, UnityCompilationNeedsAttention = compilationNeedsAttention });
+                results.Add(new(project.Name, project.Path, status, string.Join(" ", warnings), BackupPath: backup?.Directory) { CreatorCompanionPending = registrationPending, UnityCompilationNeedsAttention = compilationNeedsAttention, PackageContentsNeedRestore = packageContentsNeedRestore });
                 Emit("Completed", warnings.Count > 0 ? warnings[0] : "Project saved.", warnings.Count > 0 ? EventSeverity.Warning : EventSeverity.Info);
             }
             catch (ProjectSkippedException error)

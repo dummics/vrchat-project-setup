@@ -27,6 +27,7 @@ Historical incident classification:
 | Observation | Evidence and current behavior |
 | --- | --- |
 | Layla compilation errors | The retained log contains C# compilation errors from ThryEditor. A separate real Unity fixture demonstrates that an imported asset followed by a compilation error can complete with a compilation notice. It also verifies recovery after correcting the script. |
+| Mia ThryEditor conflict | The avatar archive contained legacy scripts with the same GUIDs as installed VPM files. Three damaged package files matched the archive exactly. A clean package restore retained Toon 10.0.29 and ThryEditor 2.74.4, and Unity then compiled with exit 0. Source fingerprints now detect this kind of import overwrite and expose an explicit package restore action. |
 | Trixie import and cancellation | The short-path reproduction imported successfully. A long-path run recorded asset errors before reaching the import end marker and timing out while closing. The original incident still has no proven cause. |
 | Process or inherited output pipe | Synthetic process tests exercise cancellation and timeout with an inherited pipe. They verify that the app can distinguish this condition from a successful Unity exit. |
 | Appearance crash | Two-process native persistence smoke covers saving and loading appearance. The original crash has not been reproduced. |

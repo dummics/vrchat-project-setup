@@ -170,6 +170,7 @@ public sealed record OperationEvent(DateTime Timestamp, string Phase, string Mes
 }
 public sealed record ProjectOutcome(string Project, string Path, OperationStatus Status, string Message, string? LogFile = null, string? BackupPath = null)
 {
+    public bool PackageContentsNeedRestore { get; init; }
     public bool CreatorCompanionPending { get; init; }
     public bool UnityCompilationNeedsAttention { get; init; }
     public bool UnityCompilationBlockedImport { get; init; }
@@ -279,6 +280,8 @@ public interface IProjectDriver
     Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task<ToolResult> ReinstallPackagesAsync(string project, string[] ids, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Package reinstall is unavailable.");
+    Task<IReadOnlyDictionary<string, string>> CapturePackageContentsAsync(string project, CancellationToken token) =>
+        Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
     Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);

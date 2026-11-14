@@ -168,6 +168,24 @@ public sealed class PlannerExecutorTests
         Assert.Equal(0, driver.UnityCalls);
     }
     [Theory, InlineData(false), InlineData(true)]
+    public async Task ImportedPackageChangesOfferExplicitRestoreWithoutReinstallingOrFailingTheAvatar(bool changed)
+    {
+        var workspace = new MemoryWorkspace();
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path,
+            new Dictionary<string, string>(), new());
+        plan = plan with { ExtraImports = ["avatar.unitypackage"] };
+        var driver = new MemoryDriver(workspace);
+        var reads = 0;
+        driver.PackageContents = () => new Dictionary<string, string> { ["tool"] = ++reads > 1 && changed ? "legacy" : "published" };
+        var result = Assert.Single((await new ProjectExecutor(workspace, driver).ApplyAsync(new("content-check", DateTime.UtcNow, [plan]))).Results);
+        Assert.Equal(changed ? OperationStatus.CompletedWithWarnings : OperationStatus.Completed, result.Status);
+        Assert.Equal(changed, result.PackageContentsNeedRestore);
+        Assert.Equal(2, reads);
+        Assert.Empty(driver.ChangedPackages);
+        Assert.Equal(1, driver.UnityCalls);
+        Assert.True(workspace.Completed);
+    }
+    [Theory, InlineData(false), InlineData(true)]
     public async Task PackageReinstallRejectsIncompleteProjectsAndPreservesOpenEditorWhenToolFails(bool editorOpen)
     {
         var workspace = new MemoryWorkspace { Busy = editorOpen };
@@ -386,6 +404,9 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
     public int Calls, UnityCalls, Registrations;
     public Action? AfterResolve;
     public Func<string[], ToolResult>? AfterReinstall;
+    public Func<IReadOnlyDictionary<string, string>>? PackageContents;
+    public Task<IReadOnlyDictionary<string, string>> CapturePackageContentsAsync(string project, CancellationToken token) =>
+        Task.FromResult(PackageContents?.Invoke() ?? new Dictionary<string, string>());
     public List<PackageChange> ChangedPackages = [];
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;

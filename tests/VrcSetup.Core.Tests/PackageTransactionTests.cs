@@ -194,6 +194,54 @@ public sealed class PackageTransactionTests : IDisposable
         await using (var lease = await pending) Assert.NotNull(lease);
         Assert.False(File.Exists(leaseFile));
     }
+    [Fact] public async Task PackageContentsDetectArchiveOverwritesEvenWhenTheManifestVersionIsUnchanged()
+    {
+        var project = await Project();
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var driver = new UnityProjectDriver(paths, new ToolRunner(), new ProjectWorkspace(paths));
+        var code = Path.Combine(project, "Packages", "shader.toon", "Editor.cs");
+        await File.WriteAllTextAsync(code, "class PublishedEditor {}");
+        var before = await driver.CapturePackageContentsAsync(project, default);
+        await File.WriteAllTextAsync(Path.Combine(project, "Assets", "Avatar.cs"), "class Avatar {}");
+        await File.WriteAllTextAsync(Path.Combine(project, "Packages", "shader.toon", "Folder.meta"), "folderAsset: yes");
+        Assert.Equal(before["shader.toon"], (await driver.CapturePackageContentsAsync(project, default))["shader.toon"]);
+        await File.WriteAllTextAsync(code, "class LegacyEditor {}");
+        Assert.NotEqual(before["shader.toon"], (await driver.CapturePackageContentsAsync(project, default))["shader.toon"]);
+        await File.WriteAllTextAsync(code, "class PublishedEditor {}");
+        await File.WriteAllTextAsync(Path.Combine(project, "Packages", "shader.toon", "OldEditor.cs"), "class LegacyEditor {}");
+        Assert.NotEqual(before["shader.toon"], (await driver.CapturePackageContentsAsync(project, default))["shader.toon"]);
+        Assert.Equal("1.0.0", (await new ProjectWorkspace(paths).ReadAsync(project)).LockedPackages["shader.toon"]);
+    }
+    [Theory, InlineData("Assets/Editor"), InlineData(".vrcsetup")]
+    public async Task PackageSessionRejectsLinkedFoldersBeforeWritingOutsideTheProject(string relative)
+    {
+        var project = await Project();
+        var external = Path.Combine(root, "external");
+        Directory.CreateDirectory(external);
+        var sentinel = Path.Combine(external, "keep.txt");
+        await File.WriteAllTextAsync(sentinel, "outside project");
+        var link = Path.Combine(project, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+        if (OperatingSystem.IsWindows())
+        {
+            var script = "New-Item -ItemType Junction -Path '" + link.Replace("'", "''") +
+                "' -Target '" + external.Replace("'", "''") + "' | Out-Null";
+            var result = await new ToolRunner().RunAsync("powershell.exe",
+                ["-NoProfile", "-NonInteractive", "-Command", script]);
+            Assert.Equal(0, result.ExitCode);
+        }
+        else Directory.CreateSymbolicLink(link, external);
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "home"));
+            var driver = new UnityProjectDriver(paths, new ToolRunner(), new ProjectWorkspace(paths));
+            await Assert.ThrowsAsync<IOException>(() => driver.BeginPackageChangesAsync(Plan(project), null, default));
+            Assert.Equal("outside project", await File.ReadAllTextAsync(sentinel));
+            Assert.Single(Directory.GetFiles(external));
+            Assert.False(File.Exists(Path.Combine(project, "Assets", "Editor", "VrcSetupPackageSession.cs")));
+        }
+        finally { Directory.Delete(link); }
+    }
     [Fact] public async Task CancelBeforeEditorAcknowledgesLeavesPackagesUntouchedAndRemovesLease()
     {
         var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
