@@ -3,11 +3,21 @@
 ## Current recovery behavior (November 2026)
 
 This section supersedes the historical preview descriptions below. The desktop
-uses resource-based admission with a maximum of two simultaneous jobs. CPU or
-memory pressure can reduce new starts; running jobs are never stopped to lower
-the limit. A queued row explains the currently allowed count. Two editors were
-measured on three-import isolated runs (209.3 and 210.0 seconds total); these
-measurements do not establish safe capacity for three large avatar imports.
+uses resource-based admission with a user-selected maximum of one to eight jobs,
+saved from the import page and adjustable during work. Available physical memory
+and commit constrain new starts; a saturated CPU alone does not serialize jobs.
+The estimate reserves the greater of 2 GiB or 10% of physical RAM and allows
+4 GiB of remaining headroom per simultaneous import. It can wait with no new
+starts when memory is low. Unknown memory falls back to one job. Running jobs
+are never stopped to lower the limit. This estimate cannot predict an avatar's
+peak memory. The CLI's explicit positive `--parallel` option remains an explicit
+scheduling override; the desktop always uses memory-based admission.
+
+Three isolated synthetic imports completed with peak queue concurrency three,
+111.6 seconds total and minimum system available RAM of 40.8 GiB in `.work/mq4`.
+This is not a speedup claim against earlier runs with different cache conditions,
+nor a guarantee for three large avatars. Tests separately verify CPU at 100%,
+changing the user's ceiling while work runs, memory pressure and FIFO admission.
 
 Pause keeps the reviewed request and project. Resuming a queued creation whose
 folder does not yet exist requeues that same reviewed creation and destination,

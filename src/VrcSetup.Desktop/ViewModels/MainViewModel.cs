@@ -147,6 +147,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             switchingImportDraft = false; NotifyDrafts();
         }
         OnPropertyChanged(nameof(PackageFileLabel));
+        standaloneExcludedPackages.Clear();
         creationOverrides = null;
         selectionSourceIdentity = null;
         _ = InspectCreationPackageAsync(value);
@@ -158,11 +159,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSelectedPresetChanged(string value)
     {
         creationOverrides = null;
+        if (!acceptingImportSelection) { standaloneExcludedPackages.Clear(); foreach (var draft in ImportDrafts) draft.ExcludedPackages.Clear(); }
         if (!acceptingImportSelection) foreach (var draft in ImportDrafts) draft.Packages = null;
         RefreshCreationPackages();
     }
     partial void OnSelectedRecipeChanged(string value)
     {
+        standaloneExcludedPackages.Clear();
+        foreach (var draft in ImportDrafts) draft.ExcludedPackages.Clear();
         foreach (var draft in ImportDrafts) draft.Packages = null;
         if (string.IsNullOrWhiteSpace(value) || !config.CreationRecipes.TryGetValue(value, out var recipe)) { creationOverrides = null; RefreshCreationPackages(); return; }
         SelectedPreset = string.IsNullOrWhiteSpace(recipe.Preset) || !config.PackagePresets.ContainsKey(recipe.Preset) ? "My default packages" : recipe.Preset;

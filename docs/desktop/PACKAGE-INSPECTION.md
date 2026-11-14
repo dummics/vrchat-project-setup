@@ -1,5 +1,23 @@
 # Offline package inspection
 
+## VPM selection model after 0.3.2
+
+The import table lists the VPM packages selected for installation, not packages
+claimed to be installed because similar files exist in the avatar archive.
+It has aligned name/version/action columns, protected SDK/foundation rows and
+explicit per-import exclusions. Excluded choices can be restored with their
+previous version policy. They remain separate from suggestions and do not
+change the saved preset or filter avatar files. Changing the preset or recipe
+resets those one-time exclusions; changing between file drafts preserves each
+draft's own choices. Dependencies may still require an excluded direct choice;
+exclusion is not a force-removal instruction to the VPM resolver.
+
+Archive package metadata remains evidence in the diagnostic inspection report,
+but no longer emits a `ReviewBundled` removal proposal or an archive-overlap
+banner. Suggestions can still propose missing VPM dependencies and declared
+version reviews. This supersedes historical bundled-removal UI descriptions
+below. Numeric latest-version previews apply to selected and excluded rows.
+
 ## 0.3 Trixie reference check
 
 The read-only deep scan of `Trixie_By_Ray9_Updatedd.unitypackage` traversed all

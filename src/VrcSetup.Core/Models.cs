@@ -76,6 +76,7 @@ public sealed class AppConfiguration
     public string PackageLibraryView { get; set; } = "grid";
     public bool ManualImportPath { get; set; }
     public bool AutoHideCompletedImports { get; set; }
+    public int MaxParallelImports { get; set; } = 8;
     public bool CheckUpdatesOnStartup { get; set; } = true;
     public bool AutomaticUpdates { get; set; } = true;
     public bool IncludeBetaUpdates { get; set; }

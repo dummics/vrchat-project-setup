@@ -25,11 +25,6 @@ public static partial class DependencyAdvisor
                     proposals.Add(new(hint.Id, DependencyProposalKind.ReviewPossible, null, null,
                         "This package may be needed. Review it before adding it.", hint));
             }
-            else if (hint.Confidence == DependencyConfidence.Included)
-            {
-                proposals.Add(new(hint.Id, DependencyProposalKind.ReviewBundled, version, null,
-                    "Package metadata is bundled in this file. Review whether external installation is needed; do not remove dependencies automatically.", hint));
-            }
             else if (hint.Confidence == DependencyConfidence.Declared && hint.VersionConstraint is { Length: > 0 } constraint
                 && !ClearlySatisfies(version, constraint))
             {

@@ -43,9 +43,16 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
     private Task? resourceWorker;
     private SystemResourceUsage? resources;
     private int requestedParallelism = 1;
+    private int automaticParallelismLimit = 8;
     private long parallelismRevision;
     public SystemResourceUsage? Resources { get { lock (sync) return resources; } }
-    public int EffectiveParallelism { get { lock (sync) return requestedParallelism > 0 ? requestedParallelism : resources?.SuggestedParallelism ?? 1; } }
+    public int EffectiveParallelism { get { lock (sync) return requestedParallelism > 0 ? requestedParallelism : Math.Min(automaticParallelismLimit, resources?.SuggestedParallelism ?? 1); } }
+    public void ConfigureAutomaticLimit(int value)
+    {
+        if (value is < 1 or > 8) throw new ArgumentOutOfRangeException(nameof(value), "Choose between one and eight simultaneous imports.");
+        lock (sync) { automaticParallelismLimit = value; PulseCapacity(); }
+        Publish();
+    }
     public void ConfigureParallelism(int value)
     {
         if (value < 0) throw new ArgumentException("Use zero for automatic scheduling or a positive parallel import count.");

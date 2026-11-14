@@ -16,6 +16,17 @@ public sealed partial class MainViewModel
             ApplicationNotice = UiText.Text("Import status saved.");
     }, allowWhileBusy: true);
     private const int RequestedParallelism = 0; // Adapt to available CPU and memory.
+    public int[] ImportLimitChoices { get; } = Enumerable.Range(1, 8).ToArray();
+    public int ImportLimit => Math.Clamp(config.MaxParallelImports, 1, 8);
+    public Task SetImportLimitAsync(int value) => IndependentAction(async () =>
+    {
+        if (value is < 1 or > 8 || value == ImportLimit) return;
+        var previous = config.MaxParallelImports;
+        config.MaxParallelImports = value;
+        try { await PersistConfigurationAsync(); app.Imports.ConfigureAutomaticLimit(value); }
+        catch { config.MaxParallelImports = previous; throw; }
+        finally { OnPropertyChanged(nameof(ImportLimit)); }
+    });
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportReviewLabel)), NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
     public partial bool IsPreparingImport { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportErrorVisibility)), NotifyPropertyChangedFor(nameof(ImportSettingsVisibility))]
@@ -285,6 +296,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         : Job.DiscardCompleted ? Job.DiscardNoFolder ? "Request cancelled. No project folder was removed." : "The import was cancelled and its created project was removed."
         : Job.State switch
         {
+            "Queued" when QueueLimit == 0 => "Waiting for more available memory. This import will start automatically.",
             "Queued" => QueueLimit is { } limit ? string.Format(UiText.Text("The app currently allows {0} imports at a time. This import will start automatically when a slot is available."), limit) : "This import will start automatically when resources are available.",
             "Paused" => "The import is paused. Your project is kept. Choose Continue import when you are ready.",
             "Interrupted" => "The previous session ended before the import finished. Your project is kept. You can continue the import.",
@@ -321,6 +333,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
 
 public sealed class UiImportDraft(string file, string name, string platform) : ObservableObject
 {
+    public Dictionary<string, string> ExcludedPackages { get; } = new(StringComparer.OrdinalIgnoreCase);
     public string File { get; } = file;
     private string name = name, platform = platform;
     public string FileName => System.IO.Path.GetFileName(File);

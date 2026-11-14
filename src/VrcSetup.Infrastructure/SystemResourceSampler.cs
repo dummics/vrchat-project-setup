@@ -4,10 +4,12 @@ namespace VrcSetup.Infrastructure;
 
 public sealed record SystemResourceUsage(double TotalGiB, double AvailableGiB, double AvailableCommitGiB, double? CpuPercent, int LogicalProcessors)
 {
-    // Conservative admission, not a guarantee about a particular Unity import.
-    // Do not start a second editor before the first CPU sample is available.
-    public int SuggestedParallelism => !double.IsFinite(TotalGiB) || TotalGiB <= 0 || !double.IsFinite(AvailableGiB) || AvailableGiB < 0 || AvailableGiB > TotalGiB || !double.IsFinite(AvailableCommitGiB) || AvailableCommitGiB < 0 || CpuPercent is not >= 0 or >= 80 || MemoryHigh || LogicalProcessors < 4
-        ? 1 : (int)Math.Clamp(Math.Min(AvailableGiB, AvailableCommitGiB) / 3, 1, 2);
+    // Admission estimate, not a promise about a particular avatar's peak usage.
+    // Unity can occupy every core during a healthy import: CPU is telemetry,
+    // not a reason to serialize independent projects. Preserve RAM/commit space
+    // for the OS and allow roughly 4 GiB of headroom per simultaneous import.
+    public int SuggestedParallelism => !double.IsFinite(TotalGiB) || TotalGiB <= 0 || !double.IsFinite(AvailableGiB) || AvailableGiB < 0 || AvailableGiB > TotalGiB || !double.IsFinite(AvailableCommitGiB) || AvailableCommitGiB < 0
+        ? 1 : (int)Math.Clamp((Math.Min(AvailableGiB, AvailableCommitGiB) - Math.Max(2, TotalGiB * 0.1)) / 4, 0, 8);
     public bool MemoryHigh => AvailableGiB < 1 || AvailableCommitGiB < 1 || TotalGiB > 0 && AvailableGiB / TotalGiB < 0.1;
 }
 

@@ -9,38 +9,55 @@ namespace VrcSetup_Desktop.ViewModels;
 public sealed partial class MainViewModel
 {
     public ObservableCollection<UiCreationPackage> CreationPackages { get; } = [];
+    public ObservableCollection<UiCreationPackage> SelectedCreationPackages { get; } = [];
+    public ObservableCollection<UiCreationPackage> ExcludedCreationPackages { get; } = [];
+    private readonly Dictionary<string, string> standaloneExcludedPackages = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> CurrentExcludedPackages => SelectedImportDraft?.ExcludedPackages ?? standaloneExcludedPackages;
+    private void RememberExcludedSelection(IReadOnlyDictionary<string, string> previous, IReadOnlyDictionary<string, string> next, bool samePreset)
+    {
+        if (!samePreset) CurrentExcludedPackages.Clear();
+        else foreach (var entry in previous.Where(x => !next.ContainsKey(x.Key))) CurrentExcludedPackages[entry.Key] = entry.Value;
+        foreach (var id in next.Keys) CurrentExcludedPackages.Remove(id);
+    }
+    public Visibility ExcludedCreationPackagesVisibility => ExcludedCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string ExcludedCreationPackageSummary => string.Format(UiText.Text("Excluded from selection ({0})"), ExcludedCreationPackages.Count);
+    public void ExcludeCreationPackage(UiCreationPackage row)
+    {
+        if (!row.Selected || row.IsRequired) return;
+        var selection = CurrentCreationSelection();
+        if (ProjectRules.Foundation(selection, config).Append(ProjectRules.AvatarSdk).Append(ProjectRules.WorldSdk).Contains(row.Id, StringComparer.OrdinalIgnoreCase)) return;
+        if (!selection.Remove(row.Id, out var version)) return;
+        CurrentExcludedPackages[row.Id] = version;
+        creationOverrides = selection;
+        if (SelectedImportDraft is { } draft) draft.Packages = new(selection);
+        RememberSelectionSource(); RefreshCreationPackages();
+    }
+    public void IncludeExcludedCreationPackage(UiCreationPackage row)
+    {
+        if (!CurrentExcludedPackages.Remove(row.Id, out var version)) return;
+        var selection = CurrentCreationSelection(); selection[row.Id] = version;
+        creationOverrides = selection;
+        if (SelectedImportDraft is { } draft) draft.Packages = new(selection);
+        RememberSelectionSource(); RefreshCreationPackages();
+    }
     public ObservableCollection<UiCreationPackage> DetectedCreationPackages { get; } = [];
     public ObservableCollection<UiCreationPackage> PossibleCreationPackages { get; } = [];
     public Visibility DetectedCreationPackagesVisibility => DetectedCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PossibleCreationPackagesVisibility => PossibleCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-    private UiCreationPackage[] BundledReviewCandidates()
-    {
-        var protectedIds = ProjectRules.Foundation(CurrentCreationSelection(), config).Append(ProjectRules.AvatarSdk).Append(ProjectRules.WorldSdk).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return CreationPackages.Where(x => x.Selected && x.Data.Evidence?.Confidence == DependencyConfidence.Included && !protectedIds.Contains(x.Id)).ToArray();
-    }
-    public Visibility BundledReviewVisibility => BundledReviewCandidates().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility NormalCustomizeVisibility => Visibility.Visible;
-    public Visibility SuggestedReviewOnlyVisibility => BundledReviewVisibility == Visibility.Collapsed && (DetectedCreationPackages.Count > 0 || PossibleCreationPackages.Count > 0 || VersionReviewCandidates().Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SuggestedReviewOnlyVisibility => DetectedCreationPackages.Count > 0 || PossibleCreationPackages.Count > 0 || VersionReviewCandidates().Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     private Dictionary<string, DependencyProposal> VersionReviewCandidates() => CreationInspection is null
         ? new(StringComparer.OrdinalIgnoreCase)
         : DependencyAdvisor.Propose(CurrentCreationSelection(), CreationInspection).Where(x => x.Kind == DependencyProposalKind.ReviewVersion)
             .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
-    public string BundledReviewText
-    {
-        get
-        {
-            var names = BundledReviewCandidates().Select(x => x.Name).ToArray();
-            return string.Join(", ", names.Take(3)) + (names.Length > 3 ? ", …" : "");
-        }
-    }
     private readonly Dictionary<string, int> creationPreviewOrder = new(StringComparer.OrdinalIgnoreCase);
     private string creationPreviewContext = "";
     public string CreationPackageSummary
     {
         get
         {
-            var missing = CreationPackages.Count(x => !x.Selected);
-            return string.Format(UiText.Text("{0} packages included"), CreationPackages.Count(x => x.Selected))
+            var missing = DetectedCreationPackages.Count + PossibleCreationPackages.Count;
+            return string.Format(UiText.Text("Packages to install ({0})"), CreationPackages.Count(x => x.Selected))
                 + (missing > 0 ? " · " + string.Format(UiText.Text("{0} suggested"), missing) : "");
         }
     }
@@ -53,10 +70,9 @@ public sealed partial class MainViewModel
     public SuggestionReviewSnapshot CreateSuggestionReview()
     {
         var selected = CurrentCreationSelection();
-        var removable = BundledReviewCandidates().Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var versionReviews = VersionReviewCandidates();
         var rows = CreationPackages.Where(x => x.Data.Evidence is not null &&
-            (removable.Contains(x.Id) || versionReviews.ContainsKey(x.Id) || !x.Selected && x.Data.Evidence.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared or DependencyConfidence.Possible))
+            !CurrentExcludedPackages.ContainsKey(x.Id) && (versionReviews.ContainsKey(x.Id) || !x.Selected && x.Data.Evidence.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared or DependencyConfidence.Possible))
             .Select(x => new SuggestionReviewItem(x.Id, x.Name, x.Selected, x.Data.Evidence!.Confidence,
                 x.Data.Evidence.Confidence == DependencyConfidence.Possible ? "latest" : DependencyAdvisor.SuggestedVersion(x.Data.Evidence), x.AvailableVersion,
                 versionReviews.GetValueOrDefault(x.Id)?.SelectedVersion, versionReviews.GetValueOrDefault(x.Id)?.Evidence.VersionConstraint)).ToArray();
@@ -71,7 +87,6 @@ public sealed partial class MainViewModel
         {
             if (!choices.TryGetValue(row.Id, out var include) || include == row.Selected) continue;
             if (include && row.Version is not null) selection.TryAdd(row.Id, row.Version);
-            else if (!include && row.Selected && row.Confidence == DependencyConfidence.Included) selection.Remove(row.Id);
         }
         creationOverrides = selection;
         if (SelectedImportDraft is { } draft) draft.Packages = new(selection);
@@ -83,6 +98,7 @@ public sealed partial class MainViewModel
         var context = PackageFile + "\0" + SelectedPreset;
         if (context != creationPreviewContext) { creationPreviewContext = context; creationPreviewOrder.Clear(); }
         var desired = DependencyAdvisor.CombineSelection(CurrentCreationSelection(), CreationInspection);
+        var required = ProjectRules.Foundation(CurrentCreationSelection(), config).Append(ProjectRules.AvatarSdk).Append(ProjectRules.WorldSdk).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var item in desired) if (!creationPreviewOrder.ContainsKey(item.Id)) creationPreviewOrder[item.Id] = creationPreviewOrder.Count;
         var ids = desired.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var i = CreationPackages.Count - 1; i >= 0; i--) if (!ids.Contains(CreationPackages[i].Id)) CreationPackages.RemoveAt(i);
@@ -94,7 +110,17 @@ public sealed partial class MainViewModel
             if (current is null) CreationPackages.Insert(i, new(item, name));
             else { current.Update(item, name); var old = CreationPackages.IndexOf(current); if (old != i) CreationPackages.Move(old, i); }
         }
-        var suggestions = CreationPackages.Where(x => !x.Selected && x.Data.Evidence?.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared).ToArray();
+        foreach (var row in CreationPackages) row.IsRequired = required.Contains(row.Id);
+        SelectedCreationPackages.Clear();
+        foreach (var row in CreationPackages.Where(x => x.Selected).OrderByDescending(x => x.IsRequired).ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)) SelectedCreationPackages.Add(row);
+        ExcludedCreationPackages.Clear();
+        var currentSelection = CurrentCreationSelection();
+        if (!switchingImportDraft)
+            foreach (var id in CurrentExcludedPackages.Keys.Where(currentSelection.ContainsKey).ToArray()) CurrentExcludedPackages.Remove(id);
+        foreach (var excluded in CurrentExcludedPackages)
+            ExcludedCreationPackages.Add(new(new(excluded.Key, excluded.Value, false, null), PackageDisplayName(excluded.Key)));
+        OnPropertyChanged(nameof(ExcludedCreationPackagesVisibility)); OnPropertyChanged(nameof(ExcludedCreationPackageSummary));
+        var suggestions = CreationPackages.Where(x => !x.Selected && !CurrentExcludedPackages.ContainsKey(x.Id) && x.Data.Evidence?.Confidence is DependencyConfidence.Detected or DependencyConfidence.Declared).ToArray();
         for (var i = DetectedCreationPackages.Count - 1; i >= 0; i--) if (!suggestions.Contains(DetectedCreationPackages[i])) DetectedCreationPackages.RemoveAt(i);
         for (var i = 0; i < suggestions.Length; i++)
         {
@@ -102,7 +128,7 @@ public sealed partial class MainViewModel
             if (position < 0) DetectedCreationPackages.Insert(i, suggestions[i]);
             else if (position != i) DetectedCreationPackages.Move(position, i);
         }
-        var possible = CreationPackages.Where(x => !x.Selected && x.Data.Evidence?.Confidence == DependencyConfidence.Possible).ToArray();
+        var possible = CreationPackages.Where(x => !x.Selected && !CurrentExcludedPackages.ContainsKey(x.Id) && x.Data.Evidence?.Confidence == DependencyConfidence.Possible).ToArray();
         for (var i = PossibleCreationPackages.Count - 1; i >= 0; i--) if (!possible.Contains(PossibleCreationPackages[i])) PossibleCreationPackages.RemoveAt(i);
         for (var i = 0; i < possible.Length; i++)
         {
@@ -112,10 +138,8 @@ public sealed partial class MainViewModel
         }
         OnPropertyChanged(nameof(DetectedCreationPackagesVisibility));
         OnPropertyChanged(nameof(PossibleCreationPackagesVisibility));
-        OnPropertyChanged(nameof(BundledReviewVisibility));
         OnPropertyChanged(nameof(NormalCustomizeVisibility));
         OnPropertyChanged(nameof(SuggestedReviewOnlyVisibility));
-        OnPropertyChanged(nameof(BundledReviewText));
         OnPropertyChanged(nameof(CreationPackageSummary));
         RefreshInspectionSummary();
         RefreshCreationVersions();
@@ -141,6 +165,10 @@ public sealed record SuggestionReviewSnapshot(string File, UiImportDraft? Draft,
 
 public sealed class UiCreationPackage(PackageSelectionPreview data, string name) : ObservableObject
 {
+    private bool isRequired;
+    public bool IsRequired { get => isRequired; set { if (SetProperty(ref isRequired, value)) { OnPropertyChanged(nameof(ExcludeVisibility)); OnPropertyChanged(nameof(RequiredVisibility)); } } }
+    public Visibility ExcludeVisibility => Selected && !IsRequired ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RequiredVisibility => IsRequired ? Visibility.Visible : Visibility.Collapsed;
     public PackageSelectionPreview Data { get; private set; } = data;
     public string Id => Data.Id;
     public string Name { get; private set; } = name;
@@ -158,7 +186,7 @@ public sealed class UiCreationPackage(PackageSelectionPreview data, string name)
     public string AccessibilityLabel => Name + ", " + UiText.Text(Version) + (Data.Version is "latest" ? ", " + UiText.Text(AvailableVersion) : "");
     public string Hint => Data.Evidence?.Confidence switch
     {
-        DependencyConfidence.Included => "In file", DependencyConfidence.Declared => Selected ? "Required" : "Required · not selected",
+        DependencyConfidence.Declared => Selected ? "Required" : "Required · not selected",
         DependencyConfidence.Detected => Selected ? "Detected" : "Detected · not selected", _ => ""
     };
     public string Action => Data.Evidence is { } hint && (hint.Confidence == DependencyConfidence.Possible || DependencyAdvisor.SuggestedVersion(hint) is not null) ? "Add" : "Review";

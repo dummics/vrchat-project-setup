@@ -203,14 +203,18 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Max(1, SettingsView.ActualWidth - 24);
     }
     private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
+    private void ExcludeCreationPackageClicked(object sender, RoutedEventArgs args)
+    { if (sender is FrameworkElement { DataContext: UiCreationPackage row }) ViewModel.ExcludeCreationPackage(row); }
+    private void IncludeExcludedPackageClicked(object sender, RoutedEventArgs args)
+    { if (sender is FrameworkElement { DataContext: UiCreationPackage row }) ViewModel.IncludeExcludedCreationPackage(row); }
     private void UpdateCreationPackageItemWidth(double recapWidth)
     {
         var listWidth = Math.Max(1, recapWidth - CreationPackageDetails.Padding.Left - CreationPackageDetails.Padding.Right);
         if (double.IsNaN(CreationPackageList.Width) || Math.Abs(CreationPackageList.Width - listWidth) > 0.5)
             CreationPackageList.Width = listWidth;
         if (CreationPackageList.ItemsPanelRoot is not ItemsWrapGrid items) return;
-        var available = Math.Max(1, listWidth - CreationPackageList.Padding.Left - CreationPackageList.Padding.Right - 8);
-        var itemWidth = available / (available >= 600 ? 2 : 1);
+        var available = Math.Max(1, listWidth - CreationPackageList.Padding.Left - CreationPackageList.Padding.Right);
+        var itemWidth = available;
         if (double.IsNaN(items.ItemWidth) || Math.Abs(items.ItemWidth - itemWidth) > 0.5) items.ItemWidth = itemWidth;
     }
     private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement
@@ -459,6 +463,8 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if (sender is Expander { DataContext: UiImportRow row } expander) { StopImportDetailsMotion(expander); row.DetailsOpen = false; ConstrainForms(); } }
     private async void ImportPauseClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.PauseImportAsync(row); }
+    private async void ImportLimitChanged(object sender, SelectionChangedEventArgs args)
+    { if (sender is ComboBox { SelectedItem: int value }) await ViewModel.SetImportLimitAsync(value); }
     private void ImportLogClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.OpenImportLog(row); }
     private async void ImportRecoverClicked(object sender, RoutedEventArgs args)

@@ -31,15 +31,25 @@ internal static class MultiImportVerification
             return new ProjectPlan { Name = name, Path = path, ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(), Changes = [],
                 Creation = new CreationRequest("", name, path, editor, "StandaloneWindows64", ["StandaloneWindows64"], [], EmptyProject: true) };
         }).ToArray();
+        queue.ConfigureAutomaticLimit(3);
         var watch = Stopwatch.StartNew();
         await queue.EnqueueAsync(new OperationPlan(Guid.NewGuid().ToString("N"), DateTime.UtcNow, projects), 0);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(20));
-        while (queue.HasActiveJobs) await Task.Delay(500, timeout.Token);
+        double? minimumAvailableGiB = null, minimumCommitGiB = null;
+        while (queue.HasActiveJobs)
+        {
+            if (queue.Resources is { } sample)
+            {
+                minimumAvailableGiB = Math.Min(minimumAvailableGiB ?? double.MaxValue, sample.AvailableGiB);
+                minimumCommitGiB = Math.Min(minimumCommitGiB ?? double.MaxValue, sample.AvailableCommitGiB);
+            }
+            await Task.Delay(500, timeout.Token);
+        }
         watch.Stop();
         var jobs = queue.Snapshot();
-        if (started != 3 || peak is < 1 or > 2 || jobs.Length != 3 || jobs.Any(x => x.State != "Completed"))
+        if (started != 3 || peak is < 1 or > 3 || jobs.Length != 3 || jobs.Any(x => x.State != "Completed"))
             throw new IOException($"Automatic import queue did not complete safely: started={started}, peak={peak}, states={string.Join(',', jobs.Select(x => x.State))}.");
-        await AtomicFile.WriteJsonAsync(Path.Combine(evidence, "multi-import.json"), new { Passed = true, PeakConcurrent = peak, ElapsedSeconds = watch.Elapsed.TotalSeconds, Count = started });
+        await AtomicFile.WriteJsonAsync(Path.Combine(evidence, "multi-import.json"), new { Passed = true, RequestedMaximum = 3, PeakConcurrent = peak, ReachedThree = peak == 3, ElapsedSeconds = watch.Elapsed.TotalSeconds, Count = started, MinimumSystemAvailableGiB = minimumAvailableGiB, MinimumSystemCommitAvailableGiB = minimumCommitGiB });
         Console.WriteLine($"PASS: {started} isolated Unity imports completed; peak concurrent {peak}; {watch.Elapsed.TotalSeconds:F1}s.");
     }
 }

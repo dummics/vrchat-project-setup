@@ -10,15 +10,15 @@ public sealed class DependencyProposalTests
     private static PackageInspectionReport Report(params DependencySuggestion[] suggestions)
         => new(new(2, 0, 0, true, true, [], [], 0), "fixture-index", "Avatar prefab", 0, suggestions, false);
 
-    [Fact] public void AdviceExplainsAdditionsVersionsAndBundledOverlapWithoutMutatingSelection()
+    [Fact] public void AdviceExplainsAdditionsAndVersionsWithoutTreatingArchiveMetadataAsInstalledPackages()
     {
         var selection = new Dictionary<string, string> { ["pinned"] = "1.0.0", ["bundled"] = "latest", ["unrelated-tool"] = "2.0.0" };
         var proposals = DependencyAdvisor.Propose(selection, Report(Hint("missing", DependencyConfidence.Detected),
             Hint("pinned", DependencyConfidence.Declared, "3.0.0"), Hint("bundled", DependencyConfidence.Included, "1.0.0")));
-        Assert.Equal(3, proposals.Length);
+        Assert.Equal(2, proposals.Length);
         Assert.Equal("latest", Assert.Single(proposals, x => x.Kind == DependencyProposalKind.Add).ProposedVersion);
         Assert.Equal("3.0.0", Assert.Single(proposals, x => x.Kind == DependencyProposalKind.ReviewVersion).ProposedVersion);
-        Assert.Null(Assert.Single(proposals, x => x.Kind == DependencyProposalKind.ReviewBundled).ProposedVersion);
+        Assert.DoesNotContain(proposals, x => x.Kind == DependencyProposalKind.ReviewBundled || x.Id == "bundled");
         Assert.Equal("1.0.0", selection["pinned"]); Assert.Equal("latest", selection["bundled"]);
         Assert.Equal(3, selection.Count); Assert.DoesNotContain(proposals, x => x.Id == "unrelated-tool");
     }

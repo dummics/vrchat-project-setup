@@ -10,6 +10,7 @@ public sealed partial class MainViewModel
     public Visibility UseImportPresetVisibility => editingImportPreset && !editingNewProject ? Visibility.Visible : Visibility.Collapsed;
     private void StoreImportSelection(string preset, Dictionary<string, string> selection)
     {
+        RememberExcludedSelection(CurrentCreationSelection(), selection, preset == SelectedPreset);
         var previous = SelectedPreset == DefaultPresetKey ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(SelectedPreset) ?? config.VpmPackages;
         if (preset != SelectedPreset)
             foreach (var other in ImportDrafts.Where(x => x != SelectedImportDraft)) other.Packages ??= new(previous);
@@ -26,11 +27,13 @@ public sealed partial class MainViewModel
     [RelayCommand] private async Task UsePresetForImport() => await Guard(async () =>
     {
         var selection = new Dictionary<string, string>(presetWorking); var preset = EditingPreset;
+        var previousSelection = CurrentCreationSelection();
         var previousPreset = SelectedPreset == DefaultPresetKey ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(SelectedPreset) ?? config.VpmPackages;
         acceptingImportSelection = true;
         try
         {
             if (!await NavigateAsync("Create")) return;
+            RememberExcludedSelection(previousSelection, selection, preset == SelectedPreset);
             if (preset != SelectedPreset)
                 foreach (var other in ImportDrafts.Where(x => x != SelectedImportDraft)) other.Packages ??= new(previousPreset);
             SelectedPreset = preset; creationOverrides = selection;

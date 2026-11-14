@@ -59,6 +59,11 @@ public static class UiSmokeTest
     {
         var page = window.Page; await page.Initialized;
         var viewModel = page.ViewModel; var checks = new List<string>();
+        var originalImportLimit = viewModel.ImportLimit;
+        await viewModel.SetImportLimitAsync(3);
+        Require(viewModel.ImportLimit == 3 && (await viewModel.Application.Configuration.LoadAsync()).MaxParallelImports == 3,
+            "The import concurrency choice persists without replacing settings or stopping imports");
+        await viewModel.SetImportLimitAsync(originalImportLimit);
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(400, 240));
         Require(window.AppWindow.Size.Width >= 720 && window.AppWindow.Size.Height >= 580, "Native window enforces a usable minimum size");
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
@@ -939,34 +944,45 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         possibleExpander.IsExpanded = false;
         viewModel.CreationInspection = null;
         var selectedForBundled = viewModel.CreationPackages.First(x => x.Selected && x.Id == "gogoloco");
+        var selectedVersionBeforeExclusion = selectedForBundled.Data.Version;
+        var savedPackagesBeforeExclusion = (await viewModel.Application.Configuration.LoadAsync()).VpmPackages;
+        viewModel.ExcludeCreationPackage(selectedForBundled);
+        Require(!viewModel.SelectedCreationPackages.Any(x => x.Id == selectedForBundled.Id)
+            && viewModel.ExcludedCreationPackages.Any(x => x.Id == selectedForBundled.Id),
+            "Excluding a VPM choice moves it from the install list to the explicit exclusions");
+        var exclusionsSurface = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("ExcludedCreationPackageDetails");
+        exclusionsSurface.IsExpanded = true;
+        await Task.Delay(100); page.UpdateLayout();
+        Require(exclusionsSurface.Visibility == Visibility.Visible && exclusionsSurface.ActualWidth > 0,
+            "Explicit exclusions have their own visible surface beside the install list");
+        exclusionsSurface.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
+        await Task.Delay(100); page.UpdateLayout();
+        await Render(page, Path.Combine(artifacts, "vpm-excluded-packages.png"));
+        viewModel.IncludeExcludedCreationPackage(viewModel.ExcludedCreationPackages.Single(x => x.Id == selectedForBundled.Id));
+        Require(viewModel.SelectedCreationPackages.Single(x => x.Id == selectedForBundled.Id).Data.Version == selectedVersionBeforeExclusion,
+            "Restoring an excluded VPM package preserves its chosen version");
+        Require((await viewModel.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(savedPackagesBeforeExclusion.OrderBy(x => x.Key)),
+            "Import exclusions never edit the saved package preset");
+        var requiredPackage = viewModel.SelectedCreationPackages.First(x => x.IsRequired);
+        viewModel.ExcludeCreationPackage(requiredPackage);
+        Require(viewModel.SelectedCreationPackages.Any(x => x.Id == requiredPackage.Id), "Required foundation packages cannot be excluded");
         viewModel.CreationInspection = advice with { Suggestions = [new(selectedForBundled.Id, DependencyConfidence.Included, "1.0.0", [new("Packages/fixture/package.json", "manifest")])] };
         await Task.Delay(100); page.UpdateLayout();
-        var bundledNotice = (FrameworkElement)page.FindName("BundledReviewNotice");
-        var bundledButton = (Microsoft.UI.Xaml.Controls.Button)page.FindName("BundledReviewButton");
         var ordinaryCustomize = (Microsoft.UI.Xaml.Controls.Button)page.FindName("CustomizePackagesButton");
-        Require(bundledNotice.Visibility == Visibility.Visible && bundledNotice.ActualWidth > 0 && bundledButton.ActualWidth > 0 && ordinaryCustomize.Visibility == Visibility.Visible,
-            "The bundled review action and full customization are both available");
-        Require(UiText.Text("Also in file · may still be needed", "it") == "Anche nel file · potrebbero servire",
-            "The bundled review notice explains the uncertainty in Italian");
-        await Render(page, Path.Combine(artifacts, "bundled-review.png"));
+        Require(viewModel.CreateSuggestionReview().Items.Length == 0 && ordinaryCustomize.Visibility == Visibility.Visible,
+            "Bundled metadata does not suggest removing a selected VPM package");
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 580));
         await Task.Delay(150); page.UpdateLayout();
-        var bundledRight = bundledButton.TransformToVisual(bundledNotice).TransformPoint(new(0, 0)).X + bundledButton.ActualWidth;
-        var createView = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreateView");
-        var bundledTop = bundledButton.TransformToVisual(createView).TransformPoint(new(0, 0)).Y;
-        if (bundledTop + bundledButton.ActualHeight > createView.ActualHeight)
-        {
-            createView.ChangeView(null, createView.VerticalOffset + bundledTop + bundledButton.ActualHeight - createView.ActualHeight + 8, null, true);
-            await Task.Delay(100); page.UpdateLayout();
-            bundledTop = bundledButton.TransformToVisual(createView).TransformPoint(new(0, 0)).Y;
-        }
-        Require(bundledButton.ActualWidth > 0 && bundledRight <= bundledNotice.ActualWidth + 1 && bundledTop >= 0 && bundledTop + bundledButton.ActualHeight <= createView.ActualHeight + 1,
-            "The package review action is reachable at minimum window size");
-        await Render(page, Path.Combine(artifacts, "bundled-review-compact.png"));
+        await Render(page, Path.Combine(artifacts, "vpm-selection-compact.png"));
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
         await Task.Delay(100); page.UpdateLayout();
         viewModel.CreationInspection = null;
         var suggestionDecisions = new FlowInteraction(page);
+        viewModel.CreationInspection = advice;
+        await Task.Delay(100); page.UpdateLayout();
+        Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("SuggestedPackageReviewButton")).Visibility == Visibility.Visible,
+            "Detected VPM suggestions always expose the dedicated review action");
+        viewModel.CreationInspection = null;
         using (var focusedReview = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
         {
             await focusedReview.InitializeAsync(); focusedReview.CurrentPage = "Create";
@@ -974,23 +990,23 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 new("gogoloco", DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")]),
                 advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
             var snapshot = focusedReview.CreateSuggestionReview();
-            Require(snapshot.Items.Length == 2 && snapshot.Items.Any(x => x.Id == "gogoloco" && x.Selected) && snapshot.Items.Any(x => x.Id == "com.llealloo.audiolink" && !x.Selected),
-                "Focused review contains only the suggested addition and the selected package listed in the file");
+            Require(snapshot.Items.Length == 1 && snapshot.Items.All(x => x.Id != "gogoloco") && snapshot.Items.Any(x => x.Id == "com.llealloo.audiolink" && !x.Selected),
+                "Focused review contains only a relevant VPM addition, not removals inferred from archived files");
             var dialog = new SuggestionReviewDialog(snapshot, _ => Task.FromResult(new[] { "2.3.4" }));
             var staged = dialog.Result();
-            Require(staged["gogoloco"] && !staged["com.llealloo.audiolink"], "Opening suggested package review does not change selections");
+            Require(!staged.ContainsKey("gogoloco") && !staged["com.llealloo.audiolink"], "Opening suggested package review does not change selections");
             dialog.Dialog.XamlRoot = page.XamlRoot;
             var suggestionShown = dialog.Dialog.ShowAsync(); await Task.Delay(150); dialog.Dialog.UpdateLayout();
-            Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.CheckBox>().Count() == 2, "Focused review renders just the two relevant package choices");
+            Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.CheckBox>().Count() == 1, "Focused review renders only the relevant package choice");
             Require(Descendants(dialog.Dialog).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Any(x => x.Text.Contains("2.3.4")), "Suggested package review shows the fetched latest version");
             await Render(dialog.Dialog, Path.Combine(artifacts, "suggestion-review.png"));
             dialog.Dialog.Hide(); await suggestionShown;
             Require(focusedReview.CreationPackages.Any(x => x.Id == "gogoloco" && x.Selected) && !focusedReview.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected),
                 "Closing suggested package review preserves the existing selection");
             staged["gogoloco"] = false; staged["com.llealloo.audiolink"] = true;
-            Require(focusedReview.ApplySuggestionReview(snapshot, staged) && !focusedReview.CreationPackages.Any(x => x.Id == "gogoloco" && x.Selected) &&
+            Require(focusedReview.ApplySuggestionReview(snapshot, staged) && focusedReview.CreationPackages.Any(x => x.Id == "gogoloco" && x.Selected) &&
                 focusedReview.CreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && x.Selected),
-                "Suggested addition and possible removal apply only after explicit choices");
+                "Suggested additions apply explicitly and ignore unoffered removal choices");
             Require(!focusedReview.ApplySuggestionReview(snapshot, staged), "An outdated suggestion review cannot overwrite newer choices");
         }
         using (var versionReview = new VrcSetup_Desktop.ViewModels.MainViewModel(viewModel.Application, suggestionDecisions))
@@ -1018,14 +1034,14 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             await reviewFlow.InitializeAsync(); reviewFlow.CurrentPage = "Create";
             var beforeBundled = reviewFlow.CreationPackages.Where(x => x.Selected).Select(x => x.Id).Order(StringComparer.Ordinal).ToArray();
             reviewFlow.CreationInspection = advice with { Suggestions = [new("gogoloco", DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")])] };
-            Require(reviewFlow.BundledReviewVisibility == Visibility.Visible && reviewFlow.NormalCustomizeVisibility == Visibility.Visible && reviewFlow.BundledReviewText.Contains("gogo", StringComparison.OrdinalIgnoreCase) &&
+            Require(reviewFlow.NormalCustomizeVisibility == Visibility.Visible && reviewFlow.CreateSuggestionReview().Items.Length == 0 &&
                 reviewFlow.CreationPackages.Where(x => x.Selected).Select(x => x.Id).Order(StringComparer.Ordinal).SequenceEqual(beforeBundled),
-                "A selected package listed in the archive is offered for review without removing it");
-            Require(reviewFlow.InspectionStatus.Length == 0, "The bundled review notice does not compete with a redundant empty-result message");
+                "A selected package listed in the archive remains a VPM choice without a removal suggestion");
+            Require(reviewFlow.InspectionStatus == "No additional packages found.", "Archived package metadata alone does not create a package alert");
             reviewFlow.CreationInspection = advice with { Suggestions = [new(ProjectRules.BaseSdk, DependencyConfidence.Included, "3.10.5", [new("Packages/com.vrchat.base/package.json", "manifest")])] };
-            Require(reviewFlow.BundledReviewVisibility == Visibility.Collapsed, "Required foundation packages are not proposed for removal review");
+            Require(reviewFlow.CreateSuggestionReview().Items.Length == 0, "Required foundation packages are not proposed for removal review");
             reviewFlow.CreationInspection = null;
-            Require(reviewFlow.BundledReviewVisibility == Visibility.Collapsed && reviewFlow.NormalCustomizeVisibility == Visibility.Visible, "The bundled review action disappears and the normal customize action returns without matching metadata");
+            Require(reviewFlow.CreateSuggestionReview().Items.Length == 0 && reviewFlow.NormalCustomizeVisibility == Visibility.Visible, "Package customization remains available without archive metadata");
             reviewFlow.CreationInspection = advice with { Suggestions = [advice.Suggestions.Single(x => x.Id == "com.llealloo.audiolink")] };
             var possible = reviewFlow.PossibleCreationPackages.Single(x => x.Id == "com.llealloo.audiolink");
             Require(reviewFlow.InspectionStatus == "Check other possible packages below.", "Possible-only results do not report that no packages were found");
@@ -1040,6 +1056,15 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             var firstDraft = reviewFlow.ImportDrafts.Single(x => x.File == inspectionFile);
             var secondDraft = reviewFlow.ImportDrafts.Single(x => x.File == secondFile);
             reviewFlow.SelectedImportDraft = firstDraft;
+            var optionalForExclusion = reviewFlow.SelectedCreationPackages.First(x => !x.IsRequired);
+            var excludedId = optionalForExclusion.Id;
+            reviewFlow.ExcludeCreationPackage(optionalForExclusion);
+            reviewFlow.SelectedImportDraft = secondDraft;
+            Require(!reviewFlow.ExcludedCreationPackages.Any(x => x.Id == excludedId), "Explicit VPM exclusions do not leak to another import draft");
+            reviewFlow.SelectedImportDraft = firstDraft;
+            Require(reviewFlow.ExcludedCreationPackages.Any(x => x.Id == excludedId) && !reviewFlow.SelectedCreationPackages.Any(x => x.Id == excludedId),
+                "Switching back to an import draft restores its explicit VPM exclusion");
+            reviewFlow.IncludeExcludedCreationPackage(reviewFlow.ExcludedCreationPackages.Single(x => x.Id == excludedId));
             var inspectionDeadline = DateTime.UtcNow.AddSeconds(10);
             while (reviewFlow.IsInspectingPackage && DateTime.UtcNow < inspectionDeadline) await Task.Delay(25);
             Require(!reviewFlow.IsInspectingPackage, "The first fixture inspection settles before selecting a suggestion");
@@ -1321,9 +1346,9 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     var firstRecapItem = (FrameworkElement)creationList.ContainerFromIndex(0);
                     Require(double.IsPositiveInfinity(creationList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(creationList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled && details.ActualWidth <= ((FrameworkElement)page.FindName("CreateForm")).ActualWidth + 1, "Expanded package recap shows its full list within the form without nested scrolling: " + size.Width);
                     Require(creationList.ActualWidth >= details.ActualWidth - 32 && recapItems.ItemWidth >= 220 && firstRecapItem.ActualWidth >= 220, $"Expanded package rows fill the disclosure width: {size.Width}, list={creationList.ActualWidth}, surface={details.ActualWidth}, item={recapItems.ItemWidth}, container={firstRecapItem.ActualWidth}");
-                    Require(creationList.ActualHeight >= 28 && creationList.Items.Count == viewModel.CreationPackages.Count && creationList.Items.Cast<object>().All(x => creationList.ContainerFromItem(x) is FrameworkElement { ActualHeight: > 0 }), "Every included import package is rendered without clipping: " + size.Width);
+                    Require(creationList.ActualHeight >= 28 && creationList.Items.Count == viewModel.SelectedCreationPackages.Count && creationList.Items.Cast<object>().All(x => creationList.ContainerFromItem(x) is FrameworkElement { ActualHeight: > 0 }), "Every selected VPM package is rendered without clipping: " + size.Width);
                     var versions = Descendants(creationList).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Where(x => x.Name == "CreationPackageVersion").ToArray();
-                    Require(versions.Length == viewModel.CreationPackages.Count && versions.All(x => x.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(x.Text)), "Every package recap row shows its selected version or next step: " + size.Width);
+                    Require(versions.Length == viewModel.SelectedCreationPackages.Count && versions.All(x => x.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(x.Text)), "Every selected VPM row shows its version: " + size.Width);
                     var chip = Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>().First(x => x.Name == "ExpanderHeader");
                     Require(Math.Abs(chip.ActualWidth - details.ActualWidth) < 2, "Package disclosure opens as one continuous surface: " + size.Width);
                     Require(!Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.Command == viewModel.InspectDeeperCommand), "Package recap has no technical analysis action: " + size.Width);
