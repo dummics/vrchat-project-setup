@@ -93,7 +93,13 @@ public static class Program
                     if (snapshot.Status == "Invalid VPM manifest") throw new IOException("Project VPM manifest is invalid.");
                     PrintData(snapshot.Packages.Select(x => new { Package = x.Key, Version = x.Value }).ToArray(), command.Has("json")); return 0;
                 }
-                if (action is not ("add" or "remove")) throw new ArgumentException("Use packages list, search, versions, add or remove.");
+                if (action == "reinstall")
+                {
+                    var repair = await app.Planner.PlanPackageReinstallAsync(project, cancellationToken);
+                    if (!command.DryRun && !command.Has("yes") && !Confirm("Restore the project's VPM packages at their current versions? Local changes to package files may be replaced.")) return 1;
+                    return await ApplyOrPreview(app, repair, command, progress, cancellationToken);
+                }
+                if (action is not ("add" or "remove")) throw new ArgumentException("Use packages list, search, versions, add, remove or reinstall.");
                 var specs = command.Positionals.Skip(3).Concat(command.All("package")).ToArray();
                 if (specs.Length == 0) throw new ArgumentException("At least one package is required.");
                 var selected = action == "add" ? ParsePackages(specs) : new Dictionary<string, string>();
@@ -274,6 +280,11 @@ public static class Program
         foreach (var project in plan.Projects)
         {
             Console.WriteLine($"Project: {project.Name} | {project.Path}");
+            if (project.ReinstallLockedPackages)
+            {
+                Console.WriteLine($"  Reinstall: {string.Join(", ", project.Changes.Select(x => x.Id + "@" + x.ResolvedVersion))}");
+                continue;
+            }
             foreach (var kind in new[] { ChangeKind.Add, ChangeKind.Update, ChangeKind.Remove })
                 Console.WriteLine($"  {kind}: {string.Join(", ", project.Changes.Where(x => x.Kind == kind).Select(x => x.Id + (x.ResolvedVersion is null ? "" : "@" + x.ResolvedVersion)))}");
             if (project.Creation is { } create) Console.WriteLine($"  Create from: {create.UnityPackagePath} | {create.BuildTarget} | Publish: {string.Join(", ", create.PublishingPlatforms)}");
@@ -302,6 +313,7 @@ public static class Program
         vrcsetup packages versions <package> [-Json]
         vrcsetup packages add <project> <package[@version]> [...] [-DryRun]
         vrcsetup packages remove <project> <package> [...] [-DryRun]
+        vrcsetup packages reinstall <project> [--yes] [--dry-run]
         vrcsetup presets list [-Json]
         vrcsetup presets save <name> <project> [-DryRun]
         vrcsetup presets remove <name> [-DryRun]

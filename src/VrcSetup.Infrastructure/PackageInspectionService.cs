@@ -201,8 +201,9 @@ public sealed class PackageInspectionService(AppPaths paths, IUnityPackageInspec
         {
             if (index is { } ready) return ready;
             var seed = await ReadCache<PackageSignature[]>(Path.Combine(paths.Resources, "dependency-signatures.json"), 5 * 1024 * 1024, token) ?? [];
+            var publisher = await ReadCache<PackageSignature[]>(Path.Combine(paths.Resources, "dependency-publisher-signatures.json"), 5 * 1024 * 1024, token) ?? [];
             var local = await ReadCache<PackageSignature[]>(Path.Combine(Cache, "signatures.json"), 16 * 1024 * 1024, token) ?? [];
-            var signatures = seed.Concat(local).Where(Valid).Distinct().ToArray();
+            var signatures = seed.Concat(publisher).Concat(local).Where(Valid).Distinct().ToArray();
             var revision = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(signatures)));
             return index = new(revision, signatures);
         }

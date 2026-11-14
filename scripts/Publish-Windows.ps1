@@ -36,7 +36,12 @@ foreach ($resource in @('MainWindow.xbf','MainPage.xbf','PackageBrowserView.xbf'
     if (-not (Test-Path -LiteralPath (Join-Path $payload ('app\desktop\' + $resource)))) { throw "Native XAML publish resource missing: $resource" }
 }
 foreach ($client in @('cli','desktop')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $payload ('app\' + $client + '\Resources\dependency-signatures.json')))) { throw "Dependency signature seed missing from published $client." }
+    $resources = Join-Path $payload ('app\' + $client + '\Resources')
+    foreach ($seedFile in @('dependency-signatures.json', 'dependency-publisher-signatures.json', 'dependency-publisher-signatures.provenance.json', 'dependency-publisher-signatures.LICENSE.txt')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $resources $seedFile) -PathType Leaf)) {
+            throw "Dependency signature resource $seedFile missing from published $client."
+        }
+    }
 }
 foreach ($name in @('VRC Project Setup.bat','Install VRC Project Setup.bat','Repair VRC Project Setup.bat','Uninstall VRC Project Setup.bat')) {
     $text = switch ($name) {

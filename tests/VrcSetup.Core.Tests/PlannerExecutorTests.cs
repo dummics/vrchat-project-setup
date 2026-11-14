@@ -148,6 +148,25 @@ public sealed class PlannerExecutorTests
         var change = plan.Changes.Single(x => x.Id == "tool");
         Assert.Equal("1.0.0", change.ResolvedVersion); Assert.Equal(ChangeKind.Update, change.Kind);
     }
+    [Fact] public async Task LockedFilesLostDuringPackageWorkAreResolvedWithoutRepeatingTheSameVersionAdd()
+    {
+        var workspace = new MemoryWorkspace();
+        var plan = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanAsync(workspace.Project.Path,
+            new Dictionary<string, string> { ["tool"] = "1.1.0" }, new());
+        var driver = new MemoryDriver(workspace);
+        var resolves = 0;
+        driver.AfterResolve = () =>
+        {
+            if (++resolves == 1) workspace.Project.InstalledVersions.Remove("tool");
+            else workspace.Project.InstalledVersions["tool"] = workspace.Project.LockedPackages["tool"];
+        };
+        var report = await new ProjectExecutor(workspace, driver).ApplyAsync(new("repair-locked-files", DateTime.UtcNow, [plan]));
+        Assert.True(report.Success);
+        Assert.Equal(2, resolves);
+        Assert.Single(driver.ChangedPackages, x => x.Id == "tool");
+        Assert.Equal("1.1.0", workspace.Project.InstalledVersions["tool"]);
+        Assert.Equal(0, driver.UnityCalls);
+    }
     [Fact] public async Task ChangedProjectAfterReviewIsSkipped()
     {
         var workspace = new MemoryWorkspace(); var driver = new MemoryDriver(workspace);
@@ -339,10 +358,12 @@ internal sealed class MemoryDriver(MemoryWorkspace workspace) : IProjectDriver
     public Exception? RegistrationFailure;
     public int Calls, UnityCalls, Registrations;
     public Action? AfterResolve;
+    public List<PackageChange> ChangedPackages = [];
     public Task PrepareAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) { Calls++; return Task.CompletedTask; }
     public Task CreateAsync(CreationRequest request, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) => Task.CompletedTask;
     public Task<ToolResult> ChangePackageAsync(string project, PackageChange change, IProgress<OperationEvent>? progress, CancellationToken cancellationToken)
     {
+        ChangedPackages.Add(change);
         Calls++;
         if (Fail) return Task.FromResult(new ToolResult(0, "[ERR] Could not get match", ""));
         if (change.Kind == ChangeKind.Remove) { workspace.Project.Packages.Remove(change.Id); workspace.Project.InstalledVersions.Remove(change.Id); }

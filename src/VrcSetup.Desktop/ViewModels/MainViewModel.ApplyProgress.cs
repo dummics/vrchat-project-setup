@@ -51,6 +51,7 @@ public sealed partial class MainViewModel
         {
             "Backup" => "Creating backup", "Prepare" => "Preparing project", "Packages" or "VPM" => "Updating packages",
             "Verify" or "Validate" => "Checking installed packages", "Import" => "Importing assets", "Finalize" or "Finish" => "Finishing",
+            "Restore packages" => "Restoring packages",
             "Recovery" => "Restoring backup", "Completed" => "Project updated", "Cancelled" => "Cancelled", _ => ApplyPhase
         };
     }

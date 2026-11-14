@@ -36,6 +36,36 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                 }
                 foreach (var import in project.ImportFingerprints)
                     if (ProjectRules.FileIdentity(import.Key) != import.Value) throw new ProjectSkippedException("UnityPackage changed after review. Review again before importing.");
+                if (project.ReinstallLockedPackages)
+                {
+                    if (project.Creation is not null || project.RecoverySource is not null || project.Initialization is not null ||
+                        project.ExtraImports.Length != 0 || project.LegacyAssetPaths.Length != 0 || project.Changes.Any(x => x.Kind != ChangeKind.Keep))
+                        throw new ArgumentException("Package restore must be reviewed separately.");
+                    var before = await workspace.ReadAsync(project.Path, cancellationToken);
+                    if (before.Fingerprint != project.ExpectedFingerprint) throw new ProjectSkippedException("Project changed after review; skipped. Review again.");
+                    var locked = PackagePresence.Selection(before.LockedPackages);
+                    if (before.Incomplete || locked.Count == 0 || locked.Count != project.Changes.Length ||
+                        project.Changes.Any(x => locked.GetValueOrDefault(x.Id) != x.ResolvedVersion))
+                        throw new InvalidOperationException("Restore is available for projects with registered VPM packages and no unfinished import.");
+                    editorWasOpen = workspace.IsBusy(project.Path);
+                    editorSession = await driver.BeginPackageChangesAsync(project, progress, cancellationToken);
+                    phase = "Backup";
+                    backup = await workspace.BackupAsync(project, cancellationToken);
+                    phase = "Restore packages";
+                    Emit(phase, "Restoring VPM packages");
+                    mutated = true;
+                    var result = await driver.ReinstallPackagesAsync(project.Path, project.Changes.Select(x => x.Id).ToArray(), progress, cancellationToken);
+                    if (ProjectRules.ToolFailed(result)) throw new IOException("Could not restore VPM packages. " + result.Output);
+                    var after = await workspace.ReadAsync(project.Path, cancellationToken);
+                    if (!SameVersions(before.Packages, after.Packages) || !SameVersions(locked, PackagePresence.Selection(after.LockedPackages)) ||
+                        locked.Any(x => after.InstalledVersions.GetValueOrDefault(x.Key) != x.Value))
+                        throw new IOException("Package restore changed the selected versions or left files missing.");
+                    if (editorSession is not null) { await editorSession.DisposeAsync(); editorSession = null; }
+                    await workspace.ConfirmBackupAsync(backup);
+                    results.Add(new(project.Name, project.Path, OperationStatus.Completed, "VPM packages restored.", BackupPath: backup.Directory));
+                    Emit("Completed", "VPM packages restored.");
+                    continue;
+                }
                 sourceLease = await driver.HoldImportSourceAsync(project, cancellationToken);
                 // VPM edits are consumed by the running editor. Only operations
                 // launching another Unity instance need exclusive editor access.
@@ -198,6 +228,9 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
         }
     }
 
+    private static bool SameVersions(IReadOnlyDictionary<string, string> before, IReadOnlyDictionary<string, string> after) =>
+        before.Count == after.Count && before.All(x => after.TryGetValue(x.Key, out var version) && version == x.Value);
+
     private async Task<bool> VerifyPackages(ProjectPlan project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken, List<string>? warnings = null)
     {
         var fresh = await workspace.ReadAsync(project.Path, cancellationToken);
@@ -206,7 +239,13 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
              fresh.LockedPackages.TryGetValue(x.Id, out var locked) && physical != locked)).ToArray();
         if (mismatched.Length > 0)
         {
-            foreach (var missing in mismatched)
+            // An install of an already locked version can be a no-op (including
+            // exit 1). Ask VPM to restore its locked files before trying adds.
+            var resolve = await driver.ResolveAsync(project.Path, progress, cancellationToken);
+            if (ProjectRules.ToolFailed(resolve)) throw new IOException("Package repair resolve failed. " + resolve.Output);
+            fresh = await workspace.ReadAsync(project.Path, cancellationToken);
+            var remaining = mismatched.Where(x => !PackagePresence.Matches(x, fresh)).ToArray();
+            foreach (var missing in remaining)
             {
                 progress?.Report(new(DateTime.UtcNow, "Repair", $"Restoring package {missing.Id}@{missing.ResolvedVersion}", EventSeverity.Warning, project.Path));
                 var result = await driver.ChangePackageAsync(project.Path, missing with { Kind = ChangeKind.Update }, progress, cancellationToken);
@@ -216,9 +255,12 @@ public sealed class ProjectExecutor(IProjectWorkspace workspace, IProjectDriver 
                     throw new IOException($"Package repair failed: {missing.Id}");
                 }
             }
-            var resolve = await driver.ResolveAsync(project.Path, progress, cancellationToken);
-            if (ProjectRules.ToolFailed(resolve)) throw new IOException("Package repair resolve failed.");
-            fresh = await workspace.ReadAsync(project.Path, cancellationToken);
+            if (remaining.Length > 0)
+            {
+                resolve = await driver.ResolveAsync(project.Path, progress, cancellationToken);
+                if (ProjectRules.ToolFailed(resolve)) throw new IOException("Package repair resolve failed. " + resolve.Output);
+                fresh = await workspace.ReadAsync(project.Path, cancellationToken);
+            }
         }
         // Dependencies may have moved a version explicitly selected by the user.
         // Reapply those choices through VPM after its general resolve, once only.

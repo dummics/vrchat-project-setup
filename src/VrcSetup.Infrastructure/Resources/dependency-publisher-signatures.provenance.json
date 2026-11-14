@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "scope": "Publisher-attributed GUID metadata; observed shader families, never VPM version requirements or compatibility guarantees",
+  "sources": [
+    {
+      "repository": "https://github.com/poiyomi/PoiyomiToonShader",
+      "commit": "53a1087f9a2cd049fda580cc5a28fcf41e322e76",
+      "path": "_PoiyomiShaders/Translators/Editor/VersionUpgrade/PoiyomiLegacyShaderGuids.cs",
+      "gitBlobSha": "d38f3c305fcf71f3d79316b219bbb27c4ecb06b1",
+      "sha256": "af24418fbfe63341241f40b9338ebd2833844e93a1ba526e3a5c1798f1a0aeee",
+      "verifiedOn": "2026-11-14",
+      "packageId": "com.poiyomi.toon",
+      "license": "MIT; see dependency-publisher-signatures.LICENSE.txt",
+      "licenseGitBlobSha": "6e3850d81ae4a6b00646c4b548e051bb218b9bfb",
+      "selection": "Five Add(map, ...) rows attributed to Poiyomi Toon shader family 9.2. No Pro package, script or asset GUIDs are inferred.",
+      "variants": [
+        { "guid": "104003ab15a9f7a47b6ef0597225e771", "name": "Poiyomi Toon" },
+        { "guid": "00a679886ff24e74585a2a9d37b3c8d7", "name": "Poiyomi Toon Grab Pass" },
+        { "guid": "3210d19aa4851e148b6848177a017f02", "name": "Poiyomi Toon Outline Early" },
+        { "guid": "73da03e2cd0afa940968d9c487e2474d", "name": "Poiyomi Toon Two Pass" },
+        { "guid": "1b58d372fe360874a8fb767d53f955b0", "name": "Poiyomi Toon World" }
+      ]
+    }
+  ]
+}

@@ -691,6 +691,21 @@ public static class UiSmokeTest
                 await flow.NavigateAsync("Projects");
             }
             await flow.OpenProjectsAsync([flow.Projects[0]]);
+            Require(flow.PackageReinstallVisibility == Visibility.Visible, "A single ready project with locked VPM packages offers package restore");
+            var confirmationCount = decisions.Confirmations;
+            var reviewIntercepted = false;
+            flow.BeforePackageApplyForVerification = _ => { reviewIntercepted = true; throw new OperationCanceledException(); };
+            try
+            {
+                decisions.ConfirmResult = false;
+                await flow.ReinstallPackagesCommand.ExecuteAsync(null);
+                Require(decisions.Confirmations == confirmationCount + 1 && !reviewIntercepted,
+                    "Declining package restore never starts the package operation");
+                decisions.ConfirmResult = true;
+                await flow.ReinstallPackagesCommand.ExecuteAsync(null);
+                Require(reviewIntercepted && !flow.IsApplyingPackages, "Confirmed package restore enters the cancellable package workflow");
+            }
+            finally { decisions.ConfirmResult = true; flow.BeforePackageApplyForVerification = null; }
             flow.StageWorkspaceVersion("com.poiyomi.pro", "11.0.38");
             Require(flow.PoiyomiNoticeVisibility == Visibility.Visible, "Selecting Pro explains replacements and the official Unity sign-in");
             await flow.UndoChangesCommand.ExecuteAsync(null);

@@ -34,6 +34,32 @@ public sealed class PackageTransactionTests : IDisposable
         var install = Assert.Single(commands, x => x[0] == "install"); Assert.Equal("shader.pro", install[1]);
         Assert.Equal("remove", commands[0][0]); Assert.Equal("resolve", commands[^1][0]);
     }
+    [Theory, InlineData(true), InlineData(false)]
+    public async Task MissingLockedPackageResolvesBeforeAnInstallAndRetainsItsRoot(bool resolveSucceeds)
+    {
+        var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
+        var metadata = Path.Combine(project, "Packages", "shader.toon", "package.json"); File.Delete(metadata);
+        var manifestPath = Path.Combine(project, "Packages", "vpm-manifest.json");
+        var manifestBefore = await File.ReadAllTextAsync(manifestPath);
+        var commands = new List<string[]>();
+        var runner = new ToolRunner(bundledPackageTool: "fixture-vrc-get.exe", commandOverride: async (_, args, _) =>
+        {
+            commands.Add(args);
+            Assert.Equal("resolve", args[0]); // No ineffective same-version install.
+            using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
+            Assert.Equal("1.0.0", manifest.RootElement.GetProperty("dependencies").GetProperty("shader.toon").GetProperty("version").GetString());
+            if (!resolveSucceeds) return new ToolResult(1, "", "offline package unavailable");
+            await AtomicFile.WriteJsonAsync(metadata, new { name = "shader.toon", version = "1.0.0" });
+            return new ToolResult(0, "restored", "");
+        });
+        var plan = Plan(project) with { LegacyAssetPaths = [],
+            DesiredPolicy = new Dictionary<string, string> { ["shader.toon"] = "1.0.0" },
+            Changes = [new("shader.toon", null, "1.0.0", "1.0.0", ChangeKind.Update)] };
+        var result = await new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths)).ApplyPackagePlanAsync(plan, null, default);
+        Assert.Equal(resolveSucceeds ? 0 : 1, result.ExitCode);
+        Assert.Equal(resolveSucceeds ? 2 : 1, commands.Count);
+        if (!resolveSucceeds) Assert.Equal(manifestBefore, await File.ReadAllTextAsync(manifestPath));
+    }
     [Fact] public async Task UnityGeneratedLockDoesNotInvalidateReviewButVpmIntentStillDoes()
     {
         var project = await Project(); var before = ProjectWorkspace.Fingerprint(project);

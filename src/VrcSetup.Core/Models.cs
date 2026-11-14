@@ -218,13 +218,14 @@ public sealed record ProjectPlan
     public CreationRequest? RecoverySource { get; init; }
     public string? RecoveryOriginalSource { get; init; }
     public bool PreparationComplete { get; init; }
+    public bool ReinstallLockedPackages { get; init; }
     public string[] ExtraImports { get; init; } = [];
     public bool NeedsEasyLoginRepository { get; init; }
     public string[] RequiredPackages { get; init; } = [];
     public string[] LegacyAssetPaths { get; init; } = [];
     public string UnityEditorPath { get; init; } = "";
     public IReadOnlyDictionary<string, string> ImportFingerprints { get; init; } = new Dictionary<string, string>();
-    public bool HasChanges => Creation is not null || RecoverySource is not null || ExtraImports.Length > 0 || Changes.Any(x => x.Kind != ChangeKind.Keep);
+    public bool HasChanges => ReinstallLockedPackages || Creation is not null || RecoverySource is not null || ExtraImports.Length > 0 || Changes.Any(x => x.Kind != ChangeKind.Keep);
     public bool RequiresUnityBatch => Creation is { EmptyProject: false } || RecoverySource is { EmptyProject: false } ||
         ExtraImports.Length > 0 || Creation?.ExtraImports.Length > 0 || RecoverySource?.ExtraImports.Length > 0;
 }
@@ -276,6 +277,8 @@ public interface IProjectDriver
         return await ResolveAsync(plan.Path, progress, token);
     }
     Task<ToolResult> ResolveAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
+    Task<ToolResult> ReinstallPackagesAsync(string project, string[] ids, IProgress<OperationEvent>? progress, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Package reinstall is unavailable.");
     Task ImportAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task SettleAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);
     Task<bool> RegisterAsync(string project, IProgress<OperationEvent>? progress, CancellationToken cancellationToken);

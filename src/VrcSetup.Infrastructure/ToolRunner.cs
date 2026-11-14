@@ -111,6 +111,8 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
         return Task.Run(() =>
         {
             var translated = bundledPackageTool is null ? null : PackageToolArguments(argv);
+            if (translated is null && argv is ["reinstall", "packages", ..])
+                throw new IOException("The package tool is unavailable. Reinstall VRC Project Setup.");
             var executable = translated is not null ? bundledPackageTool! : FindExecutable("vpm");
             if (executable is null && argv is ["add", "project", _])
                 return new ToolResult(1, "", "Creator Companion registration is unavailable; open the project from VRC Project Setup.");
@@ -156,6 +158,7 @@ public sealed class ToolRunner(DiagnosticLog? diagnostics = null, string? bundle
         ["add", "repo", var url] => ["repo", "add", url],
         ["remove", "package", var id, "-p", var path] => ["remove", id, "-p", path, "-y"],
         ["resolve", "project", var path] => ["resolve", "-p", path],
+        ["reinstall", "packages", "-p", var path, .. var ids] when ids.Length > 0 => ["reinstall", .. ids, "-p", path, "-y"],
         ["downgrade", "package", var package, "-p", var path] when package.LastIndexOf('@') is var at && at > 0 =>
             ["downgrade", package[..at], package[(at + 1)..], "-p", path, "-y", "--prerelease"],
         ["add", "package", var package, "-p", var path] when package.LastIndexOf('@') is var at && at > 0 =>

@@ -1,5 +1,41 @@
 # Multiple imports
 
+## Package repair evidence
+
+**Restore packages** in a single project's package manager reinstalls its
+locked VPM packages after confirmation. The equivalent CLI command is
+`vrcsetup packages reinstall <project>` with `--dry-run` for review and
+`--yes` for unattended use. The operation coordinates Unity's refresh and
+uses the same project lock as package changes. It preserves the versions
+and preset, saves a recovery copy of package files and manifests, and can
+overwrite edits made inside a VPM package. Projects with an unfinished
+import use the import recovery flow. No avatar archive is imported.
+
+The isolated `--verify-package-repair <new-evidence-directory>` probe exercises
+the installed bundled vrc-get, without Unity or Creator Companion registration.
+With vrc-get 1.9.1 and resolver 0.1.29, adding the already selected version
+returned exit 1 and `nothing to do`, leaving a deliberately deleted script
+missing. `resolve --offline` restored both missing and changed package content;
+explicit `reinstall --offline` also restored it. The published meta identity and
+selected version stayed unchanged. These results do not guarantee that VPM can
+repair arbitrary avatar references or migrate every legacy folder.
+
+During a reviewed package operation, metadata validation first asks VPM to
+resolve a missing or inconsistent installed package. Only packages still missing
+after resolve need an explicit add of the reviewed target. This avoids the
+same-version add no-op; all tool failures still fail validation, and selected
+pins are checked afterwards. The existing project lease and editor session
+cover this recovery; it does not launch another avatar import. An unchanged
+project is not silently reinstalled. A restore can fail if a package source is
+unavailable. The isolated app reinstall test checks the original package version,
+manifest and avatar fixture file, and confirms only package files were archived.
+
+The separate real migration fixture also passed Toon 10.0.27 → Pro 11.0.38,
+removal of already absent Toon, Pro downgrade to 10.0.11, and return to Toon
+10.0.27 through the application planner/executor. It used isolated public VPM
+packages without Unity, Patreon authentication or Creator Companion registration;
+it does not test arbitrary legacy ZIP contents or shader rendering.
+
 ## Current recovery behavior (November 2026)
 
 This section supersedes the historical preview descriptions below. The desktop

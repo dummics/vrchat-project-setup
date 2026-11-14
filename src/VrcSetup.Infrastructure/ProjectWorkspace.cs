@@ -267,7 +267,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             await Task.Run(() => CreateAssetBackup(plan.Path, assets, cancellationToken), cancellationToken);
         }
         string? packages = null;
-        if (plan.Creation is null && plan.Changes.Any(x => x.Kind != ChangeKind.Keep))
+        if (plan.Creation is null && (plan.ReinstallLockedPackages || plan.Changes.Any(x => x.Kind != ChangeKind.Keep)))
         {
             packages = Path.Combine(folder, "packages.zip");
             await Task.Run(() => CreateAssetBackup(plan.Path, packages, cancellationToken, ["Packages"]), cancellationToken);
