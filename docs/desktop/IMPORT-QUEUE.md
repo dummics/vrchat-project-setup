@@ -8,7 +8,9 @@ locked VPM packages after confirmation. The equivalent CLI command is
 `--yes` for unattended use. The operation coordinates Unity's refresh and
 uses the same project lock as package changes. It preserves the versions
 and preset, saves a recovery copy of package files and manifests, and can
-overwrite edits made inside a VPM package. Projects with an unfinished
+overwrite edits made inside a VPM package. The latest recovery copy covering
+both packages and project assets remains available after a package-only restore.
+Projects with an unfinished
 import use the import recovery flow. No avatar archive is imported.
 
 The isolated `--verify-package-repair <new-evidence-directory>` probe exercises

@@ -11,7 +11,8 @@ internal static class PackageBackupRetention
         try { await File.WriteAllTextAsync(Path.Combine(backup.Directory, "completed"), ""); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return; }
         var parent = Path.GetDirectoryName(backup.Directory)!;
-        // Keep the last successful pre-change snapshot and every failed snapshot.
+        // Keep the last successful pre-change snapshot of each coverage, unless
+        // a newer snapshot covers both Packages and Assets. Keep failed snapshots.
         // Older manifest-only backups are outside this new archive lifecycle.
         string[] folders;
         try { folders = Directory.GetDirectories(parent, "operation-*"); }
@@ -23,7 +24,7 @@ internal static class PackageBackupRetention
             {
                 ProjectRules.EnsureContained(parent, folder);
                 var old = await AtomicFile.ReadJsonAsync<BackupRecord>(Path.Combine(folder, "backup.json"));
-                if (old?.PackageArchive is null) continue;
+                if (old?.PackageArchive is null || old.AssetArchive is not null && backup.AssetArchive is null) continue;
                 var files = new[] { old.PackageArchive, old.AssetArchive }.OfType<string>().ToArray();
                 foreach (var file in files)
                 {

@@ -126,6 +126,25 @@ public sealed class PackageTransactionTests : IDisposable
         Assert.True(File.Exists(Path.Combine(first.Directory, "superseded")));
         await Assert.ThrowsAsync<IOException>(() => workspace.RestoreAsync(project, first, null, default));
     }
+    [Fact] public async Task PackageReinstallKeepsTheLatestBackupThatIncludesAssets()
+    {
+        var project = await Project();
+        var workspace = new ProjectWorkspace(new AppPaths(Path.Combine(root, "home")));
+        var full = await workspace.BackupAsync(Plan(project), default);
+        await workspace.ConfirmBackupAsync(full);
+        var reinstall = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanPackageReinstallAsync(project);
+        var first = await workspace.BackupAsync(reinstall.Projects.Single(), default);
+        await workspace.ConfirmBackupAsync(first);
+        var second = await workspace.BackupAsync(reinstall.Projects.Single(), default);
+        await workspace.ConfirmBackupAsync(second);
+
+        Assert.Null(second.AssetArchive);
+        Assert.True(File.Exists(full.AssetArchive));
+        Assert.True(File.Exists(full.PackageArchive));
+        Assert.False(File.Exists(Path.Combine(full.Directory, "superseded")));
+        Assert.False(File.Exists(first.PackageArchive));
+        Assert.True(File.Exists(second.PackageArchive));
+    }
     [Fact] public async Task OpenEditorMustAcknowledgeRefreshPauseAndLeaseIsReleasedAfterUse()
     {
         var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
