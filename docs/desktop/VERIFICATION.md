@@ -7,8 +7,13 @@ Core fixtures cover FIFO admission, changes to the ceiling during execution,
 low memory, unavailable samples, pauses, cancellation and duplicate project
 destinations. The synthetic three-import run in `.work/mq4/multi-import.json`
 completed in 111.55 seconds with three admitted jobs. Its minimum sampled free
-RAM was 40.83 GiB and free commit was 42.07 GiB. Job overlap includes the
-preparation and exit phases.
+RAM was 40.83 GiB and free commit was 42.07 GiB. The three Unity import logs
+also contain timestamped editor start and shutdown messages from distinct
+processes, with at least 7.56 seconds of observed overlap
+(`.work/mq4/unity-process-overlap.json`). This confirms concurrent editors
+in addition to queue admission. The prior two-job run took about 209 seconds
+under different cache and load conditions, so the timing cannot isolate the
+effect of the higher ceiling.
 
 The native smoke verifies per-import VPM exclusions, pins and the package
 restore confirmation path. The Italian smoke checks the visible suggestions
