@@ -1,5 +1,16 @@
 # Desktop migration verification
 
+## Flat import package table after 0.3.3
+
+The import recap uses a full-width ListView with contiguous rows, a single
+column header and aligned package/version/action columns. Floating versions
+retain their numeric preview on the same line. The included and excluded
+disclosures have no nested content borders. Native layout verification covers
+720 and 1180 pixels, full row width, numeric version visibility and access
+through the page scroll; captures include `create-package-table-*.png`.
+The final native smoke passed 646 checks in `.work/artifacts/ui-package-table-final`;
+the desktop build completed without warnings or errors.
+
 ## Candidate after 0.3.2
 
 The desktop lets users choose a ceiling from one to eight simultaneous imports.

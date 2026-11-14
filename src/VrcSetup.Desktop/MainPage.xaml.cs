@@ -174,8 +174,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             { toggle.HorizontalAlignment = HorizontalAlignment.Stretch; toggle.Width = double.NaN; toggle.MaxWidth = CreateForm.Width; }
             // The stock template uses a StaticResource for this border, so local
             // resource overrides do not remove its oversized content outline.
-            if (FindVisualChild<Border>(CreationPackageDetails, "ExpanderContent") is { } contentBorder)
+            foreach (var disclosure in new[] { CreationPackageDetails, ExcludedCreationPackageDetails })
+            {
+                if (FindVisualChild<Border>(disclosure, "ExpanderContent") is not { } contentBorder) continue;
                 contentBorder.BorderThickness = new Thickness(0);
+                contentBorder.Padding = new Thickness(0);
+                contentBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
             ImportQueueSection.Width = CreateLayout.Width;
             // An expanded row must fit its header and log at common window heights;
             // otherwise aligning the header to the bottom clips the details above it.
@@ -212,10 +217,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         var listWidth = Math.Max(1, recapWidth - CreationPackageDetails.Padding.Left - CreationPackageDetails.Padding.Right);
         if (double.IsNaN(CreationPackageList.Width) || Math.Abs(CreationPackageList.Width - listWidth) > 0.5)
             CreationPackageList.Width = listWidth;
-        if (CreationPackageList.ItemsPanelRoot is not ItemsWrapGrid items) return;
-        var available = Math.Max(1, listWidth - CreationPackageList.Padding.Left - CreationPackageList.Padding.Right);
-        var itemWidth = available;
-        if (double.IsNaN(items.ItemWidth) || Math.Abs(items.ItemWidth - itemWidth) > 0.5) items.ItemWidth = itemWidth;
     }
     private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement
     {

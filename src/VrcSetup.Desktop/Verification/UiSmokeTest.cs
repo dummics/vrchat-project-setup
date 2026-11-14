@@ -1362,11 +1362,10 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     var footer = (FrameworkElement)page.FindName("StatusBar");
                     var text = (Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("ApplicationStatusText");
                     Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);
-                    var creationList = (Microsoft.UI.Xaml.Controls.GridView)page.FindName("CreationPackageList");
-                    var recapItems = (Microsoft.UI.Xaml.Controls.ItemsWrapGrid)creationList.ItemsPanelRoot;
+                    var creationList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("CreationPackageList");
                     var firstRecapItem = (FrameworkElement)creationList.ContainerFromIndex(0);
                     Require(double.IsPositiveInfinity(creationList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(creationList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled && details.ActualWidth <= ((FrameworkElement)page.FindName("CreateForm")).ActualWidth + 1, "Expanded package recap shows its full list within the form without nested scrolling: " + size.Width);
-                    Require(creationList.ActualWidth >= details.ActualWidth - 32 && recapItems.ItemWidth >= 220 && firstRecapItem.ActualWidth >= 220, $"Expanded package rows fill the disclosure width: {size.Width}, list={creationList.ActualWidth}, surface={details.ActualWidth}, item={recapItems.ItemWidth}, container={firstRecapItem.ActualWidth}");
+                    Require(creationList.ActualWidth >= details.ActualWidth - 32 && firstRecapItem.ActualWidth >= creationList.ActualWidth - 8, $"Package table rows fill the disclosure width: {size.Width}, list={creationList.ActualWidth}, surface={details.ActualWidth}, container={firstRecapItem.ActualWidth}");
                     Require(creationList.ActualHeight >= 28 && creationList.Items.Count == viewModel.SelectedCreationPackages.Count && creationList.Items.Cast<object>().All(x => creationList.ContainerFromItem(x) is FrameworkElement { ActualHeight: > 0 }), "Every selected VPM package is rendered without clipping: " + size.Width);
                     var versions = Descendants(creationList).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Where(x => x.Name == "CreationPackageVersion").ToArray();
                     Require(versions.Length == viewModel.SelectedCreationPackages.Count && versions.All(x => x.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(x.Text)), "Every selected VPM row shows its version: " + size.Width);
@@ -1375,6 +1374,12 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     Require(!Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.Command == viewModel.InspectDeeperCommand), "Package recap has no technical analysis action: " + size.Width);
                     Require(!((Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("CreationPackageHeader")).IsTextTrimmed, "Compact package summary remains fully readable: " + size.Width);
                     await Render(page, Path.Combine(artifacts, "create-expanded-status-" + size.Width + ".png"));
+                    var packageViewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreateView");
+                    var previousOffset = packageViewport.VerticalOffset;
+                    packageViewport.ChangeView(null, previousOffset + details.TransformToVisual(packageViewport).TransformPoint(new(0, 0)).Y, null, true);
+                    await Task.Delay(180);
+                    await Render(page, Path.Combine(artifacts, "create-package-table-" + size.Width + ".png"));
+                    packageViewport.ChangeView(null, previousOffset, null, true);
                     details.IsExpanded = false; viewModel.IsInspectingPackage = false; await Task.Delay(200);
                 }
                 if (screen == "Presets")
