@@ -8,6 +8,11 @@ if (args is ["--verify-package-repair", var repairEvidence])
     await PackageRepairVerification.RunAsync(repairEvidence);
     return;
 }
+if (args is ["--verify-package-repair", var hostedCli, var hostedRepairEvidence])
+{
+    await PackageRepairVerification.RunAsync(hostedRepairEvidence, hostedCli);
+    return;
+}
 if (args is ["--verify-detector-corpus", var detectorSnapshots, var detectorEvidence])
 {
     await DetectorCorpusVerification.RunAsync(detectorSnapshots, detectorEvidence);

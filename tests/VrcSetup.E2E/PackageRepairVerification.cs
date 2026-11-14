@@ -7,11 +7,13 @@ using VrcSetup.Infrastructure;
 // project writes. Uses the bundled tool and its existing cache without repo updates.
 internal static class PackageRepairVerification
 {
-    public static async Task RunAsync(string evidence)
+    public static async Task RunAsync(string evidence, string? cliDirectory = null)
     {
         evidence = Path.GetFullPath(evidence);
         if (Directory.Exists(evidence)) throw new IOException("Choose a fresh repair fixture.");
-        var cli = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "VrcSetup", "app", "cli");
+        var cli = cliDirectory is null
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "VrcSetup", "app", "cli")
+            : Path.GetFullPath(cliDirectory);
         var tool = Path.Combine(cli, "Tools", "vrc-get.exe");
         if (!File.Exists(tool)) throw new IOException("Installed bundled package tool is unavailable.");
         var project = Path.Combine(evidence, "P");
@@ -45,7 +47,9 @@ internal static class PackageRepairVerification
                 }
                 const string id = "com.vrchat.core.vpm-resolver", version = "0.1.29";
                 var toolVersion = Run("--version").Output.Trim();
-                Run("install", id, version, "-p", project, "-y", "--no-update");
+                var installArgs = new List<string> { "install", id, version, "-p", project, "-y" };
+                if (cliDirectory is null) installArgs.Add("--no-update");
+                Run(installArgs.ToArray());
                 var package = Path.Combine(project, "Packages", id);
                 var script = Directory.EnumerateFiles(package, "*.cs", SearchOption.AllDirectories).Order(StringComparer.Ordinal).First();
                 var original = SHA256.HashData(File.ReadAllBytes(script));
