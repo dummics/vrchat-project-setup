@@ -12,6 +12,61 @@ public sealed class PackageInspectionTests : IDisposable
     private readonly string root = Path.Combine(Path.GetTempPath(), "VrcSetup.Inspection.Tests", Guid.NewGuid().ToString("N"));
     private const string A = "11111111111111111111111111111111", B = "22222222222222222222222222222222", C = "33333333333333333333333333333333";
     [Theory]
+    [InlineData("104003ab15a9f7a47b6ef0597225e771")]
+    [InlineData("00a679886ff24e74585a2a9d37b3c8d7")]
+    [InlineData("3210d19aa4851e148b6848177a017f02")]
+    [InlineData("73da03e2cd0afa940968d9c487e2474d")]
+    [InlineData("1b58d372fe360874a8fb767d53f955b0")]
+    public async Task PublisherAttributedLegacyShadersIdentifyVpmOwnerWithoutInventingAVersionRequirement(string shader)
+    {
+        var archive = Archive(($"{A}/pathname", "Assets/PC/Avatar.prefab"), ($"{A}/asset", $"%YAML\nm_Materials: [{{guid: {B}}}]"),
+            ($"{B}/pathname", "Assets/PC/Surface.mat"), ($"{B}/asset", $"%YAML\nm_Shader: {{fileID: 4800000, guid: {shader}, type: 3}}"));
+        var report = await Service().InspectAsync(archive);
+        Assert.True(report.Observation.ArchiveComplete && report.Observation.TextComplete);
+        var suggestion = Assert.Single(report.Suggestions);
+        Assert.Equal("com.poiyomi.toon", suggestion.Id);
+        Assert.Equal(DependencyConfidence.Detected, suggestion.Confidence);
+        Assert.Null(suggestion.VersionConstraint);
+        var evidence = Assert.Single(suggestion.Evidence);
+        Assert.Equal(["9.2"], evidence.ObservedVersions);
+        Assert.Contains(evidence.SignatureSources, source => source.StartsWith("publisher:poiyomi/PoiyomiToonShader@53a1087", StringComparison.Ordinal));
+        var proposal = Assert.Single(DependencyAdvisor.Propose(new Dictionary<string, string>(), report));
+        Assert.Equal("latest", proposal.ProposedVersion);
+    }
+
+    [Theory]
+    [InlineData("QuestBuiltin", false, false)]
+    [InlineData("ShaderBundled", true, false)]
+    [InlineData("OptionalSample", false, true)]
+    public async Task ShaderCorpusDistinguishesQuestBuiltinsBundledContentAndOptionalExamples(string scenario, bool bundled, bool optional)
+    {
+        const string legacy = "104003ab15a9f7a47b6ef0597225e771";
+        var shader = scenario == "QuestBuiltin" ? "0000000000000000f000000000000000" : legacy;
+        var members = new List<(string Path, string Text)> {
+            ($"{A}/pathname", optional ? "Assets/Samples/Surface.mat" : "Assets/Quest/Surface.mat"),
+            ($"{A}/asset", $"%YAML\nm_Shader: {{fileID: 4800000, guid: {shader}, type: 3}}") };
+        if (bundled) { members.Add(($"{legacy}/pathname", "Assets/Shaders/Local.shader")); members.Add(($"{legacy}/asset", "Shader \"Local\" {}")); }
+        var report = await Service().InspectAsync(Archive(members.ToArray()));
+        if (!optional) Assert.Empty(report.Suggestions);
+        else
+        {
+            Assert.Equal(DependencyConfidence.Possible, Assert.Single(report.Suggestions).Confidence);
+            Assert.Equal(DependencyProposalKind.ReviewPossible, Assert.Single(DependencyAdvisor.Propose(new Dictionary<string, string>(), report)).Kind);
+        }
+    }
+
+    [Fact] public async Task PublisherShaderWithAnotherKnownOwnerCannotProduceAnUnambiguousInstallSuggestion()
+    {
+        const string shader = "104003ab15a9f7a47b6ef0597225e771";
+        var service = Service();
+        var snapshot = await service.LoadIndexAsync();
+        var observation = new ArchiveObservation(2, 0, 0, true, true, [], [new(A, "Assets/PC/Surface.mat", [new(shader, "shader")], [], false)], 0);
+        var report = DependencyAdvisor.Match(observation, snapshot with { Signatures = [.. snapshot.Signatures, new(shader, "example.shader-fork", "1.0.0", "shader", "fixture-fork")] });
+        Assert.Equal(2, report.Suggestions.Length);
+        Assert.All(report.Suggestions, suggestion => Assert.Equal(DependencyConfidence.Possible, suggestion.Confidence));
+        Assert.All(DependencyAdvisor.Propose(new Dictionary<string, string>(), report), proposal => Assert.Equal(DependencyProposalKind.ReviewPossible, proposal.Kind));
+    }
+    [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
     public void IncompleteCoverageDoesNotPromoteAnObservedReferenceToStrongAdvice(bool archiveComplete, bool textComplete)

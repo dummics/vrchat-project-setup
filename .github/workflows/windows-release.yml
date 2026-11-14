@@ -125,6 +125,12 @@ jobs:
         run: |
           dotnet run --project tests/VrcSetup.E2E/VrcSetup.E2E.csproj -c Release --property:Platform=x64 -- --verify-fresh-packages (Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64") (Join-Path $env:RUNNER_TEMP 'fresh-packages')
           if ($LASTEXITCODE -ne 0) { throw 'Fresh package verification failed.' }
+      - name: Verify VPM package restore with the candidate
+        shell: pwsh
+        run: |
+          $cli = Join-Path $pwd "release/VrcSetup-$env:RELEASE_VERSION-win-x64/app/cli"
+          dotnet run --project tests/VrcSetup.E2E/VrcSetup.E2E.csproj -c Release --property:Platform=x64 -- --verify-package-repair $cli (Join-Path $env:RUNNER_TEMP 'package-repair')
+          if ($LASTEXITCODE -ne 0) { throw 'VPM package restore verification failed.' }
       - name: Verify Creator Companion registration on hosted profile
         shell: pwsh
         run: |
@@ -205,6 +211,7 @@ jobs:
             ${{ runner.temp }}/vrcsetup-italian-import
             release/release-build.json
             ${{ runner.temp }}/fresh-packages
+            ${{ runner.temp }}/package-repair/*.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Verify install, repair and shortcut migration

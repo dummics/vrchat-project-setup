@@ -13,6 +13,7 @@ public sealed record ImportJob(string Id, OperationPlan Plan, CreationRequest So
     public bool DiscardNoFolder { get; init; }
     public bool CreatorCompanionPending { get; init; }
     public bool UnityCompilationNeedsAttention { get; init; }
+    public bool PackageContentsNeedRestore { get; init; }
     public bool UnityCompilationBlockedImport { get; init; }
     public bool HasCompilationBlock => State == "Failed" && (UnityCompilationBlockedImport || Message.Contains("Unity reported script compilation errors.", StringComparison.Ordinal));
     public bool CreatorCompanionUnknown { get; init; }
@@ -43,9 +44,16 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
     private Task? resourceWorker;
     private SystemResourceUsage? resources;
     private int requestedParallelism = 1;
+    private int automaticParallelismLimit = 8;
     private long parallelismRevision;
     public SystemResourceUsage? Resources { get { lock (sync) return resources; } }
-    public int EffectiveParallelism { get { lock (sync) return requestedParallelism > 0 ? requestedParallelism : resources?.SuggestedParallelism ?? 1; } }
+    public int EffectiveParallelism { get { lock (sync) return requestedParallelism > 0 ? requestedParallelism : Math.Min(automaticParallelismLimit, resources?.SuggestedParallelism ?? 1); } }
+    public void ConfigureAutomaticLimit(int value)
+    {
+        if (value is < 1 or > 8) throw new ArgumentOutOfRangeException(nameof(value), "Choose between one and eight simultaneous imports.");
+        lock (sync) { automaticParallelismLimit = value; PulseCapacity(); }
+        Publish();
+    }
     public void ConfigureParallelism(int value)
     {
         if (value < 0) throw new ArgumentException("Use zero for automatic scheduling or a positive parallel import count.");
@@ -267,6 +275,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
                 return x with { State = state, Step = report.Success ? state : x.Step, Progress = report.Success ? 100 : x.Progress,
                     Message = state == "Paused" ? "Ready to continue." : outcome?.Message ?? "Import did not complete.", LogFile = outcome?.LogFile ?? x.LogFile,
                     CreatorCompanionPending = outcome?.CreatorCompanionPending == true, UnityCompilationNeedsAttention = outcome?.UnityCompilationNeedsAttention == true,
+                    PackageContentsNeedRestore = outcome?.PackageContentsNeedRestore == true,
                     UnityCompilationBlockedImport = outcome?.UnityCompilationBlockedImport == true };
             });
         }

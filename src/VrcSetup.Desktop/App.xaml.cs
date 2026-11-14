@@ -65,11 +65,10 @@ public partial class App : Application
                 if (main.Page.ViewModel.IsInspectingPackage) throw new System.IO.IOException("Italian package fixture did not finish loading.");
                 main.Page.ViewModel.CreationInspection = new VrcSetup.Core.PackageInspectionReport(
                     new VrcSetup.Core.ArchiveObservation(2, 0, 0, true, true, [], [], 0), "fixture", "", 0,
-                    [new("gogoloco", VrcSetup.Core.DependencyConfidence.Included, "1.8.6", [new("Packages/gogoloco/package.json", "manifest")])], false);
+                    [new("nadena.dev.modular-avatar", VrcSetup.Core.DependencyConfidence.Detected, null, [new("Assets/Avatar.prefab", "script")])], false);
                 main.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 580));
                 await Task.Delay(150); main.Page.UpdateLayout();
-                var notice = (FrameworkElement)main.Page.FindName("BundledReviewNotice");
-                var button = (Microsoft.UI.Xaml.Controls.Button)main.Page.FindName("BundledReviewButton");
+                var button = (Microsoft.UI.Xaml.Controls.Button)main.Page.FindName("SuggestedPackageReviewButton");
                 var viewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)main.Page.FindName("CreateView");
                 var top = button.TransformToVisual(viewport).TransformPoint(new(0, 0)).Y;
                 if (!main.Page.ViewModel.EditorReady && top + button.ActualHeight > viewport.ActualHeight)
@@ -78,9 +77,9 @@ public partial class App : Application
                     await Task.Delay(100); main.Page.UpdateLayout();
                     top = button.TransformToVisual(viewport).TransformPoint(new(0, 0)).Y;
                 }
-                await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "bundled-review-it-compact.png"));
-                if (notice.Visibility != Visibility.Visible || button.Content as string != "Controlla i pacchetti" || button.ActualWidth <= 0 || top < 0 || top + button.ActualHeight > viewport.ActualHeight + 1)
-                    throw new System.IO.IOException($"Italian package review action is missing or clipped: visibility={notice.Visibility}, text={button.Content}, width={button.ActualWidth}, top={top}, height={button.ActualHeight}, viewport={viewport.ActualHeight}.");
+                await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "suggestions-review-it-compact.png"));
+                if (button.Visibility != Visibility.Visible || button.Content as string != "Controlla i pacchetti suggeriti" || button.ActualWidth <= 0 || top < 0 || top + button.ActualHeight > viewport.ActualHeight + 1)
+                    throw new System.IO.IOException($"Italian package review action is missing or clipped: visibility={button.Visibility}, text={button.Content}, width={button.ActualWidth}, top={top}, height={button.ActualHeight}, viewport={viewport.ActualHeight}.");
                 var importStatus = MainPage.CreateActiveImportDialog();
                 var shown = main.Page.ShowDialog(importStatus);
                 await Task.Delay(150); importStatus.UpdateLayout();

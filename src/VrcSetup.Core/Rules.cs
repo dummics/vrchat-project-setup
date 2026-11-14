@@ -144,6 +144,22 @@ public sealed partial class SemanticVersion : IComparable<SemanticVersion>
 
 public sealed class ProjectPlanner(IProjectWorkspace workspace, IPackageCatalog catalog)
 {
+    public async Task<OperationPlan> PlanPackageReinstallAsync(string project, CancellationToken token = default)
+    {
+        var snapshot = await workspace.ReadAsync(ProjectRules.NormalizePath(project), token);
+        var locked = PackagePresence.Selection(snapshot.LockedPackages);
+        if (snapshot.Incomplete || locked.Count == 0)
+            throw new InvalidOperationException("Restore is available for projects with registered VPM packages and no unfinished import.");
+        var changes = locked.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(x => new PackageChange(x.Key, snapshot.InstalledVersions.GetValueOrDefault(x.Key), x.Value, x.Value, ChangeKind.Keep)).ToArray();
+        var plan = new ProjectPlan
+        {
+            Name = snapshot.Name, Path = snapshot.Path, ExpectedFingerprint = snapshot.Fingerprint,
+            DesiredPolicy = ProjectRules.Freeze(locked), Changes = changes, ReinstallLockedPackages = true
+        };
+        return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [plan]);
+    }
+
     public async Task<ProjectPlan> PlanAsync(string project, IReadOnlyDictionary<string, string> selected, AppConfiguration config,
         bool exact = false, IEnumerable<string>? remove = null, string? preset = null, string[]? extraImports = null,
         CreationRequest? creation = null, CancellationToken cancellationToken = default,

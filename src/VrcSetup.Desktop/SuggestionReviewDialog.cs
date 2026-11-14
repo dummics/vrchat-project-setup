@@ -19,7 +19,6 @@ internal sealed class SuggestionReviewDialog
             details.Children.Add(new TextBlock { Text = item.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
             var explanation = item.Confidence switch
             {
-                DependencyConfidence.Included => "Also in this file · may still be needed",
                 DependencyConfidence.Possible => "May be needed",
                 _ => "Suggested for this avatar"
             };

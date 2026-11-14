@@ -10,6 +10,10 @@ public sealed partial class UnityProjectDriver
         // when this project is currently closed. Never replace a foreign file.
         var source = Path.Combine(paths.Resources, "VrcSetupPackageSession.cs");
         var destination = Path.Combine(plan.Path, "Assets", "Editor", "VrcSetupPackageSession.cs");
+        var lease = new EditorPackageLease(plan.Path);
+        lease.ValidatePaths();
+        EditorPackageLease.EnsureSafePath(plan.Path, destination);
+        EditorPackageLease.EnsureSafePath(plan.Path, destination + ".vrcsetup-tmp");
         if (!File.Exists(source)) throw new IOException("Package refresh helper is missing. Repair the application and retry.");
         if (!File.Exists(destination))
         {
@@ -24,7 +28,6 @@ public sealed partial class UnityProjectDriver
             try { File.Copy(source, temporary, true); File.Move(temporary, destination, true); }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
-        var lease = new EditorPackageLease(plan.Path);
         try
         {
             // Write before checking Unity: an editor opened during preparation
@@ -48,17 +51,33 @@ public sealed partial class UnityProjectDriver
 
 internal sealed class EditorPackageLease(string project) : IAsyncDisposable
 {
+    internal static void EnsureSafePath(string project, string path)
+    {
+        ProjectRules.EnsureContained(project, path);
+        var file = new FileInfo(path);
+        if (file.LinkTarget is not null || file.Exists && file.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            throw new IOException("Operation refused on a linked file.");
+    }
     private readonly string id = Guid.NewGuid().ToString("N");
     private readonly string file = Path.Combine(project, ".vrcsetup", "editor-package-lease.json");
     private readonly string ack = Path.Combine(project, ".vrcsetup", "editor-package-ack.txt");
     private readonly CancellationTokenSource stop = new();
     private Task? heartbeat;
+    internal void ValidatePaths()
+    {
+        EnsureSafePath(project, file);
+        EnsureSafePath(project, ack);
+    }
     public async Task StartAsync(CancellationToken token)
     {
         await WriteAsync(token);
         heartbeat = KeepAliveAsync();
     }
-    private Task WriteAsync(CancellationToken token) => AtomicFile.WriteJsonAsync(file, new { id, expiresUtcTicks = DateTime.UtcNow.AddSeconds(20).Ticks }, token);
+    private Task WriteAsync(CancellationToken token)
+    {
+        ValidatePaths();
+        return AtomicFile.WriteJsonAsync(file, new { id, expiresUtcTicks = DateTime.UtcNow.AddSeconds(20).Ticks }, token);
+    }
     private async Task KeepAliveAsync()
     {
         try
@@ -70,6 +89,7 @@ internal sealed class EditorPackageLease(string project) : IAsyncDisposable
     public async Task<bool> IsAcknowledgedAsync(CancellationToken token)
     {
         if (heartbeat is { IsFaulted: true }) await heartbeat;
+        EnsureSafePath(project, ack);
         try { return File.Exists(ack) && await File.ReadAllTextAsync(ack, token) == id; }
         catch (IOException) { return false; }
     }
@@ -78,7 +98,7 @@ internal sealed class EditorPackageLease(string project) : IAsyncDisposable
         await stop.CancelAsync();
         try { if (heartbeat is not null) await heartbeat; }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { /* Expiry releases the editor if storage became unavailable. */ }
-        try { if (File.Exists(file)) File.Delete(file); }
+        try { EnsureSafePath(project, file); if (File.Exists(file)) File.Delete(file); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         stop.Dispose();
     }

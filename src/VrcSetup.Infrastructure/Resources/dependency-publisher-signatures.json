@@ -1,0 +1,7 @@
+[
+  { "Guid": "104003ab15a9f7a47b6ef0597225e771", "PackageId": "com.poiyomi.toon", "Version": "9.2", "Kind": "shader", "Source": "publisher:poiyomi/PoiyomiToonShader@53a1087f9a2cd049fda580cc5a28fcf41e322e76:PoiyomiLegacyShaderGuids.cs" },
+  { "Guid": "00a679886ff24e74585a2a9d37b3c8d7", "PackageId": "com.poiyomi.toon", "Version": "9.2", "Kind": "shader", "Source": "publisher:poiyomi/PoiyomiToonShader@53a1087f9a2cd049fda580cc5a28fcf41e322e76:PoiyomiLegacyShaderGuids.cs" },
+  { "Guid": "3210d19aa4851e148b6848177a017f02", "PackageId": "com.poiyomi.toon", "Version": "9.2", "Kind": "shader", "Source": "publisher:poiyomi/PoiyomiToonShader@53a1087f9a2cd049fda580cc5a28fcf41e322e76:PoiyomiLegacyShaderGuids.cs" },
+  { "Guid": "73da03e2cd0afa940968d9c487e2474d", "PackageId": "com.poiyomi.toon", "Version": "9.2", "Kind": "shader", "Source": "publisher:poiyomi/PoiyomiToonShader@53a1087f9a2cd049fda580cc5a28fcf41e322e76:PoiyomiLegacyShaderGuids.cs" },
+  { "Guid": "1b58d372fe360874a8fb767d53f955b0", "PackageId": "com.poiyomi.toon", "Version": "9.2", "Kind": "shader", "Source": "publisher:poiyomi/PoiyomiToonShader@53a1087f9a2cd049fda580cc5a28fcf41e322e76:PoiyomiLegacyShaderGuids.cs" }
+]

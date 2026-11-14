@@ -1,5 +1,47 @@
 # Offline package inspection
 
+## Publisher-attributed legacy shader metadata
+
+`dependency-publisher-signatures.json` supplements the observed-package seed
+with five Poiyomi Toon 9.2 shader GUIDs from the publisher's legacy-remapping
+table at commit `53a1087f9a2cd049fda580cc5a28fcf41e322e76`. The adjacent
+provenance file records the source path, Git blob SHA, SHA-256, variant names and
+license; the MIT notice is retained. The table identifies a shader family, not a
+minimum VPM version or proof that a current release restores every old GUID.
+Observed `9.2` stays in diagnostic evidence; no required version is invented.
+
+Tests traverse generated UnityPackage archives for all five external shader
+references, a Quest-style built-in shader, internally bundled shader content,
+an optional sample and ambiguous ownership. These are controlled attribution
+cases, not an independent list of every requirement of a commercial avatar.
+
+`--verify-detector-corpus <snapshot-directory> <new-evidence-directory>` replays
+the previously captured Trixie/Lulla PC/Quest observations without rereading or
+copying their archives. The publisher seed reduces Lulla PC's unresolved GUIDs
+from 2684 to 2683; Trixie remains 21 and Lulla Quest 493. The VPM package lists
+stay unchanged. The replay also checks the actual legacy material separately,
+because the full report keeps only a bounded evidence sample per package.
+This proves an added attribution without turning unknown asset GUIDs into
+mandatory packages or claiming complete creator ground truth.
+
+## VPM selection model after 0.3.2
+
+The import table lists the VPM packages selected for installation, not packages
+claimed to be installed because similar files exist in the avatar archive.
+It has aligned name/version/action columns, protected SDK/foundation rows and
+explicit per-import exclusions. Excluded choices can be restored with their
+previous version policy. They remain separate from suggestions and do not
+change the saved preset or filter avatar files. Changing the preset or recipe
+resets those one-time exclusions; changing between file drafts preserves each
+draft's own choices. Dependencies may still require an excluded direct choice;
+exclusion is not a force-removal instruction to the VPM resolver.
+
+Archive package metadata remains evidence in the diagnostic inspection report,
+but no longer emits a `ReviewBundled` removal proposal or an archive-overlap
+banner. Suggestions can still propose missing VPM dependencies and declared
+version reviews. This supersedes historical bundled-removal UI descriptions
+below. Numeric latest-version previews apply to selected and excluded rows.
+
 ## 0.3 Trixie reference check
 
 The read-only deep scan of `Trixie_By_Ray9_Updatedd.unitypackage` traversed all

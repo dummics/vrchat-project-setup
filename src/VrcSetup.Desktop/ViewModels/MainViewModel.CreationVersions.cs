@@ -17,7 +17,7 @@ public sealed partial class MainViewModel
     {
         // Preview lookup is lazy and cannot register repositories or edit package policy.
         if (CurrentPage != "Create" || lifetime.IsCancellationRequested) return;
-        foreach (var row in CreationPackages.Where(x => x.Data.Version == "latest"))
+        foreach (var row in CreationPackages.Concat(ExcludedCreationPackages).Where(x => x.Data.Version == "latest"))
         {
             if (creationVersionDisplays.TryGetValue(row.Id, out var display)) row.SetLatestVersion(display);
             else if (requestedCreationVersions.Add(row.Id))
@@ -41,7 +41,7 @@ public sealed partial class MainViewModel
         finally { requestedCreationVersions.Remove(id); }
         if (lifetime.IsCancellationRequested) return;
         if (display != "Version unavailable") creationVersionDisplays[id] = display;
-        foreach (var row in CreationPackages.Where(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase) && x.Data.Version == "latest"))
+        foreach (var row in CreationPackages.Concat(ExcludedCreationPackages).Where(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase) && x.Data.Version == "latest"))
             row.SetLatestVersion(display);
     }
 }

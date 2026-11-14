@@ -47,6 +47,25 @@ public sealed partial class MainViewModel
     }
     public Visibility WorkspaceChangesVisibility => WorkspaceDirty ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SingleProjectLaunchVisibility => session?.Projects.Length == 1 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PackageReinstallVisibility => session?.Projects is [var project] &&
+        !project.Incomplete && project.LockedPackages.Keys.Any(id => !PackagePresence.IsGenerated(id))
+        ? Visibility.Visible : Visibility.Collapsed;
+    [RelayCommand] private async Task ReinstallPackages() => await Guard(async () =>
+    {
+        var source = session;
+        if (source?.Projects is not [var project] || PackageReinstallVisibility != Visibility.Visible ||
+            ProjectImportsActive([project.Path])) return;
+        if (source.HasPendingChanges)
+        {
+            ErrorMessage = UiText.Text("Apply or discard pending changes before restoring packages.");
+            ErrorNeedsDiagnostics = false;
+            return;
+        }
+        var message = string.Format(UiText.Text("Restore the VPM packages for {0} at their current versions? Local changes to package files may be replaced."), project.Name);
+        if (!await ui.ConfirmAsync("Restore packages", message, "Restore packages") ||
+            IsClosingApp || IsBusy || !ReferenceEquals(session, source) || source.HasPendingChanges) return;
+        await ApplyChangesCoreAsync(reinstallPackages: true);
+    }, serialize: false);
     public string WorkspaceChangeContext => session is null ? "" : "Pending changes · " + session.Projects.Length + (session.Projects.Length == 1 ? " project" : " projects");
     partial void OnBrowsingProjectPackagesChanged(bool value) { OnPropertyChanged(nameof(ProjectCatalogVisibility)); OnPropertyChanged(nameof(PresetChangesVisibility)); RefreshLibraryRows(); OnPropertyChanged(nameof(LibraryPendingVisibility)); }
     public string[] CachedVersions(string id) => Registry.FirstOrDefault(x => x.Id == id)?.Versions ?? [];
@@ -109,7 +128,7 @@ public sealed partial class MainViewModel
         presetWorking = ProjectRules.Merge(presetWorking, edit.Selected); RenderPreset(); RefreshLibraryRows();
     }
     private void NotifyWorkspaceChanges()
-    { OnPropertyChanged(nameof(PoiyomiNoticeVisibility)); OnPropertyChanged(nameof(WorkspaceFriendlySummary)); OnPropertyChanged(nameof(WorkspaceFriendlyNames)); OnPropertyChanged(nameof(LibraryPendingVisibility)); OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); }
+    { OnPropertyChanged(nameof(PoiyomiNoticeVisibility)); OnPropertyChanged(nameof(WorkspaceFriendlySummary)); OnPropertyChanged(nameof(WorkspaceFriendlyNames)); OnPropertyChanged(nameof(LibraryPendingVisibility)); OnPropertyChanged(nameof(WorkspaceDirty)); OnPropertyChanged(nameof(WorkspaceChangesVisibility)); OnPropertyChanged(nameof(WorkspaceChangeContext)); OnPropertyChanged(nameof(SingleProjectLaunchVisibility)); OnPropertyChanged(nameof(PackageReinstallVisibility)); }
     public Visibility PoiyomiNoticeVisibility => session?.Selected.ContainsKey("com.poiyomi.pro") == true && !session.Removed.Contains("com.poiyomi.pro") ? Visibility.Visible : Visibility.Collapsed;
     private async Task SearchLibraryAsync(string query)
     {

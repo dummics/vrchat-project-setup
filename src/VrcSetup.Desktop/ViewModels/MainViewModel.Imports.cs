@@ -16,6 +16,17 @@ public sealed partial class MainViewModel
             ApplicationNotice = UiText.Text("Import status saved.");
     }, allowWhileBusy: true);
     private const int RequestedParallelism = 0; // Adapt to available CPU and memory.
+    public int[] ImportLimitChoices { get; } = Enumerable.Range(1, 8).ToArray();
+    public int ImportLimit => Math.Clamp(config.MaxParallelImports, 1, 8);
+    public Task SetImportLimitAsync(int value) => IndependentAction(async () =>
+    {
+        if (value is < 1 or > 8 || value == ImportLimit) return;
+        var previous = config.MaxParallelImports;
+        config.MaxParallelImports = value;
+        try { await PersistConfigurationAsync(); app.Imports.ConfigureAutomaticLimit(value); }
+        catch { config.MaxParallelImports = previous; throw; }
+        finally { OnPropertyChanged(nameof(ImportLimit)); }
+    });
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportReviewLabel)), NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))]
     public partial bool IsPreparingImport { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(ImportErrorVisibility)), NotifyPropertyChangedFor(nameof(ImportSettingsVisibility))]
@@ -91,7 +102,7 @@ public sealed partial class MainViewModel
         .GroupBy(x => ProjectRules.NormalizePath(x.ProjectPath), StringComparer.OrdinalIgnoreCase)
         .Select(group => ImportQueue.CurrentForProject(group, group.Key)!)
         .Where(x => !(x.RecoveryNoticeDismissed && x.Recoverable && x.CanDismiss && Directory.Exists(x.ProjectPath))
-            && (!x.HiddenFromImports || !x.CanHide) && !(hideCompleted && x.CanHide && !x.CreatorCompanionPending && !x.CreatorCompanionUnknown && !x.UnityCompilationNeedsAttention && x.State is "Completed" or "Recovered"))
+            && (!x.HiddenFromImports || !x.CanHide) && !(hideCompleted && x.CanHide && !x.CreatorCompanionPending && !x.CreatorCompanionUnknown && !x.UnityCompilationNeedsAttention && !x.PackageContentsNeedRestore && x.State is "Completed" or "Recovered"))
         .OrderByDescending(x => x.Plan.CreatedUtc).ToArray();
     private int importUpdateQueued;
     private void ImportsChanged(ImportJob[] _)
@@ -192,7 +203,9 @@ public sealed partial class MainViewModel
     public Task FinishImportsAsync() => app.Imports.DisposeAsync().AsTask();
     public void OpenImportLog(UiImportRow row)
     { if (File.Exists(row.Job.LogFile)) RevealLog(row.Job.LogFile); else OpenLogsCommand.Execute(null); }
-    public Task RecoverImportAsync(UiImportRow row) => row.Job.HasCompilationBlock || row.Job.UnityCompilationNeedsAttention
+    public Task RecoverImportAsync(UiImportRow row) => row.Job.PackageContentsNeedRestore
+        ? Guard(async () => await OpenProjectsAsync([await app.Projects.ReadAsync(row.Job.ProjectPath, lifetime.Token)]), allowWhileBusy: true)
+        : row.Job.HasCompilationBlock || row.Job.UnityCompilationNeedsAttention
         ? Guard(() => LaunchUnityAsync(row.Job.ProjectPath), allowWhileBusy: true)
         : RepairHistoryImportAsync(new(row.Job));
     public async Task RefreshImportLogAsync(UiImportRow row, bool force = false)
@@ -269,7 +282,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public string LastPhase => Job.Recoverable && PhaseLabel is { } phase
         ? string.Format(UiText.Text("Last step: {0}"), UiText.Text(phase)) : "";
     public Visibility LastPhaseVisibility => LastPhase.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-    public string Step => Job.HistorySaveFailed ? "Save needs attention" : Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? PhaseLabel ?? "Working…" : Job.State switch
+    public string Step => Job.HistorySaveFailed ? "Save needs attention" : Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention || Job.PackageContentsNeedRestore ? "Completed with a notice" : Job.DiscardRequested ? Job.Active ? "Stopping import…" : "Cancellation needs finishing" : Job.State == "Running" ? PhaseLabel ?? "Working…" : Job.State switch
     {
         "Failed" when Job.HasCompilationBlock => "Script errors in Unity",
         "Queued" => "Waiting for available resources", "Interrupted" => "Unexpected interruption",
@@ -277,6 +290,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         "Pausing" or "Cancelling" => "Stopping safely…", _ => Job.State
     };
     public string Message => Job.HistorySaveFailed ? "The import status could not be saved. Check storage and retry saving before closing the app."
+        : Job.PackageContentsNeedRestore ? "The avatar was imported, but some package files need restoring. Open the project's packages and choose Restore packages."
         : Job.UnityCompilationNeedsAttention && (Job.CreatorCompanionPending || Job.CreatorCompanionUnknown) ? "The import finished. Open the project in Unity to fix script errors. Also check that the project appears in Creator Companion."
         : Job.UnityCompilationNeedsAttention ? "The import finished. Open the project in Unity to fix script errors. You do not need to import it again."
         : Job.CreatorCompanionUnknown ? "Your project is ready. Check whether it appears in Creator Companion; if needed, add it there as an existing project. You do not need to import it again."
@@ -285,6 +299,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
         : Job.DiscardCompleted ? Job.DiscardNoFolder ? "Request cancelled. No project folder was removed." : "The import was cancelled and its created project was removed."
         : Job.State switch
         {
+            "Queued" when QueueLimit == 0 => "Waiting for more available memory. This import will start automatically.",
             "Queued" => QueueLimit is { } limit ? string.Format(UiText.Text("The app currently allows {0} imports at a time. This import will start automatically when a slot is available."), limit) : "This import will start automatically when resources are available.",
             "Paused" => "The import is paused. Your project is kept. Choose Continue import when you are ready.",
             "Interrupted" => "The previous session ended before the import finished. Your project is kept. You can continue the import.",
@@ -306,11 +321,11 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
     public Visibility MessageVisibility => Message.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool CanPause => !Job.DiscardRequested && Job.Active && Job.State is not ("Cancelling" or "Pausing");
     public string PauseLabel => Job.State is "Cancelling" or "Pausing" ? "Pausing…" : "Pause import";
-    public string RetryLabel => Job.HasCompilationBlock || Job.UnityCompilationNeedsAttention ? "Open in Unity" : Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
-    public Visibility AttentionVisibility => Job.Recoverable || Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention || Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
+    public string RetryLabel => Job.PackageContentsNeedRestore ? "Manage packages" : Job.HasCompilationBlock || Job.UnityCompilationNeedsAttention ? "Open in Unity" : Job.State is "Interrupted" or "Paused" or "Cancelled" ? "Continue import" : "Try again";
+    public Visibility AttentionVisibility => Job.Recoverable || Job.CreatorCompanionPending || Job.CreatorCompanionUnknown || Job.UnityCompilationNeedsAttention || Job.PackageContentsNeedRestore || Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility HistorySaveVisibility => Job.HistorySaveFailed && !Job.Active ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PauseVisibility => Job.Active ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility RecoverVisibility => (Job.Recoverable || Job.UnityCompilationNeedsAttention) && !Job.Active && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RecoverVisibility => (Job.Recoverable || Job.UnityCompilationNeedsAttention || Job.PackageContentsNeedRestore) && !Job.Active && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DismissVisibility => Job.CanDismiss && (!Job.Recoverable || Directory.Exists(Job.ProjectPath)) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RegistrationVisibility => Job.CreatorCompanionPending && !Job.Active && !Job.HistorySaveFailed ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DiscardVisibility => !Job.HistorySaveFailed && !Job.DiscardCompleted && (Job.Source.CreationId is not null || Job.DiscardRequested || MainViewModel.CanCancelWithoutFolder(Job.ProjectPath))
@@ -321,6 +336,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
 
 public sealed class UiImportDraft(string file, string name, string platform) : ObservableObject
 {
+    public Dictionary<string, string> ExcludedPackages { get; } = new(StringComparer.OrdinalIgnoreCase);
     public string File { get; } = file;
     private string name = name, platform = platform;
     public string FileName => System.IO.Path.GetFileName(File);

@@ -147,6 +147,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             switchingImportDraft = false; NotifyDrafts();
         }
         OnPropertyChanged(nameof(PackageFileLabel));
+        standaloneExcludedPackages.Clear();
         creationOverrides = null;
         selectionSourceIdentity = null;
         _ = InspectCreationPackageAsync(value);
@@ -158,11 +159,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSelectedPresetChanged(string value)
     {
         creationOverrides = null;
+        if (!acceptingImportSelection) { standaloneExcludedPackages.Clear(); foreach (var draft in ImportDrafts) draft.ExcludedPackages.Clear(); }
         if (!acceptingImportSelection) foreach (var draft in ImportDrafts) draft.Packages = null;
         RefreshCreationPackages();
     }
     partial void OnSelectedRecipeChanged(string value)
     {
+        standaloneExcludedPackages.Clear();
+        foreach (var draft in ImportDrafts) draft.ExcludedPackages.Clear();
         foreach (var draft in ImportDrafts) draft.Packages = null;
         if (string.IsNullOrWhiteSpace(value) || !config.CreationRecipes.TryGetValue(value, out var recipe)) { creationOverrides = null; RefreshCreationPackages(); return; }
         SelectedPreset = string.IsNullOrWhiteSpace(recipe.Preset) || !config.PackagePresets.ContainsKey(recipe.Preset) ? "My default packages" : recipe.Preset;
@@ -352,7 +356,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (session is not null && await ui.ConfirmAsync("Undo changes", "Discard all staged changes and extra imports?", "Discard")) { session.Reset(); RenderWorkspace(); }
     }
     [RelayCommand] private async Task ApplyChanges() => await Guard(() => ApplyChangesCoreAsync(), serialize: false);
-    private async Task ApplyChangesCoreAsync(bool missingPackagesOnly = false)
+    private async Task ApplyChangesCoreAsync(bool missingPackagesOnly = false, bool reinstallPackages = false)
     {
         if (session is null || IsApplyingPackages) return;
         var source = session;
@@ -374,7 +378,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 var busy = await Task.Run(() => source.Projects.Where(x => app.Projects.IsBusy(x.Path)).Select(x => x.Name).ToArray(), cancellation.Token);
                 if (busy.Length > 0) throw new ProjectsInUseException(busy);
             }
-            var plan = await Task.Run(() => app.Planner.PlanBulkAsync(source.Projects.Select(x => x.Path), selected, choices, exact, removed, targets, preset, extraImports, cancellation.Token));
+            var plan = reinstallPackages
+                ? await Task.Run(() => app.Planner.PlanPackageReinstallAsync(source.Projects.Single().Path, cancellation.Token))
+                : await Task.Run(() => app.Planner.PlanBulkAsync(source.Projects.Select(x => x.Path), selected, choices, exact, removed, targets, preset, extraImports, cancellation.Token));
             cancellation.Token.ThrowIfCancellationRequested();
             if (missingPackagesOnly && plan.Projects.Any(p => p.Changes.Any(c => c.Kind != ChangeKind.Keep && !source.Projects.Single(x => x.Path.Equals(p.Path, StringComparison.OrdinalIgnoreCase)).MissingPackages.Contains(c.Id, StringComparer.OrdinalIgnoreCase))))
                 throw new InvalidOperationException("Retry needs additional package changes. Review the project before continuing.");
@@ -401,7 +407,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     ErrorSeverity = Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning; ErrorNeedsDiagnostics = false;
                     ErrorMessage = warning.Project + ": " + UserErrors.Message(new IOException(warning.Message), PackageDisplayName);
                 }
-                else ShowSavedFeedback(report.Results.All(x => x.Status == OperationStatus.Unchanged) ? "Packages are already up to date" : "Packages updated");
+                else ShowSavedFeedback(reinstallPackages ? "VPM packages restored." :
+                    report.Results.All(x => x.Status == OperationStatus.Unchanged) ? "Packages are already up to date" : "Packages updated");
             }
             else
             {

@@ -3,6 +3,26 @@ using System.IO.Compression;
 using System.Text;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
+if (args is ["--verify-package-overwrite", var overwriteEditor, var overwriteEvidence])
+{
+    await PackageOverwriteVerification.RunAsync(overwriteEditor, overwriteEvidence);
+    return;
+}
+if (args is ["--verify-package-repair", var repairEvidence])
+{
+    await PackageRepairVerification.RunAsync(repairEvidence);
+    return;
+}
+if (args is ["--verify-package-repair", var hostedCli, var hostedRepairEvidence])
+{
+    await PackageRepairVerification.RunAsync(hostedRepairEvidence, hostedCli);
+    return;
+}
+if (args is ["--verify-detector-corpus", var detectorSnapshots, var detectorEvidence])
+{
+    await DetectorCorpusVerification.RunAsync(detectorSnapshots, detectorEvidence);
+    return;
+}
 if (args is ["--verify-compilation-import", var compilationEditor, var compilationEvidence])
 {
     await CompilationImportVerification.RunAsync(compilationEditor, compilationEvidence);
@@ -39,6 +59,11 @@ if (args is ["--verify-unity-cancellation", var cancelEditor, var cancelEvidence
 if (args is ["--verify-multi-import", var multiEditor, var multiEvidence])
 {
     await MultiImportVerification.RunAsync(multiEditor, multiEvidence);
+    return;
+}
+if (args is ["--verify-serial-import", var serialEditor, var serialEvidence])
+{
+    await MultiImportVerification.RunAsync(serialEditor, serialEvidence, maximum: 1);
     return;
 }
 if (args is ["--verify-hosted-vcc", var vccEvidence])

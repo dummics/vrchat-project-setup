@@ -34,6 +34,32 @@ public sealed class PackageTransactionTests : IDisposable
         var install = Assert.Single(commands, x => x[0] == "install"); Assert.Equal("shader.pro", install[1]);
         Assert.Equal("remove", commands[0][0]); Assert.Equal("resolve", commands[^1][0]);
     }
+    [Theory, InlineData(true), InlineData(false)]
+    public async Task MissingLockedPackageResolvesBeforeAnInstallAndRetainsItsRoot(bool resolveSucceeds)
+    {
+        var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
+        var metadata = Path.Combine(project, "Packages", "shader.toon", "package.json"); File.Delete(metadata);
+        var manifestPath = Path.Combine(project, "Packages", "vpm-manifest.json");
+        var manifestBefore = await File.ReadAllTextAsync(manifestPath);
+        var commands = new List<string[]>();
+        var runner = new ToolRunner(bundledPackageTool: "fixture-vrc-get.exe", commandOverride: async (_, args, _) =>
+        {
+            commands.Add(args);
+            Assert.Equal("resolve", args[0]); // No ineffective same-version install.
+            using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
+            Assert.Equal("1.0.0", manifest.RootElement.GetProperty("dependencies").GetProperty("shader.toon").GetProperty("version").GetString());
+            if (!resolveSucceeds) return new ToolResult(1, "", "offline package unavailable");
+            await AtomicFile.WriteJsonAsync(metadata, new { name = "shader.toon", version = "1.0.0" });
+            return new ToolResult(0, "restored", "");
+        });
+        var plan = Plan(project) with { LegacyAssetPaths = [],
+            DesiredPolicy = new Dictionary<string, string> { ["shader.toon"] = "1.0.0" },
+            Changes = [new("shader.toon", null, "1.0.0", "1.0.0", ChangeKind.Update)] };
+        var result = await new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths)).ApplyPackagePlanAsync(plan, null, default);
+        Assert.Equal(resolveSucceeds ? 0 : 1, result.ExitCode);
+        Assert.Equal(resolveSucceeds ? 2 : 1, commands.Count);
+        if (!resolveSucceeds) Assert.Equal(manifestBefore, await File.ReadAllTextAsync(manifestPath));
+    }
     [Fact] public async Task UnityGeneratedLockDoesNotInvalidateReviewButVpmIntentStillDoes()
     {
         var project = await Project(); var before = ProjectWorkspace.Fingerprint(project);
@@ -41,6 +67,38 @@ public sealed class PackageTransactionTests : IDisposable
         Assert.Equal(before, ProjectWorkspace.Fingerprint(project));
         await File.WriteAllTextAsync(Path.Combine(project, "Packages", "vpm-manifest.json"), "{\"dependencies\":{}}");
         Assert.NotEqual(before, ProjectWorkspace.Fingerprint(project));
+    }
+    [Fact] public async Task RemovingAnUnavailablePackageDoesNotBlockRepairOfAnotherLockedPackage()
+    {
+        var project = await Project();
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var manifest = Path.Combine(project, "Packages", "vpm-manifest.json");
+        var keep = new Dictionary<string, object> { ["tool.repair"] = new { version = "2.0.0" } };
+        var initial = new Dictionary<string, object>(keep) { ["shader.toon"] = new { version = "1.0.0" } };
+        await AtomicFile.WriteJsonAsync(manifest, new { dependencies = initial, locked = initial });
+        var commands = new List<string>();
+        var runner = new ToolRunner(bundledPackageTool: "fixture-vrc-get.exe", commandOverride: async (_, args, _) =>
+        {
+            commands.Add(args[0]);
+            if (args[0] == "remove")
+            {
+                if (args.Contains("-y")) await AtomicFile.WriteJsonAsync(manifest, new { dependencies = keep, locked = keep });
+                return new ToolResult(0, "Do you want to apply", "");
+            }
+            if (args[0] != "resolve" || (await File.ReadAllTextAsync(manifest)).Contains("shader.toon"))
+                return new ToolResult(1, "", "Old version unavailable");
+            await AtomicFile.WriteJsonAsync(Path.Combine(project, "Packages", "tool.repair", "package.json"),
+                new { name = "tool.repair", version = "2.0.0" });
+            return new ToolResult(0, "", "");
+        });
+        var plan = Plan(project) with
+        {
+            DesiredPolicy = new Dictionary<string, string> { ["tool.repair"] = "2.0.0" },
+            Changes = [new("shader.toon", "1.0.0", null, null, ChangeKind.Remove), new("tool.repair", null, "2.0.0", "2.0.0", ChangeKind.Update)]
+        };
+        var result = await new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths)).ApplyPackagePlanAsync(plan, null, default);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(new[] { "remove", "remove", "resolve", "resolve" }, commands);
     }
     [Fact] public async Task RecoveryRestoresPhysicalPackagesAndLegacyAssetsWithoutNetworkOrLogin()
     {
@@ -100,6 +158,25 @@ public sealed class PackageTransactionTests : IDisposable
         Assert.True(File.Exists(Path.Combine(first.Directory, "superseded")));
         await Assert.ThrowsAsync<IOException>(() => workspace.RestoreAsync(project, first, null, default));
     }
+    [Fact] public async Task PackageReinstallKeepsTheLatestBackupThatIncludesAssets()
+    {
+        var project = await Project();
+        var workspace = new ProjectWorkspace(new AppPaths(Path.Combine(root, "home")));
+        var full = await workspace.BackupAsync(Plan(project), default);
+        await workspace.ConfirmBackupAsync(full);
+        var reinstall = await new ProjectPlanner(workspace, new FixtureCatalog()).PlanPackageReinstallAsync(project);
+        var first = await workspace.BackupAsync(reinstall.Projects.Single(), default);
+        await workspace.ConfirmBackupAsync(first);
+        var second = await workspace.BackupAsync(reinstall.Projects.Single(), default);
+        await workspace.ConfirmBackupAsync(second);
+
+        Assert.Null(second.AssetArchive);
+        Assert.True(File.Exists(full.AssetArchive));
+        Assert.True(File.Exists(full.PackageArchive));
+        Assert.False(File.Exists(Path.Combine(full.Directory, "superseded")));
+        Assert.False(File.Exists(first.PackageArchive));
+        Assert.True(File.Exists(second.PackageArchive));
+    }
     [Fact] public async Task OpenEditorMustAcknowledgeRefreshPauseAndLeaseIsReleasedAfterUse()
     {
         var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));
@@ -116,6 +193,54 @@ public sealed class PackageTransactionTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(project, ".vrcsetup", "editor-package-ack.txt"), request.RootElement.GetProperty("id").GetString(), timeout.Token);
         await using (var lease = await pending) Assert.NotNull(lease);
         Assert.False(File.Exists(leaseFile));
+    }
+    [Fact] public async Task PackageContentsDetectArchiveOverwritesEvenWhenTheManifestVersionIsUnchanged()
+    {
+        var project = await Project();
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var driver = new UnityProjectDriver(paths, new ToolRunner(), new ProjectWorkspace(paths));
+        var code = Path.Combine(project, "Packages", "shader.toon", "Editor.cs");
+        await File.WriteAllTextAsync(code, "class PublishedEditor {}");
+        var before = await driver.CapturePackageContentsAsync(project, default);
+        await File.WriteAllTextAsync(Path.Combine(project, "Assets", "Avatar.cs"), "class Avatar {}");
+        await File.WriteAllTextAsync(Path.Combine(project, "Packages", "shader.toon", "Folder.meta"), "folderAsset: yes");
+        Assert.Equal(before["shader.toon"], (await driver.CapturePackageContentsAsync(project, default))["shader.toon"]);
+        await File.WriteAllTextAsync(code, "class LegacyEditor {}");
+        Assert.NotEqual(before["shader.toon"], (await driver.CapturePackageContentsAsync(project, default))["shader.toon"]);
+        await File.WriteAllTextAsync(code, "class PublishedEditor {}");
+        await File.WriteAllTextAsync(Path.Combine(project, "Packages", "shader.toon", "OldEditor.cs"), "class LegacyEditor {}");
+        Assert.NotEqual(before["shader.toon"], (await driver.CapturePackageContentsAsync(project, default))["shader.toon"]);
+        Assert.Equal("1.0.0", (await new ProjectWorkspace(paths).ReadAsync(project)).LockedPackages["shader.toon"]);
+    }
+    [Theory, InlineData("Assets/Editor"), InlineData(".vrcsetup")]
+    public async Task PackageSessionRejectsLinkedFoldersBeforeWritingOutsideTheProject(string relative)
+    {
+        var project = await Project();
+        var external = Path.Combine(root, "external");
+        Directory.CreateDirectory(external);
+        var sentinel = Path.Combine(external, "keep.txt");
+        await File.WriteAllTextAsync(sentinel, "outside project");
+        var link = Path.Combine(project, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+        if (OperatingSystem.IsWindows())
+        {
+            var script = "New-Item -ItemType Junction -Path '" + link.Replace("'", "''") +
+                "' -Target '" + external.Replace("'", "''") + "' | Out-Null";
+            var result = await new ToolRunner().RunAsync("powershell.exe",
+                ["-NoProfile", "-NonInteractive", "-Command", script]);
+            Assert.Equal(0, result.ExitCode);
+        }
+        else Directory.CreateSymbolicLink(link, external);
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "home"));
+            var driver = new UnityProjectDriver(paths, new ToolRunner(), new ProjectWorkspace(paths));
+            await Assert.ThrowsAsync<IOException>(() => driver.BeginPackageChangesAsync(Plan(project), null, default));
+            Assert.Equal("outside project", await File.ReadAllTextAsync(sentinel));
+            Assert.Single(Directory.GetFiles(external));
+            Assert.False(File.Exists(Path.Combine(project, "Assets", "Editor", "VrcSetupPackageSession.cs")));
+        }
+        finally { Directory.Delete(link); }
     }
     [Fact] public async Task CancelBeforeEditorAcknowledgesLeavesPackagesUntouchedAndRemovesLease()
     {

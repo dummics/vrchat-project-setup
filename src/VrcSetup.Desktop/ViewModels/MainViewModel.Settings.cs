@@ -21,6 +21,8 @@ public sealed partial class MainViewModel
             UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
             ManualImportPath = config.ManualImportPath;
             AutoHideCompletedImports = config.AutoHideCompletedImports;
+            app.Imports.ConfigureAutomaticLimit(ImportLimit);
+            OnPropertyChanged(nameof(ImportLimit));
             CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates;
             AutomaticUpdateEnabled = config.AutomaticUpdates;
             SelectedLanguage = config.Language;

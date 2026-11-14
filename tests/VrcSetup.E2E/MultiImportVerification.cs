@@ -4,7 +4,7 @@ using VrcSetup.Infrastructure;
 
 internal static class MultiImportVerification
 {
-    public static async Task RunAsync(string editor, string evidence)
+    public static async Task RunAsync(string editor, string evidence, int maximum = 3)
     {
         evidence = Path.GetFullPath(evidence);
         if (Directory.Exists(evidence)) throw new IOException("Choose a new evidence directory.");
@@ -12,13 +12,22 @@ internal static class MultiImportVerification
         Directory.CreateDirectory(evidence);
         var app = new VrcSetupApplication(Path.Combine(evidence, "home"), ["--no-vcc-registration"]);
         var active = 0; var peak = 0; var started = 0; var gate = new object();
+        var unity = new List<(string Fixture, Process Process)>();
+        void ObserveUnity(string fixture, Process process)
+        {
+            if (!process.ProcessName.Equals("Unity", StringComparison.OrdinalIgnoreCase)) return;
+            var handle = Process.GetProcessById(process.Id);
+            _ = handle.Handle; // Retain the original process across its exit.
+            lock (gate) unity.Add((fixture, handle));
+        }
         await using var queue = new ImportQueue(app, async (plan, _, token) =>
         {
             var count = Interlocked.Increment(ref active); Interlocked.Increment(ref started);
             lock (gate) peak = Math.Max(peak, count);
             try
             {
-                await UnityImportVerification.RunAsync(editor, Path.Combine(evidence, plan.Projects[0].Name), token);
+                var fixture = plan.Projects[0].Name;
+                await UnityImportVerification.RunAsync(editor, Path.Combine(evidence, fixture), token, process => ObserveUnity(fixture, process));
                 return new OperationReport(plan.Id, DateTime.UtcNow,
                     plan.Projects.Select(x => new ProjectOutcome(x.Name, x.Path, OperationStatus.Completed, "Done")).ToArray(), []);
             }
@@ -31,15 +40,57 @@ internal static class MultiImportVerification
             return new ProjectPlan { Name = name, Path = path, ExpectedFingerprint = "", DesiredPolicy = new Dictionary<string, string>(), Changes = [],
                 Creation = new CreationRequest("", name, path, editor, "StandaloneWindows64", ["StandaloneWindows64"], [], EmptyProject: true) };
         }).ToArray();
+        queue.ConfigureAutomaticLimit(maximum);
         var watch = Stopwatch.StartNew();
         await queue.EnqueueAsync(new OperationPlan(Guid.NewGuid().ToString("N"), DateTime.UtcNow, projects), 0);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(20));
-        while (queue.HasActiveJobs) await Task.Delay(500, timeout.Token);
+        double? minimumAvailableGiB = null, minimumCommitGiB = null;
+        int peakUnity = 0;
+        double peakUnityWorkingSetGiB = 0;
+        try
+        {
+            while (queue.HasActiveJobs)
+            {
+                if (queue.Resources is { } sample)
+                {
+                    minimumAvailableGiB = Math.Min(minimumAvailableGiB ?? double.MaxValue, sample.AvailableGiB);
+                    minimumCommitGiB = Math.Min(minimumCommitGiB ?? double.MaxValue, sample.AvailableCommitGiB);
+                }
+                (string Fixture, Process Process)[] observed;
+                lock (gate) observed = unity.ToArray();
+                var running = new HashSet<string>(StringComparer.Ordinal);
+                long workingSet = 0;
+                foreach (var instance in observed)
+                {
+                    try
+                    {
+                        instance.Process.Refresh();
+                        if (instance.Process.HasExited) continue;
+                        workingSet += instance.Process.WorkingSet64;
+                        running.Add(instance.Fixture);
+                    }
+                    catch (InvalidOperationException) when (instance.Process.HasExited) { }
+                }
+                peakUnity = Math.Max(peakUnity, running.Count);
+                peakUnityWorkingSetGiB = Math.Max(peakUnityWorkingSetGiB, workingSet / (double)(1L << 30));
+                await Task.Delay(500, timeout.Token);
+            }
+        }
+        finally
+        {
+            await queue.DisposeAsync();
+            lock (gate) foreach (var instance in unity) instance.Process.Dispose();
+        }
         watch.Stop();
         var jobs = queue.Snapshot();
-        if (started != 3 || peak is < 1 or > 2 || jobs.Length != 3 || jobs.Any(x => x.State != "Completed"))
-            throw new IOException($"Automatic import queue did not complete safely: started={started}, peak={peak}, states={string.Join(',', jobs.Select(x => x.State))}.");
-        await AtomicFile.WriteJsonAsync(Path.Combine(evidence, "multi-import.json"), new { Passed = true, PeakConcurrent = peak, ElapsedSeconds = watch.Elapsed.TotalSeconds, Count = started });
-        Console.WriteLine($"PASS: {started} isolated Unity imports completed; peak concurrent {peak}; {watch.Elapsed.TotalSeconds:F1}s.");
+        if (started != 3 || peak < 1 || peak > maximum || peakUnity != maximum || jobs.Length != 3 || jobs.Any(x => x.State != "Completed"))
+            throw new IOException($"Automatic import queue did not show the expected overlap: started={started}, queue peak={peak}, Unity peak={peakUnity}, states={string.Join(',', jobs.Select(x => x.State))}.");
+        await AtomicFile.WriteJsonAsync(Path.Combine(evidence, "multi-import.json"), new
+        {
+            Passed = true, RequestedMaximum = maximum, PeakConcurrent = peak, PeakConcurrentUnityProjects = peakUnity,
+            PeakSampledUnityWorkingSetGiB = peakUnityWorkingSetGiB, ElapsedSeconds = watch.Elapsed.TotalSeconds, Count = started,
+            MinimumSystemAvailableGiB = minimumAvailableGiB, MinimumSystemCommitAvailableGiB = minimumCommitGiB
+        });
+        Console.WriteLine($"PASS: {started} isolated imports; peak concurrent jobs {peak}, Unity projects {peakUnity}; {watch.Elapsed.TotalSeconds:F1}s.");
     }
 }

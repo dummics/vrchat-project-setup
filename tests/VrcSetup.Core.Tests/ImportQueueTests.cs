@@ -6,6 +6,28 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task PackageContentNoticeIsPreservedAcrossRestartWithoutQueuingAnotherImport()
+    {
+        var app = App;
+        var plan = Plan("Changed package");
+        await using (var queue = new ImportQueue(app, (actual, _, _) => Task.FromResult(
+            new OperationReport(actual.Id, DateTime.UtcNow,
+                [new("Changed package", actual.Projects.Single().Path, OperationStatus.CompletedWithWarnings, "Package files need restoring.")
+                { PackageContentsNeedRestore = true }], []))))
+        {
+            await queue.EnqueueAsync(plan);
+            var id = Assert.Single(queue.Snapshot()).Id;
+            await queue.WaitForStoppedAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(Assert.Single(queue.Snapshot()).PackageContentsNeedRestore);
+        }
+        await using var reopened = new ImportQueue(app);
+        await reopened.InitializeAsync();
+        var saved = Assert.Single(reopened.Snapshot());
+        Assert.Equal("Completed", saved.State);
+        Assert.True(saved.PackageContentsNeedRestore);
+        Assert.False(saved.Active);
+        Assert.False(saved.Recoverable);
+    }
     [Fact] public async Task CancelWithoutProjectFolderPersistsItsDistinctOutcome()
     {
         var app = App; var plan = Plan("Never created");
@@ -657,12 +679,10 @@ public sealed class ImportQueueTests : IDisposable
         await WaitUntil(() => !queue.HasActiveJobs);
         Assert.Equal("Completed", Assert.Single(queue.Snapshot()).State);
     }
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task AutomaticAdmissionRespondsToResourcePressureWithoutStoppingRunningWork(bool memoryPressure)
+    [Fact]
+    public async Task AutomaticAdmissionRespondsToMemoryPressureWithoutStoppingRunningWork()
     {
-        var pressure = 1; var entered = 0;
+        var pressure = 0; var entered = 0;
         var firstRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var remainingRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var queue = new ImportQueue(App, async (plan, _, token) =>
@@ -671,15 +691,12 @@ public sealed class ImportQueueTests : IDisposable
             await (plan.Projects[0].Name == "Pressure first" ? firstRelease.Task : remainingRelease.Task).WaitAsync(token);
             return Completed(plan);
         }, () => Volatile.Read(ref pressure) == 1
-            ? memoryPressure ? new SystemResourceUsage(32, 2, 2, 10, 8) : new SystemResourceUsage(32, 24, 24, 95, 8)
-            : new SystemResourceUsage(32, 24, 24, 10, 8), TimeSpan.FromMilliseconds(30));
+            ? new SystemResourceUsage(32, 2, 2, 100, 8)
+            : new SystemResourceUsage(16, 10, 10, 100, 8), TimeSpan.FromMilliseconds(30));
         await queue.EnqueueAsync(Plan("Pressure first", "Pressure second", "Pressure third"), 0);
-        await WaitUntil(() => Volatile.Read(ref entered) == 1 && queue.Resources?.SuggestedParallelism == 1);
-        await Task.Delay(150); Assert.Equal(1, Volatile.Read(ref entered));
-        Volatile.Write(ref pressure, 0);
         await WaitUntil(() => Volatile.Read(ref entered) == 2);
         Volatile.Write(ref pressure, 1);
-        await WaitUntil(() => queue.Resources?.SuggestedParallelism == 1);
+        await WaitUntil(() => queue.Resources?.SuggestedParallelism == 0);
         firstRelease.SetResult();
         await WaitUntil(() => queue.Snapshot().Count(x => x.State == "Completed") == 1);
         await Task.Delay(150); Assert.Equal(2, Volatile.Read(ref entered));
@@ -746,7 +763,7 @@ public sealed class ImportQueueTests : IDisposable
             return Completed(plan);
         }, () => Volatile.Read(ref missing) == 1
             ? throws ? throw new IOException("Resource sample unavailable") : null
-            : new SystemResourceUsage(32, 24, 24, 10, 8), TimeSpan.FromMilliseconds(30));
+            : new SystemResourceUsage(16, 10, 10, 100, 8), TimeSpan.FromMilliseconds(30));
         await queue.EnqueueAsync(Plan("Sampling first", "Sampling second", "Sampling third"), 0);
         await WaitUntil(() => Volatile.Read(ref entered) == 2);
         Volatile.Write(ref missing, 1);
@@ -954,6 +971,32 @@ public sealed class ImportQueueTests : IDisposable
         }
         finally { Directory.Delete(journal); File.Move(saved, journal); }
     }
+    [Fact] public async Task UserCanRunThreeImportsAtFullCpuAndLowerLimitWithoutInterruptingThem()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = 0;
+        await using var queue = new ImportQueue(App, async (plan, _, token) =>
+        {
+            Interlocked.Increment(ref started);
+            await release.Task.WaitAsync(token);
+            return Completed(plan);
+        }, () => new SystemResourceUsage(64, 40, 40, 100, 24), TimeSpan.FromMilliseconds(30));
+        queue.ConfigureAutomaticLimit(3);
+        await queue.EnqueueAsync(Plan("Three first", "Three second", "Three third", "Fourth waiting"), 0);
+        await WaitUntil(() => Volatile.Read(ref started) == 3);
+        queue.ConfigureAutomaticLimit(1);
+        await Task.Delay(150);
+        Assert.Equal(3, Volatile.Read(ref started));
+        Assert.Equal(3, queue.Snapshot().Count(x => x.State == "Running"));
+        Assert.Single(queue.Snapshot(), x => x.State == "Queued");
+        release.SetResult();
+        await WaitUntil(() => !queue.HasActiveJobs);
+        Assert.Equal(4, Volatile.Read(ref started));
+        Assert.All(queue.Snapshot(), x => Assert.Equal("Completed", x.State));
+        Assert.Throws<ArgumentOutOfRangeException>(() => queue.ConfigureAutomaticLimit(9));
+        Assert.Throws<ArgumentOutOfRangeException>(() => queue.ConfigureAutomaticLimit(0));
+    }
+
     [Fact] public async Task AutomaticAdmissionLimitsSeparatelyEnqueuedImports()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -965,7 +1008,7 @@ public sealed class ImportQueueTests : IDisposable
             Interlocked.Increment(ref started);
             try { await release.Task.WaitAsync(token); return Completed(plan); }
             finally { Interlocked.Decrement(ref active); }
-        }, () => new SystemResourceUsage(32, 24, 24, 10, 8), TimeSpan.FromMilliseconds(30));
+        }, () => new SystemResourceUsage(16, 10, 10, 100, 8), TimeSpan.FromMilliseconds(30));
         await queue.EnqueueAsync(Plan("Separate one"), 0);
         await queue.EnqueueAsync(Plan("Separate two"), 0);
         await queue.EnqueueAsync(Plan("Separate three"), 0);
@@ -978,7 +1021,7 @@ public sealed class ImportQueueTests : IDisposable
         Assert.Equal(3, Volatile.Read(ref started));
         Assert.All(queue.Snapshot(), job => Assert.Equal("Completed", job.State));
     }
-    [Fact] public async Task AutomaticAdmissionKeepsAtMostTwoImportsActive()
+    [Fact] public async Task AutomaticAdmissionHonorsUserCeilingWhileCpuIsBusy()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var running = 0; var maximum = 0; var executed = 0;
@@ -988,11 +1031,12 @@ public sealed class ImportQueueTests : IDisposable
             lock (release) maximum = Math.Max(maximum, active);
             try { await release.Task.WaitAsync(token); return Completed(plan); }
             finally { Interlocked.Decrement(ref running); }
-        });
+        }, () => new SystemResourceUsage(64, 40, 40, 100, 24), TimeSpan.FromMilliseconds(30));
+        queue.ConfigureAutomaticLimit(2);
         await queue.EnqueueAsync(Plan("Automatic first", "Automatic second", "Automatic third"), 0);
         await WaitUntil(() => Volatile.Read(ref executed) >= 1);
-        // Allow the resource sampler to take a second CPU reading.
-        await Task.Delay(TimeSpan.FromSeconds(4));
+        await WaitUntil(() => Volatile.Read(ref executed) == 2);
+        await Task.Delay(150);
         Assert.InRange(maximum, 1, 2);
         Assert.InRange(Volatile.Read(ref executed), 1, 2);
         release.SetResult();

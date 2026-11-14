@@ -1,5 +1,40 @@
 # Desktop migration verification
 
+## Candidate after 0.3.2
+
+The desktop lets users choose a ceiling from one to eight simultaneous imports.
+Core fixtures cover FIFO admission, changes to the ceiling during execution,
+low memory, unavailable samples, pauses, cancellation and duplicate project
+destinations. The synthetic three-import run in `.work/mq4/multi-import.json`
+completed in 111.55 seconds with three admitted jobs. Its minimum sampled free
+RAM was 40.83 GiB and free commit was 42.07 GiB. The three Unity import logs
+also contain timestamped editor start and shutdown messages from distinct
+processes, with at least 7.56 seconds of observed overlap
+(`.work/mq4/unity-process-overlap.json`). This confirms concurrent editors
+in addition to queue admission. The prior two-job run took about 209 seconds
+under different cache and load conditions, so the timing cannot isolate the
+effect of the higher ceiling.
+
+The native smoke verifies per-import VPM exclusions, pins and the package
+restore confirmation path. The Italian smoke checks the visible suggestions
+action at 720 pixels. The local isolated installation lifecycle verified install,
+upgrade, repair and uninstall of the candidate. The package reinstall fixture
+verified the actual VPM tool on a deliberately damaged file and checked the
+package version, manifest, recovery archive and a file in Assets.
+
+Historical incident classification:
+
+| Observation | Evidence and current behavior |
+| --- | --- |
+| Layla compilation errors | The retained log contains C# compilation errors from ThryEditor. A separate real Unity fixture demonstrates that an imported asset followed by a compilation error can complete with a compilation notice. It also verifies recovery after correcting the script. |
+| Mia ThryEditor conflict | The avatar archive contained legacy scripts with the same GUIDs as installed VPM files. Three damaged package files matched the archive exactly. A clean package restore retained Toon 10.0.29 and ThryEditor 2.74.4, and Unity then compiled with exit 0. Source fingerprints now detect this kind of import overwrite and expose an explicit package restore action. |
+| Trixie import and cancellation | The short-path reproduction imported successfully. A long-path run recorded asset errors before reaching the import end marker and timing out while closing. The original incident still has no proven cause. |
+| Process or inherited output pipe | Synthetic process tests exercise cancellation and timeout with an inherited pipe. They verify that the app can distinguish this condition from a successful Unity exit. |
+| Appearance crash | Two-process native persistence smoke covers saving and loading appearance. The original crash has not been reproduced. |
+
+The historical logs do not establish simultaneous imports as the cause of
+either avatar incident. The queue and Unity probes use isolated projects.
+
 ## Priority import recovery verification after 0.3.1
 
 Released as 0.3.2 from `b993212`. Windows release run
