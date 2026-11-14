@@ -68,6 +68,38 @@ public sealed class PackageTransactionTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(project, "Packages", "vpm-manifest.json"), "{\"dependencies\":{}}");
         Assert.NotEqual(before, ProjectWorkspace.Fingerprint(project));
     }
+    [Fact] public async Task RemovingAnUnavailablePackageDoesNotBlockRepairOfAnotherLockedPackage()
+    {
+        var project = await Project();
+        var paths = new AppPaths(Path.Combine(root, "home"));
+        var manifest = Path.Combine(project, "Packages", "vpm-manifest.json");
+        var keep = new Dictionary<string, object> { ["tool.repair"] = new { version = "2.0.0" } };
+        var initial = new Dictionary<string, object>(keep) { ["shader.toon"] = new { version = "1.0.0" } };
+        await AtomicFile.WriteJsonAsync(manifest, new { dependencies = initial, locked = initial });
+        var commands = new List<string>();
+        var runner = new ToolRunner(bundledPackageTool: "fixture-vrc-get.exe", commandOverride: async (_, args, _) =>
+        {
+            commands.Add(args[0]);
+            if (args[0] == "remove")
+            {
+                if (args.Contains("-y")) await AtomicFile.WriteJsonAsync(manifest, new { dependencies = keep, locked = keep });
+                return new ToolResult(0, "Do you want to apply", "");
+            }
+            if (args[0] != "resolve" || (await File.ReadAllTextAsync(manifest)).Contains("shader.toon"))
+                return new ToolResult(1, "", "Old version unavailable");
+            await AtomicFile.WriteJsonAsync(Path.Combine(project, "Packages", "tool.repair", "package.json"),
+                new { name = "tool.repair", version = "2.0.0" });
+            return new ToolResult(0, "", "");
+        });
+        var plan = Plan(project) with
+        {
+            DesiredPolicy = new Dictionary<string, string> { ["tool.repair"] = "2.0.0" },
+            Changes = [new("shader.toon", "1.0.0", null, null, ChangeKind.Remove), new("tool.repair", null, "2.0.0", "2.0.0", ChangeKind.Update)]
+        };
+        var result = await new UnityProjectDriver(paths, runner, new ProjectWorkspace(paths)).ApplyPackagePlanAsync(plan, null, default);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(new[] { "remove", "remove", "resolve", "resolve" }, commands);
+    }
     [Fact] public async Task RecoveryRestoresPhysicalPackagesAndLegacyAssetsWithoutNetworkOrLogin()
     {
         var project = await Project(); var paths = new AppPaths(Path.Combine(root, "home"));

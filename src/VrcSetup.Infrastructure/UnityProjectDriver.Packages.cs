@@ -10,6 +10,15 @@ public sealed partial class UnityProjectDriver
 
     public async Task<ToolResult> ApplyPackagePlanAsync(ProjectPlan plan, IProgress<OperationEvent>? progress, CancellationToken token)
     {
+        // Remove explicitly excluded roots before asking VPM to resolve. An
+        // obsolete locked version may no longer be available from its source.
+        foreach (var change in plan.Changes.Where(x => x.Kind == ChangeKind.Remove))
+        {
+            var fresh = await workspace.ReadAsync(plan.Path, token);
+            if (!PackagePresence.Contains(fresh, change.Id)) continue;
+            var removed = await ChangePackageAsync(plan.Path, change, progress, token);
+            if (ProjectRules.ToolFailed(removed)) return removed;
+        }
         var restored = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var before = await workspace.ReadAsync(plan.Path, token);
         var repairs = plan.Changes.Where(x => x.Kind == ChangeKind.Update &&
@@ -22,15 +31,6 @@ public sealed partial class UnityProjectDriver
             if (ProjectRules.ToolFailed(resolved)) return resolved;
             var repaired = await workspace.ReadAsync(plan.Path, token);
             foreach (var change in repairs.Where(x => PackagePresence.Matches(x, repaired))) restored.Add(change.Id);
-        }
-        // vrc-get removes declared roots. Removing them from the manifest first
-        // makes the CLI report "not installed" and leaves replacement half done.
-        foreach (var change in plan.Changes.Where(x => x.Kind == ChangeKind.Remove))
-        {
-            var fresh = await workspace.ReadAsync(plan.Path, token);
-            if (!PackagePresence.Contains(fresh, change.Id)) continue;
-            var removed = await ChangePackageAsync(plan.Path, change, progress, token);
-            if (ProjectRules.ToolFailed(removed)) return removed;
         }
         var file = Path.Combine(plan.Path, "Packages", "vpm-manifest.json");
         var manifest = File.Exists(file) ? JsonNode.Parse(await File.ReadAllTextAsync(file, token))?.AsObject() : new JsonObject();
