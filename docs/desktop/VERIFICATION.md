@@ -1,5 +1,22 @@
 # Desktop migration verification
 
+## Import and table redesign after 0.3.4
+
+The import page starts with a central drop area and reveals draft options only
+after a file is selected. The form uses bounded, left-aligned project fields,
+a preset selection flyout and a compact package disclosure. Option appearance
+uses a short compositor fade and respects the system animation preference.
+Projects and package rows have flat surfaces; sorting headers and footer use
+inline controls instead of the action button style. Accent shade defaults and
+primary actions use the orange family. Relative project dates use the app language
+and local calendar dates. Activity offers a project navigation action while
+retaining log access. Floating version captions avoid repeating the same number.
+
+Core suite: 536 passed. Native UI and Italian render evidence is retained in
+`.work/artifacts/redesign-release` and `redesign-release-it`. Verification includes
+the existing multi-draft, exclusions, pinning, recovery and responsive scenarios;
+commercial avatar projects were not modified.
+
 ## Appearance and automatic admission after 0.3.3
 
 Published as stable **0.3.4**, commit `0c80ee4`, through successful Windows workflow

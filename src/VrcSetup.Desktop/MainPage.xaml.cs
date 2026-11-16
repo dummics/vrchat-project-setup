@@ -51,6 +51,20 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (eventArgs.PropertyName == nameof(ViewModel.DeveloperMode)) SyncDiagnosticsTab();
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
             if (eventArgs.PropertyName is nameof(ViewModel.CanvasColor) or nameof(ViewModel.SurfaceColor) or nameof(ViewModel.AccentColor) or nameof(ViewModel.StrokeColor) or nameof(ViewModel.IsLoadingSettings)) QueueAppearanceUpdate();
+            if (eventArgs.PropertyName == nameof(ViewModel.PackageFile)) DispatcherQueue.TryEnqueue(() =>
+            {
+                ConstrainForms();
+                if (!string.IsNullOrWhiteSpace(ViewModel.PackageFile) && new Windows.UI.ViewManagement.UISettings().AnimationsEnabled)
+                {
+                    foreach (var element in new FrameworkElement[] { ProjectFields, PackageSetup })
+                    {
+                        var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(element);
+                        var animation = visual.Compositor.CreateScalarKeyFrameAnimation();
+                        animation.InsertKeyFrame(0, 0); animation.InsertKeyFrame(1, 1); animation.Duration = TimeSpan.FromMilliseconds(180);
+                        visual.StartAnimation("Opacity", animation);
+                    }
+                }
+            });
             if (eventArgs.PropertyName == nameof(ViewModel.CreationPackageSummary)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.ImportJobsVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.PresetCatalogVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
@@ -191,7 +205,15 @@ public sealed partial class MainPage : Page, IDesktopInteraction
                 row.LogHeight = Math.Clamp(ImportQueueList.MaxHeight - 170 - actionsHeight, 40, 105);
             }
             var narrow = CreateForm.Width < 560;
-            ProjectFields.Width = CreateForm.Width;
+            var hasFile = !string.IsNullOrWhiteSpace(ViewModel.PackageFile);
+            ProjectFields.Visibility = PackageSetup.Visibility = CreationDestination.Visibility = hasFile ? Visibility.Visible : Visibility.Collapsed;
+            PackageDropZone.MinHeight = hasFile ? 76 : Math.Max(220, Math.Min(400, CreateHost.ActualHeight * .65));
+            PackageDropZone.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            PackageDropZone.BorderThickness = new Thickness(hasFile ? 1 : 0);
+            DropLayout.VerticalAlignment = VerticalAlignment.Center;
+            DropLayout.HorizontalAlignment = hasFile ? HorizontalAlignment.Stretch : HorizontalAlignment.Center;
+            ImportPrimaryAction.Visibility = hasFile ? Visibility.Visible : Visibility.Collapsed;
+            ProjectFields.Width = Math.Min(640, CreateForm.Width);
             var stackFields = CreateForm.Width < 440;
             ProjectFields.ColumnDefinitions[1].Width = stackFields ? new GridLength(0) : new GridLength(160);
             Grid.SetColumn(PlatformSelector, stackFields ? 0 : 1); Grid.SetRow(PlatformSelector, stackFields ? 1 : 0);
@@ -206,6 +228,11 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
         }
         if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Max(1, SettingsView.ActualWidth - 24);
+    }
+    private void CreationPresetPicked(object sender, ItemClickEventArgs args)
+    {
+        if (args.ClickedItem is string preset) ViewModel.SelectedPreset = preset;
+        PresetChoiceFlyout.Hide();
     }
     private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
     private void ExcludeCreationPackageClicked(object sender, RoutedEventArgs args)

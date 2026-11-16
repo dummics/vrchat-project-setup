@@ -60,7 +60,8 @@ public sealed class PackageVersionSelector : DropDownButton
         if (Value != "latest") { Content = label; return; }
         var panel = new StackPanel { Spacing = 0 };
         panel.Children.Add(new TextBlock { Text = label, TextTrimming = TextTrimming.CharacterEllipsis });
-        panel.Children.Add(new TextBlock { Text = UiText.Text(previewId == PackageId && previewVersion.Length > 0 ? previewVersion : PreviewSource is null ? "Version unavailable" : "Checking version…"), FontSize = 11, Opacity = 0.7, TextTrimming = TextTrimming.CharacterEllipsis });
+        var preview = UiText.Text(previewId == PackageId && previewVersion.Length > 0 ? previewVersion : PreviewSource is null ? "Version unavailable" : "Checking version…");
+        panel.Children.Add(new TextBlock { Text = preview == label ? UiText.Text("Latest") : preview, FontSize = 11, Opacity = 0.7, TextTrimming = TextTrimming.CharacterEllipsis });
         Content = panel;
     }
     public async void RefreshPreview()

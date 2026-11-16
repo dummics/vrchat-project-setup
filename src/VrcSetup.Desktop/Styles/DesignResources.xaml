@@ -59,18 +59,18 @@
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
     <Style x:Key="PackageRowSurface" TargetType="Grid">
-        <Setter Property="Background" Value="{ThemeResource AppCatalogCardBrush}"/>
+        <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderBrush" Value="{ThemeResource AppSubtleStrokeBrush}"/>
-        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="CornerRadius" Value="4"/>
     </Style>
     <Color x:Key="SystemAccentColor">#FFAD66</Color>
     <Color x:Key="SystemAccentColorLight1">#FFBF88</Color>
-    <Color x:Key="SystemAccentColorLight2">#9AE4DA</Color>
-    <Color x:Key="SystemAccentColorLight3">#C8F1EB</Color>
+    <Color x:Key="SystemAccentColorLight2">#FFD0A8</Color>
+    <Color x:Key="SystemAccentColorLight3">#FFE6D0</Color>
     <Color x:Key="SystemAccentColorDark1">#B85E20</Color>
-    <Color x:Key="SystemAccentColorDark2">#25786E</Color>
-    <Color x:Key="SystemAccentColorDark3">#1A554E</Color>
+    <Color x:Key="SystemAccentColorDark2">#8C4317</Color>
+    <Color x:Key="SystemAccentColorDark3">#5C2C10</Color>
     <SolidColorBrush x:Key="ListViewItemCheckBoxBrush" Color="Transparent"/>
     <SolidColorBrush x:Key="ListViewItemCheckBoxBorderBrush" Color="{ThemeResource AppSelectionStrokeColor}"/>
     <SolidColorBrush x:Key="ListViewItemCheckBoxPointerOverBorderBrush" Color="{ThemeResource AppSelectionStrokeColor}"/>
@@ -100,7 +100,7 @@
     <Style TargetType="TextBox"><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/></Style>
     <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style>
     <Style TargetType="ToggleSwitch"><Setter Property="OnContent" Value=""/><Setter Property="OffContent" Value=""/><Setter Property="MinWidth" Value="44"/><Setter Property="Width" Value="44"/></Style>
-    <Style x:Key="AppPrimaryButton" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}"><Setter Property="Padding" Value="14,7"/><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/></Style>
+    <Style x:Key="AppPrimaryButton" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}"><Setter Property="Background" Value="{ThemeResource AppAccentTextBrush}"/><Setter Property="Foreground" Value="{ThemeResource AppCanvasBrush}"/><Setter Property="Padding" Value="14,7"/><Setter Property="MinHeight" Value="36"/><Setter Property="CornerRadius" Value="6"/></Style>
     <Style x:Key="AppSecondaryButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}"><Setter Property="Padding" Value="12,6"/><Setter Property="MinHeight" Value="34"/><Setter Property="CornerRadius" Value="6"/></Style>
     <Style x:Key="ContentDialogCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource AppSecondaryButton}"/>
     <Style x:Key="ContentDialogSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AppSecondaryButton}"/>
