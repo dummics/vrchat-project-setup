@@ -10,6 +10,17 @@ Update checks share a local feed cache for ten minutes, including manual checks.
 
 ## Install
 
+### Future stable build numbering (owner decision, 16 November 2026)
+
+The agreed future display is `0.3.4 · build 123`: product version plus a separate
+increasing build counter. A short Git hash identifies a build but never orders
+updates. This is not implemented in 0.3.4; current clients still compare the
+three-component version, and SemVer build metadata does not affect precedence.
+Before publishing same-version builds, add explicit counter comparison to the
+application feed, preparation cache and installer, with unique immutable tags
+and assets and an upgrade path for existing clients. Keep VPM package SemVer
+handling separate. Verify newer/older build, reinstall, downgrade and restart.
+
 New installations start with VRChat Resolver/Base/Avatars, Poiyomi and VRCFury. Packages are downloaded by the bundled native VPM client; no globally installed VPM CLI or SDK is needed for package operations. Existing settings, extra packages and favorites are preserved. Installed project packages are indexed locally for reuse without joining the default preset. Only a selected package with missing metadata can trigger preparation of a known source; optional packages are not preinstalled or registered at startup.
 
 Run Install-VrcSetup-<version>-win-x64.exe. This small online installer downloads verified components, installs or updates **VRC Project Setup**, preserves settings and opens the app automatically. Internet is required for uncached components; no .NET SDK or Visual Studio is required. The technical filename and installation/data paths remain compatible with existing clients. Download only the EXE; hash-named ZIPs and components.json are technical assets fetched automatically.
