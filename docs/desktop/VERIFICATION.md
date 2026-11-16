@@ -2,6 +2,12 @@
 
 ## Import and table redesign after 0.3.4
 
+Released as stable 0.3.5 from `24c32c9`, through successful Windows workflow
+[43873968890](https://github.com/dummics/vrchat-project-setup/actions/runs/43873968890).
+The downloaded installer matches SHA-256
+`8775E929C8D1C7B5EAD8F6505D51F571478EDE39D494DE6D5AA1AE610E86D81A`.
+All 13 component hashes/sizes and the public update feed were verified.
+
 The import page starts with a central drop area and reveals draft options only
 after a file is selected. The form uses bounded, left-aligned project fields,
 a preset selection flyout and a compact package disclosure. Option appearance
