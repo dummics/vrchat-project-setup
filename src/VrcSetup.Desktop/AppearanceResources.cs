@@ -22,11 +22,12 @@ internal static class AppearanceResources
         static double Linear(byte channel) { var v = channel / 255.0; return v <= .04045 ? v / 12.92 : Math.Pow((v + .055) / 1.055, 2.4); }
         return .2126 * Linear(color.R) + .7152 * Linear(color.G) + .0722 * Linear(color.B);
     }
-    internal static void Apply(string canvasValue, string surfaceValue, string accentValue)
+    internal static void Apply(string canvasValue, string surfaceValue, string accentValue, string strokeValue)
     {
         var canvas = ParseColor(canvasValue, "#25272A");
         var surface = ParseColor(surfaceValue, "#303338");
-        var accent = ParseColor(accentValue, "#50CDBB");
+        var accent = ParseColor(accentValue, "#FFAD66");
+        var stroke = ParseColor(strokeValue, "#626974");
         // Preserve readable light text in the dark theme, even for bright selections.
         var black = Color.FromArgb(255, 0, 0, 0);
         if (Math.Max(canvas.R, Math.Max(canvas.G, canvas.B)) > 75) canvas = Blend(canvas, black, 1 - 75.0 / Math.Max(canvas.R, Math.Max(canvas.G, canvas.B)));
@@ -36,6 +37,9 @@ internal static class AppearanceResources
         var dark = (ResourceDictionary)dictionary.ThemeDictionaries["Default"];
         var light = (ResourceDictionary)dictionary.ThemeDictionaries["Light"];
         void Set(ResourceDictionary d, string key, Color value) { if (d.ContainsKey(key) && d[key] is SolidColorBrush brush) brush.Color = value; }
+        Set(dark, "AppStrokeBrush", stroke); Set(dark, "AppSubtleStrokeBrush", Blend(canvas, stroke, .75));
+        Set(dark, "ExpanderHeaderBackground", surface); Set(dark, "ExpanderHeaderBorderBrush", stroke);
+        Set(light, "AppStrokeBrush", Blend(stroke, Color.FromArgb(255,255,255,255), .45));
         Set(dark, "AppCanvasBrush", canvas); Set(dark, "AppSurfaceBrush", surface);
         Set(dark, "AppCatalogBrush", Blend(canvas, black, .12)); Set(dark, "AppCatalogCardBrush", Blend(canvas, surface, .45));
         Set(dark, "AppControlBrush", Blend(surface, Color.FromArgb(255, 255, 255, 255), .05));

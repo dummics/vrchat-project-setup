@@ -22,8 +22,8 @@
                       AutomationProperties.Name="{local:Loc Key='Color palette'}"/>
         </Grid>
         <Grid ColumnSpacing="8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Button Grid.Column="0" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Background'}">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Button x:Name="CanvasColorButton" Grid.Column="0" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Background'}">
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <Border x:Name="CanvasSwatch" Style="{StaticResource ColorSwatch}" VerticalAlignment="Center"/>
@@ -31,13 +31,13 @@
                 </Grid>
                 <Button.Flyout>
                     <Flyout>
-                        <ColorPicker x:Name="CanvasPicker" Tag="Canvas" ColorChanged="PaletteColorChanged"
-                                     IsAlphaEnabled="False" IsAlphaSliderVisible="False"
+                        <local:AppColorPicker x:Name="CanvasPicker" Tag="Canvas" ColorChanged="PaletteColorChanged"
+
                                      AutomationProperties.Name="{local:Loc Key='Background'}"/>
                     </Flyout>
                 </Button.Flyout>
             </Button>
-            <Button Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Surface'}">
+            <Button x:Name="SurfaceColorButton" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Surface'}">
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <Border x:Name="SurfaceSwatch" Style="{StaticResource ColorSwatch}" VerticalAlignment="Center"/>
@@ -45,13 +45,13 @@
                 </Grid>
                 <Button.Flyout>
                     <Flyout>
-                        <ColorPicker x:Name="SurfacePicker" Tag="Surface" ColorChanged="PaletteColorChanged"
-                                     IsAlphaEnabled="False" IsAlphaSliderVisible="False"
+                        <local:AppColorPicker x:Name="SurfacePicker" Tag="Surface" ColorChanged="PaletteColorChanged"
+
                                      AutomationProperties.Name="{local:Loc Key='Surface'}"/>
                     </Flyout>
                 </Button.Flyout>
             </Button>
-            <Button Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Accent'}">
+            <Button x:Name="AccentColorButton" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Accent'}">
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <Border x:Name="AccentSwatch" Style="{StaticResource ColorSwatch}" VerticalAlignment="Center"/>
@@ -59,9 +59,23 @@
                 </Grid>
                 <Button.Flyout>
                     <Flyout>
-                        <ColorPicker x:Name="AccentPicker" Tag="Accent" ColorChanged="PaletteColorChanged"
-                                     IsAlphaEnabled="False" IsAlphaSliderVisible="False"
+                        <local:AppColorPicker x:Name="AccentPicker" Tag="Accent" ColorChanged="PaletteColorChanged"
+
                                      AutomationProperties.Name="{local:Loc Key='Accent'}"/>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+            <Button x:Name="StrokeColorButton" Grid.Column="3" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Loc Key='Borders'}">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Border x:Name="StrokeSwatch" Style="{StaticResource ColorSwatch}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{local:Loc Key='Borders'}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </Grid>
+                <Button.Flyout>
+                    <Flyout>
+                        <local:AppColorPicker x:Name="StrokePicker" Tag="Stroke" ColorChanged="PaletteColorChanged"
+
+                                     AutomationProperties.Name="{local:Loc Key='Borders'}"/>
                     </Flyout>
                 </Button.Flyout>
             </Button>

@@ -63,6 +63,9 @@ public static class UiSmokeTest
         await viewModel.SetImportLimitAsync(3);
         Require(viewModel.ImportLimit == 3 && (await viewModel.Application.Configuration.LoadAsync()).MaxParallelImports == 3,
             "The import concurrency choice persists without replacing settings or stopping imports");
+        await viewModel.SetImportLimitAsync(0);
+        Require(viewModel.ImportLimit == 0 && (await viewModel.Application.Configuration.LoadAsync()).MaxParallelImports == 0,
+            "Automatic import admission persists without a manual ceiling");
         await viewModel.SetImportLimitAsync(originalImportLimit);
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(400, 240));
         Require(window.AppWindow.Size.Width >= 720 && window.AppWindow.Size.Height >= 580, "Native window enforces a usable minimum size");

@@ -57,7 +57,8 @@ it does not test arbitrary legacy ZIP contents or shader rendering.
 
 This section supersedes the historical preview descriptions below. The desktop
 uses resource-based admission with a user-selected maximum of one to eight jobs,
-saved from the import page and adjustable during work. Available physical memory
+automatic by default. Settings > Developer tools exposes an optional ceiling,
+adjustable during work; the ordinary import page has no scheduling controls. Available physical memory
 and commit constrain new starts; a saturated CPU alone does not serialize jobs.
 The estimate reserves the greater of 2 GiB or 10% of physical RAM and allows
 4 GiB of remaining headroom per simultaneous import. It can wait with no new

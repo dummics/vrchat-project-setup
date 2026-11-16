@@ -50,7 +50,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             });
             if (eventArgs.PropertyName == nameof(ViewModel.DeveloperMode)) SyncDiagnosticsTab();
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
-            if (eventArgs.PropertyName is nameof(ViewModel.CanvasColor) or nameof(ViewModel.SurfaceColor) or nameof(ViewModel.AccentColor) or nameof(ViewModel.IsLoadingSettings)) QueueAppearanceUpdate();
+            if (eventArgs.PropertyName is nameof(ViewModel.CanvasColor) or nameof(ViewModel.SurfaceColor) or nameof(ViewModel.AccentColor) or nameof(ViewModel.StrokeColor) or nameof(ViewModel.IsLoadingSettings)) QueueAppearanceUpdate();
             if (eventArgs.PropertyName == nameof(ViewModel.CreationPackageSummary)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.ImportJobsVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
             if (eventArgs.PropertyName == nameof(ViewModel.PresetCatalogVisibility)) DispatcherQueue.TryEnqueue(ConstrainForms);
@@ -465,7 +465,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void ImportPauseClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.PauseImportAsync(row); }
     private async void ImportLimitChanged(object sender, SelectionChangedEventArgs args)
-    { if (sender is ComboBox { SelectedItem: int value }) await ViewModel.SetImportLimitAsync(value); }
+    { if (sender is ComboBox { SelectedValue: int value }) await ViewModel.SetImportLimitAsync(value); }
     private void ImportLogClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) ViewModel.OpenImportLog(row); }
     private async void ImportRecoverClicked(object sender, RoutedEventArgs args)

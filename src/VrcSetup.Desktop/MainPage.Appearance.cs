@@ -18,7 +18,7 @@ public sealed partial class MainPage
     private void ApplyAppearanceResources()
     {
         if (ViewModel.IsLoadingSettings) return;
-        try { AppearanceResources.Apply(ViewModel.CanvasColor, ViewModel.SurfaceColor, ViewModel.AccentColor); }
+        try { AppearanceResources.Apply(ViewModel.CanvasColor, ViewModel.SurfaceColor, ViewModel.AccentColor, ViewModel.StrokeColor); }
         catch (Exception error)
         {
             ViewModel.Application.Diagnostics.Write("Appearance resources", error.Message, error);

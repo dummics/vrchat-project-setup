@@ -21,13 +21,13 @@ public sealed partial class MainViewModel
             UnityEditorPath = config.UnityEditorPath; ProjectsRoot = config.UnityProjectsRoot; ExtraImportsFolder = config.UnityPackagesFolder ?? "";
             ManualImportPath = config.ManualImportPath;
             AutoHideCompletedImports = config.AutoHideCompletedImports;
-            app.Imports.ConfigureAutomaticLimit(ImportLimit);
+            app.Imports.ConfigureAutomaticLimit(ImportLimit == 0 ? 8 : ImportLimit);
             OnPropertyChanged(nameof(ImportLimit));
             CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates;
             AutomaticUpdateEnabled = config.AutomaticUpdates;
             SelectedLanguage = config.Language;
             NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
-            RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ColorPalette = config.ColorPalette; CanvasColor = config.CanvasColor; SurfaceColor = config.SurfaceColor; AccentColor = config.AccentColor; ProjectSort = config.ProjectLibrarySort;
+            RememberNames = config.Naming.RememberUnityPackageNames; Theme = config.Theme; ColorPalette = config.ColorPalette; CanvasColor = config.CanvasColor; SurfaceColor = config.SurfaceColor; AccentColor = config.AccentColor; StrokeColor = config.StrokeColor; ProjectSort = config.ProjectLibrarySort;
             DeveloperMode = app.Diagnostics.DeveloperMode; VerboseDiagnostics = app.Diagnostics.Verbose; TraceTools = app.Diagnostics.TraceTools;
             settingsBaseline = SettingsSnapshot();
         }
@@ -39,8 +39,8 @@ public sealed partial class MainViewModel
         NotifySettingsState();
     }
     private bool setupMode;
-    private static readonly HashSet<string> SettingsProperties = [nameof(UnityEditorPath), nameof(ProjectsRoot), nameof(ExtraImportsFolder), nameof(NamingPrefix), nameof(NamingSuffix), nameof(NamingPatterns), nameof(RememberNames), nameof(Theme), nameof(ColorPalette), nameof(CanvasColor), nameof(SurfaceColor), nameof(AccentColor), nameof(ManualImportPath), nameof(AutoHideCompletedImports), nameof(CheckUpdatesOnStartup), nameof(IncludeBetaUpdates), nameof(AutomaticUpdateEnabled), nameof(SelectedLanguage), nameof(DeveloperMode), nameof(VerboseDiagnostics), nameof(TraceTools)];
-    private string SettingsSnapshot() => JsonSerializer.Serialize(new object[] { UnityEditorPath, ProjectsRoot, ExtraImportsFolder, NamingPrefix, NamingSuffix, NamingPatterns, RememberNames, Theme, ColorPalette, CanvasColor, SurfaceColor, AccentColor, ManualImportPath, AutoHideCompletedImports, CheckUpdatesOnStartup, IncludeBetaUpdates, AutomaticUpdateEnabled, SelectedLanguage, DeveloperMode, VerboseDiagnostics, TraceTools });
+    private static readonly HashSet<string> SettingsProperties = [nameof(UnityEditorPath), nameof(ProjectsRoot), nameof(ExtraImportsFolder), nameof(NamingPrefix), nameof(NamingSuffix), nameof(NamingPatterns), nameof(RememberNames), nameof(Theme), nameof(ColorPalette), nameof(CanvasColor), nameof(SurfaceColor), nameof(AccentColor), nameof(StrokeColor), nameof(ManualImportPath), nameof(AutoHideCompletedImports), nameof(CheckUpdatesOnStartup), nameof(IncludeBetaUpdates), nameof(AutomaticUpdateEnabled), nameof(SelectedLanguage), nameof(DeveloperMode), nameof(VerboseDiagnostics), nameof(TraceTools)];
+    private string SettingsSnapshot() => JsonSerializer.Serialize(new object[] { UnityEditorPath, ProjectsRoot, ExtraImportsFolder, NamingPrefix, NamingSuffix, NamingPatterns, RememberNames, Theme, ColorPalette, CanvasColor, SurfaceColor, AccentColor, StrokeColor, ManualImportPath, AutoHideCompletedImports, CheckUpdatesOnStartup, IncludeBetaUpdates, AutomaticUpdateEnabled, SelectedLanguage, DeveloperMode, VerboseDiagnostics, TraceTools });
     public bool SettingsDirty => !loadingSettings && settingsBaseline.Length > 0 && settingsBaseline != SettingsSnapshot();
     public Visibility SettingsChangesVisibility => SettingsDirty || setupMode || LanguageRestartVisibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SetupVisibility => setupMode ? Visibility.Visible : Visibility.Collapsed;
@@ -86,7 +86,7 @@ public sealed partial class MainViewModel
             config.UnityProjectsRoot = string.IsNullOrWhiteSpace(ProjectsRoot) ? "" : ProjectRules.NormalizePath(ProjectsRoot);
             config.UnityPackagesFolder = string.IsNullOrWhiteSpace(ExtraImportsFolder) ? null : ProjectRules.NormalizePath(ExtraImportsFolder);
             config.Naming = new() { DefaultPrefix = NamingPrefix, DefaultSuffix = NamingSuffix, RegexRemovePatterns = patterns.ToList(), RememberUnityPackageNames = RememberNames }; config.Theme = Theme;
-            config.ColorPalette = ColorPalette; config.CanvasColor = CanvasColor; config.SurfaceColor = SurfaceColor; config.AccentColor = AccentColor;
+            config.ColorPalette = ColorPalette; config.CanvasColor = CanvasColor; config.SurfaceColor = SurfaceColor; config.AccentColor = AccentColor; config.StrokeColor = StrokeColor;
             config.Diagnostics = new() { DeveloperMode = DeveloperMode, Verbose = VerboseDiagnostics, TraceTools = TraceTools }; app.Diagnostics.Configure(config.Diagnostics);
             await PersistConfigurationAsync();
         }

@@ -38,7 +38,7 @@ public sealed partial class AppearanceEditor : UserControl
     private void AppearanceChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
     {
         if (args.PropertyName is nameof(ViewModel.CanvasColor) or nameof(ViewModel.SurfaceColor)
-            or nameof(ViewModel.AccentColor) or nameof(ViewModel.IsLoadingSettings))
+            or nameof(ViewModel.AccentColor) or nameof(ViewModel.StrokeColor) or nameof(ViewModel.IsLoadingSettings))
             ApplyColorPalette();
     }
 
@@ -48,6 +48,7 @@ public sealed partial class AppearanceEditor : UserControl
         if (!initialized || observed is null || updatingPalette || ViewModel.IsLoadingSettings || PaletteSelector.SelectedValue is not string palette) return;
         var colors = palette switch
         {
+            "Orange" => ("#181A1D", "#292D33", "#FFAD66"),
             "Mint" => ("#25272A", "#303338", "#50CDBB"),
             "Ocean" => ("#202A35", "#2A3848", "#70B9F2"),
             "Violet" => ("#2A2532", "#393141", "#C49AF0"),
@@ -65,10 +66,9 @@ public sealed partial class AppearanceEditor : UserControl
         ApplyColorPalette();
     }
 
-    private void PaletteColorChanged(ColorPicker sender, ColorChangedEventArgs args)
+    private void PaletteColorChanged(AppColorPicker sender, Color color)
     {
         if (!initialized || observed is null || updatingPalette || ViewModel.IsLoadingSettings) return;
-        var color = args.NewColor;
         var hex = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
         updatingPalette = true;
         try
@@ -78,6 +78,7 @@ public sealed partial class AppearanceEditor : UserControl
                 case "Canvas": ViewModel.CanvasColor = hex; break;
                 case "Surface": ViewModel.SurfaceColor = hex; break;
                 case "Accent": ViewModel.AccentColor = hex; break;
+                case "Stroke": ViewModel.StrokeColor = hex; break;
                 default: return;
             }
             ViewModel.ColorPalette = "Custom";
@@ -105,7 +106,7 @@ public sealed partial class AppearanceEditor : UserControl
         var canvas = AppearanceResources.ParseColor(ViewModel.CanvasColor, "#25272A");
         var surface = AppearanceResources.ParseColor(ViewModel.SurfaceColor, "#303338");
         var accent = AppearanceResources.ParseColor(ViewModel.AccentColor, "#50CDBB");
-        CanvasPicker.Color = canvas; SurfacePicker.Color = surface; AccentPicker.Color = accent;
-        CanvasSwatch.Background = new SolidColorBrush(canvas); SurfaceSwatch.Background = new SolidColorBrush(surface); AccentSwatch.Background = new SolidColorBrush(accent);
+        CanvasPicker.Color = canvas; SurfacePicker.Color = surface; AccentPicker.Color = accent; StrokePicker.Color = AppearanceResources.ParseColor(ViewModel.StrokeColor, "#626974");
+        CanvasSwatch.Background = new SolidColorBrush(canvas); SurfaceSwatch.Background = new SolidColorBrush(surface); AccentSwatch.Background = new SolidColorBrush(accent); StrokeSwatch.Background = new SolidColorBrush(StrokePicker.Color);
     }
 }

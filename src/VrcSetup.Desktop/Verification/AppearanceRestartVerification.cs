@@ -19,9 +19,9 @@ internal static class AppearanceRestartVerification
             vm.CurrentPage = "Settings";
             await Task.Delay(100);
             var editor = (AppearanceEditor)page.FindName("AppearanceEditor");
-            ((ColorPicker)editor.FindName("CanvasPicker")).Color = Color.FromArgb(255, 23, 33, 43);
-            ((ColorPicker)editor.FindName("SurfacePicker")).Color = Color.FromArgb(255, 38, 53, 66);
-            ((ColorPicker)editor.FindName("AccentPicker")).Color = Color.FromArgb(255, 104, 202, 182);
+            ((AppColorPicker)editor.FindName("CanvasPicker")).Color = Color.FromArgb(255, 23, 33, 43);
+            ((AppColorPicker)editor.FindName("SurfacePicker")).Color = Color.FromArgb(255, 38, 53, 66);
+            ((AppColorPicker)editor.FindName("AccentPicker")).Color = Color.FromArgb(255, 104, 202, 182);
             vm.Theme = "Dark";
             await vm.SaveSettingsCommand.ExecuteAsync(null);
             var saved = await vm.Application.Configuration.LoadAsync();
@@ -39,7 +39,7 @@ internal static class AppearanceRestartVerification
             vm.CurrentPage = "Settings";
             await Task.Delay(100);
             var editor = (AppearanceEditor)page.FindName("AppearanceEditor");
-            if (((ColorPicker)editor.FindName("AccentPicker")).Color != Color.FromArgb(255, 104, 202, 182) || vm.ErrorMessage.Length != 0)
+            if (((AppColorPicker)editor.FindName("AccentPicker")).Color != Color.FromArgb(255, 104, 202, 182) || vm.ErrorMessage.Length != 0)
                 throw new IOException("The appearance editor did not restore the saved color.");
         }
         else throw new ArgumentException("Expected save or verify.");

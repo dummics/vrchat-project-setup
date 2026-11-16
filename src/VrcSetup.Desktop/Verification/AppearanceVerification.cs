@@ -19,10 +19,10 @@ internal static class AppearanceVerification
             await VerifyAsync(page, require);
             // Restore the normal smoke palette before collecting the other screens.
             var editor = (AppearanceEditor)page.FindName("AppearanceEditor");
-            ((ComboBox)editor.FindName("PaletteSelector")).SelectedValue = "Mint";
+            ((ComboBox)editor.FindName("PaletteSelector")).SelectedValue = "Orange";
             await Task.Delay(30);
             await page.ViewModel.SaveSettingsCommand.ExecuteAsync(null);
-            require(page.ViewModel.ColorPalette == "Mint" && page.ViewModel.ErrorMessage.Length == 0, "Appearance fixture returns to the built-in palette for the remaining screens");
+            require(page.ViewModel.ColorPalette == "Orange" && page.ViewModel.ErrorMessage.Length == 0, "Appearance fixture returns to the built-in palette for the remaining screens");
         }
         finally { page.ViewModel.CurrentPage = previousPage; }
     }
@@ -30,27 +30,44 @@ internal static class AppearanceVerification
     private static async Task VerifyAsync(MainPage page, Action<bool, string> require)
     {
         var vm = page.ViewModel;
-        var original = (vm.ColorPalette, vm.CanvasColor, vm.SurfaceColor, vm.AccentColor, vm.Theme);
+        var original = (vm.ColorPalette, vm.CanvasColor, vm.SurfaceColor, vm.AccentColor, vm.StrokeColor, vm.Theme);
         var editor = (AppearanceEditor)page.FindName("AppearanceEditor");
         var palette = (ComboBox)editor.FindName("PaletteSelector");
-        var canvas = (ColorPicker)editor.FindName("CanvasPicker");
-        var surface = (ColorPicker)editor.FindName("SurfacePicker");
-        var accent = (ColorPicker)editor.FindName("AccentPicker");
+        var canvas = (AppColorPicker)editor.FindName("CanvasPicker");
+        var surface = (AppColorPicker)editor.FindName("SurfacePicker");
+        var accent = (AppColorPicker)editor.FindName("AccentPicker");
         var resources = Microsoft.UI.Xaml.Application.Current.Resources.MergedDictionaries.Single(x => x.Source?.OriginalString.Contains("DesignResources.xaml", StringComparison.OrdinalIgnoreCase) == true);
         var highContrast = (Microsoft.UI.Xaml.ResourceDictionary)resources.ThemeDictionaries["HighContrast"];
         var protectedKeys = new[] { "AppCanvasBrush", "AppTextBrush", "AccentFillColorDefaultBrush", "TextOnAccentFillColorPrimaryBrush" };
         var contrastColors = protectedKeys.ToDictionary(key => key, key => ((Microsoft.UI.Xaml.Media.SolidColorBrush)highContrast[key]).Color);
         try
         {
+            foreach (var name in new[] { "CanvasColorButton", "SurfaceColorButton", "AccentColorButton", "StrokeColorButton" })
+            {
+                var button = (Button)editor.FindName(name);
+                button.Flyout.ShowAt(button);
+                await Task.Delay(250);
+                require(button.Flyout.IsOpen, "Color picker opens from its actual button: " + name);
+                var picker = (AppColorPicker)((Flyout)button.Flyout).Content;
+                var hexInput = ((StackPanel)picker.Content).Children.OfType<TextBox>().Single();
+                hexInput.Text = "#A17245";
+                await Task.Delay(60);
+                require(picker.Color == Color.FromArgb(255, 161, 114, 69), "Editing the visible color field applies the selected color: " + name);
+                hexInput.Text = "#invalid";
+                await Task.Delay(60);
+                require(picker.Color == Color.FromArgb(255, 161, 114, 69), "Invalid color input preserves the previous color: " + name);
+                button.Flyout.Hide();
+                await Task.Delay(50);
+            }
             foreach (var theme in new[] { "Dark", "Light", "System" })
             {
                 vm.Theme = theme;
-                foreach (var name in new[] { "Ocean", "Violet", "Mint", "Ocean" })
+                foreach (var name in new[] { "Orange", "Ocean", "Violet", "Mint", "Ocean" })
                 {
                     palette.SelectedValue = name;
                     await Task.Delay(30);
                     require(vm.ColorPalette == name, $"Appearance selects {name} in {theme}");
-                    require(vm.AccentColor == (name == "Ocean" ? "#70B9F2" : name == "Violet" ? "#C49AF0" : "#50CDBB"), "Built-in palette updates its accent");
+                    require(vm.AccentColor == (name == "Orange" ? "#FFAD66" : name == "Ocean" ? "#70B9F2" : name == "Violet" ? "#C49AF0" : "#50CDBB"), "Built-in palette updates its accent");
                 }
                 canvas.Color = Color.FromArgb(255, 240, 220, 200);
                 surface.Color = Color.FromArgb(255, 12, 34, 56);
@@ -78,7 +95,7 @@ internal static class AppearanceVerification
             require(vm.ErrorMessage.Length == 0 && vm.CanvasColor is null && vm.SurfaceColor is null && vm.AccentColor is null, "Legacy fallback leaves stored user choices intact without an error");
         }
         finally { vm.DiscardSettingsCommand.Execute(null); }
-        require((vm.ColorPalette, vm.CanvasColor, vm.SurfaceColor, vm.AccentColor, vm.Theme) == original, "Discard restores saved appearance atomically");
+        require((vm.ColorPalette, vm.CanvasColor, vm.SurfaceColor, vm.AccentColor, vm.StrokeColor, vm.Theme) == original, "Discard restores saved appearance atomically");
         require(!vm.IsLoadingSettings && !vm.SettingsDirty, "Appearance discard leaves settings ready for further edits");
         var scanned = false;
         void ObserveScan(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
@@ -90,9 +107,10 @@ internal static class AppearanceVerification
         {
             vm.ColorPalette = "Custom";
             vm.AccentColor = "#123456";
+            vm.StrokeColor = "#728092";
             await vm.SaveSettingsCommand.ExecuteAsync(null);
             var saved = await vm.Application.Configuration.LoadAsync();
-            require(saved.AccentColor == "#123456" && saved.ColorPalette == "Custom" && !vm.SettingsDirty, "Custom appearance is persisted by the normal save action");
+            require(saved.StrokeColor == "#728092" && saved.AccentColor == "#123456" && saved.ColorPalette == "Custom" && !vm.SettingsDirty, "Custom appearance is persisted by the normal save action");
             require(!scanned && vm.ErrorMessage.Length == 0, "Saving appearance avoids project scanning and completes without errors");
         }
         finally
@@ -102,6 +120,7 @@ internal static class AppearanceVerification
             vm.CanvasColor = original.CanvasColor;
             vm.SurfaceColor = original.SurfaceColor;
             vm.AccentColor = original.AccentColor;
+            vm.StrokeColor = original.StrokeColor;
             vm.Theme = original.Theme;
             await vm.SaveSettingsCommand.ExecuteAsync(null);
         }

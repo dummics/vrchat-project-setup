@@ -1,4 +1,7 @@
 {
+  "Automatic": "Automatico",
+  "Orange": "Arancione",
+  "Borders": "Divisori",
   "Unity reported script errors. Open the project in Unity to fix them. The import may not have finished.": "Unity ha rilevato errori negli script. Apri il progetto in Unity per correggerli. L’importazione potrebbe non essere terminata.",
   "Waiting in queue": "In coda",
   "Preparing project": "Preparazione del progetto",

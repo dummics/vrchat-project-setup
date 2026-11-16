@@ -1,5 +1,25 @@
 # Desktop migration verification
 
+## Appearance and automatic admission after 0.3.3
+
+Opening the original color flyouts reproduced a native exit (0xc000027b), first
+with an invalid relative resource URI and then a native null-pointer error.
+The resource dictionary now uses an absolute ms-appx URI. The flyouts use a
+small RGB/hex editor with color samples instead of the failing ColorPicker /
+ColorSpectrum path. Native verification opens all four flyouts, edits the visible
+hex field, rejects invalid input, cycles palettes and saves custom divider colors.
+
+Orange is the default for new settings, with a darker canvas and lighter surfaces;
+existing saved palettes remain intact. Secondary actions have visible surfaces
+and borders. Settings disclosures use theme-aware surfaces rather than local
+transparent overrides. The page no longer exposes scheduling controls during
+ordinary imports. Developer tools offer Automatic (stored as zero, memory admission
+up to eight) or an explicit ceiling of one to eight, still subject to memory.
+Final evidence: 536 Core tests and 665 native UI checks passed, plus Italian
+smoke and save/verify in separate processes. Captures in
+`.work/artifacts/appearance-complete` were reviewed in dark and light themes;
+Italian captures are in `appearance-it`, restart evidence in `appearance-restart-new`.
+
 ## Flat import package table after 0.3.3
 
 The import recap uses a full-width ListView with contiguous rows, a single

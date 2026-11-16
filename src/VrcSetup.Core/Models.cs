@@ -68,15 +68,16 @@ public sealed class AppConfiguration
     public string LastUnityPackagePath { get; set; } = "";
     public string ProjectLibrarySort { get; set; } = "recent";
     public string Theme { get; set; } = "Dark";
-    public string ColorPalette { get; set; } = "Mint";
-    public string CanvasColor { get; set; } = "#25272A";
-    public string SurfaceColor { get; set; } = "#303338";
-    public string AccentColor { get; set; } = "#50CDBB";
+    public string ColorPalette { get; set; } = "Orange";
+    public string CanvasColor { get; set; } = "#181A1D";
+    public string SurfaceColor { get; set; } = "#292D33";
+    public string AccentColor { get; set; } = "#FFAD66";
+    public string StrokeColor { get; set; } = "#626974";
     public string Language { get; set; } = "system";
     public string PackageLibraryView { get; set; } = "grid";
     public bool ManualImportPath { get; set; }
     public bool AutoHideCompletedImports { get; set; }
-    public int MaxParallelImports { get; set; } = 8;
+    public int MaxParallelImports { get; set; } = 0;
     public bool CheckUpdatesOnStartup { get; set; } = true;
     public bool AutomaticUpdates { get; set; } = true;
     public bool IncludeBetaUpdates { get; set; }

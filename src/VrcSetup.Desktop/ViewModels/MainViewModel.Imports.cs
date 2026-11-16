@@ -16,14 +16,14 @@ public sealed partial class MainViewModel
             ApplicationNotice = UiText.Text("Import status saved.");
     }, allowWhileBusy: true);
     private const int RequestedParallelism = 0; // Adapt to available CPU and memory.
-    public int[] ImportLimitChoices { get; } = Enumerable.Range(1, 8).ToArray();
-    public int ImportLimit => Math.Clamp(config.MaxParallelImports, 1, 8);
+    public KeyValuePair<int, string>[] ImportLimitChoices => [new(0, UiText.Text("Automatic")), .. Enumerable.Range(1, 8).Select(x => new KeyValuePair<int, string>(x, x.ToString()))];
+    public int ImportLimit => Math.Clamp(config.MaxParallelImports, 0, 8);
     public Task SetImportLimitAsync(int value) => IndependentAction(async () =>
     {
-        if (value is < 1 or > 8 || value == ImportLimit) return;
+        if (value is < 0 or > 8 || value == ImportLimit) return;
         var previous = config.MaxParallelImports;
         config.MaxParallelImports = value;
-        try { await PersistConfigurationAsync(); app.Imports.ConfigureAutomaticLimit(value); }
+        try { await PersistConfigurationAsync(); app.Imports.ConfigureAutomaticLimit(value == 0 ? 8 : value); }
         catch { config.MaxParallelImports = previous; throw; }
         finally { OnPropertyChanged(nameof(ImportLimit)); }
     });
