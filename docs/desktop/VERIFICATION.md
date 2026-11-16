@@ -2,6 +2,14 @@
 
 ## Appearance and automatic admission after 0.3.3
 
+Published as stable **0.3.4**, commit `0c80ee4`, through successful Windows workflow
+[43869154038](https://github.com/dummics/vrchat-project-setup/actions/runs/43869154038).
+The downloaded installer matches SHA-256
+`50847D552AE60F486D9C58E58D4583284EF746065808256A7D6129CE4EB05E11`;
+all 13 component asset hashes/sizes match the manifest, and the public feed lists
+the stable release. The workflow also passed VPM, native UI, Italian, restart,
+installer and update checks. Compact local evidence: `.work/artifacts/release-034`.
+
 Opening the original color flyouts reproduced a native exit (0xc000027b), first
 with an invalid relative resource URI and then a native null-pointer error.
 The resource dictionary now uses an absolute ms-appx URI. The flyouts use a

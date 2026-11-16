@@ -8,9 +8,7 @@ Language uses the same settings save action: **Save and restart** when a restart
 
 Update checks share a local feed cache for ten minutes, including manual checks. Later requests revalidate with the server's ETag when available. GitHub rate limits pause checks until `Retry-After` or an exhausted quota's reset time; secondary limits without a deadline pause for five minutes. The pause survives app restarts. No local server or GitHub credentials are required; diagnostic exceptions stay in logs, while the app shows a short localized message.
 
-## Install
-
-### Future stable build numbering (owner decision, 16 November 2026)
+## Future stable build numbering (owner decision, 16 November 2026)
 
 The agreed future display is `0.3.4 · build 123`: product version plus a separate
 increasing build counter. A short Git hash identifies a build but never orders
@@ -20,6 +18,8 @@ Before publishing same-version builds, add explicit counter comparison to the
 application feed, preparation cache and installer, with unique immutable tags
 and assets and an upgrade path for existing clients. Keep VPM package SemVer
 handling separate. Verify newer/older build, reinstall, downgrade and restart.
+
+## Install
 
 New installations start with VRChat Resolver/Base/Avatars, Poiyomi and VRCFury. Packages are downloaded by the bundled native VPM client; no globally installed VPM CLI or SDK is needed for package operations. Existing settings, extra packages and favorites are preserved. Installed project packages are indexed locally for reuse without joining the default preset. Only a selected package with missing metadata can trigger preparation of a known source; optional packages are not preinstalled or registered at startup.
 
