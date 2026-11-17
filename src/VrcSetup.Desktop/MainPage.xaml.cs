@@ -29,6 +29,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         this.window = window;
         InitializeComponent(); ViewModel = new(app, this); DataContext = ViewModel;
+        InitializeOpenProjectIndicators();
         AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(DismissInformationOnOutsideClick), true);
         window.Activated += (_, args) => { if (args.WindowActivationState == WindowActivationState.Deactivated && informationExpanded) SetInformationExpanded(false); };
         ToolTips = new(this);
@@ -90,9 +91,23 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         if (informationExpanded) SetInformationExpanded(false);
         if (page != "Projects") ProjectList.SelectedItems.Clear();
         ProjectsView.Visibility = page == "Projects" ? Visibility.Visible : Visibility.Collapsed;
-        CreateHost.Visibility = page == "Create" ? Visibility.Visible : Visibility.Collapsed;
+        SetOpenProjectTracking(page == "Projects");
+        if (page is not ("Create" or "ImportPackages")) importDetail = ImportDetail.None;
+        UpdateImportDetailVisibility(page);
         WorkspaceView.Visibility = page == "Workspace" ? Visibility.Visible : Visibility.Collapsed;
         PresetsView.Visibility = page is "Presets" or "ImportPackages" or "NewProject" ? Visibility.Visible : Visibility.Collapsed;
+        PresetHeader.Visibility = page == "ImportPackages" ? Visibility.Collapsed : Visibility.Visible;
+        if (page == "ImportPackages" && !importEditorOpen)
+        {
+            SlideImportSurface(PresetsView, forward: true);
+            FocusImportControl(ImportEditorBack);
+        }
+        else if (page == "Create" && importEditorOpen)
+        {
+            SlideImportSurface(importDetail == ImportDetail.None ? CreateHost : ImportDetailView, forward: false);
+            FocusImportControl(importDetail == ImportDetail.Packages ? CustomizePackagesButton : CreationPackagesButton);
+        }
+        importEditorOpen = page == "ImportPackages";
         ActivityView.Visibility = page == "Activity" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         syncingNavigation = true;
@@ -210,33 +225,13 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             Grid.SetColumn(ChoosePackageButton, narrow ? 1 : 2); Grid.SetRow(ChoosePackageButton, narrow ? 1 : 0);
             ChoosePackageButton.HorizontalAlignment = HorizontalAlignment.Left;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
-            SizeCreationPackageFlyout();
         }
         if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Max(1, SettingsView.ActualWidth - 24);
     }
-    private void CreationPresetPicked(object sender, ItemClickEventArgs args)
-    {
-        if (args.ClickedItem is string preset) ViewModel.SelectedPreset = preset;
-        PresetChoiceFlyout.Hide();
-    }
-    private void CreationPackagesLoaded(object sender, RoutedEventArgs args) => ConstrainForms();
     private void ExcludeCreationPackageClicked(object sender, RoutedEventArgs args)
     { if (sender is FrameworkElement { DataContext: UiCreationPackage row }) ViewModel.ExcludeCreationPackage(row); }
     private void IncludeExcludedPackageClicked(object sender, RoutedEventArgs args)
     { if (sender is FrameworkElement { DataContext: UiCreationPackage row }) ViewModel.IncludeExcludedCreationPackage(row); }
-    private void SizeCreationPackageFlyout()
-    {
-        CreationPackagePanel.RequestedTheme = RequestedTheme;
-        var width = Math.Max(260, Math.Min(700, ActualWidth - 96));
-        CreationPackagePanel.Width = width;
-        CreationPackageViewport.MaxHeight = Math.Max(180, ActualHeight - 180);
-        CreationPackageDetails.Width = width;
-        CreationPackageList.Width = Math.Max(1, width - 32);
-    }
-    private void CreationPackageFlyoutOpening(object sender, object args)
-    { SizeCreationPackageFlyout(); CreationPackageDetails.IsExpanded = true; }
-    private async void CustomizeImportPackagesClicked(object sender, RoutedEventArgs args)
-    { CreationPackagesFlyout.Hide(); await ViewModel.CustomizeCreationPackagesCommand.ExecuteAsync(null); }
     private void ImportPlatformClicked(object sender, RoutedEventArgs args)
     {
         if (sender is FrameworkElement { Tag: string platform }) ViewModel.BuildTarget = platform;
@@ -244,8 +239,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     }
     private void ImportDraftTabClosed(TabView sender, TabViewTabCloseRequestedEventArgs args)
     { if (args.Item is UiImportDraft draft) ViewModel.RemoveImportDraft(draft); }
-    private void ImportDraftTabChanged(object sender, SelectionChangedEventArgs args)
-    { CreationPackagesFlyout.Hide(); PresetChoiceFlyout.Hide(); }
     private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement
     {
         for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
@@ -266,14 +259,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         }
         return null;
     }
-    private void AnimatePackageRecap()
-    {
-        // Keep width stable during the native height expansion. Animating width
-        // simultaneously reflowed package tiles and moved every following row.
-        ConstrainForms();
-    }
-    private void CreationPackagesExpanded(Expander sender, ExpanderExpandingEventArgs args) => AnimatePackageRecap();
-    private void CreationPackagesCollapsed(Expander sender, ExpanderCollapsedEventArgs args) => AnimatePackageRecap();
     private async void AddCreationSuggestionClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiCreationPackage row) await ViewModel.AddCreationSuggestionAsync(row); }
     private async void HistoryLogClicked(object sender, RoutedEventArgs args)
@@ -399,7 +384,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void ReviewSuggestionsClicked(object sender, RoutedEventArgs args)
     {
         if (ViewModel.IsClosingApp || ViewModel.IsInspectingPackage) return;
-        CreationPackagesFlyout.Hide();
+        CloseImportDetails();
         try
         {
             var snapshot = ViewModel.CreateSuggestionReview();

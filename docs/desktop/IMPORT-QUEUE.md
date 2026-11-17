@@ -178,10 +178,20 @@ Package Apply uses a dedicated dimmed blocking overlay, separate from the nonblo
 The D1 import workspace uses native document tabs for staged archives and one
 batch review. Name, target platform, explicit package choices and exclusions stay
 with their draft when switching tabs. Preset selection is shared; customizing a
-draft does not edit its saved preset. The compact Packages row opens a bounded
-detail flyout with numeric versions, exclusions and version controls. Strong
-detected additions remain on the main page; weaker matches are available only
-inside the optional detail view. No match alone removes a selected VPM package.
+draft does not edit its saved preset. Preset and Packages open panels inside
+Import with a short horizontal transition that respects the system motion setting.
+The package panel has one vertical viewport with versions and exclusions, and
+links to the editor for this draft. Back or Escape returns to the previous view.
+Detected additions are optional and require an explicit action. Weaker matches
+remain in package details. No match alone removes a selected VPM package.
+
+Quest and Android markers can also appear in compact archive names such as
+`avatarquestv2.unitypackage`. A name that also indicates PC or another platform
+keeps the PC default. The suggested target remains editable before import.
+
+Projects shows a green dot next to the name while a matching interactive Unity
+editor is running. The view refreshes this status every four seconds and keeps
+the current rows and selection. Unity batch imports do not display the dot.
 
 Import summaries open downward. Pause, resume/retry and cancellation stay visible
 without opening the console. Outcome, destination and secondary actions follow
@@ -192,7 +202,7 @@ back to the beginning. Empty drop space shrinks while import rows are present.
 
 The ordinary desktop holds one lease per data home. Opening it again activates the existing window instead of starting another import queue. Preset/settings exit dialogs highlight Save, with Discard and Cancel alternatives; project-package edits offer Apply and still require the normal review. Saving is explicit. A failed save or cancelled review keeps the current edits/page.
 
-Import rows follow the form in a stable top-to-bottom flow. The page scrolls as a whole; the job list has no additional scrolling viewport. Clear list hides all finished rows, including failed/cancelled/interrupted imports; active and queued imports stay visible. Activity retains history, logs and recovery. Expanded logs have a single fixed-height, selectable text viewport. Package details keep the same width when opened; import stays below the package selection. Native expanders own height expansion without additional width or list-reposition animations.
+Import rows follow the form in a stable top-to-bottom flow. The page scrolls as a whole; the job list has no additional scrolling viewport. Clear list hides all finished rows, including failed/cancelled/interrupted imports; active and queued imports stay visible. Activity retains history, logs and recovery. Expanded logs have a single fixed-height, selectable text viewport. Native expanders own height expansion without additional width or list-reposition animations.
 
 Every active/queued import has a directly visible Cancel import action beside its collapsed summary. It stays visible but disabled as Cancelling… after cancellation is requested. Failed/cancelled imports show Try again, interrupted imports show Continue import. Activity uses the same wording. The import page shows only the latest attempt per destination, preferring an active attempt: retrying does not leave an older failure beside it. Hidden/completed latest attempts never expose their predecessors again; Activity retains all attempts. Clearing finished rows does not cancel active jobs.
 

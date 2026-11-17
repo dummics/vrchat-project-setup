@@ -46,7 +46,25 @@ public static partial class ProjectRules
         return config.Naming.DefaultPrefix + name.Trim() + config.Naming.DefaultSuffix;
     }
 
-    public static string SuggestBuildTarget(string name) => Regex.IsMatch(name, @"(^|[^a-zA-Z])(Quest|Android)([^a-zA-Z]|$)", RegexOptions.IgnoreCase) ? "Android" : "StandaloneWindows64";
+    public static string SuggestBuildTarget(string name)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(name.Replace('\\', '/'));
+        var words = Regex.Replace(fileName, @"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ");
+        const string mobile = "(?:quest|android)";
+        const string other = "(?:pc|windows(?:64)?|win64|ios|iphone|ipad|macos|linux)";
+        const RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+
+        // Honor both separated markers (PC + Quest) and compact combinations (pcquestv2).
+        if (Regex.IsMatch(words, $@"(?<!\p{{L}}){other}(?!\p{{L}})", options)
+            || Regex.IsMatch(words, $@"{other}(?:and)?{mobile}|{mobile}(?:and)?{other}", options))
+            return "StandaloneWindows64";
+
+        var tokens = Regex.Split(words, @"[^\p{L}\p{Nd}]+");
+        return tokens.Any(token => Regex.IsMatch(token, mobile, options)
+            && !Regex.IsMatch(token, "^(?:request|conquest|bequest|inquest|question|questing)", options))
+            ? "Android"
+            : "StandaloneWindows64";
+    }
     public static void ValidatePackageId(string id)
     {
         if (!Regex.IsMatch(id, @"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")) throw new ArgumentException($"Invalid package ID: {id}");

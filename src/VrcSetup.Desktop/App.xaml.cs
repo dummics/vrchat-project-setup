@@ -46,20 +46,24 @@ public partial class App : Application
             try
             {
                 var app = await Verification.UiSmokeTest.PrepareAsync(output);
-                var config = await app.Configuration.LoadAsync(); config.Language = "it"; await app.Configuration.SaveAsync(config);
+                var editor = arguments.Contains("--smoke-no-editor") ? null : VrcSetup.Infrastructure.UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == VrcSetup.Infrastructure.UnityEditorDiscovery.PinnedVersion).Path;
+                var config = await app.Configuration.LoadAsync();
+                config.Language = "it";
+                config.UnityEditorPath = editor ?? "";
+                await app.Configuration.SaveAsync(config);
                 var main = new MainWindow(app); window = main; main.AppWindow.Move(new(-12000, -12000)); main.AppWindow.Show(false); await main.Page.Initialized;
                 var navigation = (Microsoft.UI.Xaml.Controls.NavigationView)main.Page.FindName("Navigation");
                 if ((navigation.MenuItems[0] as Microsoft.UI.Xaml.Controls.NavigationViewItem)?.Content as string != "Progetti") throw new System.IO.IOException("Italian navigation did not load.");
                 foreach (var page in new[] { "Settings", "Create", "Projects", "Presets" })
                 { main.Page.ViewModel.CurrentPage = page; await Task.Delay(100); await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, page.ToLowerInvariant() + "-it.png")); }
                 main.Page.ViewModel.CurrentPage = "Create";
-                var editor = arguments.Contains("--smoke-no-editor") ? null : VrcSetup.Infrastructure.UnityEditorDiscovery.FindEditors().FirstOrDefault(x => x.Version == VrcSetup.Infrastructure.UnityEditorDiscovery.PinnedVersion).Path;
-                main.Page.ViewModel.UnityEditorPath = editor ?? "";
                 if (arguments.Contains("--smoke-no-editor") && main.Page.ViewModel.EditorReady)
                     throw new System.IO.IOException("The no-editor fixture unexpectedly found a configured editor.");
-                var sample = System.IO.Path.Combine(output, "Avatar.unitypackage");
+                var sample = System.IO.Path.Combine(output, "avatarquestv2.unitypackage");
                 await System.IO.File.WriteAllTextAsync(sample, "isolated visual fixture");
                 main.Page.ViewModel.StageImportFiles([sample]);
+                if (main.Page.ViewModel.BuildTarget != "Android")
+                    throw new System.IO.IOException("Compact Quest filename did not select the Android build target.");
                 var deadline = DateTime.UtcNow.AddSeconds(10);
                 while (main.Page.ViewModel.IsInspectingPackage && DateTime.UtcNow < deadline) await Task.Delay(25);
                 if (main.Page.ViewModel.IsInspectingPackage) throw new System.IO.IOException("Italian package fixture did not finish loading.");
@@ -89,14 +93,25 @@ public partial class App : Application
                     throw new System.IO.IOException("The active import dialog is not correctly localized.");
                 await Verification.UiSmokeTest.Render(importStatus, System.IO.Path.Combine(output, "active-import-dialog-it.png"));
                 importStatus.Hide(); await shown;
-                var packagesButton = (Microsoft.UI.Xaml.Controls.Button)main.Page.FindName("CreationPackagesButton");
-                var packageFlyout = (Microsoft.UI.Xaml.Controls.Flyout)packagesButton.Flyout;
-                packageFlyout.ShowAt(packagesButton); await Task.Delay(350);
-                await Verification.UiSmokeTest.Render((FrameworkElement)packageFlyout.Content, System.IO.Path.Combine(output, "package-details-it.png"));
+                Verification.UiSmokeTest.InvokeButton(main.Page, "CreationPackagesButton"); await Task.Delay(350);
+                await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "package-details-it.png"));
                 var customize = (Microsoft.UI.Xaml.Controls.Button)main.Page.FindName("CustomizePackagesButton");
                 if (customize.Content as string != "Scegli pacchetti e versioni" || customize.ActualHeight < 32)
                     throw new System.IO.IOException("The Italian package detail action is missing.");
-                packageFlyout.Hide();
+                Verification.UiSmokeTest.InvokeButton(main.Page, "CustomizePackagesButton"); await Task.Delay(350);
+                if (main.Page.ViewModel.CurrentPage != "ImportPackages" || main.Page.ViewModel.PresetDirty)
+                    throw new System.IO.IOException($"The import editor did not open cleanly. Page={main.Page.ViewModel.CurrentPage}, settingsDirty={main.Page.ViewModel.SettingsDirty}, presetDirty={main.Page.ViewModel.PresetDirty}, workspaceDirty={main.Page.ViewModel.WorkspaceDirty}.");
+                await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "package-editor-it.png"));
+                Verification.UiSmokeTest.InvokeButton(main.Page, "ImportEditorBack"); await Task.Delay(260);
+                if (main.Page.ViewModel.CurrentPage != "Create" || main.Page.ViewModel.PackageFile != sample
+                    || ((FrameworkElement)main.Page.FindName("ImportDetailView")).Visibility != Visibility.Visible)
+                    throw new System.IO.IOException("Returning from the import editor did not restore its package panel.");
+                Verification.UiSmokeTest.InvokeButton(main.Page, "ImportDetailBack"); await Task.Delay(260);
+                Verification.UiSmokeTest.InvokeButton(main.Page, "PresetFields"); await Task.Delay(260);
+                if (((Microsoft.UI.Xaml.Controls.TextBlock)main.Page.FindName("ImportDetailTitle")).Text != "Scegli un preset")
+                    throw new System.IO.IOException("The Italian preset panel did not open.");
+                await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "preset-selection-it.png"));
+                Verification.UiSmokeTest.InvokeButton(main.Page, "ImportDetailBack");
                 await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(output, "localization.json"), new { Passed = true, Language = VrcSetup.Core.UiText.CurrentLanguage, NamesPreserved = main.Page.ViewModel.Projects.Any(x => x.Name == "Creator [PC] & café") });
                 main.Close(); Exit();
             }

@@ -139,7 +139,6 @@ public static class UiSmokeTest
         viewModel.CurrentPage = "Presets"; await Task.Delay(100); page.UpdateLayout();
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == viewModel.EditingPreset, "Preset selector reflects the current preset");
         Require(viewModel.ApplicationProgressVisibility == Visibility.Collapsed, "Idle application progress is hidden");
-        Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("CreationPackagesButton")).Flyout is not null, "Package details open on request from a compact preference row");
         viewModel.IsInspectingPackage = true;
         Require(viewModel.ApplicationStatus.Contains("Checking packages") && viewModel.ApplicationProgressIndeterminate, "Background analysis appears in application status");
         viewModel.IsDownloadingUpdate = true; viewModel.UpdateDownloadPercent = 42;
@@ -962,13 +961,12 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(viewModel.DetectedCreationPackagesVisibility == Visibility.Visible && viewModel.DetectedCreationPackages.Any(x => x.Id == "example.range"), "Strong package suggestions appear before the import review");
         Require(!viewModel.DetectedCreationPackages.Any(x => x.Id == ProjectRules.WorldSdk), "Avatar suggestions exclude the world SDK");
         Require(viewModel.PossibleCreationPackagesVisibility == Visibility.Visible && viewModel.PossibleCreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && !x.Selected), "Possible packages are offered separately without being selected automatically");
-        var creationFlyout = (Microsoft.UI.Xaml.Controls.Flyout)((Microsoft.UI.Xaml.Controls.Button)page.FindName("CreationPackagesButton")).Flyout;
-        creationFlyout.ShowAt((FrameworkElement)page.FindName("CreationPackagesButton"));
+        InvokeButton(page, "CreationPackagesButton");
         await Task.Delay(200);
         var possibleExpander = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("PossiblePackagesExpander");
         possibleExpander.IsExpanded = true; await Task.Delay(150); page.UpdateLayout();
         Require(possibleExpander.Visibility == Visibility.Visible && Descendants(possibleExpander).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.DataContext is VrcSetup_Desktop.ViewModels.UiCreationPackage item && item.Id == "com.llealloo.audiolink"), "Possible packages expose an individual add action in the native view");
-        await Render((FrameworkElement)creationFlyout.Content, Path.Combine(artifacts, "possible-package-suggestions.png"));
+        await Render(page, Path.Combine(artifacts, "possible-package-suggestions.png"));
         possibleExpander.IsExpanded = false;
         viewModel.CreationInspection = null;
         var selectedForBundled = viewModel.CreationPackages.First(x => x.Selected && x.Id == "gogoloco");
@@ -985,13 +983,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             "Explicit exclusions have their own visible surface beside the install list");
         exclusionsSurface.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
         await Task.Delay(100); page.UpdateLayout();
-        await Render((FrameworkElement)creationFlyout.Content, Path.Combine(artifacts, "vpm-excluded-packages.png"));
+        await Render(page, Path.Combine(artifacts, "vpm-excluded-packages.png"));
         viewModel.IncludeExcludedCreationPackage(viewModel.ExcludedCreationPackages.Single(x => x.Id == selectedForBundled.Id));
         Require(viewModel.SelectedCreationPackages.Single(x => x.Id == selectedForBundled.Id).Data.Version == selectedVersionBeforeExclusion,
             "Restoring an excluded VPM package preserves its chosen version");
         Require((await viewModel.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(savedPackagesBeforeExclusion.OrderBy(x => x.Key)),
             "Import exclusions never edit the saved package preset");
-        creationFlyout.Hide();
+        InvokeButton(page, "ImportDetailBack");
         var requiredPackage = viewModel.SelectedCreationPackages.First(x => x.IsRequired);
         viewModel.ExcludeCreationPackage(requiredPackage);
         Require(viewModel.SelectedCreationPackages.Any(x => x.Id == requiredPackage.Id), "Required foundation packages cannot be excluded");
@@ -1272,6 +1270,15 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                         Require(list.ContainerFromItem(second) is FrameworkElement { ActualHeight: > 0 }, "Both selected projects have visible native row containers");
                         var firstRow = (FrameworkElement)list.ContainerFromItem(viewModel.Projects[0]);
                         var secondRow = (FrameworkElement)list.ContainerFromItem(second);
+                        var firstOpen = Descendants(firstRow).OfType<Microsoft.UI.Xaml.Controls.FontIcon>().Single(x => x.Name == "ProjectOpenIndicator");
+                        var secondOpen = Descendants(secondRow).OfType<Microsoft.UI.Xaml.Controls.FontIcon>().Single(x => x.Name == "ProjectOpenIndicator");
+                        page.ApplyOpenProjectPaths(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { viewModel.Projects[0].Path.ToUpperInvariant() });
+                        Require(firstOpen.Visibility == Visibility.Visible && secondOpen.Visibility == Visibility.Collapsed,
+                            "An active editor marks only the matching project, even when path casing differs");
+                        await Render(page, Path.Combine(artifacts, "project-open-indicator.png"));
+                        page.ApplyOpenProjectPaths(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                        Require(firstOpen.Visibility == Visibility.Collapsed && list.ContainerFromItem(viewModel.Projects[0]) == firstRow,
+                            "Closing the editor clears the dot without replacing the project row");
                         await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "project-selection-bounds.json"), new { list.ActualHeight, FirstY = firstRow.TransformToVisual(list).TransformPoint(new(0, 0)).Y, FirstHeight = firstRow.ActualHeight, SecondY = secondRow.TransformToVisual(list).TransformPoint(new(0, 0)).Y, SecondHeight = secondRow.ActualHeight });
                         Require(secondRow.TransformToVisual(list).TransformPoint(new(0, 0)).Y >= firstRow.TransformToVisual(list).TransformPoint(new(0, firstRow.ActualHeight)).Y - 1, "Selected project rows remain separate without overlap");
                         Require(batch.Visibility == Visibility.Visible && Microsoft.UI.Xaml.Controls.Grid.GetRow(batch) == 0, "Multi-project action lives in the toolbar and covers no list rows");
@@ -1356,41 +1363,36 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 }
                 if (screen == "Create" && size.Width is 720 or 1180)
                 {
-                    creationFlyout.ShowAt((FrameworkElement)page.FindName("CreationPackagesButton"));
+                    InvokeButton(page, "CreationPackagesButton");
                     await Task.Delay(250);
-                    var details = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails");
-                    var collapsedWidth = details.ActualWidth;
-                    details.IsExpanded = true; viewModel.IsInspectingPackage = true;
-                    await Task.Delay(650); page.UpdateLayout();
-                    Require(Math.Abs(details.ActualWidth - collapsedWidth) < 2, "Package disclosure keeps a stable width while expanding: " + size.Width);
-                    var importAction = (FrameworkElement)page.FindName("ImportPrimaryAction");
-                    var importViewport = (FrameworkElement)page.FindName("CreateView");
-                    var actionTop = importAction.TransformToVisual(page).TransformPoint(new(0, 0)).Y;
-                    var viewportBottom = importViewport.TransformToVisual(page).TransformPoint(new(0, importViewport.ActualHeight)).Y;
-                    Require(actionTop >= viewportBottom - 2 && actionTop + importAction.ActualHeight <= page.ActualHeight,
-                        "Import action stays outside the scrolling package details and within the page: " + size.Width);
-                    var footer = (FrameworkElement)page.FindName("StatusBar");
-                    var text = (Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("ApplicationStatusText");
-                    Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);
-                    var creationList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("CreationPackageList");
-                    var firstRecapItem = (FrameworkElement)creationList.ContainerFromIndex(0);
-                    Require(double.IsPositiveInfinity(creationList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(creationList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled && details.ActualWidth < page.ActualWidth, "Package details use one bounded popup viewport without a nested list scroll: " + size.Width);
-                    Require(creationList.ActualWidth >= details.ActualWidth - 32 && firstRecapItem.ActualWidth >= creationList.ActualWidth - 8, $"Package table rows fill the disclosure width: {size.Width}, list={creationList.ActualWidth}, surface={details.ActualWidth}, container={firstRecapItem.ActualWidth}");
-                    Require(creationList.ActualHeight >= 28 && creationList.Items.Count == viewModel.SelectedCreationPackages.Count && creationList.Items.Cast<object>().All(x => creationList.ContainerFromItem(x) is FrameworkElement { ActualHeight: > 0 }), "Every selected VPM package is rendered without clipping: " + size.Width);
-                    var versions = Descendants(creationList).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Where(x => x.Name == "CreationPackageVersion").ToArray();
-                    Require(versions.Length == viewModel.SelectedCreationPackages.Count && versions.All(x => x.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(x.Text)), "Every selected VPM row shows its version: " + size.Width);
-                    var chip = Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>().First(x => x.Name == "ExpanderHeader");
-                    Require(Math.Abs(chip.ActualWidth - details.ActualWidth) < 2, "Package disclosure opens as one continuous surface: " + size.Width);
-                    Require(!Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.Command == viewModel.InspectDeeperCommand), "Package recap has no technical analysis action: " + size.Width);
-                    Require(!((Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("CreationPackageHeader")).IsTextTrimmed, "Compact package summary remains fully readable: " + size.Width);
-                    await Render((FrameworkElement)creationFlyout.Content, Path.Combine(artifacts, "create-expanded-status-" + size.Width + ".png"));
-                    var packageViewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreationPackageViewport");
-                    var previousOffset = packageViewport.VerticalOffset;
-                    packageViewport.ChangeView(null, previousOffset + details.TransformToVisual(packageViewport).TransformPoint(new(0, 0)).Y, null, true);
-                    await Task.Delay(180);
-                    await Render((FrameworkElement)creationFlyout.Content, Path.Combine(artifacts, "create-package-table-" + size.Width + ".png"));
-                    packageViewport.ChangeView(null, previousOffset, null, true);
-                    creationFlyout.Hide(); viewModel.IsInspectingPackage = false; await Task.Delay(200);
+                    var list = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("CreationPackageList");
+                    var viewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreationPackageViewport");
+                    var customize = (FrameworkElement)page.FindName("CustomizePackagesButton");
+                    Require(viewport.Visibility == Visibility.Visible && viewport.ScrollableWidth == 0
+                        && list.ActualWidth <= viewport.ActualWidth && customize.ActualHeight >= 32,
+                        "Package panel fits the viewport and keeps the editor action visible: " + size.Width);
+                    var versions = Descendants(list).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Where(x => x.Name == "CreationPackageVersion").ToArray();
+                    Require(versions.Length == viewModel.SelectedCreationPackages.Count && versions.All(x => !string.IsNullOrWhiteSpace(x.Text) && !x.IsTextTrimmed),
+                        "All selected packages render their versions without clipping: " + size.Width);
+                    await Render(page, Path.Combine(artifacts, "create-package-table-" + size.Width + ".png"));
+                    InvokeButton(page, "ImportDetailBack"); viewModel.IsInspectingPackage = false; await Task.Delay(200);
+                    if (size.Width == 720)
+                    {
+                        var draftName = viewModel.ProjectName;
+                        var selectedPreset = viewModel.SelectedPreset;
+                        InvokeButton(page, "PresetFields"); await Task.Delay(275);
+                        var choices = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("ImportPresetChoices");
+                        Require(Equals(choices.SelectedItem, selectedPreset), "Preset panel highlights the existing choice");
+                        var alternatePreset = viewModel.Presets.First(x => x != selectedPreset);
+                        choices.SelectedItem = alternatePreset;
+                        Require(viewModel.SelectedPreset == selectedPreset, "Previewing a preset leaves the draft unchanged");
+                        await Render(page, Path.Combine(artifacts, "import-preset-selection.png"));
+                        InvokeButton(page, "ImportDetailBack"); await Task.Delay(260);
+                        Require(viewModel.SelectedPreset == selectedPreset, "Back discards the pending preset choice");
+                        InvokeButton(page, "PresetFields"); await Task.Delay(260);
+                        InvokeButton(page, "ApplyImportPreset"); await Task.Delay(260);
+                        Require(viewModel.SelectedPreset == selectedPreset && viewModel.ProjectName == draftName, "Applying the current preset preserves the draft");
+                    }
                 }
                 if (screen == "Presets")
                 {
@@ -1759,6 +1761,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "ui-smoke.json"), new { Passed = true, Checks = checks, page.ActualWidth, page.ActualHeight, Scale = page.XamlRoot.RasterizationScale, InputInjected = false });
         void Require(bool condition, string message) { if (!condition) throw new IOException(message); checks.Add(message); }
     }
+    internal static void InvokeButton(FrameworkElement root, string name)
+    {
+        var button = (Microsoft.UI.Xaml.Controls.Button)root.FindName(name);
+        var peer = new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(button);
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+    }
+
     internal static IEnumerable<DependencyObject> Descendants(DependencyObject root)
     {
         for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root); i++)

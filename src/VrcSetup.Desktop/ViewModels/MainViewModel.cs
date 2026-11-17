@@ -448,7 +448,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try { EditingPreset = SelectedPreset; LoadEditingPreset(); }
         finally { presetSwitching = false; }
         editingImportPreset = true;
-        presetWorking = working; LibraryFilter = ""; FavoritesOnly = false; RenderPreset(); RefreshLibraryRows();
+        presetWorking = working;
+        presetBaseline = new(working, StringComparer.OrdinalIgnoreCase);
+        LibraryFilter = ""; FavoritesOnly = false; RenderPreset(); RefreshLibraryRows();
         OnPropertyChanged(nameof(UseImportPresetVisibility)); OnPropertyChanged(nameof(PresetOptionsVisibility)); OnPropertyChanged(nameof(IsCustomPreset)); OnPropertyChanged(nameof(PresetChangesVisibility));
     });
     private Dictionary<string, string>? creationOverrides;

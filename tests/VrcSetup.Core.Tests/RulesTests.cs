@@ -21,7 +21,19 @@ public sealed class RulesTests
     [Theory][InlineData("Avatar [PC] & café")][InlineData("My Quest avatar")][InlineData("com10")]
     public void OrdinarySpecialCharactersAreAllowed(string name) => ProjectRules.ValidateName(name);
     [Theory][InlineData("Conquest.unitypackage", "StandaloneWindows64")][InlineData("Avatar_Quest.unitypackage", "Android")][InlineData("Quest 3", "Android")][InlineData("Android.package", "Android")]
-    public void PlatformSuggestionMatchesWholeWord(string name, string expected) => Assert.Equal(expected, ProjectRules.SuggestBuildTarget(name));
+    [InlineData("avatarquestv2.unitypackage", "Android")]
+    [InlineData("avatarQuestOptimized.unitypackage", "Android")]
+    [InlineData("firequest3.unitypackage", "Android")]
+    [InlineData("AvatarAndroidV2.unitypackage", "Android")]
+    [InlineData("Avatar_PC_Quest.unitypackage", "StandaloneWindows64")]
+    [InlineData("avatarpcquestv2.unitypackage", "StandaloneWindows64")]
+    [InlineData("avatarquestpcv2.unitypackage", "StandaloneWindows64")]
+    [InlineData("AvatarWindows + Quest.unitypackage", "StandaloneWindows64")]
+    [InlineData("avatarquestios.unitypackage", "StandaloneWindows64")]
+    [InlineData("RequestVersion2.unitypackage", "StandaloneWindows64")]
+    [InlineData(@"F:\Quest exports\Avatar.unitypackage", "StandaloneWindows64")]
+    public void PlatformSuggestionUsesUnambiguousFileNameMarkers(string name, string expected)
+        => Assert.Equal(expected, ProjectRules.SuggestBuildTarget(name));
     [Fact] public void SemanticVersionOrderingIncludesNumericPrerelease()
     {
         Assert.Equal(["1.10.0", "1.9.0", "1.9.0-beta.10", "1.9.0-beta.2", "1.9.0-alpha", "0.1.29", "0.1.9"], SemanticVersion.Sort(["0.1.9", "1.9.0-beta.2", "1.9.0-alpha", "1.10.0", "0.1.29", "1.9.0-beta.10", "1.9.0"]));

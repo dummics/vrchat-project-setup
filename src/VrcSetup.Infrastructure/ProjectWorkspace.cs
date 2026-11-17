@@ -227,11 +227,20 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
         return GetUnityProcesses(path).Length > 0;
     }
     public static (int Pid, string CommandLine)[] GetUnityProcesses(string project)
+        => ReadUnityEditors().Where(editor => editor.Project.Equals(ProjectRules.NormalizePath(project), StringComparison.OrdinalIgnoreCase))
+            .Select(editor => (editor.Pid, editor.CommandLine)).ToArray();
+
+    public static HashSet<string> GetInteractiveUnityProjectPaths()
+        => ReadUnityEditors().Where(editor => !Regex.IsMatch(editor.CommandLine, "(?:^|\\s)-(?:batchmode|assetImportWorker)(?:\\s|$)", RegexOptions.IgnoreCase))
+            .Select(editor => editor.Project).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static List<(int Pid, string CommandLine, string Project)> ReadUnityEditors()
     {
         if (!OperatingSystem.IsWindows()) return [];
-        var result = new List<(int, string)>();
+        var result = new List<(int, string, string)>();
         using var searcher = new ManagementObjectSearcher("SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name = 'Unity.exe'");
-        foreach (var process in searcher.Get())
+        using var processes = searcher.Get();
+        foreach (var process in processes)
         {
             using (process)
             {
@@ -239,10 +248,11 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
                 var match = Regex.Match(command, "-projectPath\\s+(?:\"([^\"]+)\"|(\\S+))", RegexOptions.IgnoreCase);
                 if (!match.Success) continue;
                 var path = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
-                try { if (ProjectRules.NormalizePath(path).Equals(ProjectRules.NormalizePath(project), StringComparison.OrdinalIgnoreCase)) result.Add((Convert.ToInt32(process["ProcessId"]), command)); } catch (ArgumentException) { }
+                try { result.Add((Convert.ToInt32(process["ProcessId"]), command, ProjectRules.NormalizePath(path))); }
+                catch (ArgumentException) { }
             }
         }
-        return result.ToArray();
+        return result;
     }
     public async Task<IDisposable> AcquireAsync(string path, CancellationToken cancellationToken) => await AtomicFile.LockAsync(Path.Combine(paths.Locks, "project-" + AtomicFile.PathKey(path) + ".lock"), cancellationToken, TimeSpan.FromSeconds(1));
 
