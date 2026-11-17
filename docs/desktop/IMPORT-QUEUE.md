@@ -175,6 +175,21 @@ Package Apply uses a dedicated dimmed blocking overlay, separate from the nonblo
 
 ## Import UI and maintenance protection
 
+The D1 import workspace uses native document tabs for staged archives and one
+batch review. Name, target platform, explicit package choices and exclusions stay
+with their draft when switching tabs. Preset selection is shared; customizing a
+draft does not edit its saved preset. The compact Packages row opens a bounded
+detail flyout with numeric versions, exclusions and version controls. Strong
+detected additions remain on the main page; weaker matches are available only
+inside the optional detail view. No match alone removes a selected VPM package.
+
+Import summaries open downward. Pause, resume/retry and cancellation stay visible
+without opening the console. Outcome, destination and secondary actions follow
+the summary; the selectable console uses the full content width and a viewport
+of 160–280px according to the window height. The job list itself does not scroll.
+Opening details keeps the header reachable in the page without scrolling the log
+back to the beginning. Empty drop space shrinks while import rows are present.
+
 The ordinary desktop holds one lease per data home. Opening it again activates the existing window instead of starting another import queue. Preset/settings exit dialogs highlight Save, with Discard and Cancel alternatives; project-package edits offer Apply and still require the normal review. Saving is explicit. A failed save or cancelled review keeps the current edits/page.
 
 Import rows follow the form in a stable top-to-bottom flow. The page scrolls as a whole; the job list has no additional scrolling viewport. Clear list hides all finished rows, including failed/cancelled/interrupted imports; active and queued imports stay visible. Activity retains history, logs and recovery. Expanded logs have a single fixed-height, selectable text viewport. Package details keep the same width when opened; import stays below the package selection. Native expanders own height expansion without additional width or list-reposition animations.

@@ -9,10 +9,11 @@ public sealed partial class MainViewModel
 {
     private CancellationTokenSource? inspectionRequest;
     partial void OnCreationInspectionChanged(PackageInspectionReport? value) => RefreshCreationPackages();
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanInspectDeeper))] public partial PackageInspectionReport? CreationInspection { get; set; }
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanInspectDeeper)), NotifyPropertyChangedFor(nameof(ImportReviewLabel)), NotifyPropertyChangedFor(nameof(InspectionBusyVisibility)), NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))] public partial bool IsInspectingPackage { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanInspectDeeper)), NotifyPropertyChangedFor(nameof(InspectionIssueVisibility))] public partial PackageInspectionReport? CreationInspection { get; set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanInspectDeeper)), NotifyPropertyChangedFor(nameof(ImportReviewLabel)), NotifyPropertyChangedFor(nameof(InspectionBusyVisibility)), NotifyPropertyChangedFor(nameof(InspectionIssueVisibility)), NotifyCanExecuteChangedFor(nameof(CreateProjectCommand))] public partial bool IsInspectingPackage { get; set; }
     public Visibility InspectionBusyVisibility => IsInspectingPackage ? Visibility.Visible : Visibility.Collapsed;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(InspectionVisibility))] public partial string InspectionStatus { get; set; } = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(InspectionVisibility)), NotifyPropertyChangedFor(nameof(InspectionIssueVisibility))] public partial string InspectionStatus { get; set; } = "";
+    public Visibility InspectionIssueVisibility => !IsInspectingPackage && CreationInspection is null && InspectionStatus.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility InspectionVisibility => InspectionStatus.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool CanInspectDeeper => !IsInspectingPackage && CreationInspection is not null;
     public string InspectionReviewNote => IsInspectingPackage ? "Checking packages…" : CreationInspection is { Observation.ArchiveComplete: false } or { Observation.TextComplete: false } ? "Confirm the suggested packages before importing." : "";

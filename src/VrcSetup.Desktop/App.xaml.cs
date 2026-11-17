@@ -59,7 +59,7 @@ public partial class App : Application
                     throw new System.IO.IOException("The no-editor fixture unexpectedly found a configured editor.");
                 var sample = System.IO.Path.Combine(output, "Avatar.unitypackage");
                 await System.IO.File.WriteAllTextAsync(sample, "isolated visual fixture");
-                main.Page.ViewModel.PackageFile = sample;
+                main.Page.ViewModel.StageImportFiles([sample]);
                 var deadline = DateTime.UtcNow.AddSeconds(10);
                 while (main.Page.ViewModel.IsInspectingPackage && DateTime.UtcNow < deadline) await Task.Delay(25);
                 if (main.Page.ViewModel.IsInspectingPackage) throw new System.IO.IOException("Italian package fixture did not finish loading.");
@@ -68,7 +68,8 @@ public partial class App : Application
                     [new("nadena.dev.modular-avatar", VrcSetup.Core.DependencyConfidence.Detected, null, [new("Assets/Avatar.prefab", "script")])], false);
                 main.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 580));
                 await Task.Delay(150); main.Page.UpdateLayout();
-                var button = (Microsoft.UI.Xaml.Controls.Button)main.Page.FindName("SuggestedPackageReviewButton");
+                var suggestions = (FrameworkElement)main.Page.FindName("DetectedSuggestionsPanel");
+                var button = Verification.UiSmokeTest.Descendants(suggestions).OfType<Microsoft.UI.Xaml.Controls.Button>().Single();
                 var viewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)main.Page.FindName("CreateView");
                 var top = button.TransformToVisual(viewport).TransformPoint(new(0, 0)).Y;
                 if (!main.Page.ViewModel.EditorReady && top + button.ActualHeight > viewport.ActualHeight)
@@ -78,7 +79,7 @@ public partial class App : Application
                     top = button.TransformToVisual(viewport).TransformPoint(new(0, 0)).Y;
                 }
                 await Verification.UiSmokeTest.Render(main.Page, System.IO.Path.Combine(output, "suggestions-review-it-compact.png"));
-                if (button.Visibility != Visibility.Visible || button.Content as string != "Controlla i pacchetti suggeriti" || button.ActualWidth <= 0 || top < 0 || top + button.ActualHeight > viewport.ActualHeight + 1)
+                if (suggestions.Visibility != Visibility.Visible || button.Visibility != Visibility.Visible || button.Content as string != "Aggiungi" || button.ActualWidth <= 0 || top < 0 || top + button.ActualHeight > viewport.ActualHeight + 1)
                     throw new System.IO.IOException($"Italian package review action is missing or clipped: visibility={button.Visibility}, text={button.Content}, width={button.ActualWidth}, top={top}, height={button.ActualHeight}, viewport={viewport.ActualHeight}.");
                 var importStatus = MainPage.CreateActiveImportDialog();
                 var shown = main.Page.ShowDialog(importStatus);
@@ -88,6 +89,14 @@ public partial class App : Application
                     throw new System.IO.IOException("The active import dialog is not correctly localized.");
                 await Verification.UiSmokeTest.Render(importStatus, System.IO.Path.Combine(output, "active-import-dialog-it.png"));
                 importStatus.Hide(); await shown;
+                var packagesButton = (Microsoft.UI.Xaml.Controls.Button)main.Page.FindName("CreationPackagesButton");
+                var packageFlyout = (Microsoft.UI.Xaml.Controls.Flyout)packagesButton.Flyout;
+                packageFlyout.ShowAt(packagesButton); await Task.Delay(350);
+                await Verification.UiSmokeTest.Render((FrameworkElement)packageFlyout.Content, System.IO.Path.Combine(output, "package-details-it.png"));
+                var customize = (Microsoft.UI.Xaml.Controls.Button)main.Page.FindName("CustomizePackagesButton");
+                if (customize.Content as string != "Scegli pacchetti e versioni" || customize.ActualHeight < 32)
+                    throw new System.IO.IOException("The Italian package detail action is missing.");
+                packageFlyout.Hide();
                 await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(output, "localization.json"), new { Passed = true, Language = VrcSetup.Core.UiText.CurrentLanguage, NamesPreserved = main.Page.ViewModel.Projects.Any(x => x.Name == "Creator [PC] & café") });
                 main.Close(); Exit();
             }

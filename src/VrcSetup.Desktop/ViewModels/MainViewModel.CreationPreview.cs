@@ -45,6 +45,7 @@ public sealed partial class MainViewModel
     public Visibility DetectedCreationPackagesVisibility => DetectedCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PossibleCreationPackagesVisibility => PossibleCreationPackages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility NormalCustomizeVisibility => Visibility.Visible;
+    public string CreationSelectionSummary => string.Format(UiText.Text("{0} selected"), SelectedCreationPackages.Count);
     public Visibility SuggestedReviewOnlyVisibility => DetectedCreationPackages.Count > 0 || PossibleCreationPackages.Count > 0 || VersionReviewCandidates().Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     private Dictionary<string, DependencyProposal> VersionReviewCandidates() => CreationInspection is null
         ? new(StringComparer.OrdinalIgnoreCase)
@@ -141,6 +142,7 @@ public sealed partial class MainViewModel
         OnPropertyChanged(nameof(NormalCustomizeVisibility));
         OnPropertyChanged(nameof(SuggestedReviewOnlyVisibility));
         OnPropertyChanged(nameof(CreationPackageSummary));
+        OnPropertyChanged(nameof(CreationSelectionSummary));
         RefreshInspectionSummary();
         RefreshCreationVersions();
     }

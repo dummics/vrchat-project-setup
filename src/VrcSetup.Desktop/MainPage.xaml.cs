@@ -16,6 +16,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private bool initialized;
     private bool syncingNavigation;
     private bool informationExpanded;
+    private string? expandedImportAnchor;
     private readonly TaskCompletionSource initializedCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Task Initialized => initializedCompletion.Task;
     public MainViewModel ViewModel { get; }
@@ -51,6 +52,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (eventArgs.PropertyName == nameof(ViewModel.DeveloperMode)) SyncDiagnosticsTab();
             if (eventArgs.PropertyName == nameof(ViewModel.Theme)) RequestedTheme = ViewModel.Theme == "Dark" ? ElementTheme.Dark : ViewModel.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default;
             if (eventArgs.PropertyName is nameof(ViewModel.CanvasColor) or nameof(ViewModel.SurfaceColor) or nameof(ViewModel.AccentColor) or nameof(ViewModel.StrokeColor) or nameof(ViewModel.IsLoadingSettings)) QueueAppearanceUpdate();
+            if (eventArgs.PropertyName == nameof(ViewModel.BuildTarget)) ConstrainForms();
             if (eventArgs.PropertyName == nameof(ViewModel.PackageFile)) DispatcherQueue.TryEnqueue(() =>
             {
                 ConstrainForms();
@@ -177,55 +179,38 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         {
             // WinUI scrollbars overlay content. Keep a stable gutter even before
             // scrolling becomes necessary, so actions never sit under the thumb.
-            CreateLayout.Width = Math.Max(1, CreateView.ActualWidth - 24);
+            CreateLayout.Width = Math.Max(1, Math.Min(780, CreateView.ActualWidth - 48));
             CreateForm.Width = CreateLayout.Width;
-            var recapWidth = PackageRecapWidth();
-            CreationPackageDetails.Width = recapWidth;
-            UpdateCreationPackageItemWidth(recapWidth);
-            DependencyObject? header = CreationPackageHeader;
-            while (header is not null && header is not Microsoft.UI.Xaml.Controls.Primitives.ToggleButton) header = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(header);
-            if (header is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton toggle)
-            { toggle.HorizontalAlignment = HorizontalAlignment.Stretch; toggle.Width = double.NaN; toggle.MaxWidth = CreateForm.Width; }
-            // The stock template uses a StaticResource for this border, so local
-            // resource overrides do not remove its oversized content outline.
-            foreach (var disclosure in new[] { CreationPackageDetails, ExcludedCreationPackageDetails })
-            {
-                if (FindVisualChild<Border>(disclosure, "ExpanderContent") is not { } contentBorder) continue;
-                contentBorder.BorderThickness = new Thickness(0);
-                contentBorder.Padding = new Thickness(0);
-                contentBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            }
-            ImportQueueSection.Width = CreateLayout.Width;
-            // An expanded row must fit its header and log at common window heights;
-            // otherwise aligning the header to the bottom clips the details above it.
-            ImportQueueList.MaxHeight = Math.Max(120, Math.Min(360, CreateHost.ActualHeight * .65 - 42));
-            foreach (var row in ImportQueueList.Items.OfType<UiImportRow>())
-            {
-                var actionsHeight = (row.DiscardVisibility == Visibility.Visible ? 40 : 0) + (row.RegistrationVisibility == Visibility.Visible ? 40 : 0);
-                row.LogHeight = Math.Clamp(ImportQueueList.MaxHeight - 170 - actionsHeight, 40, 105);
-            }
-            var narrow = CreateForm.Width < 560;
+            ReviewAction.Width = CreateLayout.Width;
             var hasFile = !string.IsNullOrWhiteSpace(ViewModel.PackageFile);
-            ProjectFields.Visibility = PackageSetup.Visibility = CreationDestination.Visibility = hasFile ? Visibility.Visible : Visibility.Collapsed;
-            PackageDropZone.MinHeight = hasFile ? 76 : Math.Max(220, Math.Min(400, CreateHost.ActualHeight * .65));
-            PackageDropZone.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            PackageDropZone.BorderThickness = new Thickness(hasFile ? 1 : 0);
+            var hasJobs = ImportQueueSection.Visibility == Visibility.Visible;
+            ProjectFields.Visibility = PackageSetup.Visibility = CreationDestination.Visibility = ImportFileStrip.Visibility =
+                hasFile ? Visibility.Visible : Visibility.Collapsed;
+            ImportDraftTabs.Visibility = ViewModel.ImportDrafts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            SingleImportSource.Visibility = ViewModel.ImportDrafts.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
+            PackageDropZone.Visibility = hasFile ? Visibility.Collapsed : Visibility.Visible;
+            PackageDropZone.MinHeight = hasJobs ? 120 : Math.Max(220, Math.Min(400, CreateHost.ActualHeight * .65));
             DropLayout.VerticalAlignment = VerticalAlignment.Center;
-            DropLayout.HorizontalAlignment = hasFile ? HorizontalAlignment.Stretch : HorizontalAlignment.Center;
+            DropLayout.HorizontalAlignment = HorizontalAlignment.Center;
+            AddImportFilesButton.Visibility = hasFile ? Visibility.Visible : Visibility.Collapsed;
             ImportPrimaryAction.Visibility = hasFile ? Visibility.Visible : Visibility.Collapsed;
-            ProjectFields.Width = Math.Min(640, CreateForm.Width);
-            var stackFields = CreateForm.Width < 440;
-            ProjectFields.ColumnDefinitions[1].Width = stackFields ? new GridLength(0) : new GridLength(160);
-            Grid.SetColumn(PlatformSelector, stackFields ? 0 : 1); Grid.SetRow(PlatformSelector, stackFields ? 1 : 0);
-            PackageSetup.ColumnDefinitions[1].Width = new GridLength(0);
-            var stackPreset = CreateForm.Width < 340;
-            PresetFields.ColumnDefinitions[0].Width = new GridLength(Math.Min(220, stackPreset ? CreateForm.Width : Math.Max(120, CreateForm.Width - 120)));
-            PresetFields.ColumnDefinitions[1].Width = stackPreset ? new GridLength(0) : GridLength.Auto;
-            Grid.SetColumn(CustomizePackagesButton, stackPreset ? 0 : 1); Grid.SetRow(CustomizePackagesButton, stackPreset ? 1 : 0);
-            CustomizePackagesButton.HorizontalAlignment = HorizontalAlignment.Left;
+            ReviewAction.Visibility = hasFile || ViewModel.ImportErrorVisibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
+            ImportQueueSection.Width = CreateLayout.Width;
+            // Only the page scrolls; each console retains its own independent viewport.
+            foreach (var row in ImportQueueList.Items.OfType<UiImportRow>())
+                row.LogHeight = Math.Clamp(CreateHost.ActualHeight * .36, 160, 280);
+            var stackFields = CreateForm.Width < 500;
+            Grid.SetColumn(PlatformSelector, stackFields ? 0 : 1);
+            Grid.SetRow(PlatformSelector, stackFields ? 1 : 0);
+            PlatformSelector.HorizontalAlignment = HorizontalAlignment.Left;
+            PcPlatformButton.IsChecked = ViewModel.BuildTarget == "StandaloneWindows64";
+            QuestPlatformButton.IsChecked = ViewModel.BuildTarget == "Android";
+            IosPlatformButton.IsChecked = ViewModel.BuildTarget == "iOS";
+            var narrow = CreateForm.Width < 560;
             Grid.SetColumn(ChoosePackageButton, narrow ? 1 : 2); Grid.SetRow(ChoosePackageButton, narrow ? 1 : 0);
-            ChoosePackageButton.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+            ChoosePackageButton.HorizontalAlignment = HorizontalAlignment.Left;
             Grid.SetColumnSpan(DropFileLabel, narrow ? 2 : 1);
+            SizeCreationPackageFlyout();
         }
         if (SettingsView.ActualWidth > 0) SettingsForm.Width = Math.Max(1, SettingsView.ActualWidth - 24);
     }
@@ -239,12 +224,28 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     { if (sender is FrameworkElement { DataContext: UiCreationPackage row }) ViewModel.ExcludeCreationPackage(row); }
     private void IncludeExcludedPackageClicked(object sender, RoutedEventArgs args)
     { if (sender is FrameworkElement { DataContext: UiCreationPackage row }) ViewModel.IncludeExcludedCreationPackage(row); }
-    private void UpdateCreationPackageItemWidth(double recapWidth)
+    private void SizeCreationPackageFlyout()
     {
-        var listWidth = Math.Max(1, recapWidth - CreationPackageDetails.Padding.Left - CreationPackageDetails.Padding.Right);
-        if (double.IsNaN(CreationPackageList.Width) || Math.Abs(CreationPackageList.Width - listWidth) > 0.5)
-            CreationPackageList.Width = listWidth;
+        CreationPackagePanel.RequestedTheme = RequestedTheme;
+        var width = Math.Max(260, Math.Min(700, ActualWidth - 96));
+        CreationPackagePanel.Width = width;
+        CreationPackageViewport.MaxHeight = Math.Max(180, ActualHeight - 180);
+        CreationPackageDetails.Width = width;
+        CreationPackageList.Width = Math.Max(1, width - 32);
     }
+    private void CreationPackageFlyoutOpening(object sender, object args)
+    { SizeCreationPackageFlyout(); CreationPackageDetails.IsExpanded = true; }
+    private async void CustomizeImportPackagesClicked(object sender, RoutedEventArgs args)
+    { CreationPackagesFlyout.Hide(); await ViewModel.CustomizeCreationPackagesCommand.ExecuteAsync(null); }
+    private void ImportPlatformClicked(object sender, RoutedEventArgs args)
+    {
+        if (sender is FrameworkElement { Tag: string platform }) ViewModel.BuildTarget = platform;
+        ConstrainForms();
+    }
+    private void ImportDraftTabClosed(TabView sender, TabViewTabCloseRequestedEventArgs args)
+    { if (args.Item is UiImportDraft draft) ViewModel.RemoveImportDraft(draft); }
+    private void ImportDraftTabChanged(object sender, SelectionChangedEventArgs args)
+    { CreationPackagesFlyout.Hide(); PresetChoiceFlyout.Hide(); }
     private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement
     {
         for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
@@ -264,10 +265,6 @@ public sealed partial class MainPage : Page, IDesktopInteraction
             if (FindFirstVisualChild<T>(child) is { } nested) return nested;
         }
         return null;
-    }
-    private double PackageRecapWidth()
-    {
-        return Math.Max(1, CreateForm.Width);
     }
     private void AnimatePackageRecap()
     {
@@ -402,6 +399,7 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     private async void ReviewSuggestionsClicked(object sender, RoutedEventArgs args)
     {
         if (ViewModel.IsClosingApp || ViewModel.IsInspectingPackage) return;
+        CreationPackagesFlyout.Hide();
         try
         {
             var snapshot = ViewModel.CreateSuggestionReview();
@@ -451,30 +449,31 @@ public sealed partial class MainPage : Page, IDesktopInteraction
         var files = await args.DataView.GetStorageItemsAsync();
         ViewModel.StageImportFiles(files.Where(x => x.Path.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase)).Select(x => x.Path));
     }
-    private void RemoveImportDraftClicked(object sender, RoutedEventArgs args)
-    { if ((sender as FrameworkElement)?.DataContext is UiImportDraft draft) ViewModel.RemoveImportDraft(draft); }
     private async void ImportDetailsExpanded(Expander sender, ExpanderExpandingEventArgs args)
     {
         if (sender.DataContext is UiImportRow row)
         {
+            expandedImportAnchor = row.Id;
             row.DetailsOpen = true; ConstrainForms(); AnimateImportDetails(sender);
             await ViewModel.RefreshImportLogAsync(row, true);
-            // Wait for the native expander to finish arranging its upward content,
-            // then keep its header visible at the bottom of the bounded queue.
+            // Wait for the native expansion before positioning its header in the page.
             await Task.Delay(350);
             if (row.DetailsOpen) KeepExpandedImportVisible();
         }
     }
     private void KeepExpandedImportVisible()
     {
-        if (FindFirstVisualChild<ScrollViewer>(ImportQueueList) is not { } queue) return;
+        if (expandedImportAnchor is null) return;
         for (var i = 0; i < ImportQueueList.Items.Count; i++)
         {
-            if (ImportQueueList.Items[i] is not UiImportRow { DetailsOpen: true } || ImportQueueList.ContainerFromIndex(i) is not DependencyObject container) continue;
-            if (FindFirstVisualChild<Expander>(container) is not { } expander) continue;
-            var bottom = expander.TransformToVisual(queue).TransformPoint(new(0, expander.ActualHeight)).Y;
-            var target = Math.Clamp(queue.VerticalOffset + bottom - queue.ViewportHeight, 0, queue.ScrollableHeight);
-            if (Math.Abs(queue.VerticalOffset - target) > 1) queue.ChangeView(null, target, null, true);
+            if (ImportQueueList.Items[i] is not UiImportRow { DetailsOpen: true } row || row.Id != expandedImportAnchor ||
+                ImportQueueList.ContainerFromIndex(i) is not DependencyObject container ||
+                FindFirstVisualChild<Expander>(container) is not { } expander) continue;
+            var top = expander.TransformToVisual(CreateView).TransformPoint(new(0, 0)).Y;
+            var headerHeight = FindVisualChild<FrameworkElement>(expander, "ExpanderHeader")?.ActualHeight ?? 100;
+            // Keep the header, not the bottom of a tall console, in view.
+            if (top < 0 || top + Math.Min(expander.ActualHeight, Math.Max(headerHeight, CreateView.ViewportHeight - 24)) > CreateView.ViewportHeight)
+                CreateView.ChangeView(null, Math.Clamp(CreateView.VerticalOffset + top - 12, 0, CreateView.ScrollableHeight), null, true);
             break;
         }
     }
@@ -482,13 +481,18 @@ public sealed partial class MainPage : Page, IDesktopInteraction
     {
         if (sender is Expander expander)
         {
-            if (FindVisualChild<Border>(expander, "ExpanderContent") is { } border) border.BorderThickness = new Thickness(0);
+            if (FindVisualChild<Border>(expander, "ExpanderContent") is { } border)
+            { border.BorderThickness = new Thickness(0); border.Padding = new Thickness(0); }
             expander.Unloaded -= ImportExpanderUnloaded;
             expander.Unloaded += ImportExpanderUnloaded;
         }
     }
     private void ImportDetailsCollapsed(object sender, object args)
-    { if (sender is Expander { DataContext: UiImportRow row } expander) { StopImportDetailsMotion(expander); row.DetailsOpen = false; ConstrainForms(); } }
+    {
+        if (sender is not Expander { DataContext: UiImportRow row } expander) return;
+        if (expandedImportAnchor == row.Id) expandedImportAnchor = null;
+        StopImportDetailsMotion(expander); row.DetailsOpen = false; ConstrainForms();
+    }
     private async void ImportPauseClicked(object sender, RoutedEventArgs args)
     { if ((sender as FrameworkElement)?.DataContext is UiImportRow row) await ViewModel.PauseImportAsync(row); }
     private async void ImportLimitChanged(object sender, SelectionChangedEventArgs args)

@@ -139,7 +139,7 @@ public static class UiSmokeTest
         viewModel.CurrentPage = "Presets"; await Task.Delay(100); page.UpdateLayout();
         Require(((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PresetSelector")).SelectedItem?.ToString() == viewModel.EditingPreset, "Preset selector reflects the current preset");
         Require(viewModel.ApplicationProgressVisibility == Visibility.Collapsed, "Idle application progress is hidden");
-        Require(!((Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails")).IsExpanded, "Creation packages start as a compact summary");
+        Require(((Microsoft.UI.Xaml.Controls.Button)page.FindName("CreationPackagesButton")).Flyout is not null, "Package details open on request from a compact preference row");
         viewModel.IsInspectingPackage = true;
         Require(viewModel.ApplicationStatus.Contains("Checking packages") && viewModel.ApplicationProgressIndeterminate, "Background analysis appears in application status");
         viewModel.IsDownloadingUpdate = true; viewModel.UpdateDownloadPercent = 42;
@@ -322,7 +322,8 @@ public static class UiSmokeTest
         viewModel.PackageFile = Path.Combine(artifacts, "Avatar Quest.unitypackage");
         Require(viewModel.ProjectName.Length > 0 && viewModel.BuildTarget == "Android", "Dropped package suggests name and one platform");
         viewModel.CurrentPage = "Create"; await Task.Delay(150); page.UpdateLayout(); viewModel.ProjectName = "My avatar";
-        ((Microsoft.UI.Xaml.Controls.ComboBox)page.FindName("PlatformSelector")).SelectedValue = "StandaloneWindows64";
+        Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement((FrameworkElement)page.FindName("PcPlatformButton"))?.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke);
+        typeof(MainPage).GetMethod("ImportPlatformClicked", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, [page.FindName("PcPlatformButton"), new RoutedEventArgs()]);
         await Task.Delay(80);
         Require(viewModel.BuildTarget == "StandaloneWindows64" && viewModel.DestinationPreview.Contains("My avatar"), "Single platform and editable name bind to creation: " + viewModel.BuildTarget);
         Require(viewModel.Projects.Count == 1, "Native project library loaded");
@@ -961,10 +962,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         Require(viewModel.DetectedCreationPackagesVisibility == Visibility.Visible && viewModel.DetectedCreationPackages.Any(x => x.Id == "example.range"), "Strong package suggestions appear before the import review");
         Require(!viewModel.DetectedCreationPackages.Any(x => x.Id == ProjectRules.WorldSdk), "Avatar suggestions exclude the world SDK");
         Require(viewModel.PossibleCreationPackagesVisibility == Visibility.Visible && viewModel.PossibleCreationPackages.Any(x => x.Id == "com.llealloo.audiolink" && !x.Selected), "Possible packages are offered separately without being selected automatically");
+        var creationFlyout = (Microsoft.UI.Xaml.Controls.Flyout)((Microsoft.UI.Xaml.Controls.Button)page.FindName("CreationPackagesButton")).Flyout;
+        creationFlyout.ShowAt((FrameworkElement)page.FindName("CreationPackagesButton"));
+        await Task.Delay(200);
         var possibleExpander = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("PossiblePackagesExpander");
         possibleExpander.IsExpanded = true; await Task.Delay(150); page.UpdateLayout();
         Require(possibleExpander.Visibility == Visibility.Visible && Descendants(possibleExpander).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.DataContext is VrcSetup_Desktop.ViewModels.UiCreationPackage item && item.Id == "com.llealloo.audiolink"), "Possible packages expose an individual add action in the native view");
-        await Render(page, Path.Combine(artifacts, "possible-package-suggestions.png"));
+        await Render((FrameworkElement)creationFlyout.Content, Path.Combine(artifacts, "possible-package-suggestions.png"));
         possibleExpander.IsExpanded = false;
         viewModel.CreationInspection = null;
         var selectedForBundled = viewModel.CreationPackages.First(x => x.Selected && x.Id == "gogoloco");
@@ -981,12 +985,13 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             "Explicit exclusions have their own visible surface beside the install list");
         exclusionsSurface.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
         await Task.Delay(100); page.UpdateLayout();
-        await Render(page, Path.Combine(artifacts, "vpm-excluded-packages.png"));
+        await Render((FrameworkElement)creationFlyout.Content, Path.Combine(artifacts, "vpm-excluded-packages.png"));
         viewModel.IncludeExcludedCreationPackage(viewModel.ExcludedCreationPackages.Single(x => x.Id == selectedForBundled.Id));
         Require(viewModel.SelectedCreationPackages.Single(x => x.Id == selectedForBundled.Id).Data.Version == selectedVersionBeforeExclusion,
             "Restoring an excluded VPM package preserves its chosen version");
         Require((await viewModel.Application.Configuration.LoadAsync()).VpmPackages.OrderBy(x => x.Key).SequenceEqual(savedPackagesBeforeExclusion.OrderBy(x => x.Key)),
             "Import exclusions never edit the saved package preset");
+        creationFlyout.Hide();
         var requiredPackage = viewModel.SelectedCreationPackages.First(x => x.IsRequired);
         viewModel.ExcludeCreationPackage(requiredPackage);
         Require(viewModel.SelectedCreationPackages.Any(x => x.Id == requiredPackage.Id), "Required foundation packages cannot be excluded");
@@ -1321,7 +1326,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 if (screen is "Create" or "Settings")
                 {
                     var form = (FrameworkElement)page.FindName(screen == "Create" ? "CreateForm" : "SettingsForm");
-                    if (size.Width >= 1920)
+                    if (size.Width >= 1920 && screen == "Settings")
                     {
                         var view = (FrameworkElement)page.FindName(screen == "Create" ? "CreateView" : "SettingsView");
                         Require(form.ActualWidth >= view.ActualWidth - 24, $"Fullscreen form uses available width: {screen}, form={form.ActualWidth}, available={view.ActualWidth}, requested={size.Width}, window={page.ActualWidth}");
@@ -1351,6 +1356,8 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                 }
                 if (screen == "Create" && size.Width is 720 or 1180)
                 {
+                    creationFlyout.ShowAt((FrameworkElement)page.FindName("CreationPackagesButton"));
+                    await Task.Delay(250);
                     var details = (Microsoft.UI.Xaml.Controls.Expander)page.FindName("CreationPackageDetails");
                     var collapsedWidth = details.ActualWidth;
                     details.IsExpanded = true; viewModel.IsInspectingPackage = true;
@@ -1367,7 +1374,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     Require(footer.ActualHeight <= 40 && text.Text.Contains("Checking packages"), "Analysis uses the fixed application footer: " + size.Width);
                     var creationList = (Microsoft.UI.Xaml.Controls.ListView)page.FindName("CreationPackageList");
                     var firstRecapItem = (FrameworkElement)creationList.ContainerFromIndex(0);
-                    Require(double.IsPositiveInfinity(creationList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(creationList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled && details.ActualWidth <= ((FrameworkElement)page.FindName("CreateForm")).ActualWidth + 1, "Expanded package recap shows its full list within the form without nested scrolling: " + size.Width);
+                    Require(double.IsPositiveInfinity(creationList.MaxHeight) && Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(creationList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled && details.ActualWidth < page.ActualWidth, "Package details use one bounded popup viewport without a nested list scroll: " + size.Width);
                     Require(creationList.ActualWidth >= details.ActualWidth - 32 && firstRecapItem.ActualWidth >= creationList.ActualWidth - 8, $"Package table rows fill the disclosure width: {size.Width}, list={creationList.ActualWidth}, surface={details.ActualWidth}, container={firstRecapItem.ActualWidth}");
                     Require(creationList.ActualHeight >= 28 && creationList.Items.Count == viewModel.SelectedCreationPackages.Count && creationList.Items.Cast<object>().All(x => creationList.ContainerFromItem(x) is FrameworkElement { ActualHeight: > 0 }), "Every selected VPM package is rendered without clipping: " + size.Width);
                     var versions = Descendants(creationList).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Where(x => x.Name == "CreationPackageVersion").ToArray();
@@ -1376,14 +1383,14 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
                     Require(Math.Abs(chip.ActualWidth - details.ActualWidth) < 2, "Package disclosure opens as one continuous surface: " + size.Width);
                     Require(!Descendants(details).OfType<Microsoft.UI.Xaml.Controls.Button>().Any(x => x.Command == viewModel.InspectDeeperCommand), "Package recap has no technical analysis action: " + size.Width);
                     Require(!((Microsoft.UI.Xaml.Controls.TextBlock)page.FindName("CreationPackageHeader")).IsTextTrimmed, "Compact package summary remains fully readable: " + size.Width);
-                    await Render(page, Path.Combine(artifacts, "create-expanded-status-" + size.Width + ".png"));
-                    var packageViewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreateView");
+                    await Render((FrameworkElement)creationFlyout.Content, Path.Combine(artifacts, "create-expanded-status-" + size.Width + ".png"));
+                    var packageViewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreationPackageViewport");
                     var previousOffset = packageViewport.VerticalOffset;
                     packageViewport.ChangeView(null, previousOffset + details.TransformToVisual(packageViewport).TransformPoint(new(0, 0)).Y, null, true);
                     await Task.Delay(180);
-                    await Render(page, Path.Combine(artifacts, "create-package-table-" + size.Width + ".png"));
+                    await Render((FrameworkElement)creationFlyout.Content, Path.Combine(artifacts, "create-package-table-" + size.Width + ".png"));
                     packageViewport.ChangeView(null, previousOffset, null, true);
-                    details.IsExpanded = false; viewModel.IsInspectingPackage = false; await Task.Delay(200);
+                    creationFlyout.Hide(); viewModel.IsInspectingPackage = false; await Task.Delay(200);
                 }
                 if (screen == "Presets")
                 {
@@ -1460,6 +1467,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
             }
         }
         viewModel.CurrentPage = "Create";
+        await ImportDesignVerification.RunAsync(window, artifacts, inspectionFile, Require, Render);
         var backupProject = Path.Combine(artifacts, "backup-choice-project");
         var backupRoot = Path.Combine(backupProject, ".vrcsetup", "backups");
         var olderBackup = Path.Combine(backupRoot, "older"); var newestBackup = Path.Combine(backupRoot, "newest");
@@ -1566,18 +1574,22 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         }
         historyList.ItemsSource = viewModel.History; viewModel.CurrentPage = "Create";
         emptyHistory.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportHistoryEmptyVisibility)) });
+        viewModel.PackageFile = "";
         jobList.ItemsSource = fixtureJobs; jobList.Visibility = Visibility.Visible; jobSection.Visibility = Visibility.Visible;
         foreach (var size in new[] { new Windows.Graphics.SizeInt32(720, 620), new Windows.Graphics.SizeInt32(1180, 800) })
         {
             window.AppWindow.Resize(size); await Task.Delay(600); page.UpdateLayout();
+            var queueViewport = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreateView");
+            queueViewport.ChangeView(null, queueViewport.VerticalOffset + jobSection.TransformToVisual(queueViewport).TransformPoint(new(0, 0)).Y - 12, null, true);
+            await Task.Delay(100); page.UpdateLayout();
             var view = (FrameworkElement)page.FindName("CreateView");
-            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 2, "Imports stay in the bottom area at every window size: " + size.Width);
+            Require(Microsoft.UI.Xaml.Controls.Grid.GetRow(jobSection) == 2, "Imports follow the setup within the main scrolling page: " + size.Width);
             Require(jobList.ActualHeight >= 100, "Active job rows are visible in the adaptive import area: " + size.Width);
             var host = (FrameworkElement)page.FindName("CreateHost");
             var viewOrigin = view.TransformToVisual(host).TransformPoint(new(0, 0));
             var jobsOrigin = jobSection.TransformToVisual(host).TransformPoint(new(0, 0));
-            Require(jobsOrigin.Y >= viewOrigin.Y + view.ActualHeight - 1, "Import jobs do not overlap the form viewport: " + size.Width);
-            Require(Math.Abs(jobsOrigin.Y + jobSection.ActualHeight - host.ActualHeight) < 2, "Imports are anchored to the bottom: " + size.Width);
+            Require(jobsOrigin.Y >= viewOrigin.Y && jobsOrigin.Y + jobSection.ActualHeight <= viewOrigin.Y + view.ActualHeight + 1, "Collapsed imports fit the compact empty-file page: " + size.Width);
+            Require(double.IsPositiveInfinity(jobList.MaxHeight), "Import list has no second bounded scrolling viewport: " + size.Width);
             var row = (FrameworkElement)jobList.ContainerFromIndex(0);
             var pause = Descendants(row).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "PauseImportAction");
             Require(!fixtureJobs[0].DetailsOpen && pause.Visibility == Visibility.Visible && pause.IsEnabled && pause.ActualWidth >= 32 && pause.ActualWidth <= 40,
@@ -1628,12 +1640,12 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         fixtureJobs[1].LogText = string.Join("\n", Enumerable.Range(1, 160).Select(x => "Import log line " + x));
         Require(fixtureJobs[1].PreviousLogText.StartsWith("Import log line 159\n"), "Previous log entries start with the most recent");
         page.UpdateLayout(); await Task.Delay(180);
-        Require(Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(jobList) == Microsoft.UI.Xaml.Controls.ScrollMode.Enabled, "Import queue scrolls within its bounded bottom area");
+        Require(Microsoft.UI.Xaml.Controls.ScrollViewer.GetVerticalScrollMode(jobList) == Microsoft.UI.Xaml.Controls.ScrollMode.Disabled, "The page scrolls instead of nesting another queue scrollbar");
         var expandedJob = Descendants((DependencyObject)jobList.ContainerFromIndex(1)).OfType<Microsoft.UI.Xaml.Controls.Expander>().Single();
         var expandedBottom = expandedJob.TransformToVisual(jobList).TransformPoint(new(0, expandedJob.ActualHeight)).Y;
-        Require(expandedJob.ExpandDirection == Microsoft.UI.Xaml.Controls.ExpandDirection.Up && expandedBottom <= jobList.ActualHeight + 2, "Expanded job header stays visible at the bottom of the queue");
+        Require(expandedJob.ExpandDirection == Microsoft.UI.Xaml.Controls.ExpandDirection.Down && expandedBottom <= jobList.ActualHeight + 2, "Import details open below their header");
         var importLog = Descendants(jobList).OfType<Microsoft.UI.Xaml.Controls.ScrollViewer>().First(x => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(x) == "Import log");
-        Require(importLog.ScrollableHeight > 0, "Expanded import log has its own readable scroll range");
+        Require(importLog.ScrollableHeight > 0 && importLog.ActualHeight >= 160, "Expanded import log has a readable viewport and independent scroll range");
         importLog.ChangeView(null, 160, null, true); await Task.Delay(180);
         Require(importLog.VerticalOffset >= 150, "Import log scrolls without resetting to the beginning");
         var beforeLogOffset = importLog.VerticalOffset;
@@ -1646,7 +1658,36 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         var compactTop = expandedJob.TransformToVisual(jobList).TransformPoint(new(0, 0)).Y;
         var compactBottom = expandedJob.TransformToVisual(jobList).TransformPoint(new(0, expandedJob.ActualHeight)).Y;
         await Render(page, Path.Combine(artifacts, "create-log-compact.png"));
-        Require(compactTop >= -2 && compactBottom <= jobList.ActualHeight + 2, $"Expanded import fits in the shorter window: top={compactTop}, bottom={compactBottom}, viewport={jobList.ActualHeight}, height={expandedJob.ActualHeight}");
+        var queuePageScroll = (Microsoft.UI.Xaml.Controls.ScrollViewer)page.FindName("CreateView");
+        var header = Descendants(expandedJob).OfType<FrameworkElement>().First(x => x.Name == "ExpanderHeader");
+        var headerTop = header.TransformToVisual(queuePageScroll).TransformPoint(new(0, 0)).Y;
+        var consoleTop = importLog.TransformToVisual(expandedJob).TransformPoint(new(0, 0)).Y;
+        Require(headerTop >= -2 && headerTop + header.ActualHeight <= queuePageScroll.ActualHeight + 2 && consoleTop > header.ActualHeight,
+            $"Short window keeps the header above the log and reachable: top={headerTop}, header={header.ActualHeight}, viewport={queuePageScroll.ActualHeight}");
+        Require(importLog.ActualHeight >= 160 && compactBottom <= jobList.ActualHeight + 2, "Short windows retain a useful console without clipping the row");
+        var progress = Descendants(header).OfType<Microsoft.UI.Xaml.Controls.ProgressBar>().Single();
+        var progressBottom = progress.TransformToVisual(header).TransformPoint(new(0, progress.ActualHeight)).Y;
+        Require(header.ActualHeight - progressBottom >= 12, "Progress bar leaves breathing room below it");
+        var detailActions = Descendants(expandedJob).OfType<FrameworkElement>().Single(x => x.Name == "ImportDetailsActions");
+        var actionsBottom = detailActions.TransformToVisual(expandedJob).TransformPoint(new(0, detailActions.ActualHeight)).Y;
+        Require(consoleTop - actionsBottom >= 8 && consoleTop - actionsBottom <= 24,
+            "Console follows the visible actions without reserving space for hidden buttons");
+        queuePageScroll.ChangeView(null, queuePageScroll.VerticalOffset + consoleTop - 100, null, true);
+        await Task.Delay(120);
+        await Render(page, Path.Combine(artifacts, "create-log-compact-scrolled.png"));
+        fixtureJobs[1].Update(fixtureJobs[1].Job with { State = "Completed", Progress = 100, CreatorCompanionPending = true });
+        await Task.Delay(200); page.UpdateLayout();
+        var registrationAction = Descendants(expandedJob).OfType<Microsoft.UI.Xaml.Controls.Button>().Single(x => x.Name == "RetryRegistrationAction");
+        Require(registrationAction.Visibility == Visibility.Visible && registrationAction.ActualHeight >= 32 && registrationAction.ActualWidth < importLog.ActualWidth,
+            "Completed imports expose the separate Creator Companion action beside a full-width console");
+        await Render(page, Path.Combine(artifacts, "create-log-completed-notice.png"));
+        fixtureJobs[1].DetailsOpen = false;
+        fixtureJobs[0].DetailsOpen = true; await Task.Delay(400);
+        fixtureJobs[1].DetailsOpen = true; await Task.Delay(450); page.UpdateLayout();
+        headerTop = header.TransformToVisual(queuePageScroll).TransformPoint(new(0, 0)).Y;
+        Require(headerTop >= -2 && headerTop + header.ActualHeight <= queuePageScroll.ActualHeight + 2,
+            "Opening a second console follows that import instead of jumping to the first expanded row");
+        fixtureJobs[0].DetailsOpen = false;
         fixtureJobs[1].DetailsOpen = false;
         jobList.SetBinding(Microsoft.UI.Xaml.Controls.ItemsControl.ItemsSourceProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportJobs)) });
         jobList.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding { Path = new PropertyPath(nameof(viewModel.ImportJobsVisibility)) });
@@ -1718,7 +1759,7 @@ await flow.UndoChangesCommand.ExecuteAsync(null);
         await AtomicFile.WriteJsonAsync(Path.Combine(artifacts, "ui-smoke.json"), new { Passed = true, Checks = checks, page.ActualWidth, page.ActualHeight, Scale = page.XamlRoot.RasterizationScale, InputInjected = false });
         void Require(bool condition, string message) { if (!condition) throw new IOException(message); checks.Add(message); }
     }
-    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    internal static IEnumerable<DependencyObject> Descendants(DependencyObject root)
     {
         for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root); i++)
         {

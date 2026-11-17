@@ -148,6 +148,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             switchingImportDraft = false; NotifyDrafts();
         }
         OnPropertyChanged(nameof(PackageFileLabel));
+        OnPropertyChanged(nameof(ImportDraftSummary));
         standaloneExcludedPackages.Clear();
         creationOverrides = null;
         selectionSourceIdentity = null;

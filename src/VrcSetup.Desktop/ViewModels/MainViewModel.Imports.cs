@@ -64,7 +64,8 @@ public sealed partial class MainViewModel
         if (SelectedImportDraft is { } draft) draft.SelectionSourceIdentity = selectionSourceIdentity;
     }
     public Visibility DraftListVisibility => ImportDrafts.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
-    private void NotifyDrafts() { OnPropertyChanged(nameof(DraftListVisibility)); OnPropertyChanged(nameof(PackageFileLabel)); RefreshCreationPackages(); }
+    public string ImportDraftSummary => string.IsNullOrWhiteSpace(PackageFile) ? "" : ImportDrafts.Count <= 1 ? UiText.Text("1 file · 1 project") : string.Format(UiText.Text("{0} files · {0} projects"), ImportDrafts.Count);
+    private void NotifyDrafts() { OnPropertyChanged(nameof(DraftListVisibility)); OnPropertyChanged(nameof(PackageFileLabel)); OnPropertyChanged(nameof(ImportDraftSummary)); RefreshCreationPackages(); }
     partial void OnSelectedImportDraftChanged(UiImportDraft? value)
     {
         if (switchingImportDraft || value is null) return;
@@ -237,7 +238,7 @@ public sealed class UiImportRow(ImportJob job) : ObservableObject
 {
     private bool detailsOpen;
     private string logText = "";
-    private double logHeight = 105;
+    private double logHeight = 200;
     private bool isRegistering;
     public bool IsRegistering { get => isRegistering; set { if (SetProperty(ref isRegistering, value)) OnPropertyChanged(nameof(CanRegister)); } }
     public bool CanRegister => !IsRegistering;

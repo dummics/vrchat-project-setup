@@ -690,5 +690,13 @@
   "Suggested for this avatar": "Consigliato per questo avatar",
   "Choose a version in package settings": "Scegli una versione nelle impostazioni dei pacchetti",
   "No packages to review.": "Nessun pacchetto da controllare.",
-  "The selection changed. Review the suggested packages again.": "La selezione è cambiata. Controlla di nuovo i pacchetti suggeriti."
+  "The selection changed. Review the suggested packages again.": "La selezione è cambiata. Controlla di nuovo i pacchetti suggeriti.",
+  "Files to import": "File da importare",
+  "Add files": "Aggiungi file",
+  "Use this preset for all selected files": "Usa questo preset per tutti i file selezionati",
+  "Choose packages and versions": "Scegli pacchetti e versioni",
+  "Suggested additions": "Aggiunte consigliate",
+  "{0} selected": "{0} selezionati",
+  "{0} files · {0} projects": "{0} file · {0} progetti",
+  "1 file · 1 project": "1 file · 1 progetto"
 }

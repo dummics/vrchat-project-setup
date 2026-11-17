@@ -1,5 +1,21 @@
 # Desktop migration verification
 
+## D1 workspace and expanded import cards after 0.3.5
+
+The real WinUI workspace implements the approved D1 design with document tabs,
+compact project/platform controls and preference rows. Package details open on
+request; strong additions remain separate from the preset selection. Weak
+suggestions are not promoted to the main view. The import queue uses one page
+scroll, downward details, aligned actions and a larger independent console.
+
+Core: 536 passed. Native UI: 679 checks passed. Regression evidence is in
+`.work/artifacts/d1-final`; Italian/no-editor evidence is in
+`d1-ready-it-final`. The native suite exercises six
+files, editable names, platform and exclusion retention, tab selection, package
+versions, narrow windows, repeated expansion and preservation of log scroll.
+The screenshots use isolated fixtures, not personal avatar projects. No desktop
+input or personal Unity project mutation is involved.
+
 ## Import and table redesign after 0.3.4
 
 Released as stable 0.3.5 from `24c32c9`, through successful Windows workflow
