@@ -20,3 +20,5 @@ setup-scripts/cache/
 *.user
 TestResults/
 artifacts/
+**/node_modules/
+/src/VrcSetup.ReactDesktop/ui/dist/
