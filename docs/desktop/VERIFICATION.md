@@ -2,6 +2,15 @@
 
 ## D1 workspace and expanded import cards after 0.3.5
 
+Released as stable **0.3.6**, commit `4c335f0`, through successful Windows workflow
+[43984737578](https://github.com/dummics/vrchat-project-setup/actions/runs/43984737578).
+Downloaded installer SHA-256:
+`29E394402E2A454817D23F4C5284982698F6711315D4ECF663FBA2578AA19D97`.
+All 13 component hashes/sizes match the public assets and the update feed lists
+the release. Hosted checks also passed VPM restore, Creator Companion registration,
+native UI, Italian, appearance restart, installation, repair and update/restart.
+Compact publication evidence: `.work/artifacts/release-036/verification.json`.
+
 The real WinUI workspace implements the approved D1 design with document tabs,
 compact project/platform controls and preference rows. Package details open on
 request; strong additions remain separate from the preset selection. Weak
