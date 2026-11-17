@@ -41,6 +41,16 @@ public sealed class AutomaticUpdatesTests
         Assert.Null(await f.Updates.TakeReadyAsync("0.2.0-beta.15", true, true));
         await f.Prepare(); Assert.Null((await f.Updates.ReadAsync()).Ready);
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PreparedAlphaRequiresOptInAtRestart(bool alpha)
+    {
+        using var f = new Fixture();
+        await f.Prepare("0.4.0-alpha.1");
+        var ready = await f.Updates.TakeReadyAsync("0.3.7", true, true, includeAlpha: alpha);
+        Assert.Equal(alpha, ready is not null);
+    }
     [Fact] public async Task ModifiedInstallerNeverRuns()
     {
         using var f = new Fixture(); var path = await f.Prepare(); await File.AppendAllTextAsync(path, "corrupt");

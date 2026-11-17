@@ -45,7 +45,7 @@ public sealed partial class MainViewModel
             var progress = new SynchronizationProgress<int>(context, value => { UpdateDownloadPercent = value; UpdateStatus = "Downloading update · " + value + "%"; });
             // Always the unified bootstrapper: historical delta EXEs do not implement prefetch.
             var installer = await updates.DownloadAsync(release, folder, progress, lifetime.Token);
-            if (!AutomaticUpdateEnabled || !CheckUpdatesOnStartup || (!IncludeBetaUpdates && new VrcSetup.Core.SemanticVersion(release.Version).IsPrerelease)) return;
+            if (!AutomaticUpdateEnabled || !CheckUpdatesOnStartup || !AllowsUpdateVersion(release.Version)) return;
             UpdateStatus = "Preparing update…";
             if (HasActiveImports) { UpdateStatus = "Update will wait until imports finish."; return; }
             var receipt = Path.Combine(folder, "prefetch-result.json");
@@ -65,7 +65,7 @@ public sealed partial class MainViewModel
             using var result = JsonDocument.Parse(await File.ReadAllTextAsync(receipt, lifetime.Token));
             if (process.ExitCode != 0 || !result.RootElement.TryGetProperty("Success", out var success) || success.ValueKind != JsonValueKind.True)
                 throw new IOException("Update preparation failed; the current installation is preserved.");
-            if (!AutomaticUpdateEnabled || !CheckUpdatesOnStartup || (!IncludeBetaUpdates && new VrcSetup.Core.SemanticVersion(release.Version).IsPrerelease)) return;
+            if (!AutomaticUpdateEnabled || !CheckUpdatesOnStartup || !AllowsUpdateVersion(release.Version)) return;
             await automatic.SetReadyAsync(state, release.Version, installer, lifetime.Token);
             UpdateFailed = false; IsUpdateReady = true; UpdateStatus = "Ready for next launch";
         }

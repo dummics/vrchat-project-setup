@@ -8,6 +8,13 @@ Language uses the same settings save action: **Save and restart** when a restart
 
 Update checks share a local feed cache for ten minutes, including manual checks. Later requests revalidate with the server's ETag when available. GitHub rate limits pause checks until `Retry-After` or an exhausted quota's reset time; secondary limits without a deadline pause for five minutes. The pause survives app restarts. No local server or GitHub credentials are required; diagnostic exceptions stay in logs, while the app shows a short localized message.
 
+Starting with 0.3.7, Settings → Updates offers **Include experimental builds
+(alpha)** separately from beta updates. It defaults to off and selecting it also
+allows beta and RC builds. Turning it off clears the current offer and prevents
+a downloaded alpha from installing on the next launch. An installed alpha can
+advance to a newer eligible version. Returning immediately to an older stable
+version requires its installer and the explicit downgrade confirmation.
+
 ## Future stable build numbering (owner decision, 16 November 2026)
 
 The agreed future display is `0.3.4 · build 123`: product version plus a separate

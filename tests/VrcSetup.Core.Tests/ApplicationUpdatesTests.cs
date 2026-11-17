@@ -22,6 +22,15 @@ public sealed class ApplicationUpdatesTests
         Assert.Equal("0.2.0", ApplicationUpdates.SelectRelease(json, "0.2.0-beta.1", false)!.Version);
         Assert.Null(ApplicationUpdates.SelectRelease(json, "0.2.0", false));
     }
+    [Theory]
+    [InlineData(false, false, "0.3.7")]
+    [InlineData(true, false, "0.4.0-beta.1")]
+    [InlineData(false, true, "0.4.1-alpha.1")]
+    public void AlphaRequiresSeparateOptIn(bool beta, bool alpha, string expected)
+    {
+        var json = JsonSerializer.Serialize(new[] { Release("0.3.7", beta: false), Release("0.4.0-beta.1"), Release("0.4.1-alpha.1") });
+        Assert.Equal(expected, ApplicationUpdates.SelectRelease(json, "0.3.6", beta, includeAlpha: alpha)?.Version);
+    }
     [Fact] public void HandlesRenumberingWithoutReofferingOldPreviewsOrDowngrades()
     {
         var json = JsonSerializer.Serialize(new[] { Release("2.0.0-preview.99"), Release("0.2.0-beta.1") });

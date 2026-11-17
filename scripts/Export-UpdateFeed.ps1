@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)][object[]]$Releases,
     [Parameter(Mandatory)][string]$OutputPath,
+    [switch]$IncludeAlpha,
     [string]$Repository = 'dummics/vrchat-project-setup'
 )
 $ErrorActionPreference = 'Stop'
@@ -10,6 +11,7 @@ if ($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid 
 $entries = @(foreach ($release in $Releases) {
     if ($release.draft) { continue }
     try { $version = Get-ReleaseVersion $release.tag_name } catch { continue }
+    if ($version.Rank -eq 0 -and -not $IncludeAlpha) { continue }
     $prefix = "https://github.com/$Repository/releases/download/$($release.tag_name)/"
     $assets = @($release.assets | Where-Object {
         $_.browser_download_url -eq ($prefix + $_.name) -and

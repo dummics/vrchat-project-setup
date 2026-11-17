@@ -45,7 +45,7 @@ public sealed class AutomaticUpdates(AppPaths paths, TimeProvider? time = null)
         await SaveAsync(state, token);
         PruneInstallers(version);
     }
-    public async Task<ReadyApplicationUpdate?> TakeReadyAsync(string installedVersion, bool enabled, bool includeBeta, CancellationToken token = default)
+    public async Task<ReadyApplicationUpdate?> TakeReadyAsync(string installedVersion, bool enabled, bool includeBeta, CancellationToken token = default, bool includeAlpha = false)
     {
         if (!enabled || !Installed) return null;
         using var lease = TryAcquire(); if (lease is null) return null;
@@ -55,7 +55,7 @@ public sealed class AutomaticUpdates(AppPaths paths, TimeProvider? time = null)
         try
         {
             var version = new SemanticVersion(ready.Version);
-            if (version.CompareTo(new SemanticVersion(installedVersion)) <= 0 || (!includeBeta && version.IsPrerelease)
+            if (version.CompareTo(new SemanticVersion(installedVersion)) <= 0 || !ApplicationUpdates.AllowsChannel(version, includeBeta, includeAlpha)
                 || state.LastAttemptVersion == ready.Version || clock.GetUtcNow() - ready.PreparedUtc > TimeSpan.FromHours(48)
                 || ready.PreparedUtc > clock.GetUtcNow().AddMinutes(5)
                 || !string.Equals(Path.GetFullPath(paths.PayloadRoot), ready.Root, StringComparison.OrdinalIgnoreCase)

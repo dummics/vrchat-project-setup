@@ -11,6 +11,7 @@ public sealed partial class MainViewModel
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsCheckingUpdate { get; set; }
     [ObservableProperty] public partial bool CheckUpdatesOnStartup { get; set; } = true;
     [ObservableProperty] public partial bool IncludeBetaUpdates { get; set; }
+    [ObservableProperty] public partial bool IncludeAlphaUpdates { get; set; }
     [ObservableProperty] public partial bool AutomaticUpdateEnabled { get; set; } = true;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsUpdateReady { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool HasApplicationUpdate { get; set; }
@@ -24,7 +25,10 @@ public sealed partial class MainViewModel
     public Microsoft.UI.Xaml.Visibility UpdateSummaryVisibility => UpdateSummary.Length == 0 ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
     partial void OnUpdateStatusChanged(string value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); OnPropertyChanged(nameof(UpdateLabel)); }
     partial void OnUpdateFailedChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); OnPropertyChanged(nameof(UpdateLabel)); }
-    partial void OnIncludeBetaUpdatesChanged(bool value)
+    partial void OnIncludeBetaUpdatesChanged(bool value) => ResetUpdateOffer();
+    partial void OnIncludeAlphaUpdatesChanged(bool value) => ResetUpdateOffer();
+    private bool AllowsUpdateVersion(string version) => ApplicationUpdates.AllowsChannel(new VrcSetup.Core.SemanticVersion(version), IncludeBetaUpdates, IncludeAlphaUpdates);
+    private void ResetUpdateOffer()
     {
         availableUpdate = null; HasApplicationUpdate = false; IsUpdateReady = false;
         if (!IsCheckingUpdate && !IsDownloadingUpdate) UpdateStatus = "";
@@ -48,8 +52,9 @@ public sealed partial class MainViewModel
             using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
             client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
             var includeBeta = IncludeBetaUpdates;
-            var release = await new ApplicationUpdates(client, cacheDirectory: Path.Combine(app.Paths.Home, "updates")).CheckAsync(AppVersion, includeBeta, timeout.Token, forceRefresh: manual);
-            if (includeBeta != IncludeBetaUpdates) { availableUpdate = null; HasApplicationUpdate = false; UpdateStatus = "Update channel changed. Check for updates again."; return false; }
+            var includeAlpha = IncludeAlphaUpdates;
+            var release = await new ApplicationUpdates(client, cacheDirectory: Path.Combine(app.Paths.Home, "updates")).CheckAsync(AppVersion, includeBeta, timeout.Token, forceRefresh: manual, includeAlpha: includeAlpha);
+            if (includeBeta != IncludeBetaUpdates || includeAlpha != IncludeAlphaUpdates) { availableUpdate = null; HasApplicationUpdate = false; UpdateStatus = "Update channel changed. Check for updates again."; return false; }
             availableUpdate = release;
             UpdateFailed = false; updateDetails = "";
             HasApplicationUpdate = availableUpdate is not null;
@@ -94,7 +99,7 @@ public sealed partial class MainViewModel
     {
         var release = availableUpdate;
         if (release is null || IsDownloadingUpdate) return;
-        if (!IncludeBetaUpdates && new VrcSetup.Core.SemanticVersion(release.Version).IsPrerelease)
+        if (!AllowsUpdateVersion(release.Version))
         { availableUpdate = null; HasApplicationUpdate = false; await CheckApplicationUpdatesAsync(true); return; }
         if (IsBusy || IsCreatingProject || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
         { UpdateStatus = "Finish imports and save or revert changes before updating."; return; }
@@ -111,7 +116,7 @@ public sealed partial class MainViewModel
             var progress = new SynchronizationProgress<int>(context, value => { if (IsDownloadingUpdate) { UpdateDownloadPercent = value; UpdateStatus = "Downloading update · " + value + "%"; } });
             var folder = Path.Combine(app.Paths.Home, "updates", release.Version);
             var installer = await new ApplicationUpdates(client).DownloadAsync(release, folder, progress, lifetime.Token, preferFullInstaller ? null : app.Paths.PayloadRoot);
-            if (!IncludeBetaUpdates && new VrcSetup.Core.SemanticVersion(release.Version).IsPrerelease)
+            if (!AllowsUpdateVersion(release.Version))
             { UpdateStatus = "Update channel changed. Check for updates again."; return; }
             if (IsBusy || IsCreatingProject || HasActiveImports || WorkspaceDirty || PresetDirty || SettingsDirty)
             { UpdateStatus = "Update downloaded. Finish your work, then choose Install update."; return; }

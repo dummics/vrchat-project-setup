@@ -18,15 +18,16 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
         + Uri.EscapeDataString("App version: " + CurrentVersion + "\n\nWhat did you do?\n\nWhat happened?\n\nWhat did you expect?\n\nOptional screenshot or log excerpt (remove personal details):\n");
     private const long MaximumInstallerBytes = 1024L * 1024 * 1024;
 
-    public async Task<ApplicationRelease?> CheckAsync(string installed, bool includeBeta, CancellationToken token = default, bool forceRefresh = false)
+    public async Task<ApplicationRelease?> CheckAsync(string installed, bool includeBeta, CancellationToken token = default, bool forceRefresh = false, bool includeAlpha = false)
     {
-        using var request = Request(Source.Feed.AbsoluteUri);
+        var feed = includeAlpha && Source.Feed.AbsoluteUri == LegacyFeed ? ExperimentalFeed : Source.Feed.AbsoluteUri;
+        using var request = Request(feed);
         if (forceRefresh) request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
         var json = await UpdateFeed.ReadAsync(client, request, cacheDirectory, token, forceRefresh);
-        return json is null ? null : SelectRelease(json, installed, includeBeta, Source);
+        return json is null ? null : SelectRelease(json, installed, includeBeta, Source, includeAlpha);
     }
 
-    public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta, ApplicationUpdateSource? source = null)
+    public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta, ApplicationUpdateSource? source = null, bool includeAlpha = false)
     {
         source ??= ApplicationUpdateSource.Default;
         using var doc = JsonDocument.Parse(json);
@@ -42,7 +43,7 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
             SemanticVersion version;
             try { version = new(tag); } catch (Exception e) when (e is ArgumentException or OverflowException) { continue; }
             if (version.Major == 2 && version.PreRelease.FirstOrDefault() == "preview") continue;
-            if (!includeBeta && (version.IsPrerelease || entry.GetProperty("prerelease").GetBoolean())) continue;
+            if (!AllowsChannel(version, includeBeta, includeAlpha, entry.GetProperty("prerelease").GetBoolean())) continue;
             // Old 2.0 previews predate the owner-approved 0.2 beta numbering.
             var legacyMigration = current.Major == 2 && current.PreRelease.FirstOrDefault() == "preview" && version.Major == 0 && version.Minor >= 2;
             if (!legacyMigration && version.CompareTo(current) <= 0) continue;
@@ -60,6 +61,16 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
             catch (Exception error) when (error is KeyNotFoundException or InvalidOperationException) { /* Ignore incomplete release metadata. */ }
         }
         return candidates.OrderByDescending(x => x.Version).FirstOrDefault().Release;
+    }
+
+    private const string LegacyFeed = "https://raw.githubusercontent.com/dummics/vrchat-project-setup/main/.github/updates/releases.json";
+    private const string ExperimentalFeed = "https://raw.githubusercontent.com/dummics/vrchat-project-setup/main/.github/updates/releases-experimental.json";
+
+    public static bool AllowsChannel(SemanticVersion version, bool includeBeta, bool includeAlpha, bool markedPrerelease = false)
+    {
+        if (version.PreRelease.FirstOrDefault()?.Equals("alpha", StringComparison.OrdinalIgnoreCase) == true)
+            return includeAlpha;
+        return includeBeta || includeAlpha || (!version.IsPrerelease && !markedPrerelease);
     }
 
     private static HttpRequestMessage Request(string uri)

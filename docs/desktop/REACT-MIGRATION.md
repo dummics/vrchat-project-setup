@@ -52,3 +52,30 @@ workspace before beta.
    visible to 0.3.x and use unique immutable assets for subsequent builds.
 5. Validate offline first launch, update bytes, an upgrade from 0.3.6, same
    version build updates and rollback before publishing beta and stable builds.
+
+## 0.3.7 bridge and React replacement criteria
+
+The bridge offers a separate alpha opt-in in Updates. The ordinary feed keeps
+alphas out of reach of older clients. The experimental feed offers stable,
+beta/RC and alpha builds to opted-in clients. Disabling alpha invalidates an
+offer and blocks a prepared alpha at the next launch. It does not downgrade an
+already installed build.
+
+Ship the complete React alpha only when these workflows pass from their normal
+entry points with an existing 0.3.x profile:
+
+| Surface | Required checks |
+| --- | --- |
+| Import | Picker/drop, multiple files, target detection and manual selection, presets and versions, review, Unity import, progress and logs, pause, resume after restart, retry, cancel, cleanup, VCC registration |
+| Projects | Discovery and sorting, add existing, create/open, open-editor state, attention and recovery actions, single and batch selection, project options |
+| VPM workspace | Installed and available packages, pins, add/update/downgrade/remove/restore, confirmation, Unity-open protections, backups and failure messaging |
+| Presets | Manage saved presets, share/import/export, favourites, browsing and version policy, unsaved edits |
+| Activity | Imports and operations, log access, diagnostic export, keeping recovery actions on the owning screen |
+| Settings and shell | First run, editor and project paths, IT/EN, accessibility, appearance persistence, update channels, help and restart |
+| Installation and entry points | Start menu, shortcuts, CLI GUI launch, portable, runtime check, same-path upgrade from 0.3.7, reopening React, no active WinUI files in the installed payload, rollback to the previous installation |
+
+The existing installer validates a fresh staging folder and swaps it into the
+same install path. A complete React payload can replace WinUI by preserving
+the same entry points and omitting WinUI assemblies from the new manifest.
+Keep old app files in the installer's rollback folder. Never remove Unity
+projects, activity records, configuration or presets as part of replacement.
