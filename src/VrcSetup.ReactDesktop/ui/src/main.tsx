@@ -263,9 +263,20 @@ function ImportPage() {
   ] as const;
   const date = new Intl.DateTimeFormat(locale === 'it' ? 'it-IT' : 'en-GB');
 
-  return <Locale.Provider value={locale}><main data-ready={!!state} className={dragging ? 'dragging' : ''} onDragOver={event => { event.preventDefault(); setDragging(true); }}
-    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
-    onDrop={event => { event.preventDefault(); setDragging(false); stage([...event.dataTransfer.files]); }}>
+  return <Locale.Provider value={locale}><main data-ready={!!state} className={dragging ? 'dragging' : ''} onDragOver={event => {
+      event.preventDefault();
+      const acceptsFiles = screen === 'import' && !busy && !review && event.dataTransfer.types.includes('Files');
+      event.dataTransfer.dropEffect = acceptsFiles ? 'copy' : 'none';
+      setDragging(acceptsFiles);
+    }}
+    onDragLeave={event => {
+      if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDragging(false);
+    }}
+    onDrop={event => {
+      event.preventDefault();
+      setDragging(false);
+      if (event.dataTransfer.files.length) stage([...event.dataTransfer.files]);
+    }}>
     <header><div><span className="brand">VRC Project Setup</span><h1>{screen === 'projects' ? t("Progetti") : screen === 'activity' ? t("Attività") : screen === 'settings' ? t("Impostazioni") : screen === 'presets' ? 'Preset' :
       screen === 'project-packages' ? projectPackages?.name ?? t("Pacchetti dei progetti") : panel === 'packages' ? t("Pacchetti") : panel === 'preset' ? t("Scegli un preset") : t("Importa")}</h1></div>
       {screen !== 'import' ? <button disabled={!!busy || screen === 'presets' && presetDirty} onClick={() => {

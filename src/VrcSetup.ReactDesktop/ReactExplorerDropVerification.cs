@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Interop;
@@ -41,7 +42,21 @@ internal static class ReactExplorerDropVerification
                 throw new IOException("Could not arrange the two hosted fixture windows.");
             await Task.Delay(400, token);
             var item = await Task.Run(() => FindItemAsync(name, token), token);
-            var destination = window.PointToScreen(new Point(55, 165));
+            var point = JsonSerializer.Deserialize<double[]>(await core.ExecuteScriptAsync("""
+                (() => {
+                    window.fixtureDrop = null;
+                    document.querySelector('main').addEventListener('drop', event => {
+                        window.fixtureDrop = {
+                            types: Array.from(event.dataTransfer.types),
+                            files: Array.from(event.dataTransfer.files, file => file.name)
+                        };
+                    }, { capture: true, once: true });
+                    const heading = document.querySelector('main header h1').getBoundingClientRect();
+                    return [heading.left + heading.width / 2, heading.top + heading.height / 2];
+                })()
+                """)) ?? throw new IOException("The React drop surface is unavailable.");
+            var surface = (FrameworkElement)window.Content;
+            var destination = surface.PointToScreen(new Point(point[0], point[1]));
             var target = new CursorPoint((int)destination.X, (int)destination.Y);
             if (item.Window != explorer.Window || GetAncestor(WindowFromPoint(item.Center), RootWindow) != explorer.Window ||
                 GetAncestor(WindowFromPoint(target), RootWindow) != app)
@@ -62,11 +77,18 @@ internal static class ReactExplorerDropVerification
             }
             finally { SendButton(LeftUp); }
 
-            await Program.RequireAsync(core, """
-                Array.from(document.querySelectorAll('.tabs button')).some(tab => tab.textContent === 'VrcSetupExplorerQuestV2.unitypackage')
-                && document.querySelector('.platforms [aria-pressed=true]')?.textContent === 'Quest'
-                && document.querySelector('main.dragging') === null
-                """, attempts: 400);
+            try
+            {
+                await Program.RequireAsync(core, """
+                    Array.from(document.querySelectorAll('.tabs button')).some(tab => tab.textContent === 'VrcSetupExplorerQuestV2.unitypackage')
+                    && document.querySelector('.platforms [aria-pressed=true]')?.textContent === 'Quest'
+                    && document.querySelector('main.dragging') === null
+                    """, attempts: 400);
+            }
+            catch (IOException failure)
+            {
+                throw new IOException($"Explorer drop event: {await core.ExecuteScriptAsync("window.fixtureDrop")}. {failure.Message}", failure);
+            }
             if (AtomicFile.Hash(archive) != originalHash)
                 throw new IOException("The Explorer drag changed the source archive.");
         }
