@@ -68,14 +68,14 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
 
     internal async Task<UpdateView> PrepareAsync(string? version, CancellationToken token)
     {
-        if (!enabled || !automatic.Installed) throw new IOException("L’installazione dell’aggiornamento richiede la versione installata.");
+        if (!enabled || !automatic.Installed) throw new IOException(UiText.Text("Updating requires an installed copy of the app."));
         await gate.WaitAsync(token);
         try
         {
-            if (engine.Imports.HasActiveJobs) throw new IOException("Attendi che le importazioni terminino.");
+            if (engine.Imports.HasActiveJobs) throw new IOException(UiText.Text("Wait for the imports to finish."));
             if (available is not { } release || release.Version != version)
-                throw new IOException("Controlla di nuovo gli aggiornamenti.");
-            using var lease = automatic.TryAcquire() ?? throw new IOException("Un aggiornamento è già in preparazione.");
+                throw new IOException(UiText.Text("Check for updates again."));
+            using var lease = automatic.TryAcquire() ?? throw new IOException(UiText.Text("An update is already being prepared."));
             var state = await automatic.ReadAsync(token);
             using var client = NewClient();
             await PrepareCoreAsync(new ApplicationUpdates(client), state, release, manual: true, token);
@@ -90,7 +90,7 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
         if (!await StillAllowedAsync(release.Version, manual, token)) return;
         if (!await updates.SupportsPrefetchAsync(release, token))
         {
-            if (manual) throw new IOException("La preparazione di questo aggiornamento non è disponibile.");
+            if (manual) throw new IOException(UiText.Text("This update cannot be prepared automatically."));
             return;
         }
         var folder = Path.Combine(engine.Paths.Home, "updates", release.Version);
@@ -105,11 +105,11 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
             if (!process.HasExited) process.Kill(true);
-            throw new IOException("La preparazione dell’aggiornamento ha impiegato troppo tempo.");
+            throw new IOException(UiText.Text("Preparing the update timed out."));
         }
         using var result = JsonDocument.Parse(await File.ReadAllTextAsync(receipt, token));
         if (process.ExitCode != 0 || !result.RootElement.TryGetProperty("Success", out var success) || success.ValueKind != JsonValueKind.True)
-            throw new IOException("Impossibile preparare l’aggiornamento. Puoi riprovare dalle impostazioni.");
+            throw new IOException(UiText.Text("Could not prepare the update. Retry from Settings."));
         if (await StillAllowedAsync(release.Version, manual, token))
             await automatic.SetReadyAsync(state, release.Version, installer, token);
     }
@@ -147,7 +147,7 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
         var start = new ProcessStartInfo(installer) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() };
         foreach (var argument in args.Concat(["--root", engine.Paths.PayloadRoot, "--home", engine.Paths.Home]))
             start.ArgumentList.Add(argument);
-        return Process.Start(start) ?? throw new IOException("Impossibile avviare il programma di aggiornamento.");
+        return Process.Start(start) ?? throw new IOException(UiText.Text("Could not start the updater."));
     }
 
     private static bool IsOnlyInstance(string executable)

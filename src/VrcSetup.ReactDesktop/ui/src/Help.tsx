@@ -6,12 +6,14 @@ const topics = [
 ];
 
 export function Help({ onReport }: { onReport(): void }) {
+  const t = useText();
   return <section className="help">
-    <h2>Guida</h2>
+    <h2>{t("Guida")}</h2>
     {topics.map(([title, answer]) => <details key={title}>
-      <summary>{title}</summary>
-      <p>{answer}</p>
+      <summary>{t(title)}</summary>
+      <p>{t(answer)}</p>
     </details>)}
-    <button onClick={onReport}>Segnala un problema</button>
+    <button onClick={onReport}>{t("Segnala un problema")}</button>
   </section>;
 }
+import { useText } from './locale';

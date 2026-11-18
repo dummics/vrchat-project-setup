@@ -26,6 +26,7 @@ type Props = {
 };
 
 export function ProjectPackages({ project, busy, request, run, onApplied }: Props) {
+  const t = useText();
   const [draft, setDraft] = useState<PendingChoice[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PackageChoice[]>();
@@ -62,74 +63,75 @@ export function ProjectPackages({ project, busy, request, run, onApplied }: Prop
     });
   }
 
-  if (review) return <section className="extras" aria-label="Riepilogo pacchetti">
-    <h2>{review.restore ? 'Versioni da reinstallare' : 'Modifiche ai pacchetti'}</h2>
+  if (review) return <section className="extras" aria-label={t("Riepilogo pacchetti")}>
+    <h2>{review.restore ? t("Versioni da reinstallare") : t("Modifiche ai pacchetti")}</h2>
     {review.packages.length ? <ul>{review.packages.map(item => <li key={item.id}>
-      {item.name} · {review.restore ? item.version : item.kind === 'Remove' ? 'Da rimuovere'
-        : item.before ? `${item.before} → ${item.version}` : `Da installare · ${item.version}`}
-    </li>)}</ul> : <p>I pacchetti sono già aggiornati.</p>}
+      {item.name} · {review.restore ? item.version : item.kind === 'Remove' ? t("Da rimuovere")
+        : item.before ? `${item.before} → ${item.version}` : t('Da installare · {version}', { version: item.version ?? '' })}
+    </li>)}</ul> : <p>{t("I pacchetti sono già aggiornati.")}</p>}
     {review.riskyDowngrade && <label className="package">
-      <span>Voglio installare le versioni precedenti indicate.</span>
+      <span>{t("Voglio installare le versioni precedenti indicate.")}</span>
       <input type="checkbox" checked={acceptRisk} onChange={event => setAcceptRisk(event.target.checked)} />
     </label>}
     <div className="actions">
-      <button disabled={busy} onClick={() => setReview(undefined)}>Indietro</button>
+      <button disabled={busy} onClick={() => setReview(undefined)}>{t("Indietro")}</button>
       <button className="primary" disabled={busy || !review.packages.length || review.riskyDowngrade && !acceptRisk}
-        onClick={() => void run('Applicazione modifiche…', async () => {
+        onClick={() => void run(t("Applicazione modifiche…"), async () => {
           setReview(undefined);
           const result = await request<{ warning?: string }>('applyProjectPackages', { id: review.id, acceptRisk });
           setDraft([]);
           setResults(undefined);
           onApplied(await request<ProjectPackageList>('projectPackages', project.path),
-            result.warning ?? (review.restore ? 'Pacchetti ripristinati.' : 'Pacchetti aggiornati.'));
-        })}>{review.restore ? 'Conferma ripristino' : 'Applica modifiche'}</button>
+            result.warning ?? (review.restore ? t("Pacchetti ripristinati.") : t("Pacchetti aggiornati.")));
+        })}>{review.restore ? t("Conferma ripristino") : t("Applica modifiche")}</button>
     </div>
   </section>;
 
   return <>
-    <div className="package"><h2>Pacchetti VPM</h2>
-      {project.canRestore && <button disabled={busy || !!draft.length} onClick={() => reviewChanges(true)}>Ripristina pacchetti</button>}
+    <div className="package"><h2>{t("Pacchetti VPM")}</h2>
+      {project.canRestore && <button disabled={busy || !!draft.length} onClick={() => reviewChanges(true)}>{t("Ripristina pacchetti")}</button>}
     </div>
     {project.canEdit && <form className="actions project-tools" onSubmit={event => {
       event.preventDefault();
-      void run('Ricerca pacchetti…', async () => setResults(await request<PackageChoice[]>('searchProjectPackages', query)));
+      void run(t("Ricerca pacchetti…"), async () => setResults(await request<PackageChoice[]>('searchProjectPackages', query)));
     }}>
-      <input type="search" aria-label="Cerca nel catalogo VPM" placeholder="Cerca nel catalogo VPM" value={query} onChange={event => setQuery(event.target.value)} />
-      <button disabled={busy || !query.trim()}>Cerca</button>
+      <input type="search" aria-label={t("Cerca nel catalogo VPM")} placeholder={t("Cerca nel catalogo VPM")} value={query} onChange={event => setQuery(event.target.value)} />
+      <button disabled={busy || !query.trim()}>{t("Cerca")}</button>
     </form>}
-    {results && <section className="extras" aria-label="Risultati catalogo">
-      <div className="package"><h2>Risultati</h2><button onClick={() => setResults(undefined)}>Chiudi risultati</button></div>
+    {results && <section className="extras" aria-label={t("Risultati catalogo")}>
+      <div className="package"><h2>{t("Risultati")}</h2><button onClick={() => setResults(undefined)}>{t("Chiudi risultati")}</button></div>
       {results.length ? results.map(item => <div className="package" key={item.id}>
-        <span>{item.name}</span><button disabled={busy} onClick={() => chooseVersion(item)}>Scegli versione</button>
-      </div>) : <p>Nessun pacchetto trovato.</p>}
+        <span>{item.name}</span><button disabled={busy} onClick={() => chooseVersion(item)}>{t("Scegli versione")}</button>
+      </div>) : <p>{t("Nessun pacchetto trovato.")}</p>}
     </section>}
     {choice && <section className="extras">
       <label className="package">{choice.package.name}
-        <select aria-label="Versione da installare" value={version} onChange={event => setVersion(event.target.value)}>
-          {!choice.options.versions.length && <option value="">Nessuna versione disponibile</option>}
-          {choice.options.latest && <option value="latest">Ultima versione ({choice.options.latest})</option>}
+        <select aria-label={t("Versione da installare")} value={version} onChange={event => setVersion(event.target.value)}>
+          {!choice.options.versions.length && <option value="">{t("Nessuna versione disponibile")}</option>}
+          {choice.options.latest && <option value="latest">{t('Ultima versione')} ({choice.options.latest})</option>}
           {choice.options.versions.map(value => <option key={value}>{value}</option>)}
         </select>
       </label>
-      <div className="actions"><button disabled={busy} onClick={() => setChoice(undefined)}>Annulla</button>
-        <button disabled={busy || !version} onClick={() => stage(choice.package, version)}>Seleziona versione</button></div>
+      <div className="actions"><button disabled={busy} onClick={() => setChoice(undefined)}>{t("Annulla")}</button>
+        <button disabled={busy || !version} onClick={() => stage(choice.package, version)}>{t("Seleziona versione")}</button></div>
     </section>}
     {draft.length > 0 && <section className="extras">
-      <h2>Modifiche selezionate</h2>
-      {draft.map(item => <div className="package" key={item.id}><span>{item.name} · {item.version === null ? 'Da rimuovere' : item.version === 'latest' ? 'Ultima versione' : item.version}</span>
-        <button disabled={busy} onClick={() => setDraft(current => current.filter(x => x.id !== item.id))}>Annulla scelta</button>
+      <h2>{t("Modifiche selezionate")}</h2>
+      {draft.map(item => <div className="package" key={item.id}><span>{item.name} · {item.version === null ? t("Da rimuovere") : item.version === 'latest' ? t("Ultima versione") : item.version}</span>
+        <button disabled={busy} onClick={() => setDraft(current => current.filter(x => x.id !== item.id))}>{t("Annulla scelta")}</button>
       </div>)}
-      <button className="primary" disabled={busy} onClick={() => reviewChanges(false)}>Rivedi modifiche</button>
+      <button className="primary" disabled={busy} onClick={() => reviewChanges(false)}>{t("Rivedi modifiche")}</button>
     </section>}
     {project.packages.length ? <table className="project-table">
-      <thead><tr><th>Pacchetto</th><th>Installata</th><th>Registrata</th>{project.canEdit && <th scope="col" aria-label="Azioni" />}</tr></thead>
+      <thead><tr><th>{t("Pacchetto")}</th><th>{t("Installata")}</th><th>{t("Registrata")}</th>{project.canEdit && <th scope="col" aria-label={t("Azioni")} />}</tr></thead>
       <tbody>{project.packages.map(item => <tr key={item.id}><th scope="row">{item.name}</th>
-        <td>{item.installed ?? 'Mancante'}</td><td>{item.locked ?? '—'}</td>
+        <td>{item.installed ?? t("Mancante")}</td><td>{item.locked ?? '—'}</td>
         {project.canEdit && <td><div className="actions project-actions">
-          <button disabled={busy} onClick={() => chooseVersion(item)}>Versione</button>
-          {item.required ? <span>Richiesto</span> : <button disabled={busy} onClick={() => stage(item, null)}>Rimuovi</button>}
+          <button disabled={busy} onClick={() => chooseVersion(item)}>{t("Versione")}</button>
+          {item.required ? <span>{t("Richiesto")}</span> : <button disabled={busy} onClick={() => stage(item, null)}>{t("Rimuovi")}</button>}
         </div></td>}
       </tr>)}</tbody>
-    </table> : <p>Nessun pacchetto VPM.</p>}
+    </table> : <p>{t("Nessun pacchetto VPM.")}</p>}
   </>;
 }
+import { useText } from './locale';

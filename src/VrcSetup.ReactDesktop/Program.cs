@@ -69,6 +69,7 @@ internal static class Program
         var app = new Application();
         var engine = new VrcSetupApplication(isolated ? home : null, isolated || offscreen
             ? ["--no-vcc-registration", "--no-catalog-refresh"] : []);
+        UiText.LoadPreference(engine.Paths.ConfigFile);
         using var shutdown = new CancellationTokenSource();
         var updates = new DesktopUpdates(engine, !isolated && (!offscreen || verifyPrepared));
         var web = new WebView2();
@@ -96,12 +97,12 @@ internal static class Program
             if (draining) return;
             if (bridge.IsBusy)
             {
-                MessageBox.Show(window, "Attendi la fine dell’operazione in corso, poi chiudi l’app.", window.Title);
+                MessageBox.Show(window, UiText.Text("Wait for the current operation before closing the app."), window.Title);
                 return;
             }
             draining = true;
             if (!offscreen && engine.Imports.HasActiveJobs &&
-                MessageBox.Show(window, "Mettere in pausa le importazioni e chiudere l’app?", window.Title,
+                MessageBox.Show(window, UiText.Text("Pause imports and close the app?"), window.Title,
                     MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes)
             {
                 draining = false;
@@ -118,7 +119,7 @@ internal static class Program
                 engine.Diagnostics.Write("React shutdown", error.Message, error);
                 bridge.Closing = false;
                 draining = false;
-                MessageBox.Show(window, "Impossibile salvare la pausa delle importazioni. Riprova prima di chiudere.", window.Title);
+                MessageBox.Show(window, UiText.Text("Could not save the paused imports. Retry before closing."), window.Title);
                 return;
             }
             closing = true;
@@ -141,7 +142,7 @@ internal static class Program
                 { engine.Diagnostics.Write("React prepared update", error.Message, error); }
                 if (verifyPrepared) throw new IOException("The prepared fixture update did not start.");
                 if (!Directory.Exists(Path.Combine(AppContext.BaseDirectory, "web")))
-                    throw new IOException("Gli asset React della build non sono disponibili.");
+                    throw new IOException(UiText.Text("The web assets for this build are unavailable."));
                 var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(home, "webview"));
                 await web.EnsureCoreWebView2Async(environment);
                 var core = web.CoreWebView2;
@@ -158,6 +159,7 @@ internal static class Program
                 else if (smoke is not null)
                     await bridge.SeedSmokeAsync(smoke);
                 var configuration = await engine.Configuration.LoadAsync();
+                UiText.Language = configuration.Language;
                 if (profileFixture is not null)
                     ProjectRules.EnsureContained(profileFixture, configuration.UnityProjectsRoot);
                 bridge.ConfigureQueue(configuration);
@@ -207,6 +209,7 @@ internal static class Program
                             throw new IOException("The diagnostic ZIP is missing the package report or its log.");
                         await VerifySettingsAsync(core);
                         await VerifyPresetsAsync(core);
+                        await VerifyLanguageAsync(core);
                         await File.WriteAllTextAsync(Path.Combine(smoke, "result.json"), JsonSerializer.Serialize(new
                         {
                             passed = true, readyMs, runtime = environment.BrowserVersionString, drafts = 6, target = "Android",
@@ -216,7 +219,7 @@ internal static class Program
                                 "VPM restore and removal review",
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
                                 "theme changes and custom accent persist", "help and plain version label",
-                                "preset create and rename persist" }
+                                "preset create and rename persist", "live English labels and language persistence" }
                         }));
                         window.Close();
                         return;
@@ -254,17 +257,18 @@ internal static class Program
             await RequireAsync(core, $"document.querySelector('h1').textContent === {label}");
             var result = await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll({JsonSerializer.Serialize(selector)}), x => x.textContent.trim())");
             await core.ExecuteScriptAsync("document.querySelector('header button').click()");
-            await RequireAsync(core, "document.querySelector('h1').textContent === 'Importa'");
+            await RequireAsync(core, $"document.querySelector('h1').textContent === {JsonSerializer.Serialize(UiText.Text("Import"))}");
             return JsonSerializer.Deserialize<string[]>(result) ?? [];
         }
 
-        var projects = await Read("Progetti", ".project-table tbody th");
+        var projects = await Read(UiText.Text("Projects"), ".project-table tbody th");
         var presets = await Read("Preset", ".view select option");
-        var activity = await Read("Attività", ".activity article strong");
-        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Impostazioni').click()");
+        var activity = await Read(UiText.Text("Activity"), ".activity article strong");
+        await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('header button')).find(x => x.textContent === {JsonSerializer.Serialize(UiText.Text("Settings"))}).click()");
         await RequireAsync(core, $"document.querySelector('#unityProjectsRoot')?.value === {JsonSerializer.Serialize(configuration.UnityProjectsRoot)}");
         await RequireAsync(core, $"document.querySelector('#appearance-theme')?.value === {JsonSerializer.Serialize(configuration.Theme)}");
         await RequireAsync(core, $"document.querySelector('#appearance-palette')?.value === {JsonSerializer.Serialize(configuration.ColorPalette)}");
+        await RequireAsync(core, $"document.documentElement.lang === {JsonSerializer.Serialize(UiText.CurrentLanguage)}");
         var rendered = await core.ExecuteScriptAsync("""
             ({
               theme: document.documentElement.dataset.theme,
@@ -276,7 +280,7 @@ internal static class Program
         {
             home, version = ApplicationUpdates.CurrentVersion, process = Environment.ProcessId,
             configuration.UnityProjectsRoot, configuration.IncludeAlphaUpdates, projects, presets, activity,
-            workspaceSettingsVisible = true, appearance = JsonSerializer.Deserialize<JsonElement>(rendered)
+            workspaceSettingsVisible = true, language = UiText.CurrentLanguage, appearance = JsonSerializer.Deserialize<JsonElement>(rendered)
         }));
     }
 
@@ -430,6 +434,28 @@ internal static class Program
                 """);
             await Click("Conferma nome");
         }
+    }
+
+    private static async Task VerifyLanguageAsync(CoreWebView2 core)
+    {
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Impostazioni').click()");
+        await RequireAsync(core, "document.querySelector('#language')?.value === 'it'");
+        await core.ExecuteScriptAsync("""
+            const language = document.querySelector('#language');
+            language.value = 'en';
+            language.dispatchEvent(new Event('change', { bubbles: true }));
+            """);
+        await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
+        await RequireAsync(core, "document.documentElement.lang === 'en' && document.querySelector('h1').textContent === 'Settings'");
+        await RequireAsync(core, "document.querySelector('.help summary').textContent === 'How do I import an avatar?'");
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await RequireAsync(core, "document.querySelector('h1').textContent === 'Import'");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Activity').click()");
+        await RequireAsync(core, "document.querySelector('.activity article button').textContent === 'Details'");
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Settings').click()");
+        await RequireAsync(core, "document.querySelector('#language')?.value === 'en'");
     }
 
     private static async Task RequireAsync(CoreWebView2 core, string condition)

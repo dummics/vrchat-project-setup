@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useText } from './locale';
 
 export type Appearance = {
   theme: 'Dark' | 'Light' | 'System';
@@ -77,6 +78,7 @@ export function useAppearance(value?: Appearance) {
 export function AppearanceForm({ value, palettes, onChange }: {
   value: Appearance; palettes: Palettes; onChange(value: Appearance): void;
 }) {
+  const t = useText();
   function selectPalette(colorPalette: string) {
     const palette = palettes[colorPalette];
     onChange(palette ? {
@@ -85,22 +87,22 @@ export function AppearanceForm({ value, palettes, onChange }: {
   }
 
   return <section className="appearance-settings">
-    <h2>Aspetto</h2>
-    <label className="package">Tema
+    <h2>{t("Aspetto")}</h2>
+    <label className="package">{t("Tema")}
       <select id="appearance-theme" value={value.theme} onChange={event => onChange({ ...value, theme: event.target.value as Appearance['theme'] })}>
-        <option value="System">Sistema</option><option value="Dark">Scuro</option><option value="Light">Chiaro</option>
+        <option value="System">{t("Sistema")}</option><option value="Dark">{t("Scuro")}</option><option value="Light">{t("Chiaro")}</option>
       </select>
     </label>
-    <label className="package">Palette colori
+    <label className="package">{t("Palette colori")}
       <select id="appearance-palette" value={value.colorPalette} onChange={event => selectPalette(event.target.value)}>
-        {Object.keys(palettes).map(id => <option value={id} key={id}>{id === 'Orange' ? 'Arancione' : id}</option>)}
-        <option value="Custom">Personalizzata</option>
+        {Object.keys(palettes).map(id => <option value={id} key={id}>{id === 'Orange' ? t("Arancione") : id}</option>)}
+        <option value="Custom">{t("Personalizzata")}</option>
       </select>
     </label>
     <div className="appearance-colors">
       {fields.map(([key, label]) => <label key={key}>
         <input id={key} type="color" value={value[key]} onChange={event => onChange({ ...value, [key]: event.target.value, colorPalette: 'Custom' })} />
-        <span>{label}</span>
+        <span>{t(label)}</span>
       </label>)}
     </div>
   </section>;

@@ -45,7 +45,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             using var message = JsonDocument.Parse(args.WebMessageAsJson);
             var root = message.RootElement;
             id = root.GetProperty("id").GetString();
-            if (handlingRequest || Closing) throw new InvalidOperationException("Attendi l’operazione in corso.");
+            if (handlingRequest || Closing) throw new InvalidOperationException(UiText.Text("Wait for the current operation to finish."));
             handlingRequest = ownsRequest = true;
             var result = await Dispatch(root.GetProperty("method").GetString(), root.GetProperty("data"), args);
             Send(new { id, result });
@@ -75,7 +75,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 var config = await engine.Configuration.LoadAsync(token);
                 config.UnityEditorPath = (await Task.Run(UnityEditorDiscovery.FindEditors, token))
                     .FirstOrDefault(x => x.Version == UnityEditorDiscovery.PinnedVersion).Path ?? "";
-                if (config.UnityEditorPath.Length == 0) throw new IOException("Unity 2022.3.22f1 non trovato.");
+                if (config.UnityEditorPath.Length == 0) throw new IOException(UiText.Text("Unity 2022.3.22f1 was not found."));
                 if (isolated)
                 {
                     Directory.CreateDirectory(candidateProjects);
@@ -83,7 +83,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 }
                 else if (!Directory.Exists(config.UnityProjectsRoot))
                 {
-                    var projectRootPicker = new OpenFolderDialog { Title = "Scegli la cartella dei progetti Unity" };
+                    var projectRootPicker = new OpenFolderDialog { Title = UiText.Text("Choose the Unity projects folder") };
                     if (projectRootPicker.ShowDialog(window) != true) return await State(token);
                     config.UnityProjectsRoot = ProjectRules.NormalizePath(projectRootPicker.FolderName);
                 }
@@ -101,16 +101,16 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 var plans = new List<ProjectPlan>();
                 foreach (var choice in data.Deserialize<DraftChoice[]>(Json) ?? [])
                 {
-                    if (!ProjectRules.BuildTargets.Contains(choice.Target)) throw new ArgumentException("Piattaforma non valida.");
+                    if (!ProjectRules.BuildTargets.Contains(choice.Target)) throw new ArgumentException(UiText.Text("Choose a supported platform."));
                     var source = sources[choice.Id];
                     var plan = await engine.PlanCreationAsync(source.Path, settings, name: choice.Name,
                         preset: choice.Preset, packages: choice.Packages, buildTarget: choice.Target, cancellationToken: token);
                     if (source.Identity is not null && plan.Projects.Any(x => (x.Creation ?? x.RecoverySource)?.SourceIdentity != source.Identity))
-                        throw new IOException("Il file è cambiato. Rimuovilo e aggiungilo di nuovo per verificare i pacchetti.");
+                        throw new IOException(UiText.Text("The file changed. Remove it and add it again to check its packages."));
                     plans.AddRange(plan.Projects);
                 }
                 if (plans.Count == 0 || plans.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plans.Count)
-                    throw new ArgumentException("Scegli una destinazione distinta per ogni progetto.");
+                    throw new ArgumentException(UiText.Text("Choose a different destination for each project."));
                 reviewed = new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, plans.ToArray());
                 return SummarizeImportReview(reviewed, continuation: false);
             case "reviewContinuation":
@@ -118,7 +118,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 continuationId = null;
                 var job = CurrentJob(data.GetString());
                 if (!job.Recoverable || job.HasCompilationBlock)
-                    throw new IOException("Questa importazione non può essere ripresa.");
+                    throw new IOException(UiText.Text("This import cannot be resumed."));
                 _ = await ProjectPath(job.ProjectPath, token);
                 string? replacement = null;
                 if (!job.Source.EmptyProject)
@@ -128,14 +128,14 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                         await PackageSourceIdentity.ReadAsync(archive, token) != identity;
                     if (!File.Exists(archive) || changed)
                     {
-                        var sourcePicker = new OpenFileDialog { Title = "Scegli il file UnityPackage originale", Filter = "UnityPackage|*.unitypackage" };
+                        var sourcePicker = new OpenFileDialog { Title = UiText.Text("Choose the original UnityPackage file"), Filter = "UnityPackage|*.unitypackage" };
                         if (sourcePicker.ShowDialog(window) != true) return false;
                         replacement = sourcePicker.FileName;
                     }
                     if (job.Source.SourceIdentity is null)
                     {
-                        if (MessageBox.Show(window, "Questa importazione è precedente alla verifica del file. Vuoi proseguire con il file selezionato?",
-                                "Conferma UnityPackage", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                        if (MessageBox.Show(window, UiText.Text("This import was created before file verification. Continue with the selected file?"),
+                                UiText.Text("Confirm UnityPackage"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
                             return false;
                         replacement ??= archive;
                     }
@@ -144,7 +144,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 continuationId = job.Id;
                 return SummarizeImportReview(reviewed, continuation: true);
             case "start":
-                if (reviewed is not { } accepted || data.GetString() != accepted.Id) throw new InvalidOperationException("Rivedi l’importazione.");
+                if (reviewed is not { } accepted || data.GetString() != accepted.Id) throw new InvalidOperationException(UiText.Text("Review the import first."));
                 var expectedId = continuationId;
                 await engine.Imports.EnqueueAsync(accepted, parallelism: 0, token: token, expectedImportId: expectedId);
                 reviewed = null;
@@ -165,33 +165,33 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return await State(token);
             case "retrySave":
                 if (!await engine.Imports.RetryHistorySaveAsync(CurrentJob(data.GetString()).Id, token))
-                    throw new IOException("Impossibile salvare lo stato. Controlla lo spazio sul disco e riprova.");
+                    throw new IOException(UiText.Text("Could not save the import status. Check disk space and retry."));
                 return await State(token);
             case "retryRegistration":
-                if (isolated) throw new IOException("La registrazione richiede un profilo installato o portatile.");
+                if (isolated) throw new IOException(UiText.Text("Project registration requires an installed or portable profile."));
                 var registration = CurrentJob(data.GetString());
                 _ = await ProjectPath(registration.ProjectPath, token);
                 if (!await engine.Imports.RetryRegistrationAsync(registration.Id,
                         (job, registerToken) => engine.Unity.RegisterAsync(job.ProjectPath, null, registerToken), token))
-                    throw new IOException("Impossibile aggiungere il progetto a Creator Companion. Puoi aggiungerlo lì come progetto esistente.");
+                    throw new IOException(UiText.Text("Could not add the project to Creator Companion. You can add it there as an existing project."));
                 return await State(token);
             case "openImportProject":
                 var import = CurrentJob(data.GetString());
                 if (import.Active || import.DiscardRequested)
-                    throw new IOException("Attendi che l’importazione si fermi.");
+                    throw new IOException(UiText.Text("Wait for the import to stop."));
                 await OpenProject(import.ProjectPath, token);
                 return true;
             case "projects":
                 return await Projects(token);
             case "pickExistingProject":
                 var configuredRoot = ProjectRoot(await engine.Configuration.LoadAsync(token));
-                var folder = new OpenFolderDialog { Title = "Scegli un progetto Unity" };
+                var folder = new OpenFolderDialog { Title = UiText.Text("Choose a Unity project") };
                 if (Directory.Exists(configuredRoot)) folder.InitialDirectory = configuredRoot;
                 if (folder.ShowDialog(window) != true) return false;
                 var pickedPath = ProjectRules.NormalizePath(folder.FolderName);
                 if (!isolated)
                 {
-                    var parent = Path.GetDirectoryName(pickedPath) ?? throw new IOException("Scegli una cartella di progetto.");
+                    var parent = Path.GetDirectoryName(pickedPath) ?? throw new IOException(UiText.Text("Choose a project folder."));
                     ProjectRules.EnsureContained(parent, pickedPath);
                     await engine.Projects.ReadAsync(pickedPath, token);
                     chosenProjects.Add(pickedPath);
@@ -200,7 +200,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return await ReadProjectPackages(pickedPath, token);
             case "reviewNewProject":
                 newProjectReview = null;
-                var creation = data.Deserialize<NewProjectChoice>(Json) ?? throw new ArgumentException("Scegli un nome e una piattaforma.");
+                var creation = data.Deserialize<NewProjectChoice>(Json) ?? throw new ArgumentException(UiText.Text("Choose a name and platform."));
                 var name = creation.Name.Trim();
                 ProjectRules.ValidateName(name);
                 var newSettings = await engine.Configuration.LoadAsync(token);
@@ -209,28 +209,28 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 ProjectRules.EnsureContained(root, destination);
                 EnsureProjectIdle(destination);
                 if (File.Exists(destination) || Directory.Exists(destination))
-                    throw new IOException("Il nome è già in uso. Scegli un nome diverso o apri il progetto dall’elenco.");
+                    throw new IOException(UiText.Text("That name is already in use. Choose another name or open the project from the list."));
                 newProjectReview = await engine.PlanEmptyProjectAsync(name, newSettings,
                     creation.Preset, creation.Target, token);
                 return new { newProjectReview.Id, destination };
             case "createProject":
                 if (newProjectReview is not { } emptyProject || data.GetString() != emptyProject.Id)
-                    throw new IOException("Rivedi il nuovo progetto.");
+                    throw new IOException(UiText.Text("Review the new project first."));
                 var emptyPath = await ProjectPath(emptyProject.Projects.Single().Path, token);
                 EnsureProjectIdle(emptyPath);
                 if (File.Exists(emptyPath) || Directory.Exists(emptyPath))
-                    throw new IOException("Il nome è già in uso. Scegli un nome diverso o apri il progetto dall’elenco.");
+                    throw new IOException(UiText.Text("That name is already in use. Choose another name or open the project from the list."));
                 await engine.Imports.EnqueueAsync(emptyProject, parallelism: 0, token: token);
                 newProjectReview = null;
                 return await State(token);
             case "presets":
                 return await ReadPresets(token);
             case "editPreset":
-                return await EditPreset(data.Deserialize<PresetEdit>(Json) ?? throw new ArgumentException("Scegli un preset."), token);
+                return await EditPreset(data.Deserialize<PresetEdit>(Json) ?? throw new ArgumentException(UiText.Text("Choose a preset.")), token);
             case "importPreset":
                 return await ImportPreset(token);
             case "exportPreset":
-                var export = data.Deserialize<PortablePreset>(Json) ?? throw new ArgumentException("Scegli un preset.");
+                var export = data.Deserialize<PortablePreset>(Json) ?? throw new ArgumentException(UiText.Text("Choose a preset."));
                 export.Validate();
                 var fileName = string.Concat(export.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
                 var exportDialog = new SaveFileDialog { FileName = fileName, Filter = "Preset|*.json", DefaultExt = ".json" };
@@ -245,6 +245,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     preferencesBaseline.CheckUpdatesOnStartup, preferencesBaseline.AutomaticUpdates,
                     preferencesBaseline.IncludeBetaUpdates, preferencesBaseline.IncludeAlphaUpdates,
                     appearance = Appearance(preferencesBaseline), palettes = AppearancePalette.Presets,
+                    preferenceLanguage = preferencesBaseline.Language,
                     CanEditPaths = !isolated, preferencesBaseline.UnityEditorPath, preferencesBaseline.UnityProjectsRoot,
                     preferencesBaseline.UnityPackagesFolder
                 };
@@ -253,19 +254,19 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 switch (data.GetString())
                 {
                     case "editor":
-                        var editorPicker = new OpenFileDialog { Title = "Scegli Unity.exe", Filter = "Unity Editor|Unity.exe" };
+                        var editorPicker = new OpenFileDialog { Title = UiText.Text("Choose Unity.exe"), Filter = "Unity Editor|Unity.exe" };
                         return editorPicker.ShowDialog(window) == true ? ProjectRules.NormalizePath(editorPicker.FileName) : false;
                     case "projects":
                     case "extras":
-                        var directoryPicker = new OpenFolderDialog { Title = "Scegli una cartella" };
+                        var directoryPicker = new OpenFolderDialog { Title = UiText.Text("Choose a folder") };
                         return directoryPicker.ShowDialog(window) == true ? ProjectRules.NormalizePath(directoryPicker.FolderName) : false;
                     default:
-                        throw new ArgumentException("Percorso sconosciuto.");
+                        throw new ArgumentException(UiText.Text("Unknown path option."));
                 }
             case "saveImportPreferences":
-                var baseline = preferencesBaseline ?? throw new IOException("Riapri le impostazioni prima di salvare.");
-                var preferences = data.Deserialize<ImportPreferences>(Json) ?? throw new ArgumentException("Impostazioni non valide.");
-                if (preferences.MaxParallelImports is < 0 or > 8) throw new ArgumentException("Scegli un limite da 1 a 8 o Automatico.");
+                var baseline = preferencesBaseline ?? throw new IOException(UiText.Text("Reopen Settings before saving."));
+                var preferences = data.Deserialize<ImportPreferences>(Json) ?? throw new ArgumentException(UiText.Text("Invalid settings."));
+                if (preferences.MaxParallelImports is < 0 or > 8) throw new ArgumentException(UiText.Text("Choose a limit between 1 and 8, or select Automatic."));
                 var updated = baseline.Copy();
                 updated.MaxParallelImports = preferences.MaxParallelImports;
                 updated.AutoHideCompletedImports = preferences.AutoHideCompletedImports;
@@ -273,11 +274,16 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 updated.AutomaticUpdates = preferences.AutomaticUpdates;
                 updated.IncludeBetaUpdates = preferences.IncludeBetaUpdates;
                 updated.IncludeAlphaUpdates = preferences.IncludeAlphaUpdates;
+                if (preferences.PreferenceLanguage is { } language)
+                {
+                    if (language is not ("system" or "it" or "en")) throw new ArgumentException(UiText.Text("Choose an available language."));
+                    updated.Language = language;
+                }
                 if (preferences.Appearance is { } appearance && appearance != Appearance(baseline))
                 {
                     if (appearance.Theme is not ("Dark" or "Light" or "System") ||
                         appearance.ColorPalette != "Custom" && !AppearancePalette.Presets.ContainsKey(appearance.ColorPalette))
-                        throw new ArgumentException("Scegli un tema e una palette disponibili.");
+                        throw new ArgumentException(UiText.Text("Choose an available theme and color palette."));
                     updated.Theme = appearance.Theme;
                     updated.ColorPalette = appearance.ColorPalette;
                     updated.CanvasColor = ColorSetting(appearance.CanvasColor);
@@ -298,6 +304,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                         updated.UnityPackagesFolder = ValidateOptionalFolder(preferences.UnityPackagesFolder);
                 }
                 preferencesBaseline = await engine.Configuration.MergeAsync(baseline, updated, token);
+                UiText.Language = preferencesBaseline.Language;
                 ConfigureQueue(preferencesBaseline);
                 return await State(token);
             case "updateStatus":
@@ -311,7 +318,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return await updates.PrepareAsync(data.GetString(), token);
             case "applyUpdate":
                 if (!await updates.StartReadyAsync(manual: true, token))
-                    throw new IOException("Attendi la fine delle importazioni oppure prepara nuovamente l’aggiornamento.");
+                    throw new IOException(UiText.Text("Wait for imports to finish or prepare the update again."));
                 _ = window.Dispatcher.BeginInvoke(new Action(window.Close));
                 return true;
             case "projectPackages":
@@ -327,58 +334,58 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return new { versions, latest = SemanticVersion.Sort(versions, false).FirstOrDefault() };
             case "reviewProjectPackages":
                 packageReview = null;
-                var edit = data.Deserialize<ProjectPackageEdit>(Json) ?? throw new ArgumentException("Scegli i pacchetti.");
+                var edit = data.Deserialize<ProjectPackageEdit>(Json) ?? throw new ArgumentException(UiText.Text("Choose the packages."));
                 var editPath = await ProjectPath(edit.Path, token);
                 EnsureProjectIdle(editPath);
                 var snapshot = await engine.Projects.ReadAsync(editPath, token);
-                if (snapshot.Incomplete) throw new IOException("Termina l’importazione prima di modificare i pacchetti.");
-                if (edit.Fingerprint != snapshot.Fingerprint) throw new IOException("Il progetto è cambiato. Riapri i pacchetti per aggiornare l’elenco.");
+                if (snapshot.Incomplete) throw new IOException(UiText.Text("Finish the import before changing its packages."));
+                if (edit.Fingerprint != snapshot.Fingerprint) throw new IOException(UiText.Text("The project changed. Reopen Packages to refresh the list."));
                 var configuration = await engine.Configuration.LoadAsync(token);
                 var proposed = await engine.Planner.PlanBulkAsync([editPath], edit.Selected, configuration,
                     remove: edit.Removed, cancellationToken: token);
                 if (proposed.Projects.Single().ExpectedFingerprint != edit.Fingerprint)
-                    throw new IOException("Il progetto è cambiato. Riapri i pacchetti per aggiornare l’elenco.");
+                    throw new IOException(UiText.Text("The project changed. Reopen Packages to refresh the list."));
                 packageReview = proposed;
                 return SummarizePackageReview(proposed);
             case "reviewPackageRestore":
                 packageReview = null;
                 var restorePath = await ProjectPath(data.GetString(), token);
                 EnsureProjectIdle(restorePath);
-                if (engine.Projects.IsBusy(restorePath)) throw new IOException("Chiudi Unity prima di ripristinare i pacchetti.");
+                if (engine.Projects.IsBusy(restorePath)) throw new IOException(UiText.Text("Close Unity before restoring packages."));
                 packageReview = await engine.Planner.PlanPackageReinstallAsync(restorePath, token);
                 return SummarizePackageReview(packageReview);
             case "applyProjectPackages":
                 var approval = data.Deserialize<PackageApproval>(Json);
                 if (packageReview is not { } acceptedPackages || approval?.Id != acceptedPackages.Id)
-                    throw new IOException("Rivedi le modifiche ai pacchetti.");
+                    throw new IOException(UiText.Text("Review the package changes first."));
                 if (PackageDowngrades.RequiresConfirmation(acceptedPackages) && !approval.AcceptRisk)
-                    throw new IOException("Conferma l’installazione delle versioni precedenti.");
+                    throw new IOException(UiText.Text("Confirm installing older versions."));
                 packageReview = null;
                 var reviewedProject = acceptedPackages.Projects.Single();
                 var reviewedPath = await ProjectPath(reviewedProject.Path, token);
                 EnsureProjectIdle(reviewedPath);
                 if (reviewedProject.ReinstallLockedPackages && engine.Projects.IsBusy(reviewedPath))
-                    throw new IOException("Chiudi Unity prima di ripristinare i pacchetti.");
+                    throw new IOException(UiText.Text("Close Unity before restoring packages."));
                 if ((await engine.Projects.ReadAsync(reviewedPath, token)).Incomplete)
-                    throw new IOException("Termina l’importazione prima di modificare i pacchetti.");
+                    throw new IOException(UiText.Text("Finish the import before changing its packages."));
                 var outcome = await Task.Run(() => engine.ApplyAsync(acceptedPackages, cancellationToken: token), token);
                 var result = outcome.Results.FirstOrDefault();
-                if (!outcome.Success) throw new IOException(result?.Message ?? "Impossibile modificare i pacchetti. Consulta il log in Attività.");
+                if (!outcome.Success) throw new IOException(result?.Message ?? UiText.Text("Could not change the packages. Open the log in Activity."));
                 return new { warning = result?.Status == OperationStatus.CompletedWithWarnings ? UserErrors.Message(new IOException(result.Message)) : null };
             case "activity":
                 return await Activity(token);
             case "activityDetails":
-                var activity = data.Deserialize<ActivitySelection>(Json) ?? throw new IOException("Scegli un’attività.");
+                var activity = data.Deserialize<ActivitySelection>(Json) ?? throw new IOException(UiText.Text("Choose an activity."));
                 return await GetActivityDetails(activity, token);
             case "readOperationLog":
                 var report = (await new ActivityHistory(engine.Paths).ReadAsync(token)).FirstOrDefault(x => x.Id == data.GetString());
                 var log = report?.Results.Select(x => x.LogFile).FirstOrDefault(File.Exists) ?? report?.ReportFile;
-                if (log is null || !File.Exists(log)) throw new IOException("Il log non è più disponibile.");
+                if (log is null || !File.Exists(log)) throw new IOException(UiText.Text("The log is no longer available."));
                 ProjectRules.EnsureContained(engine.Paths.Logs, log);
                 if (Path.GetExtension(log).ToLowerInvariant() is not (".log" or ".txt" or ".json" or ".jsonl"))
-                    throw new IOException("Formato del log non riconosciuto.");
+                    throw new IOException(UiText.Text("Unrecognized log file format."));
                 if (File.GetAttributes(log).HasFlag(FileAttributes.ReparsePoint))
-                    throw new IOException("Il file di log non è disponibile.");
+                    throw new IOException(UiText.Text("The log file is unavailable."));
                 return await SharedLog.ReadTailAsync(log, token);
             case "exportDiagnostics":
                 var save = new SaveFileDialog { FileName = SupportLogs.SuggestedName, Filter = "ZIP|*.zip", DefaultExt = ".zip" };
@@ -387,13 +394,13 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return true;
             case "openProject":
                 var selected = (await Projects(token)).SingleOrDefault(x => x.Path.Equals(data.GetString(), StringComparison.OrdinalIgnoreCase));
-                if (selected is null) throw new IOException("Il progetto non è più disponibile. Aggiorna l’elenco.");
+                if (selected is null) throw new IOException(UiText.Text("The project is no longer available. Refresh the list."));
                 await OpenProject(selected.Path, token);
                 return true;
             case "log":
                 return (await engine.Imports.ReadLogTailAsync(data.GetString() ?? "", token: token)).Text;
             default:
-                throw new ArgumentException("Operazione sconosciuta.");
+                throw new ArgumentException(UiText.Text("Unknown operation."));
         }
     }
 
@@ -412,7 +419,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private async Task<object> EditPreset(PresetEdit edit, CancellationToken token)
     {
         var config = await engine.Configuration.LoadAsync(token);
-        if (edit.Revision != config.Revision) throw new IOException("I preset sono cambiati. Riapri la schermata prima di salvare.");
+        if (edit.Revision != config.Revision) throw new IOException(UiText.Text("The presets changed. Reopen the screen before saving."));
         string? selected = edit.Name;
         switch (edit.Action)
         {
@@ -421,7 +428,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 preset.Validate();
                 if (edit.Name is null) config.VpmPackages = preset.Packages;
                 else if (config.PackagePresets.ContainsKey(edit.Name)) config.PackagePresets[edit.Name] = preset.Packages;
-                else throw new IOException("Il preset non è più disponibile.");
+                else throw new IOException(UiText.Text("The preset is no longer available."));
                 break;
             case "create":
             case "rename":
@@ -429,13 +436,13 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 var nameCheck = new PortablePreset(name, new() { [ProjectRules.BaseSdk] = "latest" });
                 nameCheck.Validate();
                 if (nameCheck.AvailableName(config.PackagePresets.Keys) != name)
-                    throw new IOException("Scegli un nome diverso per il preset.");
+                    throw new IOException(UiText.Text("Choose another preset name."));
                 var source = edit.Name is null ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(edit.Name)
-                    ?? throw new IOException("Il preset non è più disponibile.");
+                    ?? throw new IOException(UiText.Text("The preset is no longer available."));
                 config.PackagePresets[name] = new(source, StringComparer.OrdinalIgnoreCase);
                 if (edit.Action == "rename")
                 {
-                    if (edit.Name is null) throw new IOException("Il preset predefinito ha un nome fisso.");
+                    if (edit.Name is null) throw new IOException(UiText.Text("The default preset cannot be renamed."));
                     config.PackagePresets.Remove(edit.Name);
                     foreach (var (recipeName, recipe) in config.CreationRecipes.ToArray())
                         if (recipe.Preset.Equals(edit.Name, StringComparison.OrdinalIgnoreCase))
@@ -445,7 +452,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 break;
             case "delete":
                 if (edit.Name is null || !config.PackagePresets.Remove(edit.Name))
-                    throw new IOException("Scegli un preset salvato da eliminare.");
+                    throw new IOException(UiText.Text("Choose a saved preset to delete."));
                 selected = null;
                 break;
             case "favorite":
@@ -455,7 +462,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     config.FavoritePackages.Add(id);
                 break;
             default:
-                throw new ArgumentException("Modifica del preset sconosciuta.");
+                throw new ArgumentException(UiText.Text("Unknown preset change."));
         }
         await engine.Configuration.SaveAsync(config, token);
         return await ReadPresets(token, selected);
@@ -465,11 +472,11 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     {
         var picker = new OpenFileDialog { Filter = "Preset|*.json" };
         if (picker.ShowDialog(window) != true) return false;
-        if (new FileInfo(picker.FileName).Length > PortablePreset.MaxBytes) throw new InvalidDataException("Il file del preset è troppo grande.");
+        if (new FileInfo(picker.FileName).Length > PortablePreset.MaxBytes) throw new InvalidDataException(UiText.Text("The preset file is too large."));
         var preset = PortablePreset.Read(await File.ReadAllTextAsync(picker.FileName, token));
         var config = await engine.Configuration.LoadAsync(token);
         var name = preset.AvailableName(config.PackagePresets.Keys);
-        if (MessageBox.Show(window, $"Importare «{name}» con {preset.Packages.Count} pacchetti?", "Importa preset",
+        if (MessageBox.Show(window, string.Format(UiText.Text("Import “{0}” with {1} packages?"), name, preset.Packages.Count), UiText.Text("Import preset"),
                 MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return false;
         config.PackagePresets[name] = preset.Packages;
         await engine.Configuration.SaveAsync(config, token);
@@ -508,14 +515,14 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private static string NormalizeOptionalPath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return "";
-        if (!Path.IsPathFullyQualified(path.Trim())) throw new ArgumentException("Indica un percorso completo.");
+        if (!Path.IsPathFullyQualified(path.Trim())) throw new ArgumentException(UiText.Text("Enter a full path."));
         return ProjectRules.NormalizePath(path);
     }
 
     private static string ValidateOptionalFolder(string? path)
     {
         var folder = NormalizeOptionalPath(path);
-        if (folder.Length != 0 && !Directory.Exists(folder)) throw new IOException("La cartella selezionata non è disponibile.");
+        if (folder.Length != 0 && !Directory.Exists(folder)) throw new IOException(UiText.Text("The selected folder is unavailable."));
         return folder;
     }
 
@@ -523,18 +530,18 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     {
         var root = ProjectRoot(config);
         if (!Directory.Exists(root) || isolated && !string.Equals(config.UnityProjectsRoot, root, StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Configura la cartella dei progetti prima di continuare.");
+            throw new IOException(UiText.Text("Set up the projects folder before continuing."));
         return ProjectRules.NormalizePath(root);
     }
 
     private async Task<string> ProjectPath(string? path, CancellationToken token)
     {
-        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Scegli un progetto.");
+        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException(UiText.Text("Select a project."));
         path = ProjectRules.NormalizePath(path);
         var root = !isolated && chosenProjects.Contains(path)
-            ? Path.GetDirectoryName(path) ?? throw new IOException("Scegli una cartella di progetto.")
+            ? Path.GetDirectoryName(path) ?? throw new IOException(UiText.Text("Choose a project folder."))
             : ProjectRoot(await engine.Configuration.LoadAsync(token));
-        if (!Directory.Exists(root)) throw new IOException("La cartella dei progetti non è disponibile.");
+        if (!Directory.Exists(root)) throw new IOException(UiText.Text("The projects folder is unavailable."));
         ProjectRules.EnsureContained(root, path);
         return path;
     }
@@ -543,7 +550,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     {
         if (engine.Imports.Snapshot().Any(x => (x.Active || x.DiscardRequested) &&
             x.ProjectPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
-            throw new IOException("Attendi la fine dell’importazione.");
+            throw new IOException(UiText.Text("Wait for the import to finish."));
     }
 
     private async Task<object> ReadProjectPackages(string? path, CancellationToken token)
@@ -572,17 +579,17 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
 
     private async Task Discard(ImportJob job, CancellationToken token)
     {
-        if (!CanDiscard(job)) throw new IOException("Non è possibile annullare questa importazione.");
+        if (!CanDiscard(job)) throw new IOException(UiText.Text("This import cannot be cancelled."));
         var root = ProjectRoot(await engine.Configuration.LoadAsync(token));
-        if (!Directory.Exists(root)) throw new IOException("La cartella dei progetti non è disponibile.");
+        if (!Directory.Exists(root)) throw new IOException(UiText.Text("The projects folder is unavailable."));
         ProjectRules.EnsureContained(root, job.ProjectPath);
         var noFolder = IsAbsent(job.ProjectPath);
         if (!noFolder && job.Source.CreationId is null)
-            throw new IOException("La cartella del progetto non può essere rimossa automaticamente.");
-        var message = noFolder
-            ? $"Annullare l’importazione di {job.Name}?"
-            : $"Annullare l’importazione di {job.Name} ed eliminare la cartella creata per questo progetto?";
-        if (MessageBox.Show(window, message, "Annulla importazione", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+            throw new IOException(UiText.Text("The project folder cannot be removed automatically."));
+        var message = string.Format(UiText.Text(noFolder
+            ? "Cancel the import of “{0}”?"
+            : "Cancel the import of “{0}” and delete the folder created for it?"), job.Name);
+        if (MessageBox.Show(window, message, UiText.Text("Cancel import"), MessageBoxButton.YesNo, MessageBoxImage.Warning,
                 MessageBoxResult.No) != MessageBoxResult.Yes) return;
         using var stopWait = CancellationTokenSource.CreateLinkedTokenSource(token);
         stopWait.CancelAfter(TimeSpan.FromSeconds(20));
@@ -593,7 +600,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
-            throw new IOException("L’arresto sta richiedendo più tempo. Aggiorna l’elenco e riprova.");
+            throw new IOException(UiText.Text("Stopping is taking longer than expected. Refresh the list and retry."));
         }
         var cleanup = new OwnedProjectDiscard(engine.Paths, engine.Projects);
         await engine.Imports.FinishDiscardAsync(job.Id,
@@ -617,7 +624,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private static Task ConfirmAbsent(string path, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if (!IsAbsent(path)) throw new IOException("Controlla la cartella del progetto prima di completare l’annullamento.");
+        if (!IsAbsent(path)) throw new IOException(UiText.Text("Check the project folder before finishing cancellation."));
         return Task.CompletedTask;
     }
 
@@ -640,13 +647,13 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         if (selected.Kind is "import" or "project")
         {
             var job = engine.Imports.Snapshot().FirstOrDefault(x => x.Id == selected.Id)
-                ?? throw new IOException("L’importazione non è più disponibile.");
+                ?? throw new IOException(UiText.Text("The import is no longer available."));
             var project = job.Plan.Projects.Single();
             return new[] { new ActivityProject(job.Name, job.ProjectPath, JobStatus(job), ActivityPackages(project)) };
         }
-        if (selected.Kind != "operation") throw new ArgumentException("Attività sconosciuta.");
+        if (selected.Kind != "operation") throw new ArgumentException(UiText.Text("Unknown activity."));
         var report = (await new ActivityHistory(engine.Paths).ReadAsync(token)).FirstOrDefault(x => x.Id == selected.Id)
-            ?? throw new IOException("Il report non è più disponibile.");
+            ?? throw new IOException(UiText.Text("The report is no longer available."));
         var details = report.Results.Select(result => new ActivityProject(result.Project, result.Path,
             result.Status == OperationStatus.CompletedWithWarnings ? "warning" : result.Status.ToString().ToLowerInvariant(),
             ActivityPackages(report.Plan?.Projects.FirstOrDefault(x => x.Path.Equals(result.Path, StringComparison.OrdinalIgnoreCase)))));
@@ -684,9 +691,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     {
         path = await ProjectPath(path, token);
         if (!File.Exists(Path.Combine(path, "ProjectSettings", "ProjectVersion.txt")))
-            throw new IOException("Il progetto non è ancora pronto per Unity.");
+            throw new IOException(UiText.Text("The project is not ready to open in Unity yet."));
         EnsureProjectIdle(path);
-        if (engine.Projects.IsBusy(path)) throw new IOException("Il progetto è già aperto in Unity.");
+        if (engine.Projects.IsBusy(path)) throw new IOException(UiText.Text("The project is already open in Unity."));
         var editor = (await engine.Configuration.LoadAsync(token)).UnityEditorPath;
         UnityProjectDriver.ValidateEditor(editor);
         var start = new System.Diagnostics.ProcessStartInfo(editor) { UseShellExecute = false };
@@ -727,7 +734,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         var snapshot = engine.Imports.Snapshot();
         var job = snapshot.FirstOrDefault(x => x.Id == id);
         if (job is null || ImportQueue.CurrentForProject(snapshot, job.ProjectPath)?.Id != job.Id)
-            throw new IOException("L’importazione è cambiata. Aggiorna l’elenco e selezionala di nuovo.");
+            throw new IOException(UiText.Text("The import changed. Refresh the list and select it again."));
         return job;
     }
 
@@ -741,6 +748,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             packages = settings.VpmPackages,
             presets = settings.PackagePresets,
             appearance = Appearance(settings),
+            language = UiText.Resolve(settings.Language),
             version = ApplicationUpdates.CurrentVersion,
             initial,
             waitingForMemory = engine.Imports.EffectiveParallelism == 0,
@@ -774,6 +782,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
 
     internal async Task SeedSmokeAsync(string folder)
     {
+        var settings = await engine.Configuration.LoadAsync(lifetime.Token);
+        settings.Language = "it";
+        await engine.Configuration.SaveAsync(settings, lifetime.Token);
         var inputs = new List<string>();
         for (var i = 1; i <= 6; ++i)
         {
@@ -842,6 +853,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         Directory.CreateDirectory(candidateProjects);
         var configuration = await engine.Configuration.LoadAsync(lifetime.Token);
         configuration.UnityEditorPath = editor;
+        configuration.Language = "it";
         configuration.UnityProjectsRoot = candidateProjects;
         configuration.UnityPackagesFolder = null;
         configuration.VpmPackages = new(StringComparer.OrdinalIgnoreCase)
@@ -879,10 +891,11 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private static AppearancePreferences Appearance(AppConfiguration config) =>
         new(config.Theme, config.ColorPalette, config.CanvasColor, config.SurfaceColor, config.AccentColor, config.StrokeColor);
 
+
     private static string ColorSetting(string? value)
     {
         if (value is not { Length: 7 } || value[0] != '#' || !value.Skip(1).All(Uri.IsHexDigit))
-            throw new ArgumentException("Inserisci un colore esadecimale valido.");
+            throw new ArgumentException(UiText.Text("Enter a valid hexadecimal color."));
         return value.ToUpperInvariant();
     }
 
@@ -890,7 +903,8 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         string SurfaceColor, string AccentColor, string StrokeColor);
     private sealed record ImportPreferences(int MaxParallelImports, bool AutoHideCompletedImports,
         bool CheckUpdatesOnStartup, bool AutomaticUpdates, bool IncludeBetaUpdates, bool IncludeAlphaUpdates,
-        string UnityEditorPath, string UnityProjectsRoot, string? UnityPackagesFolder, AppearancePreferences? Appearance);
+        string UnityEditorPath, string UnityProjectsRoot, string? UnityPackagesFolder, AppearancePreferences? Appearance,
+        string? PreferenceLanguage);
     private sealed record ProjectPackageEdit(string Path, string Fingerprint, Dictionary<string, string> Selected, string[] Removed);
     private sealed record PackageApproval(string Id, bool AcceptRisk);
     private sealed record PresetEdit(string Revision, string Action, string? Name,

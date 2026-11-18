@@ -21,6 +21,7 @@ type Props = {
 };
 
 export function Presets({ library, busy, request, run, onChange, onDirty }: Props) {
+  const t = useText();
   const [selected, setSelected] = useState(library.selected ?? '');
   const [draft, setDraft] = useState<Policy>();
   const [nameEdit, setNameEdit] = useState<'create' | 'rename'>();
@@ -46,7 +47,7 @@ export function Presets({ library, busy, request, run, onChange, onDirty }: Prop
   }
 
   function edit(action: string, fields: object = {}) {
-    void run('Salvataggio preset…', async () => {
+    void run(t('Salvataggio preset…'), async () => {
       const next = await request<PresetLibrary>('editPreset', { revision: library.revision, action, name: selected || null, ...fields });
       await onChange(next);
       setSelected(next.selected ?? '');
@@ -72,77 +73,78 @@ export function Presets({ library, busy, request, run, onChange, onDirty }: Prop
       <label>Preset <select aria-label="Preset" value={selected} disabled={busy || !!draft} onChange={event => {
         setSelected(event.target.value); setDeleting(false); setNameEdit(undefined); setVersionPicker(undefined);
       }}>
-        <option value="">Predefinito</option>
+        <option value="">{t("Predefinito")}</option>
         {Object.keys(library.presets).sort((a, b) => a.localeCompare(b)).map(name => <option key={name}>{name}</option>)}
       </select></label>
-      <button disabled={busy || !!draft} onClick={() => { setNameEdit('create'); setNewName(''); setDeleting(false); }}>Nuovo preset</button>
-      {selected && <button disabled={busy || !!draft} onClick={() => { setNameEdit('rename'); setNewName(selected); setDeleting(false); }}>Rinomina</button>}
-      {selected && <button disabled={busy || !!draft} onClick={() => { setDeleting(true); setNameEdit(undefined); }}>Elimina</button>}
+      <button disabled={busy || !!draft} onClick={() => { setNameEdit('create'); setNewName(''); setDeleting(false); }}>{t("Nuovo preset")}</button>
+      {selected && <button disabled={busy || !!draft} onClick={() => { setNameEdit('rename'); setNewName(selected); setDeleting(false); }}>{t("Rinomina")}</button>}
+      {selected && <button disabled={busy || !!draft} onClick={() => { setDeleting(true); setNameEdit(undefined); }}>{t("Elimina")}</button>}
     </div>
     {nameEdit && <form className="actions project-tools" onSubmit={event => { event.preventDefault(); edit(nameEdit, { newName }); }}>
-      <input aria-label="Nome preset" maxLength={80} value={newName} onChange={event => setNewName(event.target.value)} />
-      <button disabled={busy || !newName.trim() || nameEdit === 'rename' && newName.trim() === selected}>Conferma nome</button>
-      <button type="button" onClick={() => setNameEdit(undefined)}>Annulla</button>
+      <input aria-label={t("Nome preset")} maxLength={80} value={newName} onChange={event => setNewName(event.target.value)} />
+      <button disabled={busy || !newName.trim() || nameEdit === 'rename' && newName.trim() === selected}>{t("Conferma nome")}</button>
+      <button type="button" onClick={() => setNameEdit(undefined)}>{t("Annulla")}</button>
     </form>}
     {deleting && <section className="extras">
-      <p>Eliminare «{selected}»?</p>
-      <div className="actions"><button onClick={() => setDeleting(false)}>Annulla</button>
-        <button disabled={busy} onClick={() => edit('delete')}>Elimina preset</button></div>
+      <p>{t('Eliminare «{name}»?', { name: selected })}</p>
+      <div className="actions"><button onClick={() => setDeleting(false)}>{t("Annulla")}</button>
+        <button disabled={busy} onClick={() => edit('delete')}>{t("Elimina preset")}</button></div>
     </section>}
     <div className="actions project-tools">
-      <button disabled={busy || !!draft} onClick={() => void run('Importazione preset…', async () => {
+      <button disabled={busy || !!draft} onClick={() => void run(t("Importazione preset…"), async () => {
         const next = await request<PresetLibrary | false>('importPreset');
         if (next) { await onChange(next); setSelected(next.selected ?? ''); setVersionPicker(undefined); }
-      })}>Importa preset</button>
-      <button disabled={busy || !Object.keys(choices).length} onClick={() => void run('Esportazione preset…', async () => {
-        await request('exportPreset', { name: selected || 'Predefinito', packages: choices });
-      })}>Esporta preset</button>
+      })}>{t("Importa preset")}</button>
+      <button disabled={busy || !Object.keys(choices).length} onClick={() => void run(t("Esportazione preset…"), async () => {
+        await request('exportPreset', { name: selected || t("Predefinito"), packages: choices });
+      })}>{t("Esporta preset")}</button>
       {draft && <>
-        <button className="primary" disabled={busy || !Object.keys(choices).length} onClick={() => edit('save', { packages: choices })}>Salva preset</button>
-        <button disabled={busy} onClick={() => setChoices(undefined)}>Scarta modifiche</button>
+        <button className="primary" disabled={busy || !Object.keys(choices).length} onClick={() => edit('save', { packages: choices })}>{t("Salva preset")}</button>
+        <button disabled={busy} onClick={() => setChoices(undefined)}>{t("Scarta modifiche")}</button>
       </>}
     </div>
     {versionPicker && <section className="extras">
       <label className="package">{versionPicker.item.name}
-        <select aria-label="Versione preset" value={selectedVersion} onChange={event => setSelectedVersion(event.target.value)}>
+        <select aria-label={t("Versione preset")} value={selectedVersion} onChange={event => setSelectedVersion(event.target.value)}>
           {(versionPicker.latest || selectedVersion === 'latest') &&
-            <option value="latest">Ultima versione{versionPicker.latest && ` (${versionPicker.latest})`}</option>}
-          {!versionPicker.versions.length && !versionPicker.latest && selectedVersion !== 'latest' && <option value="">Nessuna versione disponibile</option>}
+            <option value="latest">{t("Ultima versione")}{versionPicker.latest && ` (${versionPicker.latest})`}</option>}
+          {!versionPicker.versions.length && !versionPicker.latest && selectedVersion !== 'latest' && <option value="">{t("Nessuna versione disponibile")}</option>}
           {versionPicker.versions.map(version => <option key={version}>{version}</option>)}
         </select>
       </label>
-      <div className="actions"><button onClick={() => setVersionPicker(undefined)}>Annulla</button>
+      <div className="actions"><button onClick={() => setVersionPicker(undefined)}>{t("Annulla")}</button>
         <button disabled={busy || !selectedVersion} onClick={() => {
           setChoices({ ...choices, [versionPicker.item.id]: selectedVersion }); setVersionPicker(undefined);
-        }}>Usa versione</button></div>
+        }}>{t("Usa versione")}</button></div>
     </section>}
-    <h2>Pacchetti inclusi</h2>
+    <h2>{t("Pacchetti inclusi")}</h2>
     {Object.entries(choices).map(([id, version]) => {
       const item = catalog.get(id) ?? { id, name: id };
-      return <div className="package" key={id}><span>{item.name} · {version === 'latest' ? `Ultima versione${item.latest ? ' (' + item.latest + ')' : ''}` : version}</span>
+      return <div className="package" key={id}><span>{item.name} · {version === 'latest' ? t('Ultima versione') + (item.latest ? ' (' + item.latest + ')' : '') : version}</span>
         <div className="actions">
-          <button disabled={busy} onClick={() => openVersion(item)}>Versione</button>
-          {protectedIds.has(id.toLowerCase()) ? <span>Richiesto</span> : <button disabled={busy} onClick={() => {
+          <button disabled={busy} onClick={() => openVersion(item)}>{t("Versione")}</button>
+          {protectedIds.has(id.toLowerCase()) ? <span>{t("Richiesto")}</span> : <button disabled={busy} onClick={() => {
             const next = { ...choices }; delete next[id]; setChoices(next);
-          }}>Escludi</button>}
+          }}>{t("Escludi")}</button>}
         </div>
       </div>;
     })}
-    <h2>Catalogo</h2>
+    <h2>{t("Catalogo")}</h2>
     <form className="actions project-tools" onSubmit={event => {
       event.preventDefault();
-      void run('Ricerca pacchetti…', async () => setSearchResults(await request<CatalogPackage[]>('searchProjectPackages', query)));
+      void run(t("Ricerca pacchetti…"), async () => setSearchResults(await request<CatalogPackage[]>('searchProjectPackages', query)));
     }}>
-      <input type="search" aria-label="Cerca pacchetti per il preset" placeholder="Cerca pacchetti" value={query} onChange={event => {
+      <input type="search" aria-label={t("Cerca pacchetti per il preset")} placeholder={t("Cerca pacchetti")} value={query} onChange={event => {
         setQuery(event.target.value); if (!event.target.value.trim()) setSearchResults(undefined);
       }} />
-      <button disabled={busy || !query.trim()}>Cerca</button>
-      <label><input type="checkbox" checked={favoritesOnly} onChange={event => setFavoritesOnly(event.target.checked)} /> Preferiti</label>
+      <button disabled={busy || !query.trim()}>{t("Cerca")}</button>
+      <label><input type="checkbox" checked={favoritesOnly} onChange={event => setFavoritesOnly(event.target.checked)} /> {t("Preferiti")}</label>
     </form>
     {available.map(item => <div className="package" key={item.id}><span>{item.name}</span><div className="actions">
-      <button disabled={busy} aria-pressed={library.favorites.includes(item.id)} aria-label={`Preferito: ${item.name}`}
+      <button disabled={busy} aria-pressed={library.favorites.includes(item.id)} aria-label={t('Preferito: {name}', { name: item.name })}
         onClick={() => edit('favorite', { package: item.id })}>{library.favorites.includes(item.id) ? '★' : '☆'}</button>
-      <button disabled={busy} onClick={() => openVersion(item)}>Includi</button>
+      <button disabled={busy} onClick={() => openVersion(item)}>{t("Includi")}</button>
     </div></div>)}
   </div>;
 }
+import { useText } from './locale';
