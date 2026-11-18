@@ -85,6 +85,7 @@ internal static class ReactNativePickerVerification
         await core.ExecuteScriptAsync(recoveryReview + ".querySelector('button').click()");
         if (engine.Imports.Snapshot().Single(job => job.Id == RecoveryId) is not { State: "Paused", Active: false })
             throw new IOException("Reviewing the relocated archive changed the paused job.");
+        File.AppendAllText(trace, "Native relocation review verified.\n");
 
         var selectedRoot = Path.Combine(folder, "Progetti selezionati");
         Directory.CreateDirectory(selectedRoot);
@@ -137,6 +138,7 @@ internal static class ReactNativePickerVerification
             restored.UnityPackagesFolder != original.UnityPackagesFolder ||
             AtomicFile.Hash(sentinel) != assetHash || !Directory.GetFiles(backups, "config-*.json").Any(file => AtomicFile.Hash(file) == changedConfig))
             throw new IOException("Restoring settings did not preserve the previous configuration and project files.");
+        File.AppendAllText(trace, "Native Unity paths and settings restore verified.\n");
 
         const string fixturePreset = "Portable fixture";
         var shareSettings = restored.Copy();
@@ -160,7 +162,9 @@ internal static class ReactNativePickerVerification
             })()
             """);
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
-        var presetFile = Path.Combine(folder, "preset condiviso.json");
+        // Keep the shell's proposed name. Setting the full path through UIA
+        // selects the containing folder, but the shell retains that name.
+        var presetFile = Path.Combine(folder, fixturePreset + ".json");
         await core.ExecuteScriptAsync("window.chrome.webview.addEventListener('message', event => window.lastFixtureReply = event.data)");
         await OpenPickerAsync(exportPreset, null);
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
@@ -187,6 +191,7 @@ internal static class ReactNativePickerVerification
             packages.Count != portable.Packages.Count ||
             portable.Packages.Any(package => !packages.TryGetValue(package.Key, out var version) || version != package.Value))
             throw new IOException("The imported preset did not preserve the exported package choices.");
+        File.AppendAllText(trace, "Native preset export and import verified.\n");
 
         await MakeProjectAsync(Path.Combine(originalRoot, "AA sort fixture"), token);
         await MakeProjectAsync(Path.Combine(originalRoot, "ZZ sort fixture"), token);
@@ -216,13 +221,14 @@ internal static class ReactNativePickerVerification
         await Program.RequireAsync(core, "document.querySelector('h1')?.textContent === 'Progetto esterno' && document.querySelector('.project-table') === null", attempts: 400);
         if (AtomicFile.Hash(externalManifest) != externalHash)
             throw new IOException("Opening an existing project's packages modified its manifest.");
+        File.AppendAllText(trace, "Project sorting, native folder selection and invalid folder error verified.\n");
 
         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
         await Program.RequireAsync(core, back + "?.disabled === false");
         await core.ExecuteScriptAsync(back + ".click()");
         const string activity = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Attività')";
         const string diagnostics = "Array.from(document.querySelectorAll('.activity button')).find(button => button.textContent === 'Esporta diagnostica')";
-        var diagnosticsPath = Path.Combine(folder, "diagnostica fixture.zip");
+        var diagnosticsPath = Path.Combine(folder, SupportLogs.SuggestedName);
         await Program.RequireAsync(core, activity + "?.disabled === false");
         await core.ExecuteScriptAsync(activity + ".click()");
         await Program.RequireAsync(core, diagnostics + "?.disabled === false");
@@ -230,7 +236,7 @@ internal static class ReactNativePickerVerification
         await Program.RequireAsync(core, diagnostics + "?.disabled === false");
         await OpenPickerAsync(diagnostics, diagnosticsPath);
         await Program.RequireAsync(core, footer + " === 'Diagnostica esportata.'", attempts: 400);
-        using var zip = ZipFile.OpenRead(diagnosticsPath);
+        using var zip = ZipFile.OpenRead(Directory.GetFiles(folder, "VRC-Project-Setup-Diagnostics-*.zip").Single());
         if (zip.GetEntry("VRC-Project-Setup.txt") is null || zip.GetEntry("Archive-contents.txt") is null)
             throw new IOException("The native diagnostic export did not produce a valid support archive.");
 

@@ -70,6 +70,13 @@ creation receipt after the queue entry is lost. The smoke cancels one review
 and rejects a second after the receipt changes, preserving the project in both
 cases.
 
+`--verify-resume-from-receipt <fixture>` reopens a disposable
+`--verify-pause-import` profile after `imports.json` is moved to
+`original-imports.json`. It resumes from Projects, checks that Unity imports
+and compiles the archive in the original directory, and verifies the new
+journal and an edit made during the pause. The fixture writes
+`resumed-from-receipt.json`.
+
 The hosted native test accepted a relocated archive with matching bytes for
 review, rejected a valid archive with different bytes, and kept the import
 paused. It also saved the selected Unity executable and extra-imports folder,

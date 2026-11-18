@@ -19,7 +19,8 @@ internal static class Program
         var launchFixture = args is ["--verify-open-project", var openProjectFixture] ? Path.GetFullPath(openProjectFixture) : null;
         var pauseImport = args is ["--verify-pause-import", _, _];
         var discardImport = args is ["--verify-discard-import", _];
-        var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import", var recovery]
+        var recoverWithoutJournal = args is ["--verify-resume-from-receipt", _];
+        var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import" or "--verify-resume-from-receipt", var recovery]
             ? Path.GetFullPath(recovery) : null;
         var restoreFixture = args is ["--verify-restore-workflow" or "--verify-import-missing-assets", var restore] ? Path.GetFullPath(restore) : null;
         var verifyMissingAssets = args is ["--verify-import-missing-assets", _];
@@ -259,7 +260,10 @@ internal static class Program
                 if (recoveryFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
-                    await ReactImportVerification.VerifyRecoveryAsync(core, engine, recoveryFixture, discardImport, shutdown.Token);
+                    if (recoverWithoutJournal)
+                        await ReactImportVerification.VerifyResumeFromReceiptAsync(core, engine, recoveryFixture, shutdown.Token);
+                    else
+                        await ReactImportVerification.VerifyRecoveryAsync(core, engine, recoveryFixture, discardImport, shutdown.Token);
                     window.Close();
                     return;
                 }

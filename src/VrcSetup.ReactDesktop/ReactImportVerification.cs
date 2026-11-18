@@ -355,6 +355,55 @@ internal static class ReactImportVerification
             OriginalProjectPreserved = true, ExistingProjectReview = true, ReopenedProfile = true }, token);
     }
 
+    internal static async Task VerifyResumeFromReceiptAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, CancellationToken token)
+    {
+        var path = Path.Combine(folder, "candidate-projects", "Probe");
+        var journal = Path.Combine(folder, "imports.json");
+        using var pause = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(folder, "paused-import.json"), token));
+        var evidence = pause.RootElement;
+        var source = await OrphanImportRecovery.ReadAsync(engine.Projects, path, token);
+        var archived = (await AtomicFile.ReadJsonAsync<ImportJob[]>(Path.Combine(folder, "original-imports.json"), token))?.SingleOrDefault();
+        if (source?.CreationId is null || source.CreationId != evidence.GetProperty("CreationId").GetString() ||
+            !path.Equals(evidence.GetProperty("ProjectPath").GetString(), StringComparison.OrdinalIgnoreCase) ||
+            evidence.GetProperty("Process").GetInt32() == Environment.ProcessId ||
+            engine.Imports.Snapshot().Length != 0 || archived is not { State: "Paused" } ||
+            !source.MatchesInputs(archived.Source))
+            throw new IOException("The paused fixture must retain its creation receipt and have no active journal entries.");
+
+        var identity = ProjectDirectoryIdentity.TryRead(path) ?? throw new IOException("Cannot identify the fixture folder.");
+        var editedAsset = Path.Combine(path, "Assets", "ReactKeep.txt");
+        await File.WriteAllTextAsync(editedAsset, "Keep this edit.", token);
+        const string projects = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Progetti')";
+        await Program.RequireAsync(core, projects + "?.disabled === false");
+        await core.ExecuteScriptAsync(projects + ".click()");
+        const string orphan = "Array.from(document.querySelectorAll('.project-table button')).find(button => button.textContent === 'Riprendi importazione')";
+        await Program.RequireAsync(core, orphan + "?.disabled === false");
+        await core.ExecuteScriptAsync(orphan + ".click()");
+        const string review = """document.querySelector('section[aria-label="Riprendi importazione"]')""";
+        await WaitForPageAsync(core, review + "?.textContent.includes('Continua nel progetto esistente') && " +
+            review + "?.querySelector('.path')?.textContent === " + JsonSerializer.Serialize(path), TimeSpan.FromMinutes(2), token);
+        await WaitForFixtureHeadroomAsync(token);
+        await core.ExecuteScriptAsync(review + ".querySelector('.primary').click()");
+        await WaitForJobAsync(engine, path, _ => true, TimeSpan.FromSeconds(30), token);
+        engine.Imports.ConfigureParallelism(1);
+        var finished = await WaitForJobAsync(engine, path, job => !job.Active, TimeSpan.FromMinutes(8), token);
+        var persisted = (await AtomicFile.ReadJsonAsync<ImportJob[]>(journal, token))?.SingleOrDefault();
+        if (finished.State != "Completed" || finished.Source.CreationId != source.CreationId ||
+            finished.UnityCompilationNeedsAttention || finished.PackageContentsNeedRestore ||
+            persisted is not { State: "Completed" } || persisted.Id != finished.Id ||
+            ProjectDirectoryIdentity.TryRead(path) != identity ||
+            await File.ReadAllTextAsync(editedAsset, token) != "Keep this edit." ||
+            await File.ReadAllTextAsync(Path.Combine(path, "Assets", "ReactProbe.txt"), token) != "React import succeeded" ||
+            !File.Exists(Path.Combine(path, "Library", "ScriptAssemblies", "Assembly-CSharp.dll")))
+            throw new IOException($"Recovery without a journal failed: {finished.Step}, {finished.State}. {finished.Message}");
+        await Program.RequireAsync(core, "document.querySelector('.jobs article')?.textContent.includes('Completata') === true");
+        await AtomicFile.WriteJsonAsync(Path.Combine(folder, "resumed-from-receipt.json"), new
+        {
+            Passed = true, finished.State, finished.ProjectPath, finished.LogFile, JournalRebuilt = true,
+            OriginalDirectoryRetained = true, EditPreserved = true, AssemblyCompiled = true
+        }, token);
+    }
+
     internal static async Task WaitForFixtureHeadroomAsync(CancellationToken token, int minimumGiB = 6)
     {
         var sampler = new SystemResourceSampler();
