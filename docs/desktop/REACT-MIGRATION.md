@@ -246,16 +246,20 @@ resolution disabled. On Windows 10 the app
 grants read and execute access to the two AppContainer groups for the bundled
 runtime folder. That branch still needs a Windows 10 fixture.
 
-On a disposable Windows 10 client, disconnect the guest network and extract
-the offline ZIP to a fresh directory. In the extracted directory, use
-`New-Item .react-profile-fixture -ItemType File` and launch
-`app/desktop/VrcSetup.Desktop.exe --verify-portable-startup <extracted-directory>`.
-Preserve `portable-startup.json` and the output of
-`Get-CimInstance Win32_OperatingSystem | Select-Object Caption, BuildNumber, ProductType`.
-The report must identify the bundled browser executable and show that the new
-profile was created in that directory. On builds below 22000, verify inherited
-read/execute grants for AppContainer groups S-1-15-2-1 and S-1-15-2-2 on
-`app/desktop/webview2-runtime`.
+On a disposable Windows 10 client, disconnect the guest network and run the
+portable startup test against the offline ZIP:
+
+```powershell
+./tests/Test-OfflinePortable.ps1 -Archive <offline.zip> -OutputDirectory <fresh-directory> -RequireWindows10 -RequireDisconnectedNetwork
+```
+
+The test writes `offline-portable-verification.json`. It checks the bundled
+browser against the payload manifest, starts that exact executable via the app,
+verifies the new portable profile and checks inherited read/execute grants
+for Windows 10 AppContainer groups S-1-15-2-1 and S-1-15-2-2. The same script
+passed with 0.4.0-alpha.1 and Fixed Version 157.0.4341.60 on Windows 11 build
+26300 with external WebView2 host resolution disabled. Network adapters were
+still connected for that run.
 
 The CLI installer and component bootstrapper both upgraded the verified
 0.3.7 portable release in an isolated install directory. The bootstrapper used
