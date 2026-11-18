@@ -27,6 +27,8 @@ function Require([bool]$condition,[string]$message) { if(-not $condition){throw 
 function Test-Entrypoints {
     $expectedExe = Join-Path $root 'app/desktop/VrcSetup.Desktop.exe'
     $expectedProfile = Join-Path $dataRoot 'webview'
+    $readiness = Join-Path $TestRoot 'entrypoint-ready.json'
+    [IO.File]::WriteAllText((Join-Path $TestRoot '.react-entrypoint-fixture'), 'Disposable normal launcher test')
     $paths = [ordered]@{
         'Start menu shortcut' = Join-Path $shortcutRoot 'start/VRChat Project Setup/VRC Project Setup.lnk'
         'Desktop shortcut' = Join-Path $shortcutRoot 'desktop/VRC Project Setup.lnk'
@@ -36,6 +38,7 @@ function Test-Entrypoints {
     $env:VRCSETUP_HOME = $dataRoot
     try {
         foreach ($label in $paths.Keys) {
+            if (Test-Path -LiteralPath $readiness) { Remove-Item -LiteralPath $readiness }
             $launcher = $null
             $desktop = $null
             try {
@@ -58,12 +61,17 @@ function Test-Entrypoints {
                     $browser = Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" | Where-Object {
                         $_.CommandLine -and $_.CommandLine.Contains($expectedProfile, [StringComparison]::OrdinalIgnoreCase) -and $_.ParentProcessId -eq $desktop.Id
                     } | Select-Object -First 1
-                    if ($desktop -and $desktop.MainWindowHandle -ne 0 -and $browser) { break }
+                    $ready = if (Test-Path -LiteralPath $readiness) { Get-Content -LiteralPath $readiness -Raw | ConvertFrom-Json }
+                    if ($desktop -and $desktop.MainWindowHandle -ne 0 -and $browser -and $ready.Process -eq $desktop.Id -and $ready.Browser -eq $browser.ProcessId) { break }
                     Start-Sleep -Milliseconds 300
                 } while ([DateTime]::UtcNow -lt $deadline)
 
-                Require ($desktop -and $desktop.MainWindowHandle -ne 0 -and $browser -and (Test-Path -LiteralPath (Join-Path $dataRoot 'config.json'))) "$label opens the installed React app and its scoped WebView2 profile"
-                Require ($desktop.CloseMainWindow() -and $desktop.WaitForExit(15000)) "$label closes the app normally"
+                Require ($desktop -and $desktop.MainWindowHandle -ne 0 -and $browser -and
+                    $ready.Process -eq $desktop.Id -and $ready.Browser -eq $browser.ProcessId -and $ready.Version -eq $Version -and
+                    (Test-Path -LiteralPath (Join-Path $dataRoot 'config.json'))) "$label opens the installed React UI and its scoped WebView2 profile"
+                Write-Host "$label opened React version $($ready.Version)."
+                $desktop.Refresh()
+                Require ($desktop.CloseMainWindow() -and $desktop.WaitForExit(15000)) "$label closes the ready app normally"
             }
             finally {
                 if ($desktop) {

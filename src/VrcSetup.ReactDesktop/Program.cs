@@ -249,6 +249,16 @@ internal static class Program
                 await engine.Imports.InitializeAsync();
                 bridge.Attach(core);
                 core.Navigate(ImportBridge.Page);
+                if (!offscreen && distributed && Path.GetDirectoryName(home) is { } entrypointFixture &&
+                    IsHostedFixture(entrypointFixture) &&
+                    paths.PayloadRoot.Equals(Path.Combine(entrypointFixture, "desktop-installation"), StringComparison.OrdinalIgnoreCase) &&
+                    home.Equals(Path.Combine(entrypointFixture, "desktop-home"), StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(Path.Combine(entrypointFixture, ".react-entrypoint-fixture")))
+                {
+                    await RequireAsync(core, "document.querySelector('[data-ready=true] .drop')?.disabled === false");
+                    await AtomicFile.WriteJsonAsync(Path.Combine(entrypointFixture, "entrypoint-ready.json"),
+                        new { Process = Environment.ProcessId, Browser = core.BrowserProcessId, Version = ApplicationUpdates.CurrentVersion }, shutdown.Token);
+                }
                 if (benchmark is not null)
                 {
                     await MeasureProjectsStartupAsync(core, environment, benchmark, shutdown.Token);
