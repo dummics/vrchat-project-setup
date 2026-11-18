@@ -52,11 +52,11 @@ recorded by the installer, or its own `data/` in portable mode.
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
 | Import | Six archives, Quest name and prefab-path detection, version review, queue and real Unity import from React. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive | Explorer drop, native relocation picker, installed Creator Companion registration, and recovery of a pre-existing destination. The recovery planner has separate checks for matching the original archive bytes |
-| Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders. The Unity indicator follows editor start and exit while the list stays open. Project options restore the newest VPM backup after confirmation, keeping displaced edits in a recovery folder. Empty project creation supports per-project package choices, numeric version review and saving choices as a preset | Verify the native folder picker, opening the generated project from the app, and external registrations |
+| Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders. The Unity indicator follows editor start and exit while the list stays open. Project options restore the newest VPM backup after confirmation, keeping displaced edits in a recovery folder. Empty project creation supports per-project package choices, numeric version review and saving choices as a preset. The Projects button opens the selected project with a matching installed editor if the configured path is stale | Verify the native folder picker and external registrations |
 | Project packages | Read installed/locked versions, protect required packages and restore damaged locked SDK metadata. Real vrc-get added, upgraded, downgraded and removed Gesture Manager from React, with Unity closed and in one open Unity batch session. Batch review and apply use per-package targets and show results by project; the excluded project's manifest stayed unchanged | Exercise partial batch failures and verify recovery messaging after a failed change with Unity open |
 | Activity | Import and package operation history, per-project details, inline logs, and diagnostic ZIP containing the operation report and log | Native Save picker and multi-project failure presentation |
 | Settings | Import preferences, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. Settings discovers, prepares and applies an alpha using a fixture feed | Native pickers and edits, color picker interaction, review translated errors in native failure flows |
-| Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
+| Presets | Select a saved preset during import. Create, rename, pin, favourite, discard unsaved edits, save, reopen and delete through the library. The fixture exercises catalog choices and confirms a saved pin after reopening | Verify portable sharing with the native file dialogs |
 | Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7; offline archive runs its bundled Fixed Version. Installer checksum failure and real prefetch, swap and restart verified with a fixture feed and cached components | Verify download over the production feed and component transport, Windows 10 Fixed Version, same-version build ordering and final production release |
 
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
@@ -105,6 +105,10 @@ project through React. The verifier saves a preset with Gesture Manager
 3.9.7, chooses 3.9.9 for the new project only, then checks both policies
 and the new Projects row. It also opens the resulting project in a separate
 batch editor and checks the compiled SDK assembly.
+Then run `--verify-open-project <same-path>` to click Open from Projects and
+test fallback from a missing configured executable. It launches the installed
+Unity that matches the project version in batch mode for the fixture and
+checks the exit receipt and unchanged preferences.
 
 ## Distribution checkpoint
 

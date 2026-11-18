@@ -30,6 +30,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private readonly string candidateProjects = Path.Combine(engine.Paths.Home, "candidate-projects");
     internal bool IsBusy => handlingRequest;
     internal bool Closing { get; set; }
+    internal string? EditorLaunchFixture { get; init; }
 
     internal static bool IsPage(string? uri) => string.Equals(uri, Page, StringComparison.Ordinal);
 
@@ -846,11 +847,36 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         EnsureProjectIdle(path);
         if (engine.Projects.IsBusy(path)) throw new IOException(UiText.Text("The project is already open in Unity."));
         var editor = (await engine.Configuration.LoadAsync(token)).UnityEditorPath;
-        UnityProjectDriver.ValidateEditor(editor);
+        if (string.IsNullOrWhiteSpace(editor) || UnityEditorDiscovery.ReadVersion(editor) is null)
+        {
+            var project = await engine.Projects.ReadAsync(path, token);
+            var available = await Task.Run(UnityEditorDiscovery.FindEditors, token);
+            editor = available.FirstOrDefault(item => item.Version == project.UnityVersion).Path
+                ?? throw new IOException(UiText.Text("The Unity editor for this project is unavailable. Choose an installed editor in Settings."));
+        }
+        EnsureProjectIdle(path);
+        if (engine.Projects.IsBusy(path)) throw new IOException(UiText.Text("The project is already open in Unity."));
         var start = new System.Diagnostics.ProcessStartInfo(editor) { UseShellExecute = false };
         start.ArgumentList.Add("-projectPath");
         start.ArgumentList.Add(path);
-        using var process = System.Diagnostics.Process.Start(start);
+        if (EditorLaunchFixture is { } fixture)
+        {
+            ProjectRules.EnsureContained(Path.Combine(fixture, "candidate-projects"), path);
+            start.CreateNoWindow = true;
+            foreach (var argument in new[] { "-batchmode", "-nographics", "-quit", "-logFile", Path.Combine(fixture, "open-from-projects.log") })
+                start.ArgumentList.Add(argument);
+        }
+        using var process = System.Diagnostics.Process.Start(start)
+            ?? throw new IOException(UiText.Text("Could not start Unity. Check the editor path in Settings."));
+        if (EditorLaunchFixture is { } evidence)
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(TimeSpan.FromMinutes(5));
+            try { await process.WaitForExitAsync(deadline.Token); }
+            finally { if (!process.HasExited) process.Kill(); }
+            await AtomicFile.WriteJsonAsync(Path.Combine(evidence, "open-from-projects-process.json"),
+                new { Editor = editor, Project = path, ProcessId = process.Id, process.ExitCode }, token);
+        }
     }
 
     internal void ConfigureQueue(AppConfiguration configuration)
@@ -936,6 +962,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         var settings = await engine.Configuration.LoadAsync(lifetime.Token);
         settings.Language = "it";
         await engine.Configuration.SaveAsync(settings, lifetime.Token);
+        await engine.Catalog.RememberAsync(
+            [new("example.preset-tool", "Strumento preset di prova", "2.0.0") { Versions = ["2.0.0", "1.0.0"] }],
+            lifetime.Token);
         var inputs = new List<string>();
         for (var i = 1; i <= 6; ++i)
         {

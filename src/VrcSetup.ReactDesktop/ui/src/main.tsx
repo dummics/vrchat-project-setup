@@ -250,7 +250,7 @@ function ImportPage() {
       screen === 'project-packages' ? projectPackages?.name ?? t("Pacchetti dei progetti") : panel === 'packages' ? t("Pacchetti") : panel === 'preset' ? t("Scegli un preset") : t("Importa")}</h1></div>
       {screen !== 'import' ? <button disabled={!!busy || screen === 'presets' && presetDirty} onClick={() => {
         if (screen === 'project-packages') { setNotice(''); setScreen(packageBack); }
-        else { setNotice(''); setNewProject(undefined); setNewProjectReview(undefined); setScreen('import'); }
+        else { setNotice(''); setNewProject(undefined); setNewProjectReview(undefined); setNewProjectLibrary(undefined); setScreen('import'); }
       }}>{screen === 'project-packages' && packageBack === 'projects' ? t("← Progetti") : t("← Importa")}</button> :
         panel === 'import' ? <div className="actions"><button disabled={!!busy || !state || !!review} onClick={showProjects}>{t("Progetti")}</button>
           <button disabled={!!busy || !state || !!review} onClick={showActivity}>{t("Attività")}</button>

@@ -16,6 +16,7 @@ internal static class Program
         var startup = System.Diagnostics.Stopwatch.StartNew();
         var unityEditor = args is ["--verify-unity-workflow" or "--verify-pause-import" or "--verify-new-project", _, var editor] ? Path.GetFullPath(editor) : null;
         var verifyNewProject = args is ["--verify-new-project", _, _];
+        var launchFixture = args is ["--verify-open-project", var openProjectFixture] ? Path.GetFullPath(openProjectFixture) : null;
         var pauseImport = args is ["--verify-pause-import", _, _];
         var discardImport = args is ["--verify-discard-import", _];
         var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import", var recovery]
@@ -48,7 +49,7 @@ internal static class Program
             profileFixture = root;
         }
         var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null || portableFixture is not null ||
-            recoveryFixture is not null || packageFixture is not null;
+            recoveryFixture is not null || packageFixture is not null || launchFixture is not null;
         if (smoke is not null && Directory.Exists(smoke))
         {
             Environment.ExitCode = 2;
@@ -65,6 +66,11 @@ internal static class Program
             return;
         }
         if (packageFixture is not null && !File.Exists(Path.Combine(packageFixture, "resumed-import.json")))
+        {
+            Environment.ExitCode = 2;
+            return;
+        }
+        if (launchFixture is not null && !File.Exists(Path.Combine(launchFixture, "react-new-project.json")))
         {
             Environment.ExitCode = 2;
             return;
@@ -91,8 +97,9 @@ internal static class Program
             ProjectRules.EnsureContained(profileFixture, paths.PayloadRoot);
             ProjectRules.EnsureContained(profileFixture, paths.Home);
         }
-        var isolated = smoke is not null || restoreFixture is not null || recoveryFixture is not null || packageFixture is not null || !distributed;
-        var home = smoke ?? restoreFixture ?? recoveryFixture ?? packageFixture ?? (isolated
+        var isolated = smoke is not null || restoreFixture is not null || recoveryFixture is not null || packageFixture is not null ||
+            launchFixture is not null || !distributed;
+        var home = smoke ?? restoreFixture ?? recoveryFixture ?? packageFixture ?? launchFixture ?? (isolated
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup-React-Candidate")
             : paths.Home);
         Directory.CreateDirectory(home);
@@ -120,7 +127,7 @@ internal static class Program
             window.ShowInTaskbar = false;
         }
 
-        using var bridge = new ImportBridge(window, engine, isolated, updates);
+        using var bridge = new ImportBridge(window, engine, isolated, updates) { EditorLaunchFixture = launchFixture };
         var closing = false;
         var draining = false;
         window.Closing += async (_, args) =>
@@ -242,6 +249,13 @@ internal static class Program
                     window.Close();
                     return;
                 }
+                if (launchFixture is not null)
+                {
+                    await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
+                    await ReactNewProjectVerification.VerifyOpenAsync(core, engine, launchFixture, shutdown.Token);
+                    window.Close();
+                    return;
+                }
                 if (profileFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
@@ -306,7 +320,8 @@ internal static class Program
                                 "VPM restore and removal review", "VPM batch review distinguishes changed and unchanged projects",
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
                                 "theme changes and custom accent persist", "help and plain version label",
-                                "preset create and rename persist", "live English labels and language persistence" }
+                                "preset create and rename persist", "preset favorites, pinning, discard, save and delete",
+                                "live English labels and language persistence" }
                         }));
                         window.Close();
                         return;
@@ -316,7 +331,7 @@ internal static class Program
             }
             catch (Exception error)
             {
-                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture ?? recoveryFixture ?? packageFixture) is { } evidenceFolder)
+                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture ?? recoveryFixture ?? packageFixture ?? launchFixture) is { } evidenceFolder)
                     File.WriteAllText(Path.Combine(evidenceFolder, "failure.txt"), error.ToString());
                 else MessageBox.Show(window, error.Message, window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.ExitCode = 1;
@@ -566,9 +581,51 @@ internal static class Program
         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
         await core.ExecuteScriptAsync(open);
         await RequireAsync(core, "Array.from(document.querySelectorAll('.view select option')).some(x => x.value === 'Preset rinominato')");
+        await core.ExecuteScriptAsync("""
+            const preset = document.querySelector('.view select');
+            preset.value = 'Preset rinominato';
+            preset.dispatchEvent(new Event('change', { bubbles: true }));
+            """);
+        const string item = """document.querySelector('[data-package-id="example.preset-tool"]')""";
+        await RequireAsync(core, item + " !== null");
+        await core.ExecuteScriptAsync(item + ".querySelector('[aria-pressed=false]').click()");
+        await RequireAsync(core, item + "?.querySelector('[aria-pressed=true]') != null");
 
-        Task Click(string label) => core.ExecuteScriptAsync(
-            $"Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === {JsonSerializer.Serialize(label)}).click()");
+        await ChooseFixtureVersion();
+        await RequireAsync(core, "document.querySelector('header button').disabled");
+        await Click("Scarta modifiche");
+        await RequireAsync(core, "document.querySelector('header button').disabled === false && " +
+            item + "?.querySelector('[aria-pressed=true]') != null");
+        await ChooseFixtureVersion();
+        await Click("Salva preset");
+        await RequireAsync(core, "document.querySelector('header button').disabled === false");
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync(open);
+        await RequireAsync(core, "Array.from(document.querySelectorAll('.view select option')).some(x => x.value === 'Preset rinominato')");
+        await core.ExecuteScriptAsync("""
+            document.querySelector('.view select').value = 'Preset rinominato';
+            document.querySelector('.view select').dispatchEvent(new Event('change', { bubbles: true }));
+            """);
+        await RequireAsync(core, item + "?.textContent.includes('1.0.0') === true");
+        await Click("Elimina");
+        await Click("Elimina preset");
+        await RequireAsync(core, "Array.from(document.querySelectorAll('.view select option')).every(x => x.value !== 'Preset rinominato')");
+
+        async Task Click(string label)
+        {
+            var button = $"Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === {JsonSerializer.Serialize(label)})";
+            await RequireAsync(core, button + "?.disabled === false", attempts: 100);
+            await core.ExecuteScriptAsync(button + ".click()");
+        }
+        async Task ChooseFixtureVersion()
+        {
+            await core.ExecuteScriptAsync(item + ".querySelector('button:last-child').click()");
+            const string picker = """document.querySelector('select[aria-label="Versione preset"]')""";
+            await RequireAsync(core, $"Array.from({picker}?.options ?? []).some(x => x.value === '1.0.0')", attempts: 200);
+            await core.ExecuteScriptAsync(picker + ".value = '1.0.0'; " + picker + ".dispatchEvent(new Event('change', { bubbles: true }))");
+            await Click("Usa versione");
+            await RequireAsync(core, item + "?.textContent.includes('1.0.0') === true");
+        }
         async Task EnterName(string name)
         {
             await RequireAsync(core, """document.querySelector('input[aria-label="Nome preset"]') !== null""");

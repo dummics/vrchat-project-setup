@@ -12,6 +12,51 @@ internal static class ReactNewProjectVerification
     private const string Preset = "Fixture preset";
     private const string Package = "vrchat.blackstartx.gesture-manager";
 
+    internal static async Task VerifyOpenAsync(CoreWebView2 core, VrcSetupApplication engine, string fixture, CancellationToken token)
+    {
+        var original = await engine.Configuration.LoadAsync(token);
+        var root = Path.Combine(fixture, "candidate-projects");
+        var project = Path.Combine(root, Name);
+        if (!ProjectRules.NormalizePath(original.UnityProjectsRoot).Equals(root, StringComparison.OrdinalIgnoreCase) ||
+            !File.Exists(Path.Combine(project, "Library", "ScriptAssemblies", "VRC.SDKBase.dll")) || engine.Projects.IsBusy(project))
+            throw new IOException("Use the closed, compiled new-project fixture.");
+        ProjectRules.EnsureContained(root, project);
+        var version = (await engine.Projects.ReadAsync(project, token)).UnityVersion;
+        var receiptPath = Path.Combine(fixture, "open-from-projects-process.json");
+        File.Delete(receiptPath);
+        var launchConfig = original.Copy();
+        launchConfig.UnityEditorPath = Path.Combine(fixture, "missing-editor", "Unity.exe");
+        await engine.Configuration.SaveAsync(launchConfig, token);
+        try
+        {
+            await ReactImportVerification.WaitForFixtureHeadroomAsync(token, minimumGiB: 3);
+            await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Progetti').click()");
+            var row = $"Array.from(document.querySelectorAll('.project-table tbody tr')).find(x => x.querySelector('th')?.textContent.startsWith({JsonSerializer.Serialize(Name)}))";
+            var button = $"Array.from({row}?.querySelectorAll('button') ?? []).find(x => x.textContent === 'Apri')";
+            await Program.RequireAsync(core, button + "?.disabled === false", attempts: 200);
+            await core.ExecuteScriptAsync(button + ".click()");
+            await Program.RequireAsync(core, button + "?.disabled === true");
+            await Program.RequireAsync(core, button + "?.disabled === false && document.querySelector('footer [role=status]').textContent === ''", attempts: 6000);
+            using var receipt = JsonDocument.Parse(await File.ReadAllTextAsync(receiptPath, token));
+            var process = receipt.RootElement;
+            if (process.GetProperty("ExitCode").GetInt32() != 0 || process.GetProperty("Project").GetString() != project ||
+                UnityEditorDiscovery.ReadVersion(process.GetProperty("Editor").GetString() ?? "") != version ||
+                (await engine.Configuration.LoadAsync(token)).UnityEditorPath != launchConfig.UnityEditorPath ||
+                !File.Exists(Path.Combine(fixture, "open-from-projects.log")))
+                throw new IOException("The Projects button did not launch the matching Unity editor with the selected project.");
+            await AtomicFile.WriteJsonAsync(Path.Combine(fixture, "react-open-project.json"), new
+            {
+                Passed = true, Project = project, UnityVersion = version, Editor = process.GetProperty("Editor").GetString(),
+                ProcessId = process.GetProperty("ProcessId").GetInt32(), LaunchedByProjectsButton = true,
+                MissingConfiguredEditorRecovered = true, PreferencesUnchangedByLaunch = true, HeadlessFixture = true
+            }, token);
+        }
+        finally
+        {
+            await engine.Configuration.MergeAsync(launchConfig, original, CancellationToken.None);
+        }
+    }
+
     internal static async Task RunAsync(CoreWebView2 core, VrcSetupApplication engine, string fixture, string editor, CancellationToken shutdown)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(shutdown);

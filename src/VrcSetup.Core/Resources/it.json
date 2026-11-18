@@ -242,6 +242,8 @@
   "Resume": "Riprendi",
   "Restore backup": "Ripristina backup",
   "Review the backup before restoring.": "Controlla il backup prima di ripristinarlo.",
+  "The Unity editor for this project is unavailable. Choose an installed editor in Settings.": "L’editor Unity di questo progetto non è disponibile. Scegli un editor installato nelle Impostazioni.",
+  "Could not start Unity. Check the editor path in Settings.": "Impossibile avviare Unity. Controlla il percorso dell’editor nelle Impostazioni.",
   "Check project": "Verifica progetto",
   "My packages": "I miei pacchetti",
   "Preset packages": "Pacchetti del preset",

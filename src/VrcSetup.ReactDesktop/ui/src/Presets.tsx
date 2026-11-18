@@ -120,7 +120,7 @@ export function Presets({ library, busy, request, run, onChange, onDirty }: Prop
     <h2>{t("Pacchetti inclusi")}</h2>
     {Object.entries(choices).map(([id, version]) => {
       const item = catalog.get(id) ?? { id, name: id };
-      return <div className="package" key={id}><span>{item.name} · {version === 'latest' ? t('Ultima versione') + (item.latest ? ' (' + item.latest + ')' : '') : version}</span>
+      return <div className="package" key={id} data-package-id={id}><span>{item.name} · {version === 'latest' ? t('Ultima versione') + (item.latest ? ' (' + item.latest + ')' : '') : version}</span>
         <div className="actions">
           <button disabled={busy} onClick={() => openVersion(item)}>{t("Versione")}</button>
           {protectedIds.has(id.toLowerCase()) ? <span>{t("Richiesto")}</span> : <button disabled={busy} onClick={() => {
@@ -140,7 +140,7 @@ export function Presets({ library, busy, request, run, onChange, onDirty }: Prop
       <button disabled={busy || !query.trim()}>{t("Cerca")}</button>
       <label><input type="checkbox" checked={favoritesOnly} onChange={event => setFavoritesOnly(event.target.checked)} /> {t("Preferiti")}</label>
     </form>
-    {available.map(item => <div className="package" key={item.id}><span>{item.name}</span><div className="actions">
+    {available.map(item => <div className="package" key={item.id} data-package-id={item.id}><span>{item.name}</span><div className="actions">
       <button disabled={busy} aria-pressed={library.favorites.includes(item.id)} aria-label={t('Preferito: {name}', { name: item.name })}
         onClick={() => edit('favorite', { package: item.id })}>{library.favorites.includes(item.id) ? '★' : '☆'}</button>
       <button disabled={busy} onClick={() => openVersion(item)}>{t("Includi")}</button>

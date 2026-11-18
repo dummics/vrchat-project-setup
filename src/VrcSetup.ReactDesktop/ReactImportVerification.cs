@@ -205,11 +205,11 @@ internal static class ReactImportVerification
             OriginalProjectPreserved = true, ReopenedProfile = true }, token);
     }
 
-    internal static async Task WaitForFixtureHeadroomAsync(CancellationToken token)
+    internal static async Task WaitForFixtureHeadroomAsync(CancellationToken token, int minimumGiB = 6)
     {
         var sampler = new SystemResourceSampler();
         var wait = System.Diagnostics.Stopwatch.StartNew();
-        while (sampler.Sample() is not { AvailableGiB: >= 6, AvailableCommitGiB: >= 6 })
+        while (sampler.Sample() is not { } usage || usage.AvailableGiB < minimumGiB || usage.AvailableCommitGiB < minimumGiB)
         {
             if (wait.Elapsed >= TimeSpan.FromMinutes(2))
                 throw new IOException("Not enough memory for the isolated Unity import fixture.");
