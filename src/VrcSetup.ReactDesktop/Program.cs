@@ -132,7 +132,7 @@ internal static class Program
         var feedFixture = verifyFeed && profileFixture is not null ? new ReactUpdateVerification(profileFixture) : null;
         var engine = new VrcSetupApplication(isolated || portable ? home : null, verifyVcc
             ? ["--no-catalog-refresh"] : isolated || offscreen
-            ? ["--no-vcc-registration", "--no-catalog-refresh"] : [])
+            ? ["--no-vcc-registration", "--no-catalog-refresh"] : args)
         { UpdateHttpClientFactory = feedFixture is null ? null : feedFixture.CreateClient };
         UiText.LoadPreference(engine.Paths.ConfigFile);
         using var shutdown = new CancellationTokenSource();
@@ -235,6 +235,7 @@ internal static class Program
                 else if (smoke is not null)
                     await bridge.SeedSmokeAsync(smoke);
                 var configuration = await engine.Configuration.LoadAsync();
+                engine.ConfigureDiagnostics(configuration);
                 UiText.Language = configuration.Language;
                 if (benchmark is not null)
                     ProjectRules.EnsureContained(benchmark, configuration.UnityProjectsRoot);
@@ -254,7 +255,7 @@ internal static class Program
                     window.Close();
                     return;
                 }
-                if (profileFixture is null) _ = updates.RunInBackgroundAsync(shutdown.Token);
+                if (profileFixture is null && engine.AllowBackgroundUpdateChecks) _ = updates.RunInBackgroundAsync(shutdown.Token);
                 if (portableFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true] .drop') !== null");
