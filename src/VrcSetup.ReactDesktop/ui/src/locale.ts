@@ -1,6 +1,14 @@
 import { createContext, useContext } from 'react';
 
 const english: Record<string, string> = {
+  "Informazioni": "Information",
+  "Importa package": "Import package",
+  "Menu di navigazione": "Toggle navigation menu",
+  "Navigazione principale": "Main navigation",
+  "Preset precedente": "Previous preset",
+  "Preset successivo": "Next preset",
+  "Cronologia": "History",
+  "Scegli file": "Choose files",
   "Completata": "Completed",
   "Annullata": "Cancelled",
   "Interrotta": "Interrupted",

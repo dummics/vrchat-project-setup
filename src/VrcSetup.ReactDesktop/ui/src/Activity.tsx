@@ -24,11 +24,14 @@ export function Activity({ entries, busy, date, request, run, refresh, onExporte
   const [details, setDetails] = useState<{ key: string; projects: ProjectDetail[] }>();
   const [log, setLog] = useState<{ key: string; text: string }>();
   return <>
-    <div className="actions">
+    <div className="activity-toolbar">
+      <h2>{t("Cronologia")}</h2>
+      <div className="actions">
       <button disabled={busy} onClick={() => { setDetails(undefined); setLog(undefined); refresh(); }}>{t("Aggiorna")}</button>
       <button disabled={busy} onClick={() => void run(t("Esportazione…"), async () => {
         if (await request<string | false>('exportDiagnostics')) onExported();
       })}>{t("Esporta diagnostica")}</button>
+      </div>
     </div>
     {entries.length ? entries.map(entry => {
       const key = entry.kind + ':' + entry.id;

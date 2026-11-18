@@ -69,14 +69,25 @@ export function Presets({ library, busy, request, run, onChange, onDirty, onExpo
     });
   }
 
-  return <div className="settings">
-    <div className="actions project-tools">
-      <label>Preset <select aria-label="Preset" value={selected} disabled={busy || !!draft} onChange={event => {
-        setSelected(event.target.value); setDeleting(false); setNameEdit(undefined); setVersionPicker(undefined);
+  const names = ['', ...Object.keys(library.presets).sort((a, b) => a.localeCompare(b))];
+  function selectPreset(name: string) {
+    setSelected(name); setDeleting(false); setNameEdit(undefined); setVersionPicker(undefined);
+  }
+
+  return <div className="settings preset-library">
+    <div className="preset-switcher">
+      <button type="button" disabled={busy || !!draft || names.length < 2} aria-label={t("Preset precedente")}
+        onClick={() => selectPreset(names[(names.indexOf(selected) + names.length - 1) % names.length])}>‹</button>
+      <select aria-label="Preset" value={selected} disabled={busy || !!draft} onChange={event => {
+        selectPreset(event.target.value);
       }}>
         <option value="">{t("Predefinito")}</option>
-        {Object.keys(library.presets).sort((a, b) => a.localeCompare(b)).map(name => <option key={name}>{name}</option>)}
-      </select></label>
+        {names.slice(1).map(name => <option key={name}>{name}</option>)}
+      </select>
+      <button type="button" disabled={busy || !!draft || names.length < 2} aria-label={t("Preset successivo")}
+        onClick={() => selectPreset(names[(names.indexOf(selected) + 1) % names.length])}>›</button>
+    </div>
+    <div className="actions project-tools">
       <button disabled={busy || !!draft} onClick={() => { setNameEdit('create'); setNewName(''); setDeleting(false); }}>{t("Nuovo preset")}</button>
       {selected && <button disabled={busy || !!draft} onClick={() => { setNameEdit('rename'); setNewName(selected); setDeleting(false); }}>{t("Rinomina")}</button>}
       {selected && <button disabled={busy || !!draft} onClick={() => { setDeleting(true); setNameEdit(undefined); }}>{t("Elimina")}</button>}

@@ -11,6 +11,11 @@ import './style.css';
 
 type Packages = Record<string, string>;
 const displayVersion = (identity: string) => identity.replace(/\+build\.(\d+)$/, ' · build $1');
+const glyphs = { menu: '\uE700', projects: '\uE8F1', import: '\uE710', presets: '\uE71D',
+  activity: '\uE81C', settings: '\uE713', information: '\uE946', folder: '\uE8B7', refresh: '\uE72C', package: '\uE7B8' };
+function Icon({ name }: { name: keyof typeof glyphs }) {
+  return <span className="fluent-icon" data-glyph={glyphs[name]} aria-hidden="true" />;
+}
 type Source = { id: string; file: string; name: string; target: string; suggestions: { id: string; name: string; version: string }[] };
 type Draft = Source & { preset: string | null; packages: Packages };
 type Job = {
@@ -110,7 +115,16 @@ function ImportPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activeId, setActiveId] = useState('');
   const [panel, setPanel] = useState<'import' | 'preset' | 'packages'>('import');
-  const [screen, setScreen] = useState<'import' | 'projects' | 'activity' | 'project-packages' | 'settings' | 'presets'>('import');
+  const [screen, setScreen] = useState<'import' | 'projects' | 'activity' | 'project-packages' | 'settings' | 'presets' | 'information'>('import');
+  const [paneOverride, setPaneOverride] = useState<boolean>();
+  const [wide, setWide] = useState(() => window.matchMedia('(min-width: 900px)').matches);
+  const paneOpen = paneOverride ?? wide;
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 900px)');
+    const change = () => { setWide(media.matches); setPaneOverride(undefined); };
+    media.addEventListener('change', change);
+    return () => media.removeEventListener('change', change);
+  }, []);
   const [presetLibrary, setPresetLibrary] = useState<PresetLibrary>();
   const [presetDirty, setPresetDirty] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -180,11 +194,13 @@ function ImportPage() {
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || busy) return;
-      if (review) setReview(undefined); else setPanel('import');
+      if (!wide && paneOpen) setPaneOverride(false);
+      else if (review) setReview(undefined);
+      else setPanel('import');
     };
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
-  }, [busy, review]);
+  }, [busy, paneOpen, review, wide]);
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label); setError('');
@@ -262,8 +278,21 @@ function ImportPage() {
     { id: 'created', label: t("Creazione") }
   ] as const;
   const date = new Intl.DateTimeFormat(locale === 'it' ? 'it-IT' : 'en-GB');
+  const selectedPage = screen === 'project-packages' ? packageBack : screen;
+  const navigationLocked = !!busy || !state || !!review || screen === 'presets' && presetDirty || screen === 'settings' && settingsDirty;
+  function navItem(id: typeof selectedPage, label: string, activate: () => void) {
+    return <button data-nav={id} className="nav-item" aria-label={label} title={paneOpen ? undefined : label}
+      aria-current={selectedPage === id ? 'page' : undefined} disabled={navigationLocked}
+      onClick={() => {
+        if (!wide) setPaneOverride(false);
+        if (screen === id && (id !== 'import' || panel === 'import')) return;
+        setNotice(''); setError('');
+        setNewProject(undefined); setNewProjectReview(undefined); setNewProjectLibrary(undefined);
+        activate();
+      }}><Icon name={id} /><span className="nav-label">{label}</span></button>;
+  }
 
-  return <Locale.Provider value={locale}><main data-ready={!!state} className={dragging ? 'dragging' : ''} onDragOver={event => {
+  return <Locale.Provider value={locale}><main data-ready={!!state} data-screen={screen} className={dragging ? 'dragging' : ''} onDragOver={event => {
       event.preventDefault();
       const acceptsFiles = screen === 'import' && !busy && !review && event.dataTransfer.types.includes('Files');
       event.dataTransfer.dropEffect = acceptsFiles ? 'copy' : 'none';
@@ -277,18 +306,43 @@ function ImportPage() {
       setDragging(false);
       if (event.dataTransfer.files.length) stage([...event.dataTransfer.files]);
     }}>
-    <header><div><span className="brand">VRC Project Setup</span><h1>{screen === 'projects' ? t("Progetti") : screen === 'activity' ? t("Attività") : screen === 'settings' ? t("Impostazioni") : screen === 'presets' ? 'Preset' :
-      screen === 'project-packages' ? projectPackages?.name ?? t("Pacchetti dei progetti") : panel === 'packages' ? t("Pacchetti") : panel === 'preset' ? t("Scegli un preset") : t("Importa")}</h1></div>
-      {screen !== 'import' ? <button disabled={!!busy || screen === 'presets' && presetDirty} onClick={() => {
-        if (screen === 'project-packages') { setNotice(''); setScreen(packageBack); }
-        else { setNotice(''); setNewProject(undefined); setNewProjectReview(undefined); setNewProjectLibrary(undefined); setScreen('import'); }
-      }}>{screen === 'project-packages' && packageBack === 'projects' ? t("← Progetti") : t("← Importa")}</button> :
-        panel === 'import' ? <div className="actions"><button disabled={!!busy || !state || !!review} onClick={() => showProjects()}>{t("Progetti")}</button>
-          <button disabled={!!busy || !state || !!review} onClick={showActivity}>{t("Attività")}</button>
-          <button disabled={!!busy || !state || !!review} onClick={showPresets}>Preset</button>
-          <button disabled={!!busy || !state || !!review} onClick={showSettings}>{t("Impostazioni")}</button>
-          <button disabled={!!busy || !state || !!review} onClick={() => stage()}>{t("+ Aggiungi file")}</button></div> :
-          <button onClick={() => setPanel('import')}>{t("← Torna all’importazione")}</button>}</header>
+    <nav className="sidebar" data-expanded={paneOpen} aria-label={t("Navigazione principale")}>
+      <button type="button" className="nav-item nav-toggle" aria-label={t("Menu di navigazione")}
+        aria-controls="sidebar-links" aria-expanded={paneOpen} onClick={() => setPaneOverride(!paneOpen)}><Icon name="menu" /></button>
+      <div className="sidebar-links" id="sidebar-links">
+        <div className="nav-group">
+          {navItem('projects', t("Progetti"), showProjects)}
+          {navItem('import', t("Importa package"), () => { setPanel('import'); setScreen('import'); })}
+          {navItem('presets', t("Pacchetti"), showPresets)}
+        </div>
+        <div className="nav-group">
+          {navItem('information', t("Informazioni"), () => setScreen('information'))}
+          {navItem('activity', t("Attività"), showActivity)}
+          {navItem('settings', t("Impostazioni"), showSettings)}
+        </div>
+      </div>
+    </nav>
+    <div className="page">
+    <header className="page-header">
+      <div className="page-heading">
+        {screen === 'project-packages' && <button className="page-back" disabled={!!busy} onClick={() => {
+          setNotice(''); setScreen(packageBack);
+        }}>{packageBack === 'projects' ? t("← Progetti") : t("← Importa")}</button>}
+        {screen === 'import' && panel !== 'import' && <button className="page-back" disabled={!!busy} onClick={() => setPanel('import')}>{t("← Torna all’importazione")}</button>}
+        <h1>{screen === 'projects' ? t("Progetti") : screen === 'activity' ? t("Attività") : screen === 'settings' ? t("Impostazioni") :
+          screen === 'information' ? t("Informazioni") : screen === 'presets' ? t("Pacchetti") :
+          screen === 'project-packages' ? projectPackages?.name ?? t("Pacchetti dei progetti") : panel === 'packages' ? t("Pacchetti") :
+          panel === 'preset' ? t("Scegli un preset") : t("Importa")}</h1>
+      </div>
+      {screen === 'import' && panel === 'import' && <button disabled={!!busy || !state || !!review} onClick={() => stage()}>{t("+ Aggiungi file")}</button>}
+      {screen === 'projects' && <div className="actions project-header-actions">
+        <button disabled={!!busy || !!newProject} onClick={() => void run(t("Apertura progetto…"), async () => {
+          const project = await request<ProjectPackageList | false>('pickExistingProject');
+          if (project) { setProjectPackages(project); setPackageBack('projects'); setScreen('project-packages'); }
+        })}>{t("Apri progetto esistente")}</button>
+        <button className="primary" disabled={!!busy || !!newProject} onClick={() => setNewProject({ name: '', target: 'StandaloneWindows64', preset: '' })}>{t("Nuovo progetto")}</button>
+      </div>}
+    </header>
     {screen === 'presets' && presetLibrary ? <section className="view" key="presets">
       <Presets library={presetLibrary} busy={!!busy} request={request} run={run} onDirty={setPresetDirty}
         onExported={file => setNotice(t("Preset esportato in {file}.", { file }))}
@@ -460,6 +514,9 @@ function ImportPage() {
         </div>
       </section>}
       <Help onReport={() => void run(t("Apertura assistenza…"), async () => { await request('openSupport'); })} />
+    </section> : screen === 'information' ? <section className="view information" key="information">
+      <Help onReport={() => void run(t("Apertura assistenza…"), async () => { await request('openSupport'); })} />
+      <button disabled={!!busy} onClick={() => void run(t("Apertura log…"), async () => { await request('openDiagnostics'); })}>{t("Apri log")}</button>
     </section> : screen === 'project-packages' && projectPackages ? <section className="view" key="project-packages">
       <ProjectPackages project={projectPackages} busy={!!busy} request={request} run={run}
         onApplied={(project, message) => { setProjectPackages(project); setNotice(message); }} />
@@ -468,12 +525,7 @@ function ImportPage() {
         onExported={() => setNotice(t("Diagnostica esportata."))} />
     </section> : screen === 'projects' ? <section className="view" key="projects">
       <div className="actions project-tools"><input aria-label={t("Cerca progetti")} placeholder={t("Cerca progetti")} value={filter} onChange={event => setFilter(event.target.value)} />
-        <button disabled={!!busy} onClick={() => showProjects()}>{t("Aggiorna")}</button>
-        <button disabled={!!busy || !!newProject} onClick={() => void run(t("Apertura progetto…"), async () => {
-          const project = await request<ProjectPackageList | false>('pickExistingProject');
-          if (project) { setProjectPackages(project); setPackageBack('projects'); setScreen('project-packages'); }
-        })}>{t("Apri progetto esistente")}</button>
-        <button disabled={!!busy || !!newProject} onClick={() => setNewProject({ name: '', target: 'StandaloneWindows64', preset: '' })}>{t("Nuovo progetto")}</button>
+        <button className="icon-button" aria-label={t("Aggiorna")} title={t("Aggiorna")} disabled={!!busy} onClick={() => showProjects()}><Icon name="refresh" /></button>
       </div>
       {selectedPaths.length > 0 && <div className="actions batch-actions">
         <button className="primary" disabled={!!busy} onClick={() => showProjectPackages(selectedPaths.length === 1 ? selectedPaths[0] : selectedPaths)}>
@@ -550,10 +602,9 @@ function ImportPage() {
               onChange={event => setSelectedPaths(current => event.target.checked
                 ? [...current, project.path] : current.filter(path => path !== project.path))} />}
           </td>
-          <th scope="row">{project.open && !project.importing && <span className="open-indicator" role="img" aria-label={t("Aperto in Unity")} title={t("Aperto in Unity")} />}{project.name}<small>{project.unityVersion} · {project.path}</small></th>
+          <th scope="row">{project.open && !project.importing && <span className="open-indicator" role="img" aria-label={t("Aperto in Unity")} title={t("Aperto in Unity")} />}{project.name}<small title={project.path}>{project.unityVersion} · {project.path}</small></th>
           <td>{date.format(new Date(project.lastUpdatedUtc))}</td><td>{date.format(new Date(project.createdUtc))}</td>
           <td>{project.importing ? t("In importazione") : <div className="actions project-actions">
-            <button disabled={!!busy} onClick={() => showProjectPackages(project.path)}>{t("Pacchetti")}</button>
             {
             project.recoveryId ? <button disabled={!!busy} onClick={() => { setScreen('import'); setPanel('import'); setTimeout(() => document.getElementById('job-' + project.recoveryId)?.scrollIntoView(), 0); }}>{t("Vedi importazione")}</button> :
             project.canReviewOrphan ? <button disabled={!!busy} onClick={() => void run(t("Lettura importazione…"), async () => {
@@ -561,6 +612,9 @@ function ImportPage() {
               if (next) { setReview(next); setPanel('import'); setScreen('import'); }
             })}>{t("Riprendi importazione")}</button> :
             <button disabled={!!busy || project.open || project.incomplete} onClick={() => void run(t("Apertura di Unity…"), async () => { await request('openProject', project.path); })}>{t("Apri")}</button>}
+            <button className="icon-button" disabled={!!busy} title={t("Pacchetti")} onClick={() => showProjectPackages(project.path)}>
+              <Icon name="package" /><span className="visually-hidden">{t("Pacchetti")}</span>
+            </button>
             <details className="project-options">
               <summary aria-label={t("Opzioni per {name}", { name: project.name })}>···</summary>
               <button disabled={!!busy} onClick={event => {
@@ -601,11 +655,14 @@ function ImportPage() {
             disabled={!!busy} onChange={event => setManualPath(event.target.value)} />
           <button disabled={!!busy || !manualPath.trim()}>{t("Aggiungi file")}</button>
         </form>}
-        {!active ? <button className="drop" disabled={!!busy || !state} onClick={() => stage()}><span aria-hidden="true">＋</span>{t("Trascina qui i file .unitypackage")}</button> :
+        {!active ? <button className="drop" disabled={!!busy || !state || !!review} onClick={() => stage()}>
+          <Icon name="folder" /><span className="drop-instruction">{t("Trascina qui i file .unitypackage")}</span>
+          <span className="drop-choose">{t("Scegli file")}</span>
+        </button> :
           <>
             <div className="tabs" aria-label={t("File da importare")}>
               {drafts.map(draft => <button key={draft.id} className={draft.id === activeId ? 'selected' : ''} aria-pressed={draft.id === activeId}
-                onClick={() => setActiveId(draft.id)}>{draft.file}</button>)}
+                title={draft.file} onClick={() => setActiveId(draft.id)}>{draft.file.split(/[\\/]/).at(-1)}</button>)}
             </div>
             <div className="fields">
               <input aria-label={t("Nome progetto")} value={active.name} onChange={event => edit({ name: event.target.value })} />
@@ -678,6 +735,7 @@ function ImportPage() {
           </button>)}
       </div>}
       {active && panel === 'packages' && <div className="editor">
+        <div className="editor-heading"><span>{t("Pacchetto")}</span><span>{t("Versione")}</span></div>
         {Object.entries(active.packages).map(([id, version]) => <div className="package" key={id}><span>{id}</span>
           <input aria-label={t("Versione") + id} value={version} onChange={event => edit({ packages: { ...active.packages, [id]: event.target.value } })}/>
           <button onClick={() => { const packages = { ...active.packages }; delete packages[id]; edit({ packages }); }}>{t("Escludi")}</button></div>)}
@@ -703,9 +761,7 @@ function ImportPage() {
           })}>{review.continuation ? t('Riprendi') : review.projects.length === 1 ? t(review.projects[0].existingProject ? 'Completa importazione' : 'Avvia importazione')
             : t('Avvia {count} importazioni', { count: review.projects.length })}</button></div></section>}
     </section>}
-    <footer>
-      <div role="status">{t(error || busy || notice) || (screen === 'import' && drafts.length ? drafts.length + ' file' : '')}</div>
-      {screen === 'import' && <div className="actions">
+      {screen === 'import' && panel === 'import' && <div className="actions import-actions">
         {active && panel === 'import' && !review && <button disabled={!!busy} onClick={() => void run(t("Rimozione…"), async () => {
           await request('remove', active.id); const left = drafts.filter(draft => draft.id !== active.id); setDrafts(left); setActiveId(left[0]?.id ?? '');
         })}>{t("Rimuovi file")}</button>}
@@ -713,6 +769,9 @@ function ImportPage() {
         {active && panel === 'import' && !review && state?.root &&
           <button className="primary" disabled={!!busy} onClick={() => void run(t("Preparazione…"), async () => setReview(await request('review', drafts)))}>{t("Rivedi e importa")}</button>}
       </div>}
+    </div>
+    <footer>
+      <div role="status" className={error ? 'status-error' : undefined}>{t(error || busy || notice) || (screen === 'import' && drafts.length ? drafts.length + ' file' : '')}</div>
       {state && <span className="app-version" aria-label={t('Versione {version}', { version: displayVersion(state.version) })}>{displayVersion(state.version)}</span>}
     </footer>
   </main></Locale.Provider>;

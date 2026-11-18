@@ -30,7 +30,7 @@ internal static class ReactNewProjectVerification
         try
         {
             await ReactImportVerification.WaitForFixtureHeadroomAsync(token, minimumGiB: 3);
-            await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Progetti').click()");
+            await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Progetti').click()");
             var row = $"Array.from(document.querySelectorAll('.project-table tbody tr')).find(x => x.querySelector('th')?.textContent.startsWith({JsonSerializer.Serialize(Name)}))";
             var button = $"Array.from({row}?.querySelectorAll('button') ?? []).find(x => x.textContent === 'Apri')";
             await Program.RequireAsync(core, button + "?.disabled === false", attempts: 200);
@@ -64,8 +64,8 @@ internal static class ReactNewProjectVerification
         var token = timeout.Token;
         var original = await engine.Configuration.LoadAsync(token);
 
-        await ClickAsync("header button", "Progetti");
-        await ClickAsync(".project-tools button", "Nuovo progetto");
+        await ClickAsync(".sidebar button", "Progetti");
+        await ClickAsync(".project-header-actions button", "Nuovo progetto");
         await FillAsync("""input[aria-label="Nome nuovo progetto"]""", Name);
         await ClickAsync(".new-project-form button", "Personalizza pacchetti");
         await FillAsync(".new-project-packages input[type=search]", "Gesture Manager");
@@ -106,7 +106,7 @@ internal static class ReactNewProjectVerification
             !original.VpmPackages.OrderBy(x => x.Key).SequenceEqual(preferences.VpmPackages.OrderBy(x => x.Key)))
             throw new IOException("The created project or preserved preset did not match the review.");
 
-        await ClickAsync("header button", "Progetti");
+        await ClickAsync(".sidebar button", "Progetti");
         await RequireAsync($"""Array.from(document.querySelectorAll('.project-table tbody th')).some(x => x.textContent.includes({JsonSerializer.Serialize(Name)}))""");
 
         await ReactImportVerification.WaitForFixtureHeadroomAsync(token);

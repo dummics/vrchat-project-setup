@@ -49,7 +49,7 @@ internal sealed class ReactUpdateVerification(string root)
         Task Click(string selector) => core.ExecuteScriptAsync(selector + ".click()");
 
         var settings = JsonSerializer.Serialize(UiText.Text("Settings"));
-        await Click($"Array.from(document.querySelectorAll('header button')).find(x => x.textContent === {settings})");
+        await Click($"Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === {settings})");
         await Require(check + "?.disabled === false");
         await Click(check);
         await Require(check + "?.disabled === false && document.querySelector('footer [role=status]')?.textContent.length > 0");

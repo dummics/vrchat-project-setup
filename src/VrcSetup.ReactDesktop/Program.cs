@@ -387,7 +387,7 @@ internal static class Program
                         await VerifyPresetsAsync(core);
                         await VerifyLanguageAsync(core);
                         await VerifyMaintenanceAsync(core, engine);
-                        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+                        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
                         await RequireAsync(core, "document.querySelector('.tabs button') !== null");
                         await ReactImportVerification.VerifyFileDropAsync(core, smoke);
                         await ReactImportVerification.VerifyOrphanReviewAsync(core, engine, smoke, shutdown.Token);
@@ -427,7 +427,7 @@ internal static class Program
 
     private static async Task MeasureProjectsStartupAsync(CoreWebView2 core, CoreWebView2Environment environment, string folder, CancellationToken token)
     {
-        const string projects = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Progetti')";
+        const string projects = "Array.from(document.querySelectorAll('.nav-item')).find(button => button.getAttribute('aria-label') === 'Progetti')";
         await RequireAsync(core, projects + "?.disabled === false");
         await core.ExecuteScriptAsync(projects + ".click()");
         await RequireAsync(core, "document.querySelectorAll('.project-table tbody tr').length === 1");
@@ -479,18 +479,18 @@ internal static class Program
         async Task<string[]> Read(string page, string selector)
         {
             var label = JsonSerializer.Serialize(page);
-            await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('header button')).find(x => x.textContent === {label}).click()");
+            await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === {label}).click()");
             await RequireAsync(core, $"document.querySelector('h1').textContent === {label}");
             var result = await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll({JsonSerializer.Serialize(selector)}), x => x.textContent.trim())");
-            await core.ExecuteScriptAsync("document.querySelector('header button').click()");
-            await RequireAsync(core, "document.querySelector('header .actions') !== null");
+            await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
+            await RequireAsync(core, "document.querySelector('main[data-screen=import]') !== null");
             return JsonSerializer.Deserialize<string[]>(result) ?? [];
         }
 
         var projects = await Read(UiText.Text("Projects"), ".project-table tbody th");
-        var presets = await Read("Preset", ".view select option");
+        var presets = await Read(UiText.Text("Packages"), ".view select option");
         var activity = await Read(UiText.Text("Activity"), ".activity article strong");
-        await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('header button')).find(x => x.textContent === {JsonSerializer.Serialize(UiText.Text("Settings"))}).click()");
+        await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === {JsonSerializer.Serialize(UiText.Text("Settings"))}).click()");
         await RequireAsync(core, $"document.querySelector('#unityProjectsRoot')?.value === {JsonSerializer.Serialize(configuration.UnityProjectsRoot)}");
         await RequireAsync(core, $"document.querySelector('#appearance-theme')?.value === {JsonSerializer.Serialize(configuration.Theme)}");
         await RequireAsync(core, $"document.querySelector('#appearance-palette')?.value === {JsonSerializer.Serialize(configuration.ColorPalette)}");
@@ -512,7 +512,7 @@ internal static class Program
 
     private static async Task VerifyProjectListAsync(CoreWebView2 core, string? batchEvidence, bool simulateConflict, VrcSetupApplication? cancelEngine)
     {
-        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Progetti').click()");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Progetti').click()");
         await RequireAsync(core, "document.querySelector('.project-table tbody')?.textContent.includes('Avatar di prova')");
         await core.ExecuteScriptAsync("""
             const search = document.querySelector('.project-tools input');
@@ -572,7 +572,7 @@ internal static class Program
                     await Task.Delay(25, wait.Token);
                 await core.ExecuteScriptAsync("""document.querySelector('[data-package-action="cancel"]').click()""");
                 await RequireAsync(core, """
-                    document.querySelector('header button')?.disabled === false &&
+                    document.querySelector('[data-nav=import]')?.disabled === false &&
                     [...document.querySelectorAll('[aria-live="polite"] .package')].some(row =>
                       row.textContent.includes('Avatar di prova') && row.textContent.includes('Annullato')
                       && row.textContent.includes('Il progetto è conservato.'))
@@ -588,7 +588,7 @@ internal static class Program
             await RequireAsync(core, $$"""
                 (() => {
                   const rows = Array.from(document.querySelectorAll('[aria-live="polite"] .package'));
-                  return !document.querySelector('header button').disabled
+                  return !document.querySelector('[data-nav=import]').disabled
                     && rows.some(x => x.textContent.includes('Avatar di prova') && x.textContent.includes('Completato'))
                     && rows.some(x => x.textContent.includes('Secondo avatar') && x.textContent.includes({{expectedSecondResult}}));
                 })()
@@ -598,11 +598,11 @@ internal static class Program
                 throw new IOException("Batch apply did not update only the intended manifest.");
             if (simulateConflict)
             {
-                await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+                await core.ExecuteScriptAsync("document.querySelector('[data-nav=projects]').click()");
                 await RequireAsync(core, "document.querySelector('h1').textContent === 'Progetti'");
-                await core.ExecuteScriptAsync("document.querySelector('header button').click()");
-                await RequireAsync(core, "document.querySelector('header .actions') !== null");
-                await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Attività').click()");
+                await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
+                await RequireAsync(core, "document.querySelector('main[data-screen=import]') !== null");
+                await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Attività').click()");
                 await RequireAsync(core, "document.querySelector('.activity article')?.textContent.includes('Completata in parte')");
                 await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.activity article button')).find(x => x.textContent === 'Dettagli').click()");
                 await RequireAsync(core, """
@@ -619,12 +619,12 @@ internal static class Program
                     ReviewedAndAppliedThroughReact = true });
             return;
         }
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('.page-back').click()");
         await RequireAsync(core, "document.querySelector('.batch-actions') !== null");
         await core.ExecuteScriptAsync("""
             Array.from(document.querySelectorAll('.batch-actions button')).find(x => x.textContent === 'Deseleziona').click();
             Array.from(document.querySelectorAll('.project-table tbody tr')).find(x => x.textContent.includes('Avatar di prova'))
-              .querySelector('.project-actions button').click();
+              .querySelector('.project-actions .icon-button').click();
             """);
         await RequireAsync(core, "document.querySelector('.view').textContent.includes('Mancante')");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === 'Ripristina pacchetti').click()");
@@ -636,9 +636,9 @@ internal static class Program
         await RequireAsync(core, "document.querySelector('.view .extras')?.textContent.includes('example.fixture · Da rimuovere')");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === 'Rivedi modifiche').click()");
         await RequireAsync(core, "document.querySelector('[aria-label=\"Riepilogo pacchetti\"]')?.textContent.includes('example.fixture · Da rimuovere')");
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('.page-back').click()");
         await RequireAsync(core, "document.querySelector('h1').textContent === 'Progetti'");
-        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.project-tools button')).find(x => x.textContent === 'Nuovo progetto').click()");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.project-header-actions button')).find(x => x.textContent === 'Nuovo progetto').click()");
         await RequireAsync(core, """document.querySelector('input[aria-label="Nome nuovo progetto"]') !== null""");
         await core.ExecuteScriptAsync("""
             (() => {
@@ -655,7 +655,7 @@ internal static class Program
 
     private static async Task VerifyRecoveryAndActivityAsync(CoreWebView2 core)
     {
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
         await RequireAsync(core, """
             (() => {
               const card = document.querySelector('#job-smoke-compilation');
@@ -664,7 +664,7 @@ internal static class Program
             """);
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('#job-smoke-compilation button')).find(x => x.textContent === 'Nascondi avviso').click()");
         await RequireAsync(core, "!document.querySelector('#job-smoke-compilation').textContent.includes('Nascondi avviso')");
-        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Attività').click()");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Attività').click()");
         await RequireAsync(core, "document.querySelector('.activity')?.textContent.includes('Avatar di prova')");
         await core.ExecuteScriptAsync("""
             const importRow = Array.from(document.querySelectorAll('.activity article')).find(x => x.textContent.includes('Avatar di prova'));
@@ -682,9 +682,9 @@ internal static class Program
 
     private static async Task VerifySettingsAsync(CoreWebView2 core, string folder)
     {
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
         await RequireAsync(core, "document.getElementById('job-smoke-completed') !== null");
-        const string settings = "Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Impostazioni').click()";
+        const string settings = "Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Impostazioni').click()";
         await core.ExecuteScriptAsync(settings);
         await RequireAsync(core, "document.querySelector('#hide-completed')?.checked === false");
         await core.ExecuteScriptAsync("""
@@ -727,7 +727,7 @@ internal static class Program
             """);
         await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
         await RequireAsync(core, "document.querySelector('footer [role=status]').textContent === 'Impostazioni salvate.'");
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
         await RequireAsync(core, "document.getElementById('job-smoke-completed') === null");
         await RequireAsync(core, "document.documentElement.style.getPropertyValue('--accent') === 'rgb(104, 202, 182)'");
         var manualArchive = Path.Combine(folder, "Manuale-123.unitypackage");
@@ -779,17 +779,17 @@ internal static class Program
 
     private static async Task VerifyPresetsAsync(CoreWebView2 core)
     {
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
-        const string open = "Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Preset').click()";
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
+        const string open = "document.querySelector('[data-nav=presets]').click()";
         await core.ExecuteScriptAsync(open);
-        await RequireAsync(core, "document.querySelector('h1').textContent === 'Preset'");
+        await RequireAsync(core, "document.querySelector('h1').textContent === 'Pacchetti'");
         await Click("Nuovo preset");
         await EnterName("Preset fixture");
         await RequireAsync(core, "document.querySelector('.view select').value === 'Preset fixture'");
         await Click("Rinomina");
         await EnterName("Preset rinominato");
         await RequireAsync(core, "document.querySelector('.view select').value === 'Preset rinominato'");
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
         await core.ExecuteScriptAsync(open);
         await RequireAsync(core, "Array.from(document.querySelectorAll('.view select option')).some(x => x.value === 'Preset rinominato')");
         await core.ExecuteScriptAsync("""
@@ -803,14 +803,14 @@ internal static class Program
         await RequireAsync(core, item + "?.querySelector('[aria-pressed=true]') != null");
 
         await ChooseFixtureVersion();
-        await RequireAsync(core, "document.querySelector('header button').disabled");
+        await RequireAsync(core, "document.querySelector('[data-nav=import]').disabled");
         await Click("Scarta modifiche");
-        await RequireAsync(core, "document.querySelector('header button').disabled === false && " +
+        await RequireAsync(core, "document.querySelector('[data-nav=import]').disabled === false && " +
             item + "?.querySelector('[aria-pressed=true]') != null");
         await ChooseFixtureVersion();
         await Click("Salva preset");
-        await RequireAsync(core, "document.querySelector('header button').disabled === false");
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await RequireAsync(core, "document.querySelector('[data-nav=import]').disabled === false");
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
         await core.ExecuteScriptAsync(open);
         await RequireAsync(core, "Array.from(document.querySelectorAll('.view select option')).some(x => x.value === 'Preset rinominato')");
         await core.ExecuteScriptAsync("""
@@ -853,8 +853,8 @@ internal static class Program
 
     private static async Task VerifyLanguageAsync(CoreWebView2 core)
     {
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
-        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Impostazioni').click()");
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Impostazioni').click()");
         await RequireAsync(core, "document.querySelector('#language')?.value === 'it'");
         await core.ExecuteScriptAsync("""
             const language = document.querySelector('#language');
@@ -864,12 +864,12 @@ internal static class Program
         await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
         await RequireAsync(core, "document.documentElement.lang === 'en' && document.querySelector('h1').textContent === 'Settings'");
         await RequireAsync(core, "document.querySelector('.help summary').textContent === 'How do I import an avatar?'");
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
         await RequireAsync(core, "document.querySelector('h1').textContent === 'Import'");
-        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Activity').click()");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Activity').click()");
         await RequireAsync(core, "document.querySelector('.activity article button').textContent === 'Details'");
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
-        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Settings').click()");
+        await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Settings').click()");
         await RequireAsync(core, "document.querySelector('#language')?.value === 'en'");
     }
 
@@ -885,7 +885,7 @@ internal static class Program
         var shortcut = Path.Combine(menu, "VRChat Project Setup", "VRC Project Setup.lnk");
         if (File.Exists(shortcut)) throw new IOException("Remove the isolated shortcut before verifying repair.");
         var label = JsonSerializer.Serialize(UiText.Text("Settings"));
-        await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('header button')).find(x => x.textContent === {label}).click()");
+        await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === {label}).click()");
         const string menuSelector = "document.querySelector('.settings-maintenance summary')";
         const string repair = """document.querySelector('[data-maintenance-action="repairInstallation"]')""";
         const string uninstall = """document.querySelector('[data-maintenance-action="uninstallInstallation"]')""";
@@ -960,7 +960,7 @@ internal static class Program
         await Require("Array.from(document.querySelectorAll('.editor button')).some(x => x.textContent === 'Includi')");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.editor button')).find(x => x.textContent === 'Includi').click()");
         await Require("Array.from(document.querySelectorAll('.editor button')).every(x => x.textContent === 'Escludi')");
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('.page-back').click()");
         await Require("document.querySelector('h1').textContent === 'Importa'");
         await Task.Delay(250);
     }

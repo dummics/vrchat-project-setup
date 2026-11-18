@@ -81,7 +81,7 @@ internal static class ReactImportVerification
         };
         await AtomicFile.WriteJsonAsync(marker, receipt, token);
         var originalState = AtomicFile.Hash(marker);
-        const string projects = "Array.from(document.querySelectorAll('header button')).find(button => ['Progetti','Projects'].includes(button.textContent))";
+        const string projects = "Array.from(document.querySelectorAll('.nav-item')).find(button => ['Progetti','Projects'].includes(button.getAttribute('aria-label')))";
         await Program.RequireAsync(core, projects + "?.disabled === false");
         await core.ExecuteScriptAsync(projects + ".click()");
         const string resume = """
@@ -170,11 +170,11 @@ internal static class ReactImportVerification
 
         if (!(await engine.Configuration.LoadAsync(token)).ManualImportPath)
         {
-            await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Impostazioni').click()");
+            await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.nav-item')).find(button => button.getAttribute('aria-label') === 'Impostazioni').click()");
             await WaitForPageAsync(core, "document.querySelector('#manual-import-path')?.checked === false", TimeSpan.FromSeconds(15), token);
             await core.ExecuteScriptAsync("document.querySelector('#manual-import-path').click(); document.querySelector('.settings button[type=submit]').click()");
             await WaitForPageAsync(core, "document.querySelector('footer [role=status]')?.textContent === 'Impostazioni salvate.'", TimeSpan.FromSeconds(15), token);
-            await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+            await core.ExecuteScriptAsync("document.querySelector('[data-nav=import]').click()");
         }
         await WaitForPageAsync(core, "document.querySelector('.manual-path input') !== null", TimeSpan.FromSeconds(15), token);
 
@@ -246,7 +246,7 @@ internal static class ReactImportVerification
         metadata["version"] = "0.0.0";
         await File.WriteAllTextAsync(package, metadata.ToJsonString(), shutdown);
 
-        await ClickAsync("header button", "Progetti");
+        await ClickAsync(".sidebar button", "Progetti");
         await WaitAsync("document.querySelector('.project-table tbody th')?.textContent.includes('Probe') === true", TimeSpan.FromSeconds(15));
         await ClickAsync(".project-actions button", "Pacchetti");
         await WaitAsync("document.querySelector('.project-table tbody')?.textContent.includes('0.0.0') === true", TimeSpan.FromSeconds(15));
@@ -405,7 +405,7 @@ internal static class ReactImportVerification
         var identity = ProjectDirectoryIdentity.TryRead(path) ?? throw new IOException("Cannot identify the fixture folder.");
         var editedAsset = Path.Combine(path, "Assets", "ReactKeep.txt");
         await File.WriteAllTextAsync(editedAsset, "Keep this edit.", token);
-        const string projects = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Progetti')";
+        const string projects = "Array.from(document.querySelectorAll('.nav-item')).find(button => button.getAttribute('aria-label') === 'Progetti')";
         await Program.RequireAsync(core, projects + "?.disabled === false");
         await core.ExecuteScriptAsync(projects + ".click()");
         const string orphan = "Array.from(document.querySelectorAll('.project-table button')).find(button => button.textContent === 'Riprendi importazione')";

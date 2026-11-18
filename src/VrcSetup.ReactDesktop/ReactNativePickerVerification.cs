@@ -98,7 +98,7 @@ internal static class ReactNativePickerVerification
         var sentinel = Path.Combine(originalRoot, "fixture-project.keep");
         await File.WriteAllTextAsync(sentinel, "The native settings operations preserve existing files.", token);
         var assetHash = AtomicFile.Hash(sentinel);
-        const string settings = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Impostazioni')";
+        const string settings = "Array.from(document.querySelectorAll('.nav-item')).find(button => button.getAttribute('aria-label') === 'Impostazioni')";
         await Program.RequireAsync(core, settings + "?.disabled === false");
         await core.ExecuteScriptAsync(settings + ".click()");
         const string folderPicker = "document.getElementById('unityProjectsRoot')?.parentElement.querySelector('button')";
@@ -144,10 +144,10 @@ internal static class ReactNativePickerVerification
         var shareSettings = restored.Copy();
         shareSettings.PackagePresets[fixturePreset] = new() { ["com.vrchat.avatars"] = "3.10.6" };
         shareSettings = await engine.Configuration.MergeAsync(restored, shareSettings, token);
-        const string back = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === '← Importa')";
+        const string back = "document.querySelector('[data-nav=import]')";
         await Program.RequireAsync(core, back + "?.disabled === false");
         await core.ExecuteScriptAsync(back + ".click()");
-        const string presets = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Preset')";
+        const string presets = "document.querySelector('[data-nav=presets]')";
         const string exportPreset = "Array.from(document.querySelectorAll('.settings button')).find(button => button.textContent === 'Esporta preset')";
         const string importPreset = "Array.from(document.querySelectorAll('.settings button')).find(button => button.textContent === 'Importa preset')";
         await Program.RequireAsync(core, presets + "?.disabled === false");
@@ -203,8 +203,8 @@ internal static class ReactNativePickerVerification
         await engine.Configuration.MergeAsync(imported, ordered, token);
 
         await core.ExecuteScriptAsync(back + ".click()");
-        const string projects = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Progetti')";
-        const string pickProject = "Array.from(document.querySelectorAll('.project-tools button')).find(button => button.textContent === 'Apri progetto esistente')";
+        const string projects = "Array.from(document.querySelectorAll('.nav-item')).find(button => button.getAttribute('aria-label') === 'Progetti')";
+        const string pickProject = "Array.from(document.querySelectorAll('.project-header-actions button')).find(button => button.textContent === 'Apri progetto esistente')";
         const string rows = "document.querySelectorAll('.project-table tbody th')";
         await Program.RequireAsync(core, projects + "?.disabled === false");
         await core.ExecuteScriptAsync(projects + ".click()");
@@ -223,10 +223,10 @@ internal static class ReactNativePickerVerification
             throw new IOException("Opening an existing project's packages modified its manifest.");
         File.AppendAllText(trace, "Project sorting, native folder selection and invalid folder error verified.\n");
 
-        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync("document.querySelector('.page-back').click()");
         await Program.RequireAsync(core, back + "?.disabled === false");
         await core.ExecuteScriptAsync(back + ".click()");
-        const string activity = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Attività')";
+        const string activity = "Array.from(document.querySelectorAll('.nav-item')).find(button => button.getAttribute('aria-label') === 'Attività')";
         const string diagnostics = "Array.from(document.querySelectorAll('.activity button')).find(button => button.textContent === 'Esporta diagnostica')";
         var diagnosticsPath = Path.Combine(folder, SupportLogs.SuggestedName);
         await Program.RequireAsync(core, activity + "?.disabled === false");

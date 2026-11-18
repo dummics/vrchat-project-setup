@@ -101,3 +101,211 @@ button:hover { background: color-mix(in srgb, var(--surface), var(--foreground) 
 .help p{color:var(--muted);max-width:60ch}
 .help button{margin-top:8px}
 .app-version{font-size:12px;margin-left:auto;white-space:nowrap}
+
+/* Desktop navigation and status bar share the full window. */
+main {
+  display: grid;
+  grid-template: minmax(0, 1fr) 38px / auto minmax(0, 1fr);
+  max-width: none;
+  padding: 0;
+}
+.fluent-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  font: 16px "Segoe Fluent Icons", "Segoe MDL2 Assets";
+}
+.fluent-icon::before { content: attr(data-glyph); }
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 49px;
+  min-height: 0;
+  padding: 8px 4px 4px;
+  border-inline-end: 1px solid var(--line);
+  transition: width 160ms ease;
+}
+.sidebar[data-expanded=true] { width: 188px; }
+.sidebar-links {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
+}
+.nav-group { display: grid; gap: 2px; }
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 36px;
+  padding: 0 9px;
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+}
+.nav-label { visibility: hidden; }
+.sidebar[data-expanded=true] .nav-label { visibility: visible; }
+.nav-toggle { width: 40px; margin-bottom: 6px; }
+.nav-item[aria-current=page] { background: var(--surface); }
+.nav-item[aria-current=page]::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.nav-item:focus-visible { outline-offset: -2px; }
+.page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 24px 0;
+}
+.page-header {
+  flex: none;
+  min-width: 0;
+  padding: 0 0 16px;
+  align-items: center;
+}
+.page-heading { min-width: 0; }
+h1 { margin: 0; font-size: 24px; font-weight: 600; overflow-wrap: anywhere; }
+.page-back { margin-bottom: 8px; }
+button, select { min-height: 32px; }
+button { padding: 5px 11px; border-radius: 5px; }
+.primary:hover { background: color-mix(in srgb, var(--accent), var(--on-accent) 9%); }
+.page .view {
+  flex: 1;
+  min-height: 0;
+  padding: 2px 6px 12px 0;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  animation: page-in 160ms ease-out;
+}
+@keyframes page-in { from { opacity: .5; transform: translateX(8px); } }
+main[data-screen=import] .page > :is(header, .view, .import-actions) {
+  width: 100%;
+  max-width: 790px;
+  margin-inline: auto;
+}
+.import-actions { justify-content: end; min-height: 57px; padding-block: 10px; border-top: 1px solid var(--line); }
+.import-actions:empty { display: none; }
+.drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 18px;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--line), transparent 35%);
+}
+.drop .fluent-icon { width: auto; font-size: 28px; }
+.drop .drop-instruction { color: var(--foreground); font-size: 16px; }
+.drop .drop-choose {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--foreground);
+  background: var(--surface);
+  font-size: 13px;
+}
+.platforms { padding: 3px; background: var(--surface); border-radius: 6px; }
+.platforms button { background: transparent; border-color: transparent; }
+.platforms button[aria-pressed=true] { background: var(--accent); color: var(--on-accent); }
+.jobs article { background: transparent; }
+.jobs progress { height: 5px; }
+.jobs pre { min-height: 100px; max-height: 33vh; }
+main[data-screen=projects] .page-header { border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.project-tools { gap: 6px; flex-wrap: wrap; }
+.project-tools input { width: min(275px, 100%); padding-block: 6px; }
+.icon-button { display: grid; place-items: center; padding: 4px 7px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+main[data-screen=projects] .project-actions { gap: 6px; }
+main[data-screen=projects] .project-table { table-layout: fixed; }
+main[data-screen=projects] .project-table thead .project-select { width: 22px; }
+main[data-screen=projects] .project-table thead th:is(:nth-child(3), :nth-child(4)) { width: clamp(75px, 11vw, 130px); }
+main[data-screen=projects] .project-table thead th:last-child { width: 140px; }
+main[data-screen=projects] .project-table tbody small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+main[data-screen=projects] .project-table tbody th { font-size: 16px; font-weight: 600; }
+main[data-screen=projects] .project-table td:not(.project-select) { font-size: 12px; }
+main[data-screen=projects] .project-table :is(th,td) { border: 0; }
+main[data-screen=projects] .project-table tbody tr:hover { background: color-mix(in srgb, var(--surface), transparent 45%); }
+.project-table thead button { min-height: 28px; white-space: nowrap; }
+.project-table tbody th small { color: var(--muted); font-size: 12px; }
+.activity article { padding: 8px 12px 12px; }
+.activity article > .package > span { color: var(--muted); font-size: 12px; }
+.activity-actions button { min-height: 28px; padding: 3px 9px; }
+.activity-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.activity-toolbar h2 { margin: 0; padding: 10px 0; border-bottom: 2px solid var(--accent); font-size: 14px; }
+.activity-toolbar .actions { justify-content: end; flex-wrap: wrap; padding-bottom: 6px; }
+.preset-switcher { display: grid; grid-template-columns: 34px minmax(0, 250px) 34px; justify-content: center; gap: 10px; margin: 6px 0 20px; }
+.preset-switcher button, .preset-switcher select { background: transparent; border-color: transparent; }
+.preset-switcher select { min-width: 0; text-align: center; font-size: 19px; font-weight: 600; }
+.preset-switcher option { background: var(--surface); color: var(--foreground); }
+.preset-library > .package { min-height: 42px; border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 42%); }
+.preset-library > .package + h2 { margin-top: 20px; }
+.editor-heading, .editor .package {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 80px;
+  gap: 12px;
+  align-items: center;
+}
+.editor-heading { grid-template-columns: minmax(0, 1fr) 100px 80px; padding: 7px 0; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.editor .package > button { grid-column: 3; }
+.view.settings > form > .package, .view.settings .appearance-settings > .package { min-height: 48px; }
+.view.settings label.package > input[type=checkbox] {
+  appearance: none;
+  flex: none;
+  width: 38px;
+  height: 19px;
+  border-radius: 12px;
+  border: 1px solid var(--muted);
+  background: radial-gradient(circle at 9px 50%, var(--muted) 4px, transparent 4.5px);
+  cursor: pointer;
+}
+.view.settings label.package > input[type=checkbox]:checked {
+  border-color: var(--accent);
+  background: radial-gradient(circle at 27px 50%, var(--on-accent) 4px, transparent 4.5px), var(--accent);
+}
+.view.settings details:not(.help details) { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.information .help { margin-top: 0; margin-bottom: 12px; }
+footer {
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px 12px;
+  flex-wrap: nowrap;
+  background: var(--surface);
+  font-size: 12px;
+}
+footer [role=status] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-error { color: var(--foreground); }
+.app-version { font-size: 11px; }
+@media (max-width: 899px) {
+  main { grid-template-columns: 49px minmax(0, 1fr); }
+  .sidebar { position: relative; z-index: 2; background: var(--canvas); }
+  .sidebar[data-expanded=true] { box-shadow: 12px 0 18px #0003; }
+}
+@media (max-width: 650px) {
+  .page { padding-inline: 14px; }
+  .page-header { align-items: start; flex-wrap: wrap; }
+  main[data-screen=projects] .project-table :is(th,td):nth-child(4) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+  .page .view { animation: none; }
+}

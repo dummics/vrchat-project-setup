@@ -50,7 +50,7 @@ internal static class ReactPackageVerification
         await using (var writer = new StreamWriter(stream))
             await writer.WriteAsync(change.AsMemory(), token);
 
-        await ClickAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Progetti')");
+        await ClickAsync("Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === 'Progetti')");
         await OpenReviewAsync();
         await ClickAsync("document.querySelector('.backup-dialog button:not(.primary)')");
         await Program.RequireAsync(core, "document.querySelector('.backup-dialog') === null");
@@ -105,7 +105,7 @@ internal static class ReactPackageVerification
         var marker = Path.Combine(project, ".vrcsetup", "react-vpm-editor.txt");
         var quit = Path.Combine(project, ".vrcsetup", "react-vpm-exit.txt");
         const string indicator = "document.querySelector('.project-table .open-indicator')";
-        await ClickAsync("header button", "Progetti");
+        await ClickAsync(".sidebar button", "Progetti");
         await RequireAsync("document.querySelector('.project-actions button') !== null");
         await RequireAsync(indicator + " === null");
         using var process = editor is null ? null : await OpenEditorAsync(fixture, project, editor, token);
@@ -151,7 +151,7 @@ internal static class ReactPackageVerification
             }
             if (process is not null)
             {
-                await ClickAsync("header button", "← Progetti");
+                await ClickAsync(".page-back", "← Progetti");
                 await RequireAsync(indicator + " !== null");
             }
         }
