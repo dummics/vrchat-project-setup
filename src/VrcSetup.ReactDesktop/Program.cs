@@ -37,7 +37,8 @@ internal static class Program
         var verifyFeed = args is ["--verify-feed-update", _];
         var verifyRestarted = args is ["--verify-update-smoke", _];
         var portableFixture = args is ["--verify-portable-startup", var archiveRoot] ? Path.GetFullPath(archiveRoot) : null;
-        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update", var fixture]
+        var verifyMaintenance = args is ["--verify-installation-maintenance", _];
+        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update" or "--verify-installation-maintenance", var fixture]
             ? Path.GetFullPath(fixture) : null;
         if (verifyRestarted && profileFixture is not null && File.Exists(profileFixture))
         {
@@ -264,6 +265,11 @@ internal static class Program
                     if (feedFixture is not null)
                     {
                         await feedFixture.VerifyAsync(core, engine, shutdown.Token);
+                        return;
+                    }
+                    if (verifyMaintenance)
+                    {
+                        await VerifyInstallationMaintenanceAsync(core, engine, profileFixture);
                         return;
                     }
                     await VerifyInstalledProfileAsync(core, profileFixture, home, configuration,
@@ -715,6 +721,37 @@ internal static class Program
         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Settings').click()");
         await RequireAsync(core, "document.querySelector('#language')?.value === 'en'");
+    }
+
+    private static async Task VerifyInstallationMaintenanceAsync(CoreWebView2 core, VrcSetupApplication engine, string folder)
+    {
+        var menu = Path.Combine(folder, "start-menu");
+        var desktop = Path.Combine(folder, "desktop");
+        if (Environment.GetEnvironmentVariable("VRCSETUP_SKIP_PATH_UPDATE") != "1" ||
+            Environment.GetEnvironmentVariable("VRCSETUP_START_MENU_ROOT") != menu ||
+            Environment.GetEnvironmentVariable("VRCSETUP_DESKTOP_ROOT") != desktop ||
+            !string.Equals(Path.GetDirectoryName(engine.Paths.PayloadRoot), folder, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Installation maintenance requires an isolated install and shortcut roots.");
+        var shortcut = Path.Combine(menu, "VRChat Project Setup", "VRC Project Setup.lnk");
+        if (File.Exists(shortcut)) throw new IOException("Remove the isolated shortcut before verifying repair.");
+        var label = JsonSerializer.Serialize(UiText.Text("Settings"));
+        await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('header button')).find(x => x.textContent === {label}).click()");
+        const string menuSelector = "document.querySelector('.settings-maintenance summary')";
+        const string repair = """document.querySelector('[data-maintenance-action="repairInstallation"]')""";
+        const string uninstall = """document.querySelector('[data-maintenance-action="uninstallInstallation"]')""";
+        await RequireAsync(core, repair + "?.disabled === false");
+        await core.ExecuteScriptAsync(menuSelector + ".click()");
+        await core.ExecuteScriptAsync(repair + ".click()");
+        await RequireAsync(core, repair + "?.disabled === false && document.querySelector('footer [role=status]').textContent.length > 0");
+        if (!File.Exists(shortcut)) throw new IOException("Repair did not recreate the shortcut.");
+        await core.ExecuteScriptAsync(uninstall + ".click()");
+        await RequireAsync(core, "document.querySelector('dialog[open]') !== null");
+        await core.ExecuteScriptAsync("document.querySelector('dialog button').click()");
+        if (!File.Exists(shortcut)) throw new IOException("Cancelling uninstall modified the shortcuts.");
+        await AtomicFile.WriteJsonAsync(Path.Combine(folder, "maintenance-handoff.json"),
+            new { ShortcutRepaired = true, CancelledUninstallPreservedShortcut = true, ConfigHash = AtomicFile.Hash(engine.Paths.ConfigFile) });
+        await core.ExecuteScriptAsync(uninstall + ".click()");
+        await core.ExecuteScriptAsync("document.querySelector('dialog .primary').click()");
     }
 
     private static async Task VerifyMaintenanceAsync(CoreWebView2 core, VrcSetupApplication engine)

@@ -1,12 +1,14 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$Installer, [Parameter(Mandatory=$true)][string]$TestRoot, [string]$ComponentsDirectory)
+param([Parameter(Mandatory=$true)][string]$Installer, [Parameter(Mandatory=$true)][string]$TestRoot, [string]$ComponentsDirectory, [switch]$React)
 $ErrorActionPreference = 'Stop'
 $Installer = [IO.Path]::GetFullPath($Installer)
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (Test-Path -LiteralPath $TestRoot) { throw 'Choose a fresh test folder; existing evidence is preserved.' }
 [void][IO.Directory]::CreateDirectory($TestRoot)
 $previousSkip = $env:VRCSETUP_SKIP_PATH_UPDATE; $previousMenu = $env:VRCSETUP_START_MENU_ROOT
-$env:VRCSETUP_SKIP_PATH_UPDATE = '1'; $env:VRCSETUP_START_MENU_ROOT = Join-Path $TestRoot 'menu'
+$previousDesktop = $env:VRCSETUP_DESKTOP_ROOT; $previousHome = $env:VRCSETUP_HOME
+$env:VRCSETUP_SKIP_PATH_UPDATE = '1'; $env:VRCSETUP_START_MENU_ROOT = Join-Path $TestRoot 'start-menu'
+$env:VRCSETUP_DESKTOP_ROOT = Join-Path $TestRoot 'desktop'
 $program = Join-Path $TestRoot ('Program [test] & caf' + [char]0xE9); $dataRoot = Join-Path $TestRoot 'home'
 if ($ComponentsDirectory) {
     $cache = Join-Path $dataRoot 'updates/components'; [void][IO.Directory]::CreateDirectory($cache)
@@ -58,8 +60,26 @@ try {
     Assert-Test ($LASTEXITCODE -eq 0) 'Installed command alias resolves bundled CLI'
     $safety = Join-Path $TestRoot 'Project\Assets'; [void][IO.Directory]::CreateDirectory($safety)
     [IO.File]::WriteAllText((Join-Path $safety 'keep.txt'),'personal project')
-    & $cli uninstall --root $program --home $dataRoot --yes
-    Assert-Test ($LASTEXITCODE -eq 0) 'Running CLI schedules self-uninstall'
+    if ($React) {
+        Set-Content -LiteralPath (Join-Path $TestRoot '.react-profile-fixture') 'Owned isolated installer test.'
+        Remove-Item -LiteralPath $newLink
+        $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $program 'app/desktop/VrcSetup.Desktop.exe'))
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $start.WorkingDirectory = [IO.Path]::GetTempPath()
+        $start.ArgumentList.Add('--verify-installation-maintenance')
+        $start.ArgumentList.Add($TestRoot)
+        $desktop = [Diagnostics.Process]::Start($start)
+        if (-not $desktop.WaitForExit(120000)) { $desktop.Kill($true); throw 'React maintenance timed out.' }
+        $failure = Join-Path $TestRoot 'failure.txt'
+        if (Test-Path -LiteralPath $failure) { Get-Content -LiteralPath $failure }
+        Assert-Test ($desktop.ExitCode -eq 0) 'React schedules self-uninstall and closes'
+        $proof = Get-Content -LiteralPath (Join-Path $TestRoot 'maintenance-handoff.json') -Raw | ConvertFrom-Json
+        Assert-Test ($proof.ShortcutRepaired -and $proof.CancelledUninstallPreservedShortcut) 'Repair and cancel uninstall work in React'
+    } else {
+        & $cli uninstall --root $program --home $dataRoot --yes
+        Assert-Test ($LASTEXITCODE -eq 0) 'Running CLI schedules self-uninstall'
+    }
     for ($attempt = 0; $attempt -lt 40; $attempt++) {
         if (-not (Test-Path -LiteralPath $program) -and -not (Get-ChildItem -LiteralPath $TestRoot -Directory | Where-Object { $_.Name -like 'Program*.uninstall-*' })) { break }
         Start-Sleep -Milliseconds 500
@@ -71,4 +91,9 @@ try {
     Assert-Test (-not (Test-Path -LiteralPath (Join-Path $env:VRCSETUP_START_MENU_ROOT 'VRChat Project Setup'))) 'Uninstall removes owned shortcuts'
     [IO.File]::WriteAllText((Join-Path $TestRoot 'checks.json'),(@{ Passed=$true; Checks=@($checks) } | ConvertTo-Json -Depth 4))
 }
-finally { $env:VRCSETUP_SKIP_PATH_UPDATE = $previousSkip; $env:VRCSETUP_START_MENU_ROOT = $previousMenu; Remove-Item Env:VRCSETUP_HOME -ErrorAction SilentlyContinue }
+finally {
+    $env:VRCSETUP_SKIP_PATH_UPDATE = $previousSkip
+    $env:VRCSETUP_START_MENU_ROOT = $previousMenu
+    $env:VRCSETUP_DESKTOP_ROOT = $previousDesktop
+    $env:VRCSETUP_HOME = $previousHome
+}

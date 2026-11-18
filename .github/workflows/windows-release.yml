@@ -271,7 +271,7 @@ jobs:
       - name: Verify install, repair and shortcut migration
         shell: pwsh
         run: |
-          ./tests/Run-InstallerTests.ps1 -Installer (Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_ASSET_ID-win-x64.exe") -TestRoot (Join-Path $env:RUNNER_TEMP 'installer-lifecycle') -ComponentsDirectory (Join-Path $pwd release)
+          ./tests/Run-InstallerTests.ps1 -Installer (Join-Path $pwd "release/Install-VrcSetup-$env:RELEASE_ASSET_ID-win-x64.exe") -TestRoot (Join-Path $env:RUNNER_TEMP 'installer-lifecycle') -ComponentsDirectory (Join-Path $pwd release) -React:($env:REACT_DESKTOP -eq 'true')
       - name: Verify manual completion and version warnings
         shell: pwsh
         run: |

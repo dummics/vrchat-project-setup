@@ -390,10 +390,10 @@ function ImportPage() {
       <details className="settings-maintenance"><summary>{t("Manutenzione")}</summary>
         <div className="actions">
           {(Object.keys(maintenance) as Maintenance[]).filter(action => action !== 'uninstallInstallation' || update?.installed).map(action => (
-            <button key={action} disabled={!!busy || settingsDirty || state?.jobs.some(job => job.active)}
+            <button key={action} data-maintenance-action={action} disabled={!!busy || settingsDirty || state?.jobs.some(job => job.active)}
               onClick={() => setMaintenanceAction(action)}>{t(maintenance[action][0])}</button>
           ))}
-          {update?.installed && <button disabled={!!busy || settingsDirty || state?.jobs.some(job => job.active)}
+          {update?.installed && <button data-maintenance-action="repairInstallation" disabled={!!busy || settingsDirty || state?.jobs.some(job => job.active)}
             onClick={() => void run(t("Verifica installazione…"), async () => {
               await request('repairInstallation');
               setNotice(t("Installazione e collegamenti verificati."));

@@ -37,7 +37,7 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
         var offered = available is { } release && Allows(release.Version, config) ? release.Version : null;
         var ready = enabled && state.Ready is { } prepared && IsNewerAllowed(prepared.Version, config)
             ? prepared.Version : null;
-        return new(ApplicationUpdates.CurrentVersion, enabled, enabled && automatic.Installed, offered, ready);
+        return new(ApplicationUpdates.CurrentVersion, enabled, automatic.Installed, offered, ready);
     }
 
     internal async Task<UpdateView> CheckAsync(bool manual, CancellationToken token)
