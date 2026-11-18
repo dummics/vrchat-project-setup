@@ -15,6 +15,11 @@ internal static class Program
     {
         var startup = System.Diagnostics.Stopwatch.StartNew();
         var smoke = args is ["--smoke", var evidence] ? Path.GetFullPath(evidence) : null;
+        if (smoke is not null && Directory.Exists(smoke))
+        {
+            Environment.ExitCode = 2;
+            return;
+        }
         var home = smoke ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "VrcSetup-React-Candidate");
         Directory.CreateDirectory(home);
@@ -73,8 +78,9 @@ internal static class Program
                 core.FrameNavigationStarting += (_, e) => e.Cancel = true;
                 core.NewWindowRequested += (_, e) => e.Handled = true;
                 core.DownloadStarting += (_, e) => e.Cancel = true;
-                await engine.Imports.InitializeAsync();
                 if (smoke is not null) await bridge.SeedSmokeAsync(smoke);
+                bridge.ConfigureQueue(await engine.Configuration.LoadAsync());
+                await engine.Imports.InitializeAsync();
                 bridge.Attach(core);
                 core.Navigate(ImportBridge.Page);
                 if (smoke is not null)
@@ -87,11 +93,16 @@ internal static class Program
                         await VerifyDraftActionsAsync(core);
                         using var screenshot = File.Create(Path.Combine(smoke, "import-react-720.png"));
                         await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, screenshot);
+                        await VerifyProjectListAsync(core);
+                        await VerifyRecoveryAndActivityAsync(core);
+                        await VerifySettingsAsync(core);
                         await File.WriteAllTextAsync(Path.Combine(smoke, "result.json"), JsonSerializer.Serialize(new
                         {
                             passed = true, readyMs, runtime = environment.BrowserVersionString, drafts = 6, target = "Android",
                             checks = new[] { "native handshake", "six analyzed archives", "compact Quest filename",
-                                "independent tab state", "package panel and exclusion" }
+                                "independent tab state", "package panel and exclusion", "project discovery and search",
+                                "compilation recovery action and dismissal", "activity and import log", "VPM restore review",
+                                "import preferences persist and hide completed imports" }
                         }));
                         window.Close();
                         return;
@@ -110,17 +121,80 @@ internal static class Program
         app.Run(window);
     }
 
+    private static async Task VerifyProjectListAsync(CoreWebView2 core)
+    {
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Progetti').click()");
+        await RequireAsync(core, "document.querySelector('.project-table tbody th')?.textContent.includes('Avatar di prova')");
+        await core.ExecuteScriptAsync("""
+            const search = document.querySelector('.project-tools input');
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(search, 'no-match');
+            search.dispatchEvent(new Event('input', { bubbles: true }));
+            """);
+        await RequireAsync(core, "document.querySelector('.view').textContent.includes('Nessun progetto corrispondente')");
+        await core.ExecuteScriptAsync("""
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(search, '');
+            search.dispatchEvent(new Event('input', { bubbles: true }));
+            """);
+        await RequireAsync(core, "document.querySelector('.project-actions button')?.textContent === 'Pacchetti'");
+        await core.ExecuteScriptAsync("document.querySelector('.project-actions button').click()");
+        await RequireAsync(core, "document.querySelector('.view').textContent.includes('Mancante')");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === 'Ripristina pacchetti').click()");
+        await RequireAsync(core, "document.querySelector('.view .extras')?.textContent.includes('1.0.0')");
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await RequireAsync(core, "document.querySelector('h1').textContent === 'Progetti'");
+    }
+
+    private static async Task VerifyRecoveryAndActivityAsync(CoreWebView2 core)
+    {
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await RequireAsync(core, """
+            (() => {
+              const card = document.querySelector('#job-smoke-compilation');
+              return card?.textContent.includes('Apri in Unity') && !card.textContent.includes('Riprova');
+            })()
+            """);
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('#job-smoke-compilation button')).find(x => x.textContent === 'Nascondi avviso').click()");
+        await RequireAsync(core, "!document.querySelector('#job-smoke-compilation').textContent.includes('Nascondi avviso')");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Attività').click()");
+        await RequireAsync(core, "document.querySelector('.activity')?.textContent.includes('Avatar di prova')");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.activity article')).find(x => x.textContent.includes('Avatar di prova')).querySelector('button').click()");
+        await RequireAsync(core, "document.querySelector('.activity pre')?.textContent.includes('Script compilation failed in test fixture')");
+    }
+
+    private static async Task VerifySettingsAsync(CoreWebView2 core)
+    {
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await RequireAsync(core, "document.getElementById('job-smoke-completed') !== null");
+        const string settings = "Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Impostazioni').click()";
+        await core.ExecuteScriptAsync(settings);
+        await RequireAsync(core, "document.querySelector('.settings input')?.checked === false");
+        await core.ExecuteScriptAsync("""
+            document.querySelector('.settings input').click();
+            const limit = document.querySelector('.settings select');
+            limit.value = '6';
+            limit.dispatchEvent(new Event('change', { bubbles: true }));
+            """);
+        await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
+        await RequireAsync(core, "document.querySelector('footer [role=status]').textContent === 'Impostazioni salvate.'");
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await RequireAsync(core, "document.getElementById('job-smoke-completed') === null");
+        await core.ExecuteScriptAsync(settings);
+        await RequireAsync(core, "document.querySelector('.settings input')?.checked && document.querySelector('.settings select').value === '6'");
+    }
+
+    private static async Task RequireAsync(CoreWebView2 core, string condition)
+    {
+        for (var attempt = 0; attempt < 30; ++attempt)
+        {
+            if (await core.ExecuteScriptAsync(condition) == "true") return;
+            await Task.Delay(50);
+        }
+        throw new IOException($"React smoke assertion failed: {condition}");
+    }
+
     private static async Task VerifyDraftActionsAsync(CoreWebView2 core)
     {
-        async Task Require(string condition)
-        {
-            for (var attempt = 0; attempt < 30; ++attempt)
-            {
-                if (await core.ExecuteScriptAsync(condition) == "true") return;
-                await Task.Delay(50);
-            }
-            throw new IOException($"React smoke assertion failed: {condition}");
-        }
+        Task Require(string condition) => RequireAsync(core, condition);
 
         await core.ExecuteScriptAsync("document.querySelector('.platforms button').click()");
         await Require("document.querySelector('.platforms [aria-pressed=true]').textContent === 'PC'");

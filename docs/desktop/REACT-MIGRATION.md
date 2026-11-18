@@ -19,6 +19,8 @@ C# owns archive paths, inspection, configuration, the reviewed plan and the
 import queue. Dropped files use native WebView2 file objects and browsers load
 only the bundled UI. The current candidate covers Import with independent
 drafts, presets, exclusions, explicit additions, review and queue controls.
+It also previews project discovery and VPM restore, reads Activity history,
+and saves import preferences in the isolated candidate profile.
 The production installer and version stay on the existing WinUI path.
 
 ## Initial measurements and milestone
@@ -38,6 +40,26 @@ archive hash. First-ready time includes fixture staging; compare startup and
 process-tree RAM with equivalent workloads before promoting the candidate.
 Exercise Explorer drag-and-drop and a real Unity import in a disposable
 workspace before beta.
+
+## Parity checkpoint
+
+The isolated React host now uses the same import journal, project workspace,
+VPM restore planner, activity reader and configuration store as the released
+app. This does not enable the candidate to operate on the installed profile.
+
+| Surface | Verified in the candidate | Still required |
+| --- | --- | --- |
+| Import | Six archives, independent draft targets, package exclusions, distinct compilation error action and dismissible notice | Explorer drop, full Unity import, source relocation, existing destination recovery, pause and resume across restart, owned-project cancellation and Creator Companion with real fixtures |
+| Projects | Discovery and search on an isolated Unity folder | Opening and live editor indicator, add/create, batch and project options, external registrations |
+| Project packages | Read installed/locked versions and review restore using VPM metadata | Execute restore with real VPM packages, browse/add/update/downgrade/remove and review Unity-open behavior |
+| Activity | Import history and opening its log | Operation detail, operation log and diagnostic ZIP verification |
+| Settings | Save and reload import limit and hide-completed preference | Editor/path options, appearance, native update service, help and complete IT/EN |
+| Presets | Select a saved preset during import | Standalone management, browsing, versions, favourites and sharing |
+| Installer | Bridge 0.3.7 on the stable feed | Production payload, updater and offline portable, clean upgrade from 0.3.7 with preserved data, same-version builds and rollback |
+
+Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
+Unity folder in that directory, exercises the React UI, and records
+`result.json`. The smoke uses no live Unity editor or project.
 
 ## Integration order
 
