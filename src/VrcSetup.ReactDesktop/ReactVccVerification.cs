@@ -62,7 +62,7 @@ internal static class ReactVccVerification
         await core.ExecuteScriptAsync(retry + ".click()");
         await Program.RequireAsync(core, retry + " === undefined && " + row + "?.textContent.includes('Completata')", attempts: 400);
         var persisted = await AtomicFile.ReadJsonAsync<ImportJob[]>(Path.Combine(engine.Paths.Home, "imports.json"), token);
-        var listed = await engine.Tools.VpmAsync(["list", "projects"], cancellationToken: token);
+        var listed = await new ToolRunner().VpmAsync(["list", "projects"], cancellationToken: token);
         if (persisted?.Single(job => job.Id == JobId) is not { State: "Completed", CreatorCompanionPending: false } ||
             listed.ExitCode != 0 || !listed.Output.Contains(ProjectName, StringComparison.OrdinalIgnoreCase) ||
             AtomicFile.Hash(manifest) != originalManifest)
