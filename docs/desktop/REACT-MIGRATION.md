@@ -44,9 +44,10 @@ workspace before beta.
 
 ## Parity checkpoint
 
-The isolated React host now uses the same import journal, project workspace,
-VPM restore planner, activity reader and configuration store as the released
-app. This does not enable the candidate to operate on the installed profile.
+The React host uses the existing project workspace, import journal, VPM
+planner, activity reader and configuration store. The standalone candidate
+has a private profile. A package in the installation layout reads the home
+recorded by the installer, or its own `data/` in portable mode.
 
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
@@ -54,9 +55,9 @@ app. This does not enable the candidate to operate on the installed profile.
 | Projects | Discovery, search and invalid name validation on an isolated Unity folder | Verify folder picker, create using installed Unity, opening and live editor indicator, batch and project options, external registrations |
 | Project packages | Read installed/locked versions, review restore and removal, protect required packages | Exercise catalog, version pin, add/update/downgrade/remove/restore with a real package repository and validate Unity-open behavior |
 | Activity | Import history and opening its log | Operation detail, operation log and diagnostic ZIP verification |
-| Settings | Save and reload import limit and hide-completed preference | Editor/path options, appearance, native update service, help and complete IT/EN |
+| Settings | Save and reload import preferences; independent alpha opt-in controls prepared installation | Editor/path options, appearance, live feed and update preparation, help and complete IT/EN |
 | Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
-| Installer | Bridge 0.3.7 on the stable feed; candidate payload and component bootstrapper replace 0.3.7 on an isolated fixture | Production profile startup, update feed and restart, offline portable, same-version builds and exercised rollback |
+| Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7 | Live feed/download/prefetch, Fixed Version offline portable, same-version build ordering, final production release |
 
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
@@ -79,10 +80,18 @@ The CLI installer and component bootstrapper both upgraded the verified
 0.3.7 portable release in an isolated install directory. The bootstrapper used
 locally cached components. Checks confirmed the shortcut target, unchanged
 configuration and import journal, removal of active WinUI resources and a
-preserved WinUI rollback copy. The installed React executable passed
-`--smoke` with its own fixture profile. Normal startup of the React candidate
-still uses candidate data, so the successful swap does not establish that
-React opens the migrated profile or processes automatic updates.
+preserved WinUI rollback copy. An isolated profile originally installed by
+0.3.7 then started React from that same entry point. React showed the saved
+project, preset and history without modifying the configuration.
+
+With verified components in the isolated profile cache, React rejected a
+prepared alpha with alpha opt-in off. After opting in, `0.4.0-alpha.3`
+handed off to the bootstrapper, exited, and relaunched as
+`0.4.0-alpha.4` with the same profile. A forced Start menu path collision
+after the program swap restored the original 0.3.7 marker, WinUI files and
+configuration. The prepared-update test seeds the receipt and cached files
+to exercise channel gating, installation and restart. Feed discovery and
+download/prefetch still require integration verification.
 
 ## Integration order
 

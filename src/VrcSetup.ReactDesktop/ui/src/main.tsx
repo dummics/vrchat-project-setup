@@ -19,7 +19,17 @@ type Project = {
 };
 type Review = { id: string; destinations: string[]; continuation?: boolean };
 type Activity = { id: string; name: string; date: string; kind: 'project' | 'import' | 'operation'; status: string };
-type ImportPreferences = { maxParallelImports: number; autoHideCompletedImports: boolean };
+type ImportPreferences = {
+  maxParallelImports: number; autoHideCompletedImports: boolean; checkUpdatesOnStartup: boolean;
+  automaticUpdates: boolean; includeBetaUpdates: boolean; includeAlphaUpdates: boolean;
+};
+type UpdateView = { current: string; enabled: boolean; installed: boolean; available?: string; ready?: string };
+const updateOptions = [
+  ['checkUpdatesOnStartup', 'Controlla automaticamente gli aggiornamenti'],
+  ['automaticUpdates', 'Prepara gli aggiornamenti per il prossimo avvio'],
+  ['includeBetaUpdates', 'Includi le versioni beta'],
+  ['includeAlphaUpdates', 'Includi le versioni alpha sperimentali']
+] as const;
 const activityStatuses: Record<string, string> = {
   completed: 'Completata', recovered: 'Completata', warning: 'Completata con avviso', failed: 'Non riuscita',
   cancelled: 'Annullata', interrupted: 'Interrotta', paused: 'In pausa', queued: 'In coda', running: 'In corso',
@@ -87,6 +97,8 @@ function ImportPage() {
   const [packageBack, setPackageBack] = useState<'import' | 'projects'>('projects');
   const [notice, setNotice] = useState('');
   const [preferences, setPreferences] = useState<ImportPreferences>();
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [update, setUpdate] = useState<UpdateView>();
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<'name' | 'lastUpdatedUtc' | 'createdUtc'>('lastUpdatedUtc');
   const [busy, setBusy] = useState('');
@@ -164,6 +176,8 @@ function ImportPage() {
   function showSettings() {
     void run('Lettura impostazioni…', async () => {
       setPreferences(await request<ImportPreferences>('importPreferences'));
+      setUpdate(await request<UpdateView>('updateStatus'));
+      setSettingsDirty(false);
       setNotice('');
       setScreen('settings');
     });
@@ -214,28 +228,52 @@ function ImportPage() {
         event.preventDefault();
         void run('Salvataggio…', async () => {
           setState(await request<State>('saveImportPreferences', preferences));
+          setUpdate(await request<UpdateView>('updateStatus'));
+          setSettingsDirty(false);
           setNotice('Impostazioni salvate.');
         });
       }}>
         <fieldset disabled={!!busy}>
           <label className="package">Nascondi importazioni completate
             <input type="checkbox" checked={preferences.autoHideCompletedImports} onChange={event => {
-              setPreferences({ ...preferences, autoHideCompletedImports: event.target.checked }); setNotice('');
+              setPreferences({ ...preferences, autoHideCompletedImports: event.target.checked }); setNotice(''); setSettingsDirty(true);
             }} />
           </label>
           <details><summary>Impostazioni avanzate</summary>
             <label className="package">Limite importazioni simultanee
               <select value={preferences.maxParallelImports} onChange={event => {
-                setPreferences({ ...preferences, maxParallelImports: Number(event.target.value) }); setNotice('');
+                setPreferences({ ...preferences, maxParallelImports: Number(event.target.value) }); setNotice(''); setSettingsDirty(true);
               }}>
                 <option value={0}>Automatico</option>
                 {Array.from({ length: 8 }, (_, index) => <option value={index + 1} key={index}>{index + 1}</option>)}
               </select>
             </label>
           </details>
+          <h2>Aggiornamenti</h2>
+          {updateOptions.map(([key, label]) => <label className="package" key={key}>{label}
+            <input type="checkbox" checked={preferences[key]} onChange={event => {
+              setPreferences({ ...preferences, [key]: event.target.checked }); setNotice(''); setSettingsDirty(true);
+            }} />
+          </label>)}
           <button type="submit" className="primary">Salva</button>
         </fieldset>
       </form>
+      {update?.enabled && <section className="extras" aria-label="Versione applicazione">
+        <p>Versione {update.current}{update.ready ? ` · ${update.ready} pronta` : update.available ? ` · ${update.available} disponibile` : ''}</p>
+        <div className="actions">
+          <button disabled={!!busy || settingsDirty} onClick={() => void run('Ricerca aggiornamenti…', async () => {
+            const status = await request<UpdateView>('checkUpdate');
+            setUpdate(status);
+            setNotice(status.available ? '' : 'L’app è aggiornata.');
+          })}>Controlla aggiornamenti</button>
+          {update.installed && update.available && !update.ready && <button className="primary" disabled={!!busy || settingsDirty}
+            onClick={() => void run('Preparazione aggiornamento…', async () => setUpdate(await request<UpdateView>('prepareUpdate', update.available)))}>
+            Prepara aggiornamento
+          </button>}
+          {update.installed && update.ready && <button className="primary" disabled={!!busy || settingsDirty}
+            onClick={() => void run('Avvio aggiornamento…', async () => { await request('applyUpdate'); })}>Aggiorna e riavvia</button>}
+        </div>
+      </section>}
     </section> : screen === 'project-packages' && projectPackages ? <section className="view" key="project-packages">
       <ProjectPackages project={projectPackages} busy={!!busy} request={request} run={run}
         onApplied={(project, message) => { setProjectPackages(project); setNotice(message); }} />

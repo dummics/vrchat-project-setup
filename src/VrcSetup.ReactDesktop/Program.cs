@@ -15,25 +15,48 @@ internal static class Program
     {
         var startup = System.Diagnostics.Stopwatch.StartNew();
         var smoke = args is ["--smoke", var evidence] ? Path.GetFullPath(evidence) : null;
+        var verifyPrepared = args is ["--verify-prepared-update", _];
+        var verifyRestarted = args is ["--verify-update-smoke", _];
+        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke", var fixture]
+            ? Path.GetFullPath(fixture) : null;
+        var offscreen = smoke is not null || profileFixture is not null;
         if (smoke is not null && Directory.Exists(smoke))
         {
             Environment.ExitCode = 2;
             return;
         }
-        var home = smoke ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "VrcSetup-React-Candidate");
+        var paths = new AppPaths();
+        var distributed = IsDistribution(paths);
+        if (profileFixture is not null)
+        {
+            if (!distributed || !File.Exists(Path.Combine(profileFixture, ".react-profile-fixture")) ||
+                !File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-install.json")) || !File.Exists(paths.ConfigFile))
+            {
+                Environment.ExitCode = 2;
+                return;
+            }
+            ProjectRules.EnsureContained(profileFixture, paths.PayloadRoot);
+            ProjectRules.EnsureContained(profileFixture, paths.Home);
+        }
+        var isolated = smoke is not null || !distributed;
+        var home = smoke ?? (isolated
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup-React-Candidate")
+            : paths.Home);
         Directory.CreateDirectory(home);
-        using var lease = new FileStream(Path.Combine(home, "candidate.lock"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+        using var lease = new FileStream(Path.Combine(home, "react-desktop.lock"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
         var app = new Application();
-        var engine = new VrcSetupApplication(home, ["--no-vcc-registration", "--no-catalog-refresh"]);
+        var engine = new VrcSetupApplication(isolated ? home : null, isolated || offscreen
+            ? ["--no-vcc-registration", "--no-catalog-refresh"] : []);
+        using var shutdown = new CancellationTokenSource();
+        var updates = new DesktopUpdates(engine, !isolated && (!offscreen || verifyPrepared));
         var web = new WebView2();
         var window = new Window
         {
-            Title = "VRC Project Setup • React candidate",
-            Width = smoke is null ? 1160 : 720, Height = smoke is null ? 800 : 620,
+            Title = isolated ? "VRC Project Setup • React candidate" : "VRC Project Setup",
+            Width = offscreen ? 720 : 1160, Height = offscreen ? 620 : 800,
             MinWidth = 520, MinHeight = 420, Content = web
         };
-        if (smoke is not null)
+        if (offscreen)
         {
             window.WindowStartupLocation = WindowStartupLocation.Manual;
             window.Left = -12000;
@@ -41,7 +64,7 @@ internal static class Program
             window.ShowInTaskbar = false;
         }
 
-        using var bridge = new ImportBridge(window, engine);
+        using var bridge = new ImportBridge(window, engine, isolated, updates);
         var closing = false;
         var draining = false;
         window.Closing += async (_, args) =>
@@ -49,22 +72,52 @@ internal static class Program
             if (closing) return;
             args.Cancel = true;
             if (draining) return;
-            if (engine.Imports.HasActiveJobs || bridge.IsBusy)
+            if (bridge.IsBusy)
             {
-                MessageBox.Show(window, "Attendi che le importazioni finiscano.", window.Title);
+                MessageBox.Show(window, "Attendi la fine dell’operazione in corso, poi chiudi l’app.", window.Title);
                 return;
             }
             draining = true;
-            await Task.Yield(); // Let WPF finish the cancelled close before issuing another.
-            await engine.Imports.DisposeAsync();
+            if (engine.Imports.HasActiveJobs &&
+                MessageBox.Show(window, "Mettere in pausa le importazioni e chiudere l’app?", window.Title,
+                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes)
+            {
+                draining = false;
+                return;
+            }
+            bridge.Closing = true;
+            try
+            {
+                await Task.Yield(); // Let WPF finish the cancelled close before issuing another.
+                await engine.Imports.DisposeAsync();
+            }
+            catch (Exception error) when (DesktopUpdates.IsRecoverable(error))
+            {
+                engine.Diagnostics.Write("React shutdown", error.Message, error);
+                bridge.Closing = false;
+                draining = false;
+                MessageBox.Show(window, "Impossibile salvare la pausa delle importazioni. Riprova prima di chiudere.", window.Title);
+                return;
+            }
             closing = true;
             window.Close();
         };
-        window.Closed += (_, _) => web.Dispose();
+        window.Closed += (_, _) => { shutdown.Cancel(); web.Dispose(); };
         window.Loaded += async (_, _) =>
         {
             try
             {
+                try
+                {
+                    if (await updates.StartReadyAsync(manual: false, shutdown.Token))
+                    {
+                        window.Close();
+                        return;
+                    }
+                }
+                catch (Exception error) when (!verifyPrepared && DesktopUpdates.IsRecoverable(error))
+                { engine.Diagnostics.Write("React prepared update", error.Message, error); }
+                if (verifyPrepared) throw new IOException("The prepared fixture update did not start.");
                 if (!Directory.Exists(Path.Combine(AppContext.BaseDirectory, "web")))
                     throw new IOException("Gli asset React della build non sono disponibili.");
                 var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(home, "webview"));
@@ -79,10 +132,22 @@ internal static class Program
                 core.NewWindowRequested += (_, e) => e.Handled = true;
                 core.DownloadStarting += (_, e) => e.Cancel = true;
                 if (smoke is not null) await bridge.SeedSmokeAsync(smoke);
-                bridge.ConfigureQueue(await engine.Configuration.LoadAsync());
+                var configuration = await engine.Configuration.LoadAsync();
+                if (profileFixture is not null)
+                    ProjectRules.EnsureContained(profileFixture, configuration.UnityProjectsRoot);
+                bridge.ConfigureQueue(configuration);
                 await engine.Imports.InitializeAsync();
                 bridge.Attach(core);
                 core.Navigate(ImportBridge.Page);
+                _ = updates.RunInBackgroundAsync(shutdown.Token);
+                if (profileFixture is not null)
+                {
+                    await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
+                    await VerifyInstalledProfileAsync(core, profileFixture, home, configuration,
+                        verifyRestarted ? "restarted-profile.json" : "installed-profile.json");
+                    window.Close();
+                    return;
+                }
                 if (smoke is not null)
                 {
                     for (var i = 0; i < 100; ++i)
@@ -103,7 +168,8 @@ internal static class Program
                             checks = new[] { "native handshake", "six analyzed archives", "compact Quest filename",
                                 "independent tab state", "package panel and exclusion", "project discovery, search and name validation",
                                 "compilation recovery action and dismissal", "activity and import log", "VPM restore and removal review",
-                                "import preferences persist and hide completed imports", "preset create and rename persist" }
+                                "import preferences persist and hide completed imports", "independent alpha opt-in persists",
+                                "preset create and rename persist" }
                         }));
                         window.Close();
                         return;
@@ -113,13 +179,46 @@ internal static class Program
             }
             catch (Exception error)
             {
-                if (smoke is not null) File.WriteAllText(Path.Combine(smoke, "failure.txt"), error.ToString());
+                if ((smoke ?? profileFixture) is { } evidenceFolder)
+                    File.WriteAllText(Path.Combine(evidenceFolder, "failure.txt"), error.ToString());
                 else MessageBox.Show(window, error.Message, window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.ExitCode = 1;
                 window.Close();
             }
         };
         app.Run(window);
+    }
+
+    private static bool IsDistribution(AppPaths paths)
+    {
+        var desktop = Path.Combine(paths.PayloadRoot, "app", "desktop");
+        return string.Equals(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory), desktop, StringComparison.OrdinalIgnoreCase) &&
+            (File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-install.json")) ||
+             File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-portable")));
+    }
+
+    private static async Task VerifyInstalledProfileAsync(CoreWebView2 core, string folder, string home,
+        AppConfiguration configuration, string reportName)
+    {
+        async Task<string[]> Read(string page, string selector)
+        {
+            var label = JsonSerializer.Serialize(page);
+            await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('header button')).find(x => x.textContent === {label}).click()");
+            await RequireAsync(core, $"document.querySelector('h1').textContent === {label}");
+            var result = await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll({JsonSerializer.Serialize(selector)}), x => x.textContent.trim())");
+            await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+            await RequireAsync(core, "document.querySelector('h1').textContent === 'Importa'");
+            return JsonSerializer.Deserialize<string[]>(result) ?? [];
+        }
+
+        var projects = await Read("Progetti", ".project-table tbody th");
+        var presets = await Read("Preset", ".view select option");
+        var activity = await Read("Attività", ".activity article strong");
+        await File.WriteAllTextAsync(Path.Combine(folder, reportName), JsonSerializer.Serialize(new
+        {
+            home, version = ApplicationUpdates.CurrentVersion, process = Environment.ProcessId,
+            configuration.UnityProjectsRoot, configuration.IncludeAlphaUpdates, projects, presets, activity
+        }));
     }
 
     private static async Task VerifyProjectListAsync(CoreWebView2 core)
@@ -191,6 +290,7 @@ internal static class Program
         await RequireAsync(core, "document.querySelector('.settings input')?.checked === false");
         await core.ExecuteScriptAsync("""
             document.querySelector('.settings input').click();
+            Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('alpha sperimentali')).querySelector('input').click();
             const limit = document.querySelector('.settings select');
             limit.value = '6';
             limit.dispatchEvent(new Event('change', { bubbles: true }));
@@ -201,6 +301,10 @@ internal static class Program
         await RequireAsync(core, "document.getElementById('job-smoke-completed') === null");
         await core.ExecuteScriptAsync(settings);
         await RequireAsync(core, "document.querySelector('.settings input')?.checked && document.querySelector('.settings select').value === '6'");
+        await RequireAsync(core, """
+            Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('alpha sperimentali')).querySelector('input').checked &&
+              !Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('versioni beta')).querySelector('input').checked
+            """);
     }
 
     private static async Task VerifyPresetsAsync(CoreWebView2 core)
