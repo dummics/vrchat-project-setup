@@ -79,7 +79,7 @@ recorded by the installer, or its own `data/` in portable mode.
 | Activity | Import and package operation history, per-project details and inline logs. The native diagnostics Save picker supports cancellation and produces a ZIP with the support summary. A real batch with one successful project and one skipped project displays a partially completed operation and both outcomes | |
 | Settings | Import preferences, manual file entry, project naming, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. The color picker opens and dismisses, and changed colors persist after saving. Settings discovers, prepares and applies an alpha using a fixture feed. Diagnostics preferences persist. Cache clearing and reset confirmations preserve a Unity project and its archive; reset preserves the old configuration. Installed repair and confirmed self-uninstall were exercised through React Settings with redirected shortcuts and an isolated profile. The native project folder, Unity editor selection, extra packages folder and configuration file restore were verified on a disposable runner, including cancellation and preservation of project files and prior settings | |
 | Presets | Select a saved preset during import. Create, rename, pin, favourite, discard unsaved edits, save, reopen and delete through the library. The fixture exercises catalog choices and confirms a saved pin after reopening. Native export and reimport preserve the pinned SDK and handle a name collision | |
-| Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7; offline archive runs its bundled Fixed Version. Same-release build ordering, installer checksum rejection and real prefetch, swap and restart verified with a fixture feed and cached components | Verify download over the production feed and component transport, Windows 10 Fixed Version and final production release |
+| Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7; offline archive runs its bundled Fixed Version. Same-release build ordering and installer checksum rejection verified with a fixture feed. The published 0.3.7 prefetches from the public feed and relaunches as 0.4.0-alpha.1 | Windows 10 Fixed Version and stable 0.4.0 release |
 
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
@@ -279,6 +279,15 @@ installing, launched 0.4.0-alpha.1 from the same installation path, preserved
 the profile and retained a rollback copy identified as 0.3.6. The installer
 used cached components. The 0.3.7 bridge remains the verified in-app route
 for discovering the alpha from the experimental feed.
+
+The public 0.4.0-alpha.1 prerelease passed the next-launch upgrade from the
+published 0.3.7 on Windows 11 with an isolated profile. With alpha updates
+enabled, 0.3.7 discovered the release through the public experimental feed
+and downloaded the installer and components from GitHub. The next launch
+opened React from the existing installation path, preserved the profile
+configuration byte for byte, and kept 0.3.7 available for rollback.
+The stable feed continues to select 0.3.7. First offline startup on
+Windows 10 remains unverified.
 
 With verified components in the isolated profile cache, React rejected a
 prepared alpha with alpha opt-in off. After opting in, `0.4.0-alpha.3`
