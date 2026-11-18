@@ -242,6 +242,11 @@ internal static class ReactNativePickerVerification
         using var zip = ZipFile.OpenRead(exportedPath);
         if (zip.GetEntry("VRC-Project-Setup.txt") is null || zip.GetEntry("Archive-contents.txt") is null)
             throw new IOException("The native diagnostic export did not produce a valid support archive.");
+        File.AppendAllText(trace, "Native diagnostics archive verified.\n");
+
+        await core.ExecuteScriptAsync(back + ".click()");
+        await Program.RequireAsync(core, "document.querySelector('.tabs button') !== null");
+        await ReactExplorerDropVerification.RunAsync(core, window, folder, token);
 
         await AtomicFile.WriteJsonAsync(Path.Combine(folder, "react-native-picker.json"), new
         {
@@ -251,7 +256,8 @@ internal static class ReactNativePickerVerification
             PortablePresetRoundTrip = true, DeclinedPresetPreservedConfiguration = true,
             ProjectSortReadAndPersisted = true, ExistingProjectSelectedWithoutChanges = true,
             InvalidFolderShowsAnAction = true, DiagnosticsExported = true,
-            RelocatedSourceAcceptedForReview = true, DifferentArchiveRejected = true, PausedJobPreserved = true
+            RelocatedSourceAcceptedForReview = true, DifferentArchiveRejected = true, PausedJobPreserved = true,
+            ExplorerDragAndDrop = true
         }, token);
 
         async Task SelectSettingAsync(string id, string previousPath, string path)
