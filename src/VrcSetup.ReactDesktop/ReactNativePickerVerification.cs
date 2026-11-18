@@ -15,6 +15,7 @@ internal static class ReactNativePickerVerification
 {
     private const uint OwnerWindow = 4;
     private const uint CommandMessage = 0x0111;
+    private const int AcceptButton = 1;
     private const int CancelButton = 2;
 
     internal static async Task RunAsync(CoreWebView2 core, Window window, VrcSetupApplication engine, string folder, CancellationToken token)
@@ -126,32 +127,34 @@ internal static class ReactNativePickerVerification
                 dialog = handle == 0 ? null : AutomationElement.FromHandle(handle);
                 if (dialog is not null)
                 {
+                    var host = dialog.FindFirst(TreeScope.Descendants,
+                        new OrCondition(
+                            new PropertyCondition(AutomationElement.AutomationIdProperty, "FileNameControlHost"),
+                            new PropertyCondition(AutomationElement.AutomationIdProperty, "1148")));
+                    var edits = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit);
+                    var edit = host?.Current.ControlType == ControlType.Edit ? host : host?.FindFirst(TreeScope.Descendants, edits);
+                    edit ??= dialog.FindAll(TreeScope.Descendants, edits).Cast<AutomationElement>().FirstOrDefault(control =>
+                        control.Current.AutomationId == "1001" ||
+                        control.Current.Name.StartsWith("Folder", StringComparison.OrdinalIgnoreCase));
+                    if (edit?.TryGetCurrentPattern(ValuePattern.Pattern, out var value) != true)
+                    {
+                        await Task.Delay(200, token);
+                        continue;
+                    }
                     var button = dialog.FindFirst(TreeScope.Descendants,
                         new AndCondition(
                             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
-                            new PropertyCondition(AutomationElement.AutomationIdProperty, "1")));
+                            new OrCondition(
+                                new PropertyCondition(AutomationElement.AutomationIdProperty, "1"),
+                                new PropertyCondition(AutomationElement.NameProperty, "Select Folder"))));
+                    ((ValuePattern)value).SetValue(selectedPath ?? throw new IOException("The fixture did not supply a path."));
+                    File.AppendAllText(trace, "Invoking the hosted picker button.\n");
                     if (button?.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke) == true)
-                    {
-                        if (selectedPath is not null)
-                        {
-                            var host = dialog.FindFirst(TreeScope.Descendants,
-                                new OrCondition(
-                                    new PropertyCondition(AutomationElement.AutomationIdProperty, "FileNameControlHost"),
-                                    new PropertyCondition(AutomationElement.AutomationIdProperty, "1148")));
-                            var edit = host?.Current.ControlType == ControlType.Edit ? host : host?.FindFirst(TreeScope.Descendants,
-                                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit));
-                            if (edit?.TryGetCurrentPattern(ValuePattern.Pattern, out var value) != true)
-                            {
-                                await Task.Delay(200, token);
-                                continue;
-                            }
-                            ((ValuePattern)value).SetValue(selectedPath);
-                        }
-                        File.AppendAllText(trace, "Invoking the hosted picker button.\n");
                         ((InvokePattern)invoke).Invoke();
-                        File.AppendAllText(trace, "Hosted picker button returned.\n");
-                        return;
-                    }
+                    else if (!PostMessage(handle, CommandMessage, AcceptButton, GetDlgItem(handle, AcceptButton)))
+                        throw new IOException("Could not confirm the hosted picker.");
+                    File.AppendAllText(trace, "Hosted picker button returned.\n");
+                    return;
                 }
             }
             catch (ElementNotAvailableException) { handle = 0; }
@@ -161,7 +164,10 @@ internal static class ReactNativePickerVerification
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit)));
         var identifiers = controls is null ? "no dialog" : string.Join(", ", controls.Cast<AutomationElement>()
-            .Take(30).Select(control => control.Current.AutomationId + " (" + control.Current.Name + ")"));
+            .Where(control => control.Current.ControlType == ControlType.Edit ||
+                control.Current.AutomationId is "1" or "2" ||
+                control.Current.Name.Contains("Select", StringComparison.OrdinalIgnoreCase))
+            .Select(control => control.Current.AutomationId + " (" + control.Current.Name + ")"));
         if (handle != 0) PostMessage(handle, CommandMessage, CancelButton, 0);
         throw new IOException($"Could not operate the hosted file picker. Windows: {string.Join(", ", windowClasses)}. Controls: {identifiers}");
     }
@@ -179,6 +185,9 @@ internal static class ReactNativePickerVerification
 
     [DllImport("user32.dll")]
     private static extern nint GetWindow(nint window, uint command);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetDlgItem(nint window, int controlId);
 
     [DllImport("user32.dll", EntryPoint = "PostMessageW")]
     private static extern bool PostMessage(nint window, uint message, nint parameter, nint data);
