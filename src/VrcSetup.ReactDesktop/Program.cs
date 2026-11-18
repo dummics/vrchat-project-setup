@@ -23,8 +23,10 @@ internal static class Program
             ? Path.GetFullPath(recovery) : null;
         var restoreFixture = args is ["--verify-restore-workflow" or "--verify-import-missing-assets", var restore] ? Path.GetFullPath(restore) : null;
         var verifyMissingAssets = args is ["--verify-import-missing-assets", _];
-        var verifyBackup = args is ["--verify-project-backup", _];
-        var packageFixture = args is ["--verify-vpm-edits" or "--verify-project-backup", _] or ["--verify-vpm-edits", _, _]
+        var verifyCancelledPackageRecovery = args is ["--verify-cancelled-package-recovery", _];
+        var verifyBackup = verifyCancelledPackageRecovery || args is ["--verify-project-backup", _];
+        var verifyOpenPackageCancellation = args is ["--verify-open-package-cancellation", _, _];
+        var packageFixture = args is ["--verify-vpm-edits" or "--verify-project-backup" or "--verify-cancelled-package-recovery", _] or ["--verify-vpm-edits" or "--verify-open-package-cancellation", _, _]
             ? Path.GetFullPath(args[1]) : null;
         var smoke = args switch
         {
@@ -252,9 +254,9 @@ internal static class Program
                 if (packageFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
-                    if (verifyBackup) await ReactPackageVerification.VerifyBackupAsync(core, engine, packageFixture, shutdown.Token);
+                    if (verifyBackup) await ReactPackageVerification.VerifyBackupAsync(core, engine, packageFixture, shutdown.Token, verifyCancelledPackageRecovery);
                     else await ReactPackageVerification.RunAsync(core, engine, packageFixture,
-                            args.Length == 3 ? Path.GetFullPath(args[2]) : null, shutdown.Token);
+                            args.Length == 3 ? Path.GetFullPath(args[2]) : null, shutdown.Token, verifyOpenPackageCancellation);
                     window.Close();
                     return;
                 }

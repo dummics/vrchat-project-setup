@@ -13,15 +13,35 @@ internal static class ReactPackageVerification
     private const string Older = "3.9.7";
     private const string Newer = "3.9.9";
 
-    internal static async Task VerifyBackupAsync(CoreWebView2 core, VrcSetupApplication engine, string fixture, CancellationToken token)
+    internal static async Task VerifyBackupAsync(CoreWebView2 core, VrcSetupApplication engine, string fixture,
+        CancellationToken token, bool afterCancellation = false)
     {
         var project = Path.Combine(fixture, "candidate-projects", "Probe");
         var asset = Path.Combine(project, "Assets", "ReactProbe.txt");
         var assetHash = AtomicFile.Hash(asset);
-        var current = await engine.Projects.ReadAsync(project, token);
-        if (assetHash == "missing" || PackagePresence.Contains(current, Package) || engine.Projects.IsBusy(project) ||
-            !File.Exists(Path.Combine(fixture, "react-vpm-edits-open.json")))
-            throw new IOException("Use the closed VPM fixture after package removal to verify backup recovery.");
+        var manifest = Path.Combine(project, "Packages", "vpm-manifest.json");
+        var manifestBefore = AtomicFile.Hash(manifest);
+        var backupRoot = Path.Combine(project, ".vrcsetup", "backups");
+        string? expectedManifest = null;
+        if (afterCancellation)
+        {
+            using var proof = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(fixture, "react-vpm-cancellation-open.json"), token));
+            var reportPath = proof.RootElement.GetProperty("Report").GetString() ?? throw new IOException("Cancellation report missing.");
+            ProjectRules.EnsureContained(engine.Paths.Logs, reportPath);
+            var report = await AtomicFile.ReadJsonAsync<OperationReport>(reportPath, token);
+            if (report?.Results.SingleOrDefault() is not { Status: OperationStatus.Cancelled, BackupPath: { } backup } result ||
+                !result.Path.Equals(project, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Use the report from the interrupted fixture project.");
+            ProjectRules.EnsureContained(backupRoot, backup);
+            expectedManifest = AtomicFile.Hash(Path.Combine(backup, "vpm-manifest.json"));
+            if (expectedManifest == "missing" || expectedManifest == manifestBefore)
+                throw new IOException("Use the fixture with the modified manifest still in place.");
+        }
+        else if (!File.Exists(Path.Combine(fixture, "react-vpm-edits-open.json")) ||
+            PackagePresence.Contains(await engine.Projects.ReadAsync(project, token), Package))
+            throw new IOException("Use the VPM fixture after package removal to verify backup recovery.");
+        if (assetHash == "missing" || manifestBefore == "missing" || engine.Projects.IsBusy(project))
+            throw new IOException("Close the fixture project before verifying backup recovery.");
 
         var addedAsset = Path.Combine(project, "Assets", "AfterVpmChange.txt");
         ProjectRules.EnsureContained(project, addedAsset);
@@ -34,23 +54,27 @@ internal static class ReactPackageVerification
         await OpenReviewAsync();
         await ClickAsync("document.querySelector('.backup-dialog button:not(.primary)')");
         await Program.RequireAsync(core, "document.querySelector('.backup-dialog') === null");
-        if (!File.Exists(addedAsset) || PackagePresence.Contains(await engine.Projects.ReadAsync(project, token), Package))
+        if (!File.Exists(addedAsset) || AtomicFile.Hash(manifest) != manifestBefore)
             throw new IOException("Cancelling backup confirmation altered the fixture.");
         await OpenReviewAsync();
         await ClickAsync("document.querySelector('.backup-dialog .primary')");
         await Program.RequireAsync(core, "document.querySelector('footer [role=status]')?.textContent === 'Backup ripristinato.'", attempts: 1800);
         var restored = await engine.Projects.ReadAsync(project, token);
-        var backupRoot = Path.Combine(project, ".vrcsetup", "backups");
         var displaced = Directory.EnumerateDirectories(backupRoot)
             .SelectMany(folder => Directory.EnumerateDirectories(folder, "before-restore-*"))
             .Select(folder => Path.Combine(folder, "Assets", "AfterVpmChange.txt"))
             .SingleOrDefault(File.Exists);
         if (restored.InstalledVersions.GetValueOrDefault(Package) != Older ||
             restored.LockedPackages.GetValueOrDefault(Package) != Older || AtomicFile.Hash(asset) != assetHash ||
+            (expectedManifest is not null && AtomicFile.Hash(manifest) != expectedManifest) ||
             File.Exists(addedAsset) || displaced is null || await File.ReadAllTextAsync(displaced, token) != change)
             throw new IOException("The package version or displaced edit was not restored safely.");
-        await AtomicFile.WriteJsonAsync(Path.Combine(fixture, "react-project-backup.json"), new
-        { Passed = true, RestoredVersion = Older, DisplacedEditPreserved = true, ImportedAssetPreserved = true, ConfirmedThroughProjectOptions = true }, token);
+        var evidence = afterCancellation ? "react-vpm-cancellation-recovered.json" : "react-project-backup.json";
+        await AtomicFile.WriteJsonAsync(Path.Combine(fixture, evidence), new
+        {
+            Passed = true, RestoredVersion = Older, DisplacedEditPreserved = true, ImportedAssetPreserved = true,
+            ConfirmedThroughProjectOptions = true, ExactManifestRestoredAfterCancellation = afterCancellation
+        }, token);
 
         async Task ClickAsync(string selector)
         {
@@ -66,7 +90,8 @@ internal static class ReactPackageVerification
         }
     }
 
-    internal static async Task RunAsync(CoreWebView2 core, VrcSetupApplication engine, string fixture, string? editor, CancellationToken token)
+    internal static async Task RunAsync(CoreWebView2 core, VrcSetupApplication engine, string fixture, string? editor,
+        CancellationToken token, bool cancelWithEditorOpen = false)
     {
         var root = Path.Combine(fixture, "candidate-projects");
         var project = Path.Combine(root, "Probe");
@@ -85,6 +110,7 @@ internal static class ReactPackageVerification
         await RequireAsync(indicator + " === null");
         using var process = editor is null ? null : await OpenEditorAsync(fixture, project, editor, token);
         var seen = new List<string>();
+        object? cancellationEvidence = null;
         try
         {
             if (process is not null)
@@ -112,14 +138,17 @@ internal static class ReactPackageVerification
 
             await ClickAsync($"""tr[data-package-id="{Package}"] button""", "Versione");
             await ChooseAsync(Newer);
-            await ApplyAsync(Newer);
-
-            await ClickAsync($"""tr[data-package-id="{Package}"] button""", "Versione");
-            await ChooseAsync(Older);
-            await ApplyAsync(Older);
-
-            await ClickAsync($"""tr[data-package-id="{Package}"] button""", "Rimuovi");
-            await ApplyAsync(null);
+            if (cancelWithEditorOpen)
+                cancellationEvidence = await VerifyCancellationAsync(process ?? throw new IOException("An open fixture editor is required."));
+            else
+            {
+                await ApplyAsync(Newer);
+                await ClickAsync($"""tr[data-package-id="{Package}"] button""", "Versione");
+                await ChooseAsync(Older);
+                await ApplyAsync(Older);
+                await ClickAsync($"""tr[data-package-id="{Package}"] button""", "Rimuovi");
+                await ApplyAsync(null);
+            }
             if (process is not null)
             {
                 await ClickAsync("header button", "← Progetti");
@@ -142,9 +171,14 @@ internal static class ReactPackageVerification
         {
             await RequireAsync(indicator + " === null && Array.from(document.querySelectorAll('.project-actions button'))" +
                 ".find(x => x.textContent === 'Apri')?.disabled === false");
-            await CheckFinalCompilationAsync(Path.Combine(fixture, "open-editor-vpm.log"), token);
+            if (!cancelWithEditorOpen) await CheckFinalCompilationAsync(Path.Combine(fixture, "open-editor-vpm.log"), token);
         }
 
+        if (cancellationEvidence is not null)
+        {
+            await AtomicFile.WriteJsonAsync(Path.Combine(fixture, "react-vpm-cancellation-open.json"), cancellationEvidence, token);
+            return;
+        }
         var report = process is null ? "react-vpm-edits.json" : "react-vpm-edits-open.json";
         await AtomicFile.WriteJsonAsync(Path.Combine(fixture, report), new
         {
@@ -189,6 +223,36 @@ internal static class ReactPackageVerification
                 await WaitForEditorVersionAsync(process, marker, version ?? "-", token);
             }
             seen.Add(version ?? "removed");
+        }
+
+        async Task<object> VerifyCancellationAsync(Process openEditor)
+        {
+            var manifest = Path.Combine(project, "Packages", "vpm-manifest.json");
+            var before = AtomicFile.Hash(manifest);
+            var logs = Directory.EnumerateFiles(engine.Paths.Logs, "operation-*.json").ToHashSet();
+            await ClickAsync(".view button", "Rivedi modifiche");
+            await ClickAsync("""[aria-label="Riepilogo pacchetti"] button""", "Applica modifiche");
+            var watch = Stopwatch.StartNew();
+            while (AtomicFile.Hash(manifest) == before && watch.Elapsed < TimeSpan.FromSeconds(45))
+            {
+                if (openEditor.HasExited) throw new IOException("The fixture editor closed during the change.");
+                await Task.Delay(15, token);
+            }
+            if (AtomicFile.Hash(manifest) == before)
+                throw new IOException("The VPM operation did not change the manifest.");
+            const string cancel = """document.querySelector('[data-package-action="cancel"]')""";
+            if (await core.ExecuteScriptAsync(cancel + "?.disabled === false") != "true")
+                throw new IOException("The VPM change finished before it could be cancelled.");
+            await core.ExecuteScriptAsync(cancel + ".click()");
+            await RequireAsync("document.querySelector('footer [role=status]')?.textContent.includes('opzioni del progetto')");
+            var recordPath = Directory.EnumerateFiles(engine.Paths.Logs, "operation-*.json").Single(file => !logs.Contains(file));
+            var report = await AtomicFile.ReadJsonAsync<OperationReport>(recordPath, token);
+            if (report?.Results.SingleOrDefault() is not { Status: OperationStatus.Cancelled, BackupPath: { } backup } ||
+                openEditor.HasExited || !engine.Projects.IsBusy(project) || AtomicFile.Hash(manifest) == before ||
+                AtomicFile.Hash(Path.Combine(backup, "vpm-manifest.json")) != before || AtomicFile.Hash(asset) != assetHash)
+                throw new IOException("Cancellation did not retain the pre-change backup and the open project files.");
+            return new { Passed = true, ManifestChangedBeforeCancellation = true, EditorRemainedOpen = true,
+                OriginalManifestInBackup = true, ImportedAssetPreserved = true, LocalizedRecoveryAction = true, Report = recordPath };
         }
     }
 
