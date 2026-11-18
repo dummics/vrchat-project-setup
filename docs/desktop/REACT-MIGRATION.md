@@ -113,6 +113,10 @@ verified both support summary entries.
 [Windows verification run 44350022289](https://github.com/dummics/vrchat-project-setup/actions/runs/44350022289)
 passed the native suite with Explorer drag and drop, packaged React UI,
 installer lifecycle and the WinUI 0.3.7 upgrade and restart.
+[Windows verification run 44358798227](https://github.com/dummics/vrchat-project-setup/actions/runs/44358798227)
+repeated the suite and also opened the installed React UI from the Start menu,
+the desktop shortcut and `vrcsetup gui`. Each launch reached the import screen
+with the isolated WebView2 profile and closed normally.
 
 For the real Unity relocation check, pause an import in a fresh fixture with
 `--verify-pause-import`, move its archive within that fixture and reopen it with
