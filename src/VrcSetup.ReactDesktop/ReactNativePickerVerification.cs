@@ -1,6 +1,10 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Interop;
 using Microsoft.Web.WebView2.Core;
 using VrcSetup.Infrastructure;
 
@@ -8,8 +12,14 @@ namespace VrcSetup.ReactDesktop;
 
 internal static class ReactNativePickerVerification
 {
-    internal static async Task RunAsync(CoreWebView2 core, string folder, CancellationToken token)
+    private const uint OwnerWindow = 4;
+    private const uint CommandMessage = 0x0111;
+    private const int CancelButton = 2;
+
+    internal static async Task RunAsync(CoreWebView2 core, Window window, string folder, CancellationToken token)
     {
+        var owner = new WindowInteropHelper(window).Handle;
+        var thread = GetWindowThreadProcessId(owner, out _);
         var archive = ReactImportVerification.MakeArchive(folder);
         var trace = Path.Combine(folder, "picker-progress.txt");
         const string picker = "document.querySelector('.drop')";
@@ -30,7 +40,7 @@ internal static class ReactNativePickerVerification
         {
             // UI Automation needs a separate thread when inspecting windows in this process.
             File.AppendAllText(trace, selectedPath is null ? "Requesting cancel.\n" : "Requesting file selection.\n");
-            var native = Task.Run(() => CompletePickerAsync(selectedPath, trace, token), token);
+            var native = Task.Run(() => CompletePickerAsync(owner, thread, selectedPath, trace, token), token);
             var click = core.ExecuteScriptAsync(picker + ".click()");
             await native;
             await click;
@@ -38,25 +48,42 @@ internal static class ReactNativePickerVerification
         }
     }
 
-    private static async Task CompletePickerAsync(string? selectedPath, string trace, CancellationToken token)
+    private static async Task CompletePickerAsync(nint owner, uint thread, string? selectedPath, string trace, CancellationToken token)
     {
-        var ownDialog = new AndCondition(
-            new PropertyCondition(AutomationElement.ProcessIdProperty, Environment.ProcessId),
-            new PropertyCondition(AutomationElement.ClassNameProperty, "#32770"));
         var watch = Stopwatch.StartNew();
+        nint handle = 0;
+        var windowClasses = new HashSet<string>();
         AutomationElement? dialog = null;
         while (watch.Elapsed < TimeSpan.FromSeconds(25))
         {
             token.ThrowIfCancellationRequested();
             try
             {
-                dialog = AutomationElement.RootElement.FindFirst(TreeScope.Children, ownDialog);
+                if (handle == 0)
+                {
+                    EnumThreadWindows(thread, (candidate, _) =>
+                    {
+                        var className = new StringBuilder(128);
+                        GetClassName(candidate, className, className.Capacity);
+                        windowClasses.Add(className.ToString());
+                        if (GetWindow(candidate, OwnerWindow) != owner || className.ToString() != "#32770") return true;
+                        handle = candidate;
+                        return false;
+                    }, 0);
+                    if (handle != 0) File.AppendAllText(trace, "Found the dialog owned by the fixture window.\n");
+                }
+                if (handle != 0 && selectedPath is null)
+                {
+                    if (!PostMessage(handle, CommandMessage, CancelButton, 0)) throw new IOException("Could not cancel the hosted picker.");
+                    return;
+                }
+                dialog = handle == 0 ? null : AutomationElement.FromHandle(handle);
                 if (dialog is not null)
                 {
                     var button = dialog.FindFirst(TreeScope.Descendants,
                         new AndCondition(
                             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
-                            new PropertyCondition(AutomationElement.AutomationIdProperty, selectedPath is null ? "2" : "1")));
+                            new PropertyCondition(AutomationElement.AutomationIdProperty, "1")));
                     if (button?.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke) == true)
                     {
                         if (selectedPath is not null)
@@ -81,7 +108,7 @@ internal static class ReactNativePickerVerification
                     }
                 }
             }
-            catch (ElementNotAvailableException) { /* The shell is still creating the picker controls. */ }
+            catch (ElementNotAvailableException) { handle = 0; }
             await Task.Delay(200, token);
         }
         var controls = dialog?.FindAll(TreeScope.Descendants, new OrCondition(
@@ -89,6 +116,24 @@ internal static class ReactNativePickerVerification
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit)));
         var identifiers = controls is null ? "no dialog" : string.Join(", ", controls.Cast<AutomationElement>()
             .Take(30).Select(control => control.Current.AutomationId + " (" + control.Current.Name + ")"));
-        throw new IOException("Could not operate the hosted file picker. Controls: " + identifiers);
+        if (handle != 0) PostMessage(handle, CommandMessage, CancelButton, 0);
+        throw new IOException($"Could not operate the hosted file picker. Windows: {string.Join(", ", windowClasses)}. Controls: {identifiers}");
     }
+
+    private delegate bool WindowCallback(nint window, nint parameter);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint window, out uint process);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumThreadWindows(uint thread, WindowCallback callback, nint parameter);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(nint window, StringBuilder name, int length);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetWindow(nint window, uint command);
+
+    [DllImport("user32.dll", EntryPoint = "PostMessageW")]
+    private static extern bool PostMessage(nint window, uint message, nint parameter, nint data);
 }
