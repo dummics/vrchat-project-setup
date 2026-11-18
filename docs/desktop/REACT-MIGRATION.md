@@ -55,9 +55,9 @@ recorded by the installer, or its own `data/` in portable mode.
 | Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders | Verify folder picker, create using installed Unity, opening and live editor indicator, project options and external registrations |
 | Project packages | Read installed/locked versions, review restore and removal, protect required packages. Real vrc-get restored damaged locked SDK metadata. Batch review and apply use per-package targets and show results by project; an unselected project with the same package was left untouched | Exercise catalog and add/update/downgrade from React with a real repository, validate Unity-open behavior and exercise partial batch failures |
 | Activity | Import and package operation history, per-project details, inline logs, and diagnostic ZIP containing the operation report and log | Native Save picker and multi-project failure presentation |
-| Settings | Import preferences, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart | Native pickers and edits, color picker interaction, live feed and preparation, review translated errors in native failure flows |
+| Settings | Import preferences, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. Settings discovers, prepares and applies an alpha using a fixture feed | Native pickers and edits, color picker interaction, review translated errors in native failure flows |
 | Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
-| Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7; offline archive runs its bundled Fixed Version | Live feed/download/prefetch, Windows 10 Fixed Version verification, same-version build ordering, final production release |
+| Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7; offline archive runs its bundled Fixed Version. Installer checksum failure and real prefetch, swap and restart verified with a fixture feed and cached components | Verify download over the production feed and component transport, Windows 10 Fixed Version, same-version build ordering and final production release |
 
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
@@ -119,7 +119,21 @@ the same bootstrapper format and reopened the fixture directly in
 after the program swap restored the original 0.3.7 marker, WinUI files and
 configuration. The prepared-update test seeds the receipt and cached files
 to exercise channel gating, installation and restart. Feed discovery and
-download/prefetch still require integration verification.
+download/prefetch now also have a separate integration fixture.
+
+Run the installed React executable with `--verify-feed-update <fixture-root>`.
+The fixture needs the `.react-profile-fixture` and `.vrcsetup-update-smoke`
+markers, an installed profile with alpha off, and `spec.json` with its
+absolute `Root` and a newer alpha `Version`. Stage that release's installer,
+`SHA256SUMS.txt` and `components.json` under `delivery/` and the hash-named ZIPs
+under the fixture home's `updates/components/`. The verifier exercises Settings
+against the two normal feed URLs with fixture responses, rejects corrupt
+installer bytes, then runs the real bootstrapper's prefetch and install. It
+redirects shortcuts and relaunches offscreen with the same install and profile
+paths. The `feed-handoff.json`, `restarted-profile.json` and installation receipt
+show what was offered, prepared and applied. A local integration run upgraded
+alpha.3 to alpha.5 with the profile unchanged after alpha was enabled, and
+retained the older installation. Production HTTP delivery remains a release check.
 
 ## Integration order
 

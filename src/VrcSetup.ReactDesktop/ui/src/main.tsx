@@ -300,7 +300,7 @@ function ImportPage() {
           </details>
           <h2>{t("Aggiornamenti")}</h2>
           {updateOptions.map(([key, label]) => <label className="package" key={key}>{t(label)}
-            <input type="checkbox" checked={preferences[key]} onChange={event => {
+            <input id={key} type="checkbox" checked={preferences[key]} onChange={event => {
               setPreferences({ ...preferences, [key]: event.target.checked }); setNotice(''); setSettingsDirty(true);
             }} />
           </label>)}
@@ -311,16 +311,16 @@ function ImportPage() {
         <p>{t('Versione {version}', { version: update.current })}{update.ready ? t(' · {version} pronta', { version: update.ready })
           : update.available ? t(' · {version} disponibile', { version: update.available }) : ''}</p>
         <div className="actions">
-          <button disabled={!!busy || settingsDirty} onClick={() => void run(t("Ricerca aggiornamenti…"), async () => {
+          <button data-update-action="check" disabled={!!busy || settingsDirty} onClick={() => void run(t("Ricerca aggiornamenti…"), async () => {
             const status = await request<UpdateView>('checkUpdate');
             setUpdate(status);
             setNotice(status.available ? '' : t("L’app è aggiornata."));
           })}>{t("Controlla aggiornamenti")}</button>
-          {update.installed && update.available && !update.ready && <button className="primary" disabled={!!busy || settingsDirty}
+          {update.installed && update.available && !update.ready && <button data-update-action="prepare" className="primary" disabled={!!busy || settingsDirty}
             onClick={() => void run(t("Preparazione aggiornamento…"), async () => setUpdate(await request<UpdateView>('prepareUpdate', update.available)))}>
             {t("Prepara aggiornamento")}
           </button>}
-          {update.installed && update.ready && <button className="primary" disabled={!!busy || settingsDirty}
+          {update.installed && update.ready && <button data-update-action="apply" className="primary" disabled={!!busy || settingsDirty}
             onClick={() => void run(t("Avvio aggiornamento…"), async () => { await request('applyUpdate'); })}>{t("Aggiorna e riavvia")}</button>}
         </div>
       </section>}

@@ -24,9 +24,10 @@ internal static class Program
         };
         var verifyBatchPackages = args is ["--verify-batch-packages", _];
         var verifyPrepared = args is ["--verify-prepared-update", _];
+        var verifyFeed = args is ["--verify-feed-update", _];
         var verifyRestarted = args is ["--verify-update-smoke", _];
         var portableFixture = args is ["--verify-portable-startup", var archiveRoot] ? Path.GetFullPath(archiveRoot) : null;
-        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke", var fixture]
+        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update", var fixture]
             ? Path.GetFullPath(fixture) : null;
         if (verifyRestarted && profileFixture is not null && File.Exists(profileFixture))
         {
@@ -78,11 +79,13 @@ internal static class Program
         Directory.CreateDirectory(home);
         using var lease = new FileStream(Path.Combine(home, "react-desktop.lock"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
         var app = new Application();
+        var feedFixture = verifyFeed && profileFixture is not null ? new ReactUpdateVerification(profileFixture) : null;
         var engine = new VrcSetupApplication(isolated || portable ? home : null, isolated || offscreen
-            ? ["--no-vcc-registration", "--no-catalog-refresh"] : []);
+            ? ["--no-vcc-registration", "--no-catalog-refresh"] : [])
+        { UpdateHttpClientFactory = feedFixture is null ? null : feedFixture.CreateClient };
         UiText.LoadPreference(engine.Paths.ConfigFile);
         using var shutdown = new CancellationTokenSource();
-        var updates = new DesktopUpdates(engine, !isolated && (!offscreen || verifyPrepared));
+        var updates = new DesktopUpdates(engine, !isolated && (!offscreen || verifyPrepared || verifyFeed));
         var web = new WebView2();
         var window = new Window
         {
@@ -143,7 +146,7 @@ internal static class Program
             {
                 try
                 {
-                    if (await updates.StartReadyAsync(manual: false, shutdown.Token))
+                    if (!verifyFeed && await updates.StartReadyAsync(manual: false, shutdown.Token))
                     {
                         window.Close();
                         return;
@@ -187,7 +190,7 @@ internal static class Program
                 await engine.Imports.InitializeAsync();
                 bridge.Attach(core);
                 core.Navigate(ImportBridge.Page);
-                _ = updates.RunInBackgroundAsync(shutdown.Token);
+                if (!verifyFeed) _ = updates.RunInBackgroundAsync(shutdown.Token);
                 if (portableFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true] .drop') !== null");
@@ -207,6 +210,11 @@ internal static class Program
                 if (profileFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
+                    if (feedFixture is not null)
+                    {
+                        await feedFixture.VerifyAsync(core, engine, shutdown.Token);
+                        return;
+                    }
                     await VerifyInstalledProfileAsync(core, profileFixture, home, configuration,
                         verifyRestarted ? "restarted-profile.json" : "installed-profile.json");
                     window.Close();
@@ -556,7 +564,7 @@ internal static class Program
         await RequireAsync(core, "document.querySelector('#language')?.value === 'en'");
     }
 
-    private static async Task RequireAsync(CoreWebView2 core, string condition, int attempts = 30)
+    internal static async Task RequireAsync(CoreWebView2 core, string condition, int attempts = 30)
     {
         for (var attempt = 0; attempt < attempts; ++attempt)
         {

@@ -107,8 +107,10 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
             if (!process.HasExited) process.Kill(true);
             throw new IOException(UiText.Text("Preparing the update timed out."));
         }
+        if (process.ExitCode != 0 || !File.Exists(receipt))
+            throw new IOException(UiText.Text("Could not prepare the update. Retry from Settings."));
         using var result = JsonDocument.Parse(await File.ReadAllTextAsync(receipt, token));
-        if (process.ExitCode != 0 || !result.RootElement.TryGetProperty("Success", out var success) || success.ValueKind != JsonValueKind.True)
+        if (!result.RootElement.TryGetProperty("Success", out var success) || success.ValueKind != JsonValueKind.True)
             throw new IOException(UiText.Text("Could not prepare the update. Retry from Settings."));
         if (await StillAllowedAsync(release.Version, manual, token))
             await automatic.SetReadyAsync(state, release.Version, installer, token);

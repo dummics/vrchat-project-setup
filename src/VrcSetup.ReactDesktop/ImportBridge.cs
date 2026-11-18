@@ -41,6 +41,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         if (!IsPage(args.Source) || web is null) return;
         string? id = null;
         var ownsRequest = false;
+        var closeAfterReply = false;
         try
         {
             using var message = JsonDocument.Parse(args.WebMessageAsJson);
@@ -48,7 +49,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             id = root.GetProperty("id").GetString();
             if (handlingRequest || Closing) throw new InvalidOperationException(UiText.Text("Wait for the current operation to finish."));
             handlingRequest = ownsRequest = true;
-            var result = await Dispatch(root.GetProperty("method").GetString(), root.GetProperty("data"), args);
+            var method = root.GetProperty("method").GetString();
+            var result = await Dispatch(method, root.GetProperty("data"), args);
+            closeAfterReply = method == "applyUpdate";
             Send(new { id, result });
         }
         catch (Exception error) when (!lifetime.IsCancellationRequested)
@@ -57,7 +60,15 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             Send(new { id, error = UserErrors.Message(error) });
         }
         catch (Exception) when (lifetime.IsCancellationRequested) { }
-        finally { if (ownsRequest) handlingRequest = false; }
+        finally
+        {
+            if (ownsRequest) handlingRequest = false;
+            if (closeAfterReply)
+            {
+                Closing = true;
+                _ = window.Dispatcher.BeginInvoke(new Action(window.Close));
+            }
+        }
     }
 
     private async Task<object> Dispatch(string? method, JsonElement data, CoreWebView2WebMessageReceivedEventArgs args)
@@ -320,7 +331,6 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             case "applyUpdate":
                 if (!await updates.StartReadyAsync(manual: true, token))
                     throw new IOException(UiText.Text("Wait for imports to finish or prepare the update again."));
-                _ = window.Dispatcher.BeginInvoke(new Action(window.Close));
                 return true;
             case "projectPackages":
                 packageReview = null;
