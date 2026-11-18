@@ -353,6 +353,7 @@ internal static class Program
                         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
                         await RequireAsync(core, "document.querySelector('.tabs button') !== null");
                         await ReactImportVerification.VerifyFileDropAsync(core, smoke);
+                        await ReactImportVerification.VerifyOrphanReviewAsync(core, engine, smoke, shutdown.Token);
                         string? browserExecutable = null;
                         if (fixedRuntime is not null)
                             browserExecutable = VerifyFixedBrowser(core, fixedRuntime);
@@ -367,7 +368,7 @@ internal static class Program
                                 "theme changes and custom accent persist", "help and plain version label", "manual file path and project naming settings",
                                 "preset create and rename persist", "preset favorites, pinning, discard, save and delete",
                                 "live English labels and language persistence", "diagnostics settings and maintenance confirmations",
-                                "WebView2 file drop stages two independent archives" }
+                                "WebView2 file drop stages two independent archives", "Projects rebuilds an import review from the project receipt" }
                         }));
                         window.Close();
                         return;

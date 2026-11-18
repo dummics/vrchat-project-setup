@@ -22,7 +22,7 @@ type Job = {
 };
 type Project = {
   name: string; path: string; unityVersion: string; lastUpdatedUtc: string; createdUtc: string;
-  incomplete: boolean; open: boolean; importing: boolean; recoveryId?: string;
+  incomplete: boolean; open: boolean; importing: boolean; recoveryId?: string; canReviewOrphan: boolean;
 };
 type Review = { id: string; continuation: boolean; projects: {
   name: string; path: string; target?: string; existingProject: boolean; packages: { id: string; name: string; version?: string }[]; removals: string[];
@@ -280,6 +280,7 @@ function ImportPage() {
           <button onClick={() => setPanel('import')}>{t("← Torna all’importazione")}</button>}</header>
     {screen === 'presets' && presetLibrary ? <section className="view" key="presets">
       <Presets library={presetLibrary} busy={!!busy} request={request} run={run} onDirty={setPresetDirty}
+        onExported={file => setNotice(t("Preset esportato in {file}.", { file }))}
         onChange={async next => { setPresetLibrary(next); setState(await request<State>('state')); }} />
     </section> : screen === 'settings' && preferences ? <section className="view settings" key="settings">
       <h2>{t("Importazioni")}</h2>
@@ -543,7 +544,11 @@ function ImportPage() {
           <td>{project.importing ? t("In importazione") : <div className="actions project-actions">
             <button disabled={!!busy} onClick={() => showProjectPackages(project.path)}>{t("Pacchetti")}</button>
             {
-            project.recoveryId ? <button onClick={() => { setScreen('import'); setPanel('import'); setTimeout(() => document.getElementById('job-' + project.recoveryId)?.scrollIntoView(), 0); }}>{t("Vedi importazione")}</button> :
+            project.recoveryId ? <button disabled={!!busy} onClick={() => { setScreen('import'); setPanel('import'); setTimeout(() => document.getElementById('job-' + project.recoveryId)?.scrollIntoView(), 0); }}>{t("Vedi importazione")}</button> :
+            project.canReviewOrphan ? <button disabled={!!busy} onClick={() => void run(t("Lettura importazione…"), async () => {
+              const next = await request<Review | false>('reviewOrphanImport', project.path);
+              if (next) { setReview(next); setPanel('import'); setScreen('import'); }
+            })}>{t("Riprendi importazione")}</button> :
             <button disabled={!!busy || project.open || project.incomplete} onClick={() => void run(t("Apertura di Unity…"), async () => { await request('openProject', project.path); })}>{t("Apri")}</button>}
             <details className="project-options">
               <summary aria-label={t("Opzioni per {name}", { name: project.name })}>···</summary>

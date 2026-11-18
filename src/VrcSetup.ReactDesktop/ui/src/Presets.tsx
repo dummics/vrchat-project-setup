@@ -18,9 +18,10 @@ type Props = {
   run(label: string, action: () => Promise<void>): Promise<void>;
   onChange(library: PresetLibrary): Promise<void>;
   onDirty(dirty: boolean): void;
+  onExported(file: string): void;
 };
 
-export function Presets({ library, busy, request, run, onChange, onDirty }: Props) {
+export function Presets({ library, busy, request, run, onChange, onDirty, onExported }: Props) {
   const t = useText();
   const [selected, setSelected] = useState(library.selected ?? '');
   const [draft, setDraft] = useState<Policy>();
@@ -96,7 +97,8 @@ export function Presets({ library, busy, request, run, onChange, onDirty }: Prop
         if (next) { await onChange(next); setSelected(next.selected ?? ''); setVersionPicker(undefined); }
       })}>{t("Importa preset")}</button>
       <button disabled={busy || !Object.keys(choices).length} onClick={() => void run(t("Esportazione preset…"), async () => {
-        await request('exportPreset', { name: selected || t("Predefinito"), packages: choices });
+        const path = await request<string | false>('exportPreset', { name: selected || t("Predefinito"), packages: choices });
+        if (path) onExported(path.split('\\').at(-1) ?? path);
       })}>{t("Esporta preset")}</button>
       {draft && <>
         <button className="primary" disabled={busy || !Object.keys(choices).length} onClick={() => edit('save', { packages: choices })}>{t("Salva preset")}</button>

@@ -20,6 +20,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private bool handlingRequest;
     private OperationPlan? reviewed;
     private string? continuationId;
+    private CreationRequest? orphanReceipt;
     private OperationPlan? packageReview;
     private CancellationTokenSource? packageApply;
     private ProjectPackageTarget[] packageReviewTargets = [];
@@ -138,6 +139,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             case "review":
                 reviewed = null;
                 continuationId = null;
+                orphanReceipt = null;
                 var settings = await engine.Configuration.LoadAsync(token);
                 _ = RequireWorkspace(settings);
                 var plans = new List<ProjectPlan>();
@@ -158,6 +160,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             case "reviewContinuation":
                 reviewed = null;
                 continuationId = null;
+                orphanReceipt = null;
                 var job = CurrentJob(data.GetString());
                 if (!job.Recoverable || job.HasCompilationBlock)
                     throw new IOException(UiText.Text("This import cannot be resumed."));
@@ -186,13 +189,57 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 reviewed = await engine.Imports.RecoveryPlanAsync(job.Id, await engine.Configuration.LoadAsync(token), token, replacement);
                 continuationId = job.Id;
                 return SummarizeImportReview(reviewed, continuation: true);
+            case "reviewOrphanImport":
+                reviewed = null;
+                continuationId = null;
+                orphanReceipt = null;
+                var orphanPath = await ProjectPath(data.GetString(), token);
+                var recorded = await ReadOrphanAsync(orphanPath, token)
+                    ?? throw new UserInputException("project", "The import details are unavailable. Your project is kept. Open the logs for help before trying to import again.");
+                var sourceForReview = recorded;
+                if (!recorded.EmptyProject && (!File.Exists(recorded.UnityPackagePath) ||
+                    await PackageSourceIdentity.ReadAsync(recorded.UnityPackagePath, token) != recorded.SourceIdentity))
+                {
+                    var originalArchive = new OpenFileDialog
+                    {
+                        Title = UiText.Text("Choose the original UnityPackage file"), Filter = "UnityPackage|*.unitypackage"
+                    };
+                    if (await ShowPickerAsync(originalArchive) != true) return false;
+                    await UnityPackageFormat.ValidateAsync(originalArchive.FileName, token);
+                    if (await PackageSourceIdentity.ReadAsync(originalArchive.FileName, token) != recorded.SourceIdentity)
+                        throw new IOException("This package differs from the original. Choose the original UnityPackage to continue.");
+                    sourceForReview = recorded with { UnityPackagePath = originalArchive.FileName };
+                }
+                var recoverySettings = await engine.Configuration.LoadAsync(token);
+                if (!string.IsNullOrWhiteSpace(recoverySettings.UnityEditorPath))
+                    sourceForReview = sourceForReview with { UnityEditorPath = recoverySettings.UnityEditorPath };
+                UnityProjectDriver.ValidateEditor(sourceForReview.UnityEditorPath);
+                foreach (var target in sourceForReview.PublishingPlatforms.Append(sourceForReview.BuildTarget).Distinct())
+                    if (!UnityProjectDriver.HasBuildSupport(sourceForReview.UnityEditorPath, target))
+                        throw new UserInputException("platform", "Install build support for the selected platform in Unity Hub, then try again.");
+                var recoveredProject = await engine.PlanResumeAsync(sourceForReview, recorded.RecoveryPolicy!, recoverySettings,
+                    null, recorded.ExtraImports, token, recorded.UnityPackagePath);
+                orphanReceipt = recorded;
+                reviewed = new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [recoveredProject]);
+                return SummarizeImportReview(reviewed, continuation: true);
             case "start":
                 if (reviewed is not { } accepted || data.GetString() != accepted.Id) throw new InvalidOperationException(UiText.Text("Review the import first."));
                 var expectedId = continuationId;
-                await engine.Imports.EnqueueAsync(accepted, parallelism: 0, token: token, expectedImportId: expectedId);
+                var isOrphanRecovery = orphanReceipt is not null;
+                CreationRequest? orphanSource = null;
+                if (orphanReceipt is { } receipt)
+                {
+                    if (!receipt.MatchesInputs(await ReadOrphanAsync(receipt.TargetPath, token)))
+                        throw new IOException("This import changed. Choose it again to continue.");
+                    var project = accepted.Projects.Single();
+                    orphanSource = project.RecoverySource ?? project.Initialization?.Source;
+                }
+                await engine.Imports.EnqueueAsync(accepted, parallelism: 0, recoverySource: orphanSource,
+                    token: token, expectedImportId: expectedId, requireNoProjectHistory: isOrphanRecovery);
                 reviewed = null;
                 continuationId = null;
-                if (expectedId is null) { sources.Clear(); initial = []; }
+                orphanReceipt = null;
+                if (expectedId is null && !isOrphanRecovery) { sources.Clear(); initial = []; }
                 return await State(token);
             case "pause":
                 await engine.Imports.PauseAsync(CurrentJob(data.GetString()).Id, token);
@@ -327,7 +374,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 var exportDialog = new SaveFileDialog { FileName = fileName, Filter = "Preset|*.json", DefaultExt = ".json" };
                 if (await ShowPickerAsync(exportDialog) != true) return false;
                 await AtomicFile.WriteJsonAsync(exportDialog.FileName, export, token);
-                return true;
+                return exportDialog.FileName;
             case "importPreferences":
                 preferencesBaseline = await engine.Configuration.LoadAsync(token);
                 return new
@@ -937,9 +984,23 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 var job = ImportQueue.CurrentForProject(jobs, project.Path);
                 return new CandidateProject(project.Name, project.Path, project.UnityVersion, project.LastUpdatedUtc,
                     project.CreatedUtc, project.Incomplete, open.Contains(project.Path), job?.Active == true,
-                    job is { Recoverable: true, RecoveryNoticeDismissed: false } ? job.Id : null);
+                    job is { HiddenFromImports: false } &&
+                        (job is { Recoverable: true, RecoveryNoticeDismissed: false } || job.CreatorCompanionPending) ? job.Id : null,
+                    job is null && project.Incomplete);
             }).ToArray();
         }, token);
+    }
+
+    private async Task<CreationRequest?> ReadOrphanAsync(string path, CancellationToken token)
+    {
+        if (ImportQueue.CurrentForProject(engine.Imports.Snapshot(), path) is not null)
+            throw new IOException("This import changed. Choose it again to continue.");
+        try { return await OrphanImportRecovery.ReadAsync(engine.Projects, path, token); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
+        {
+            engine.Diagnostics.Write("Import recovery", error.Message, error);
+            return null;
+        }
     }
 
     private async Task<(string Record, DateTime CompletedUtc)?> FindProjectBackupAsync(string path, CancellationToken token)
@@ -1212,7 +1273,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     internal sealed record PackageChoice(string Id, string Name, string? Version);
     private sealed record DraftChoice(Guid Id, string Name, string Target, string? Preset, Dictionary<string, string> Packages);
     private sealed record CandidateProject(string Name, string Path, string UnityVersion, DateTime LastUpdatedUtc,
-        DateTime CreatedUtc, bool Incomplete, bool Open, bool Importing, string? RecoveryId);
+        DateTime CreatedUtc, bool Incomplete, bool Open, bool Importing, string? RecoveryId, bool CanReviewOrphan);
     private sealed record BackupReview(string Id, string Path, string Record, string Hash);
     private sealed record ActivityRow(string Id, string Name, DateTime Date, string Kind, string Status);
     private sealed record ActivitySelection(string Id, string Kind);

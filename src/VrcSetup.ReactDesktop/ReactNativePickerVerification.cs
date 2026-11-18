@@ -161,12 +161,14 @@ internal static class ReactNativePickerVerification
             """);
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
         var presetFile = Path.Combine(folder, "preset condiviso.json");
+        await core.ExecuteScriptAsync("window.chrome.webview.addEventListener('message', event => window.lastFixtureReply = event.data)");
         await OpenPickerAsync(exportPreset, null);
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
+        await Program.RequireAsync(core, "window.lastFixtureReply?.result === false");
         await OpenPickerAsync(exportPreset, presetFile);
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
         if (!File.Exists(presetFile))
-            throw new IOException("The preset export did not write the selected file. Status: " + await core.ExecuteScriptAsync(footer));
+            throw new IOException("The preset export did not write the selected file. Reply: " + await core.ExecuteScriptAsync("window.lastFixtureReply"));
         var portable = PortablePreset.Read(await File.ReadAllTextAsync(presetFile, token));
         if (portable.Name != fixturePreset || portable.Packages.Count != 1 || portable.Packages.GetValueOrDefault("com.vrchat.avatars") != "3.10.6")
             throw new IOException("The exported preset did not preserve its name and version pin.");

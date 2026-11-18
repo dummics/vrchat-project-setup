@@ -73,6 +73,8 @@ const english: Record<string, string> = {
   "Verifica pacchetti…": "Checking packages…",
   "Ricerca progetti…": "Finding projects…",
   "Lettura attività…": "Loading activity…",
+  "Lettura importazione…": "Reading import details…",
+  "Preset esportato in {file}.": "Preset exported to {file}.",
   "Lettura impostazioni…": "Loading settings…",
   "Lettura preset…": "Loading presets…",
   "Lettura pacchetti…": "Loading packages…",

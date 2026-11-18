@@ -57,6 +57,62 @@ internal static class ReactImportVerification
         await Program.RequireAsync(core, "document.querySelector('.platforms [aria-pressed=true]')?.textContent === 'PC'");
     }
 
+    internal static async Task VerifyOrphanReviewAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, CancellationToken token)
+    {
+        const string name = "Lost queue fixture";
+        var project = Path.Combine(folder, "candidate-projects", name);
+        var editor = Path.Combine(folder, "Unity.exe");
+        var archive = Path.Combine(folder, "Probe.unitypackage");
+        await File.WriteAllBytesAsync(editor, [], token);
+        Directory.CreateDirectory(Path.Combine(project, "Assets"));
+        Directory.CreateDirectory(Path.Combine(project, "Packages"));
+        await File.WriteAllTextAsync(Path.Combine(project, "Packages", "manifest.json"), """{"dependencies":{}}""", token);
+        var policy = new Dictionary<string, string> { [ProjectRules.BaseSdk] = "3.10.6", [ProjectRules.Resolver] = "0.1.29" };
+        await AtomicFile.WriteJsonAsync(Path.Combine(project, "Packages", "vpm-manifest.json"), new { dependencies = policy }, token);
+        var source = new CreationRequest(archive, name, project, editor, "StandaloneWindows64", ["StandaloneWindows64"], [])
+        {
+            CreationId = Guid.NewGuid().ToString("N"), SourceIdentity = await PackageSourceIdentity.ReadAsync(archive, token), RecoveryPolicy = policy
+        };
+        var marker = Path.Combine(project, ".vrcsetup", "state.json");
+        var receipt = new SetupState
+        {
+            ProjectName = name, CreationId = source.CreationId, CreationRequest = source, CreatedTargetPath = project,
+            CreatedDirectoryIdentity = ProjectDirectoryIdentity.TryRead(project), UnityPackagePath = archive
+        };
+        await AtomicFile.WriteJsonAsync(marker, receipt, token);
+        var originalState = AtomicFile.Hash(marker);
+        const string projects = "Array.from(document.querySelectorAll('header button')).find(button => ['Progetti','Projects'].includes(button.textContent))";
+        await Program.RequireAsync(core, projects + "?.disabled === false");
+        await core.ExecuteScriptAsync(projects + ".click()");
+        const string resume = """
+            Array.from(document.querySelectorAll('.project-table tbody tr')).find(row => row.querySelector('th')?.textContent.startsWith('Lost queue fixture'))
+                ?.querySelectorAll('button')
+            """;
+        var action = "Array.from(" + resume + " ?? []).find(button => ['Riprendi importazione','Resume import'].includes(button.textContent))";
+        await Program.RequireAsync(core, action + "?.disabled === false");
+        await core.ExecuteScriptAsync(action + ".click()");
+        const string review = "document.querySelector('section[aria-label=\"Riprendi importazione\"],section[aria-label=\"Resume import\"]')";
+        await Program.RequireAsync(core, review + "?.querySelector('.path')?.textContent === " + JsonSerializer.Serialize(project), attempts: 400);
+        await core.ExecuteScriptAsync(review + ".querySelector('button').click()");
+        await Program.RequireAsync(core, review + " === null");
+        if (AtomicFile.Hash(marker) != originalState || engine.Imports.Snapshot().Any(job => job.ProjectPath.Equals(project, StringComparison.OrdinalIgnoreCase)))
+            throw new IOException("Reviewing an import without a queue entry changed the project's receipt or enqueued an import.");
+        await core.ExecuteScriptAsync(projects + ".click()");
+        await Program.RequireAsync(core, action + "?.disabled === false");
+        await core.ExecuteScriptAsync(action + ".click()");
+        await Program.RequireAsync(core, review + "?.querySelector('.primary')?.disabled === false", attempts: 400);
+        receipt.Completed = true;
+        await AtomicFile.WriteJsonAsync(marker, receipt, token);
+        var updatedState = AtomicFile.Hash(marker);
+        await core.ExecuteScriptAsync(review + ".querySelector('.primary').click()");
+        await Program.RequireAsync(core, """
+            ['L’importazione è cambiata. Selezionala di nuovo per continuare.', 'This import changed. Choose it again to continue.']
+              .includes(document.querySelector('footer [role=status]')?.textContent)
+            """, attempts: 400);
+        if (AtomicFile.Hash(marker) != updatedState || engine.Imports.Snapshot().Any(job => job.ProjectPath.Equals(project, StringComparison.OrdinalIgnoreCase)))
+            throw new IOException("The stale recovery review accepted a changed receipt.");
+    }
+
     internal static async Task RunAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, CancellationToken shutdown)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(shutdown);

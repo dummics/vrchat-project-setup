@@ -65,6 +65,17 @@ Unity folder in that directory, exercises the React UI, and records
 drag events and verifies both drafts and their independent PC and Quest
 targets. This covers the browser-to-host file bridge. An Explorer-origin
 drag remains a separate check. The smoke uses no live Unity editor or project.
+The Projects screen also rebuilds an import review from a valid project
+creation receipt after the queue entry is lost. The smoke cancels one review
+and rejects a second after the receipt changes, preserving the project in both
+cases.
+
+The hosted native test accepted a relocated archive with matching bytes for
+review, rejected a valid archive with different bytes, and kept the import
+paused. It also saved the selected Unity executable and extra-imports folder,
+then restored the original settings. These assertions passed before the suite
+stopped at the preset Save dialog. Completing an import from the relocated
+path and the remaining native Save paths still require verification.
 
 With the bundled package tool available, run `--verify-batch-packages <fresh-path>`
 to remove a fixture package from one of two projects through the React review.
