@@ -21,6 +21,37 @@ internal static class ReactNativePickerVerification
     private const int CancelButton = 2;
     private const int YesButton = 6;
     private const int NoButton = 7;
+    private const string RecoveryId = "hosted-source-relocation";
+    private const string RecoveryProjectName = "Source relocation";
+
+    internal static async Task SeedRecoveryAsync(VrcSetupApplication engine, string folder, AppConfiguration configuration, CancellationToken token)
+    {
+        var sandbox = Directory.CreateDirectory(Path.Combine(folder, "relocation")).FullName;
+        var moved = Path.Combine(sandbox, "MOVED.unitypackage");
+        File.Move(ReactImportVerification.MakeArchive(sandbox), moved);
+        // A separate archive is structurally valid but has different asset GUIDs and bytes.
+        ReactImportVerification.MakeArchive(sandbox);
+        var original = Path.Combine(sandbox, "ORIGINAL.unitypackage");
+        var editor = Path.Combine(sandbox, "Unity.exe");
+        // The verifier stops at review, so this file is never executed.
+        await File.WriteAllBytesAsync(editor, [], token);
+        var project = Path.Combine(configuration.UnityProjectsRoot, RecoveryProjectName);
+        var manifest = await MakeProjectAsync(project, token);
+        var policy = new Dictionary<string, string> { [ProjectRules.BaseSdk] = "3.10.6", [ProjectRules.Resolver] = "0.1.29" };
+        await AtomicFile.WriteJsonAsync(manifest, new { dependencies = policy }, token);
+        await AtomicFile.WriteJsonAsync(Path.Combine(project, ".vrcsetup", "state.json"), new SetupState { UnityPackagePath = original }, token);
+        var source = new CreationRequest(original, RecoveryProjectName, project, editor, "StandaloneWindows64", ["StandaloneWindows64"], [])
+            { SourceIdentity = await PackageSourceIdentity.ReadAsync(moved, token) };
+        var plan = new OperationPlan(RecoveryId, DateTime.UtcNow, [new()
+        {
+            Path = project, Name = RecoveryProjectName, Creation = source, DesiredPolicy = policy, Changes = [],
+            ExtraImports = [original], ExpectedFingerprint = ""
+        }]);
+        var journal = Path.Combine(engine.Paths.Home, "imports.json");
+        var jobs = await AtomicFile.ReadJsonAsync<ImportJob[]>(journal, token) ?? [];
+        if (jobs.Any(job => job.Id == RecoveryId)) throw new IOException("The relocation fixture must be fresh.");
+        await AtomicFile.WriteJsonAsync(journal, jobs.Append(new ImportJob(RecoveryId, plan, source, "Paused", "Paused", 30, "", "")).ToArray(), token);
+    }
 
     internal static async Task RunAsync(CoreWebView2 core, Window window, VrcSetupApplication engine, string folder, CancellationToken token)
     {
@@ -40,6 +71,21 @@ internal static class ReactNativePickerVerification
 
         var original = await engine.Configuration.LoadAsync(token);
         var originalRoot = original.UnityProjectsRoot;
+        const string resume = "Array.from(document.querySelectorAll('#job-" + RecoveryId + " button')).find(button => button.textContent === 'Riprendi importazione')";
+        const string recoveryReview = """document.querySelector('section[aria-label="Riprendi importazione"]')""";
+        const string footer = "document.querySelector('footer [role=status]')?.textContent";
+        await Program.RequireAsync(core, resume + "?.disabled === false");
+        await OpenPickerAsync(resume, null);
+        await Program.RequireAsync(core, resume + "?.disabled === false && " + recoveryReview + " === null");
+        await OpenPickerAsync(resume, Path.Combine(folder, "relocation", "Probe.unitypackage"));
+        await Program.RequireAsync(core, footer + " === 'Questo pacchetto è diverso dall’originale. Scegli il file UnityPackage originale per continuare.' && " + recoveryReview + " === null", attempts: 400);
+        await OpenPickerAsync(resume, Path.Combine(folder, "relocation", "MOVED.unitypackage"));
+        await Program.RequireAsync(core, recoveryReview + "?.textContent.includes('Continua nel progetto esistente') && " +
+            recoveryReview + "?.querySelector('.path')?.textContent === " + JsonSerializer.Serialize(Path.Combine(originalRoot, RecoveryProjectName)), attempts: 400);
+        await core.ExecuteScriptAsync(recoveryReview + ".querySelector('button').click()");
+        if (engine.Imports.Snapshot().Single(job => job.Id == RecoveryId) is not { State: "Paused", Active: false })
+            throw new IOException("Reviewing the relocated archive changed the paused job.");
+
         var selectedRoot = Path.Combine(folder, "Progetti selezionati");
         Directory.CreateDirectory(selectedRoot);
         var extras = Directory.CreateDirectory(Path.Combine(folder, "Pacchetti aggiuntivi")).FullName;
@@ -64,7 +110,6 @@ internal static class ReactNativePickerVerification
         await SelectSettingAsync("unityEditorPath", original.UnityEditorPath, editor);
         await SelectSettingAsync("unityPackagesFolder", original.UnityPackagesFolder ?? "", extras);
         await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
-        const string footer = "document.querySelector('footer [role=status]')?.textContent";
         await Program.RequireAsync(core, footer + " === 'Impostazioni salvate.'");
         var saved = await engine.Configuration.LoadAsync(token);
         if (!string.Equals(saved.UnityProjectsRoot, selectedRoot, StringComparison.OrdinalIgnoreCase) ||
@@ -120,6 +165,8 @@ internal static class ReactNativePickerVerification
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
         await OpenPickerAsync(exportPreset, presetFile);
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
+        if (!File.Exists(presetFile))
+            throw new IOException("The preset export did not write the selected file. Status: " + await core.ExecuteScriptAsync(footer));
         var portable = PortablePreset.Read(await File.ReadAllTextAsync(presetFile, token));
         if (portable.Name != fixturePreset || portable.Packages.Count != 1 || portable.Packages.GetValueOrDefault("com.vrchat.avatars") != "3.10.6")
             throw new IOException("The exported preset did not preserve its name and version pin.");
@@ -192,7 +239,8 @@ internal static class ReactNativePickerVerification
             SettingsFileRestored = true, PriorConfigurationAndProjectFilesPreserved = true,
             PortablePresetRoundTrip = true, DeclinedPresetPreservedConfiguration = true,
             ProjectSortReadAndPersisted = true, ExistingProjectSelectedWithoutChanges = true,
-            InvalidFolderShowsAnAction = true, DiagnosticsExported = true
+            InvalidFolderShowsAnAction = true, DiagnosticsExported = true,
+            RelocatedSourceAcceptedForReview = true, DifferentArchiveRejected = true, PausedJobPreserved = true
         }, token);
 
         async Task SelectSettingAsync(string id, string previousPath, string path)
@@ -224,6 +272,7 @@ internal static class ReactNativePickerVerification
         Directory.CreateDirectory(Path.Combine(path, "Packages"));
         Directory.CreateDirectory(Path.Combine(path, "ProjectSettings"));
         await File.WriteAllTextAsync(Path.Combine(path, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1\n", token);
+        await File.WriteAllTextAsync(Path.Combine(path, "Packages", "manifest.json"), """{"dependencies":{}}""", token);
         var manifest = Path.Combine(path, "Packages", "vpm-manifest.json");
         await File.WriteAllTextAsync(manifest, """{"dependencies":{},"locked":{}}""", token);
         return manifest;
@@ -304,7 +353,9 @@ internal static class ReactNativePickerVerification
                                 new PropertyCondition(AutomationElement.AutomationIdProperty, "1"),
                                 new PropertyCondition(AutomationElement.NameProperty, "Select Folder"))));
                     ((ValuePattern)value).SetValue(selectedPath ?? throw new IOException("The fixture did not supply a path."));
-                    File.AppendAllText(trace, "Invoking the hosted picker button.\n");
+                    // The shell's Save dialog updates the proposed name after an edit notification.
+                    await Task.Delay(200, token);
+                    File.AppendAllText(trace, $"Invoking the hosted picker button ({button?.Current.Name}) with value {((ValuePattern)value).Current.Value}.\n");
                     if (button?.TryGetCurrentPattern(InvokePattern.Pattern, out var invoke) == true)
                         ((InvokePattern)invoke).Invoke();
                     else if (!PostMessage(handle, CommandMessage, AcceptButton, GetDlgItem(handle, AcceptButton)))

@@ -61,7 +61,10 @@ recorded by the installer, or its own `data/` in portable mode.
 
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
-`result.json`. The smoke uses no live Unity editor or project.
+`result.json`. It also drops two local archives through WebView2's file
+drag events and verifies both drafts and their independent PC and Quest
+targets. This covers the browser-to-host file bridge. An Explorer-origin
+drag remains a separate check. The smoke uses no live Unity editor or project.
 
 With the bundled package tool available, run `--verify-batch-packages <fresh-path>`
 to remove a fixture package from one of two projects through the React review.

@@ -36,6 +36,27 @@ internal static class ReactImportVerification
         }
     }
 
+    internal static async Task VerifyFileDropAsync(CoreWebView2 core, string folder)
+    {
+        var archive = MakeArchive(folder);
+        var quest = Path.Combine(folder, "DropQuestV2.unitypackage");
+        var pc = Path.Combine(folder, "Drop PC.unitypackage");
+        File.Copy(archive, quest);
+        File.Copy(archive, pc);
+        var initialCount = JsonSerializer.Deserialize<int>(await core.ExecuteScriptAsync("document.querySelectorAll('.tabs button').length"));
+        var data = new { files = new[] { quest, pc }, items = Array.Empty<object>(), dragOperationsMask = 1 };
+        foreach (var type in new[] { "dragEnter", "dragOver" })
+            await core.CallDevToolsProtocolMethodAsync("Input.dispatchDragEvent", JsonSerializer.Serialize(new { type, x = 60, y = 130, data }));
+        await Program.RequireAsync(core, "document.querySelector('main.dragging') !== null");
+        await core.CallDevToolsProtocolMethodAsync("Input.dispatchDragEvent", JsonSerializer.Serialize(new { type = "drop", x = 60, y = 130, data }));
+        const string tabs = "Array.from(document.querySelectorAll('.tabs button'))";
+        await Program.RequireAsync(core, tabs + $".length === {initialCount + 2} && document.querySelector('main.dragging') === null", attempts: 400);
+        await core.ExecuteScriptAsync(tabs + ".find(button => button.textContent === 'DropQuestV2.unitypackage').click()");
+        await Program.RequireAsync(core, "document.querySelector('.platforms [aria-pressed=true]')?.textContent === 'Quest'");
+        await core.ExecuteScriptAsync(tabs + ".find(button => button.textContent === 'Drop PC.unitypackage').click()");
+        await Program.RequireAsync(core, "document.querySelector('.platforms [aria-pressed=true]')?.textContent === 'PC'");
+    }
+
     internal static async Task RunAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, CancellationToken shutdown)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(shutdown);

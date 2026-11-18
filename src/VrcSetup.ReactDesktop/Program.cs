@@ -230,6 +230,8 @@ internal static class Program
                     ProjectRules.EnsureContained(profileFixture, configuration.UnityProjectsRoot);
                 if (verifyVcc && profileFixture is not null)
                     await ReactVccVerification.SeedAsync(engine, profileFixture, configuration, shutdown.Token);
+                if (verifyNativePicker && profileFixture is not null)
+                    await ReactNativePickerVerification.SeedRecoveryAsync(engine, profileFixture, configuration, shutdown.Token);
                 bridge.ConfigureQueue(configuration);
                 await engine.Imports.InitializeAsync();
                 bridge.Attach(core);
@@ -348,12 +350,15 @@ internal static class Program
                         await VerifyPresetsAsync(core);
                         await VerifyLanguageAsync(core);
                         await VerifyMaintenanceAsync(core, engine);
+                        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+                        await RequireAsync(core, "document.querySelector('.tabs button') !== null");
+                        await ReactImportVerification.VerifyFileDropAsync(core, smoke);
                         string? browserExecutable = null;
                         if (fixedRuntime is not null)
                             browserExecutable = VerifyFixedBrowser(core, fixedRuntime);
                         await File.WriteAllTextAsync(Path.Combine(smoke, "result.json"), JsonSerializer.Serialize(new
                         {
-                            passed = true, readyMs, runtime = environment.BrowserVersionString, browserExecutable, drafts = 6, target = "Android",
+                            passed = true, readyMs, runtime = environment.BrowserVersionString, browserExecutable, drafts = 6, droppedDrafts = 2, target = "Android",
                             checks = new[] { "native handshake", "six analyzed archives", "Quest filename and prefab path detection",
                                 "independent tab state", "package panel and exclusion", "project discovery, search and name validation",
                                 "compilation recovery action and dismissal", "activity detail, operation log and diagnostics archive",
@@ -361,7 +366,8 @@ internal static class Program
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
                                 "theme changes and custom accent persist", "help and plain version label", "manual file path and project naming settings",
                                 "preset create and rename persist", "preset favorites, pinning, discard, save and delete",
-                                "live English labels and language persistence", "diagnostics settings and maintenance confirmations" }
+                                "live English labels and language persistence", "diagnostics settings and maintenance confirmations",
+                                "WebView2 file drop stages two independent archives" }
                         }));
                         window.Close();
                         return;
