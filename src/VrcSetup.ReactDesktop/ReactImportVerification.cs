@@ -188,6 +188,9 @@ internal static class ReactImportVerification
         await ClickJobAsync(core, paused.Id, "Riprendi importazione", token);
         const string resume = """document.querySelector('[aria-label="Riprendi importazione"] .primary')""";
         await WaitForPageAsync(core, resume + "?.disabled === false", TimeSpan.FromMinutes(2), token);
+        await WaitForPageAsync(core, """
+            document.querySelector('[aria-label="Riprendi importazione"]').textContent.includes('Continua nel progetto esistente')
+            """, TimeSpan.FromSeconds(10), token);
         await WaitForFixtureHeadroomAsync(token);
         await core.ExecuteScriptAsync(resume + ".click()");
         var queued = await WaitForJobAsync(engine, path, job => job.Id != paused.Id, TimeSpan.FromSeconds(30), token);
@@ -202,7 +205,7 @@ internal static class ReactImportVerification
             TimeSpan.FromSeconds(15), token);
         await AtomicFile.WriteJsonAsync(Path.Combine(folder, "resumed-import.json"), new
         { Passed = true, FromState = paused.State, finished.State, finished.ProjectPath, finished.LogFile,
-            OriginalProjectPreserved = true, ReopenedProfile = true }, token);
+            OriginalProjectPreserved = true, ExistingProjectReview = true, ReopenedProfile = true }, token);
     }
 
     internal static async Task WaitForFixtureHeadroomAsync(CancellationToken token, int minimumGiB = 6)

@@ -136,7 +136,7 @@ internal static class Program
             if (closing) return;
             args.Cancel = true;
             if (draining) return;
-            if (bridge.IsBusy)
+            if (!offscreen && bridge.IsBusy)
             {
                 MessageBox.Show(window, UiText.Text("Wait for the current operation before closing the app."), window.Title);
                 return;
@@ -153,6 +153,7 @@ internal static class Program
             try
             {
                 await Task.Yield(); // Let WPF finish the cancelled close before issuing another.
+                while (offscreen && bridge.IsBusy) await Task.Delay(50);
                 await engine.Imports.DisposeAsync();
             }
             catch (Exception error) when (DesktopUpdates.IsRecoverable(error))
@@ -306,7 +307,7 @@ internal static class Program
                         if (diagnosticZip.GetEntry("App/operation-smoke-packages.json") is null ||
                             diagnosticZip.GetEntry("App/smoke-vpm.log") is null)
                             throw new IOException("The diagnostic ZIP is missing the package report or its log.");
-                        await VerifySettingsAsync(core);
+                        await VerifySettingsAsync(core, smoke);
                         await VerifyPresetsAsync(core);
                         await VerifyLanguageAsync(core);
                         string? browserExecutable = null;
@@ -320,7 +321,7 @@ internal static class Program
                                 "compilation recovery action and dismissal", "activity detail, operation log and diagnostics archive",
                                 "VPM restore and removal review", "VPM batch review distinguishes changed and unchanged projects",
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
-                                "theme changes and custom accent persist", "help and plain version label",
+                                "theme changes and custom accent persist", "help and plain version label", "manual file path and project naming settings",
                                 "preset create and rename persist", "preset favorites, pinning, discard, save and delete",
                                 "live English labels and language persistence" }
                         }));
@@ -454,7 +455,8 @@ internal static class Program
             await RequireAsync(core, $$"""
                 (() => {
                   const rows = Array.from(document.querySelectorAll('[aria-live="polite"] .package'));
-                  return rows.some(x => x.textContent.includes('Avatar di prova') && x.textContent.includes('Completato'))
+                  return !document.querySelector('header button').disabled
+                    && rows.some(x => x.textContent.includes('Avatar di prova') && x.textContent.includes('Completato'))
                     && rows.some(x => x.textContent.includes('Secondo avatar') && x.textContent.includes({{expectedSecondResult}}));
                 })()
                 """, attempts: 360);
@@ -545,7 +547,7 @@ internal static class Program
         await RequireAsync(core, "document.querySelector('.activity pre')?.textContent.includes('Fixture package operation completed')");
     }
 
-    private static async Task VerifySettingsAsync(CoreWebView2 core)
+    private static async Task VerifySettingsAsync(CoreWebView2 core, string folder)
     {
         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
         await RequireAsync(core, "document.getElementById('job-smoke-completed') !== null");
@@ -554,6 +556,7 @@ internal static class Program
         await RequireAsync(core, "document.querySelector('#hide-completed')?.checked === false");
         await core.ExecuteScriptAsync("""
             document.querySelector('#hide-completed').click();
+            document.querySelector('#manual-import-path').click();
             Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('alpha sperimentali')).querySelector('input').click();
             const limit = document.querySelector('#import-limit');
             limit.value = '6';
@@ -578,14 +581,34 @@ internal static class Program
             accent.dispatchEvent(new Event('change', { bubbles: true }));
             """);
         await RequireAsync(core, "document.querySelector('#appearance-palette').value === 'Custom'");
+        await core.ExecuteScriptAsync("""
+            document.querySelector('.settings .naming summary').click();
+            const prefix = document.querySelector('.naming-fields input');
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(prefix, 'Importato ');
+            prefix.dispatchEvent(new Event('input', { bubbles: true }));
+            const patterns = document.querySelector('.settings .naming textarea');
+            Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(patterns, '-[0-9]+$');
+            patterns.dispatchEvent(new Event('input', { bubbles: true }));
+            """);
         await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
         await RequireAsync(core, "document.querySelector('footer [role=status]').textContent === 'Impostazioni salvate.'");
         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
         await RequireAsync(core, "document.getElementById('job-smoke-completed') === null");
         await RequireAsync(core, "document.documentElement.style.getPropertyValue('--accent') === 'rgb(104, 202, 182)'");
+        var manualArchive = Path.Combine(folder, "Manuale-123.unitypackage");
+        File.Copy(Path.Combine(folder, "avatarv2.unitypackage"), manualArchive);
+        await core.ExecuteScriptAsync($$"""
+            const manualPath = document.querySelector('.manual-path input');
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(manualPath, {{JsonSerializer.Serialize(manualArchive)}});
+            manualPath.dispatchEvent(new Event('input', { bubbles: true }));
+            """);
+        await RequireAsync(core, "document.querySelector('.manual-path button').disabled === false");
+        await core.ExecuteScriptAsync("document.querySelector('.manual-path button').click()");
+        await RequireAsync(core, """document.querySelector('input[aria-label="Nome progetto"]')?.value === 'Importato Manuale'""");
         await core.ExecuteScriptAsync(settings);
         await RequireAsync(core, "document.querySelector('#hide-completed')?.checked && document.querySelector('#import-limit').value === '6'");
         await RequireAsync(core, "document.querySelector('#appearance-theme').value === 'Light' && document.querySelector('#accentColor').value === '#68cab6'");
+        await RequireAsync(core, "document.querySelector('#manual-import-path').checked && document.querySelector('.naming-fields input').value === 'Importato '");
         await RequireAsync(core, "document.querySelector('.app-version')?.textContent.trim().length > 0");
         await core.ExecuteScriptAsync("document.querySelector('.help summary').click()");
         await RequireAsync(core, "document.querySelector('.help details[open] p')?.textContent.includes('UnityPackage')");

@@ -22,7 +22,7 @@ drafts, presets, exclusions, explicit additions, review and queue controls.
 It also covers project discovery, empty project review, VPM package selection
 and restore review, preset management, Activity history and import
 preferences in the isolated candidate profile.
-The production installer and version stay on the existing WinUI path.
+The initial private candidate left the public installer on the WinUI path.
 
 ## Initial measurements and milestone
 
@@ -51,11 +51,11 @@ recorded by the installer, or its own `data/` in portable mode.
 
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
-| Import | Six archives, Quest name and prefab-path detection, version review, queue and real Unity import from React. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive | Explorer drop, native relocation picker, installed Creator Companion registration, and recovery of a pre-existing destination. The recovery planner has separate checks for matching the original archive bytes |
+| Import | Six archives, Quest name and prefab-path detection, manual file path using the saved naming policy, version review, queue and real Unity import from React. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive | Explorer drop, native relocation picker, installed Creator Companion registration, and importing missing assets into a completed destination. The recovery planner has separate checks for matching the original archive bytes |
 | Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders. The Unity indicator follows editor start and exit while the list stays open. Project options restore the newest VPM backup after confirmation, keeping displaced edits in a recovery folder. Empty project creation supports per-project package choices, numeric version review and saving choices as a preset. The Projects button opens the selected project with a matching installed editor if the configured path is stale | Verify the native folder picker and external registrations |
 | Project packages | Read installed/locked versions, protect required packages and restore damaged locked SDK metadata. Real vrc-get added, upgraded, downgraded and removed Gesture Manager from React, with Unity closed and in one open Unity batch session. Batch review and apply use per-package targets. A project edited after review was skipped with a localized next action while the other project changed | Verify recovery messaging after a failed change with Unity open |
 | Activity | Import and package operation history, per-project details, inline logs and diagnostic ZIP. A real batch with one successful project and one skipped project displays a partially completed operation and both outcomes | Native Save picker |
-| Settings | Import preferences, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. Settings discovers, prepares and applies an alpha using a fixture feed | Native pickers and edits, color picker interaction, review translated errors in native failure flows |
+| Settings | Import preferences, manual file entry, project naming, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. Settings discovers, prepares and applies an alpha using a fixture feed | Port application maintenance actions and developer diagnostics controls. Verify native pickers and edits, color picker interaction and translated errors in native failure flows |
 | Presets | Select a saved preset during import. Create, rename, pin, favourite, discard unsaved edits, save, reopen and delete through the library. The fixture exercises catalog choices and confirms a saved pin after reopening | Verify portable sharing with the native file dialogs |
 | Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7; offline archive runs its bundled Fixed Version. Same-release build ordering, installer checksum rejection and real prefetch, swap and restart verified with a fixture feed and cached components | Verify download over the production feed and component transport, Windows 10 Fixed Version and final production release |
 
@@ -88,7 +88,8 @@ the persisted state in `paused-import.json`. Reopen that profile with
 the inline confirmation. Use a separate paused fixture for each outcome.
 The discard check verifies the terminal journal entry and preservation of the
 source and a neighboring file. The resume check requires the same project and
-creation identity, the imported asset and a compiled C# assembly. The fixture
+creation identity, an explicit existing-project label in the review,
+the imported asset and a compiled C# assembly. The fixture
 runs one Unity import at a time following a 6 GiB physical and commit check.
 
 Use `--verify-vpm-edits <resumed-fixture> [<Unity.exe>]` to exercise search,
@@ -119,7 +120,7 @@ checks the exit receipt and unchanged preferences.
 To package a private React candidate in the normal installation layout:
 
 ```powershell
-./scripts/Publish-Windows.ps1 -Version 0.4.0-alpha.2 -OutputDirectory .work/artifacts/react-040-layout -ReactCandidate
+./scripts/Publish-Windows.ps1 -Version 0.4.0-alpha.2 -OutputDirectory .work/artifacts/react-040-layout
 ```
 
 The React entry point is `app/desktop/VrcSetup.Desktop.exe`. The generated

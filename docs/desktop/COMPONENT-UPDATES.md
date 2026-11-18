@@ -34,6 +34,15 @@ Release discovery uses a static JSON file at `https://raw.githubusercontent.com/
 
 `ApplicationUpdateSource` also supports an independent HTTPS feed/CDN. Maintainer build parameters `-UpdateFeedUri` and `-UpdateAssetPrefix` pin a future host without changing the format. Feed failures stay non-blocking, and the client cache/backoff still applies.
 
+React uses `releases-builds.json` for updates, including revisions of the same
+base version. A numbered revision uses a tag such as
+`v0.4.0-alpha.1+build.123` and an installer named
+`Install-VrcSetup-0.4.0-alpha.1-build.123-win-x64.exe`. The installation
+receipt and embedded manifest use the full build identity. At the same base
+version, clients compare counters numerically. The stable and experimental
+feeds keep only canonical releases for older clients. React uses the
+appropriate older feed when the build feed returns 404.
+
 Migration sequence:
 
 1. Prepare HTTPS hosting, static feed, immutable modules and checksums; test downloads/checksums first.

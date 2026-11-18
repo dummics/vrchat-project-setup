@@ -46,6 +46,9 @@ header .actions{flex-wrap:wrap;justify-content:flex-end}
 .workspace-path { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem .65rem; margin-bottom: .85rem; }
 .workspace-path label { grid-column: 1 / -1; }
 .workspace-path input { min-width: 0; font: inherit; padding: .55rem .65rem; background: var(--surface); color: inherit; border: 1px solid var(--line); border-radius: .45rem; }
+.naming-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .65rem; margin-block: .85rem; }
+.naming input:not([type=checkbox]), .naming textarea { display: block; width: 100%; margin-top: .35rem; padding: .55rem .65rem; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: .45rem; }
+.naming textarea { min-height: 4rem; resize: vertical; }
 
 :root {
   --canvas: #181a1d;

@@ -25,14 +25,16 @@ type Project = {
   incomplete: boolean; open: boolean; importing: boolean; recoveryId?: string;
 };
 type Review = { id: string; continuation: boolean; projects: {
-  name: string; path: string; target?: string; packages: { id: string; name: string; version?: string }[]; removals: string[];
+  name: string; path: string; target?: string; existingProject: boolean; packages: { id: string; name: string; version?: string }[]; removals: string[];
 }[] };
+type Naming = { defaultPrefix: string; defaultSuffix: string; regexRemovePatterns: string[]; rememberUnityPackageNames: boolean };
 type ImportPreferences = {
   maxParallelImports: number; autoHideCompletedImports: boolean; checkUpdatesOnStartup: boolean;
   automaticUpdates: boolean; includeBetaUpdates: boolean; includeAlphaUpdates: boolean;
   canEditPaths: boolean; unityEditorPath: string; unityProjectsRoot: string; unityPackagesFolder?: string;
   appearance: Appearance; palettes: Palettes;
   preferenceLanguage: Language;
+  manualImportPath: boolean; naming: Naming;
 };
 const workspaceOptions = [
   ['unityProjectsRoot', 'projects', 'Cartella progetti'],
@@ -46,7 +48,7 @@ const updateOptions = [
   ['includeBetaUpdates', 'Includi le versioni beta'],
   ['includeAlphaUpdates', 'Includi le versioni alpha sperimentali']
 ] as const;
-type State = { root: string; packages: Packages; presets: Record<string, Packages>; jobs: Job[]; initial: Source[]; waitingForMemory: boolean; appearance: Appearance; version: string; language: 'it' | 'en' };
+type State = { root: string; packages: Packages; presets: Record<string, Packages>; jobs: Job[]; initial: Source[]; waitingForMemory: boolean; appearance: Appearance; version: string; language: 'it' | 'en'; manualImportPath: boolean };
 type Reply = { id: string; result?: unknown; error?: string };
 type Host = { postMessage(message: unknown): void; postMessageWithAdditionalObjects(message: unknown, files: File[]): void; addEventListener(type: 'message', callback: (event: MessageEvent<Reply>) => void): void };
 const host = (window as Window & { chrome?: { webview?: Host } }).chrome?.webview;
@@ -119,6 +121,7 @@ function ImportPage() {
   const [sort, setSort] = useState<'name' | 'lastUpdatedUtc' | 'createdUtc'>('lastUpdatedUtc');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [manualPath, setManualPath] = useState('');
   const [dragging, setDragging] = useState(false);
   const [review, setReview] = useState<Review>();
   const [discard, setDiscard] = useState<{ id: string; removeFolder: boolean }>();
@@ -179,11 +182,12 @@ function ImportPage() {
     finally { setBusy(''); }
   }
 
-  function stage(files?: File[]) {
+  function stage(files?: File[], path?: string) {
     if (busy || review || screen !== 'import') return;
     void run('Verifica pacchetti…', async () => {
-      const sources = await request<Source[]>(files ? 'drop' : 'pick', null, files);
+      const sources = await request<Source[]>(path ? 'stagePath' : files ? 'drop' : 'pick', path ?? null, files);
       if (!sources.length) return;
+      if (path) setManualPath('');
       setDrafts(current => [...current, ...sources.map(source => ({ ...source, preset: null, packages: { ...state?.packages } }))]);
       setActiveId(sources[0].id); setPanel('import');
     });
@@ -309,6 +313,35 @@ function ImportPage() {
               setPreferences({ ...preferences, autoHideCompletedImports: event.target.checked }); setNotice(''); setSettingsDirty(true);
             }} />
           </label>
+          <label className="package">{t("Mostra il campo per il percorso del file")}
+            <input id="manual-import-path" type="checkbox" checked={preferences.manualImportPath} onChange={event => {
+              setPreferences({ ...preferences, manualImportPath: event.target.checked }); setNotice(''); setSettingsDirty(true);
+            }} />
+          </label>
+          <details className="naming"><summary>{t("Nomi dei progetti")}</summary>
+            <div className="naming-fields">
+              {([['defaultPrefix', 'Prefisso'], ['defaultSuffix', 'Suffisso']] as const).map(([key, label]) => (
+                <label key={key}>{t(label)}
+                  <input value={preferences.naming[key]} onChange={event => {
+                    setPreferences({ ...preferences, naming: { ...preferences.naming, [key]: event.target.value } });
+                    setNotice(''); setSettingsDirty(true);
+                  }} />
+                </label>
+              ))}
+            </div>
+            <label>{t("Testo da rimuovere, un’espressione regolare per riga")}
+              <textarea value={preferences.naming.regexRemovePatterns.join('\n')} onChange={event => {
+                setPreferences({ ...preferences, naming: { ...preferences.naming, regexRemovePatterns: event.target.value.split('\n') } });
+                setNotice(''); setSettingsDirty(true);
+              }} />
+            </label>
+            <label className="package">{t("Ricorda i nomi scelti per i file")}
+              <input type="checkbox" checked={preferences.naming.rememberUnityPackageNames} onChange={event => {
+                setPreferences({ ...preferences, naming: { ...preferences.naming, rememberUnityPackageNames: event.target.checked } });
+                setNotice(''); setSettingsDirty(true);
+              }} />
+            </label>
+          </details>
           <details><summary>{t("Impostazioni avanzate")}</summary>
             <label className="package">{t("Limite importazioni simultanee")}
               <select id="import-limit" value={preferences.maxParallelImports} onChange={event => {
@@ -469,6 +502,14 @@ function ImportPage() {
     </section> :
     <section className="view" key={panel}>
       {panel === 'import' && <>
+        {state?.manualImportPath && !review && <form className="workspace-path manual-path" onSubmit={event => {
+          event.preventDefault();
+          if (manualPath.trim()) stage(undefined, manualPath.trim());
+        }}>
+          <input aria-label={t("Percorso del file .unitypackage")} placeholder={t("Percorso del file .unitypackage")} value={manualPath}
+            disabled={!!busy} onChange={event => setManualPath(event.target.value)} />
+          <button disabled={!!busy || !manualPath.trim()}>{t("Aggiungi file")}</button>
+        </form>}
         {!active ? <button className="drop" disabled={!!busy || !state} onClick={() => stage()}><span aria-hidden="true">＋</span>{t("Trascina qui i file .unitypackage")}</button> :
           <>
             <div className="tabs" aria-label={t("File da importare")}>
@@ -556,6 +597,7 @@ function ImportPage() {
         <h2>{review.continuation ? t("Riprendi importazione") : t("Rivedi importazione")}</h2>
         {review.projects.map(project => <article key={project.path}>
           <strong>{project.name}</strong>{project.target && <span> · {project.target === 'Android' ? 'Quest' : project.target === 'iOS' ? 'iOS' : 'PC'}</span>}
+          {project.existingProject && <p>{t("Continua nel progetto esistente")}</p>}
           <p className="path">{project.path}</p>
           <details open={project.removals.length > 0}>
             <summary>{t("Pacchetti ·")} {project.packages.length}</summary>
@@ -567,7 +609,7 @@ function ImportPage() {
           <button className="primary" disabled={!!busy} onClick={() => void run(t("Avvio importazioni…"), async () => {
             setState(await request<State>('start', review.id)); setReview(undefined);
             if (!review.continuation) { setDrafts([]); setActiveId(''); }
-          })}>{review.continuation ? t('Riprendi') : review.projects.length === 1 ? t('Avvia importazione')
+          })}>{review.continuation ? t('Riprendi') : review.projects.length === 1 ? t(review.projects[0].existingProject ? 'Completa importazione' : 'Avvia importazione')
             : t('Avvia {count} importazioni', { count: review.projects.length })}</button></div></section>}
     </section>}
     <footer>

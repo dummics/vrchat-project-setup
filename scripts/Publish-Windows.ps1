@@ -18,13 +18,14 @@ if (-not $Version) { $Version = ([xml](Get-Content (Join-Path $repoRoot 'Directo
 $release = Get-ReleaseVersion $Version
 $Version = $release.Text
 $assetId = $release.AssetId
-if ($ReactCandidate -and $release.Core -lt [version]'0.4.0') {
+$reactDesktop = $release.Core -ge [version]'0.4.0'
+if ($ReactCandidate -and -not $reactDesktop) {
     throw 'React packaging requires version 0.4.0 or later.'
 }
-if ($release.Build -and -not $ReactCandidate) {
+if ($release.Build -and -not $reactDesktop) {
     throw 'Numbered builds require the React desktop.'
 }
-if ($FixedWebView2Runtime -and -not $ReactCandidate) {
+if ($FixedWebView2Runtime -and -not $reactDesktop) {
     throw 'Fixed Version packaging requires the React desktop.'
 }
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repoRoot '.work\artifacts\release' }
@@ -45,7 +46,7 @@ function Invoke-Dotnet {
 }
 Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Cli\VrcSetup.Cli.csproj'),'-c','Release','-r','win-x64','--self-contained','true',('-p:Version=' + $Version),'-o',(Join-Path $payload 'app\cli'),'--nologo')
 $desktopOutput = Join-Path $payload 'app\desktop'
-if ($ReactCandidate) {
+if ($reactDesktop) {
     $desktopSource = Join-Path $repoRoot 'src\VrcSetup.ReactDesktop'
     $uiClock = [Diagnostics.Stopwatch]::StartNew()
     & npm.cmd --prefix (Join-Path $desktopSource 'ui') ci --no-audit --no-fund
@@ -125,7 +126,7 @@ $checksums = @($outputs | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralP
 [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'SHA256SUMS.txt'),$checksums,[Text.UTF8Encoding]::new($false))
 $report = [ordered]@{Version=$Version;Payload=$payload;Archive=$archive;Installer=$installer;Checksums=(Join-Path $OutputDirectory 'SHA256SUMS.txt');Artifacts=@($outputs|ForEach-Object{[ordered]@{Name=[IO.Path]::GetFileName($_);Bytes=(Get-Item -LiteralPath $_).Length}})}
 $report['StageSeconds'] = $stageSeconds
-$report['Desktop'] = $(if ($ReactCandidate) { 'ReactCandidate' } else { 'WinUI' })
+$report['Desktop'] = $(if ($reactDesktop) { 'React' } else { 'WinUI' })
 $report['BuildNumber'] = $release.Build
 $report['OfflineArchive'] = $offlineArchive
 $report['TotalSeconds'] = [math]::Round($buildClock.Elapsed.TotalSeconds, 2)

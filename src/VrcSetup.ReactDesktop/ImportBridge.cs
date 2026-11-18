@@ -98,6 +98,13 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return picker.ShowDialog(window) == true ? await Stage(picker.FileNames, token) : [];
             case "drop":
                 return await Stage(args.AdditionalObjects.OfType<CoreWebView2File>().Select(x => x.Path), token);
+            case "stagePath":
+                if (!(await engine.Configuration.LoadAsync(token)).ManualImportPath)
+                    throw new IOException(UiText.Text("Enable manual file paths in Settings."));
+                var manualPath = NormalizeOptionalPath(data.GetString());
+                if (!manualPath.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase) || !File.Exists(manualPath))
+                    throw new IOException(UiText.Text("Enter the full path to an existing UnityPackage file."));
+                return await Stage([manualPath], token);
             case "workspace":
                 var config = await engine.Configuration.LoadAsync(token);
                 config.UnityEditorPath = (await Task.Run(UnityEditorDiscovery.FindEditors, token))
@@ -312,6 +319,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     preferencesBaseline.IncludeBetaUpdates, preferencesBaseline.IncludeAlphaUpdates,
                     appearance = Appearance(preferencesBaseline), palettes = AppearancePalette.Presets,
                     preferenceLanguage = preferencesBaseline.Language,
+                    preferencesBaseline.ManualImportPath, naming = preferencesBaseline.Naming,
                     CanEditPaths = !isolated, preferencesBaseline.UnityEditorPath, preferencesBaseline.UnityProjectsRoot,
                     preferencesBaseline.UnityPackagesFolder
                 };
@@ -340,6 +348,22 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 updated.AutomaticUpdates = preferences.AutomaticUpdates;
                 updated.IncludeBetaUpdates = preferences.IncludeBetaUpdates;
                 updated.IncludeAlphaUpdates = preferences.IncludeAlphaUpdates;
+                updated.ManualImportPath = preferences.ManualImportPath;
+                if (preferences.Naming is { } naming)
+                {
+                    naming.RegexRemovePatterns = naming.RegexRemovePatterns.Select(pattern => pattern.Trim())
+                        .Where(pattern => pattern.Length > 0).ToList();
+                    try
+                    {
+                        foreach (var pattern in naming.RegexRemovePatterns)
+                            _ = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+                    }
+                    catch (ArgumentException)
+                    {
+                        throw new ArgumentException(UiText.Text("Check the removal patterns in Project names before saving."));
+                    }
+                    updated.Naming = naming;
+                }
                 if (preferences.PreferenceLanguage is { } language)
                 {
                     if (language is not ("system" or "it" or "en")) throw new ArgumentException(UiText.Text("Choose an available language."));
@@ -590,7 +614,8 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         plan.Id, continuation,
         projects = plan.Projects.Select(project => new
         {
-            project.Name, project.Path, Target = (project.Creation ?? project.RecoverySource)?.BuildTarget,
+            project.Name, project.Path, Target = (project.Creation ?? project.RecoverySource ?? project.Initialization?.Source)?.BuildTarget,
+            ExistingProject = project.RecoverySource is not null || project.Initialization is not null,
             packages = project.Changes.Where(x => x.Kind != ChangeKind.Remove)
                 .Select(x => new { x.Id, Name = PackageCatalog.FriendlyName(x.Id), Version = x.ResolvedVersion }),
             removals = project.Changes.Where(x => x.Kind == ChangeKind.Remove)
@@ -933,6 +958,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             packages = settings.VpmPackages,
             presets = settings.PackagePresets,
             appearance = Appearance(settings),
+            settings.ManualImportPath,
             language = UiText.Resolve(settings.Language),
             version = ApplicationUpdates.CurrentVersion,
             initial,
@@ -1106,7 +1132,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private sealed record ImportPreferences(int MaxParallelImports, bool AutoHideCompletedImports,
         bool CheckUpdatesOnStartup, bool AutomaticUpdates, bool IncludeBetaUpdates, bool IncludeAlphaUpdates,
         string UnityEditorPath, string UnityProjectsRoot, string? UnityPackagesFolder, AppearancePreferences? Appearance,
-        string? PreferenceLanguage);
+        string? PreferenceLanguage, bool ManualImportPath, NamingSettings? Naming);
     private sealed record ProjectPackageEdit(Dictionary<string, string> Targets, Dictionary<string, string> Selected, string[] Removed,
         Dictionary<string, string[]>? PackageTargets);
     private sealed record ProjectPackageTarget(string Name, string Path);
