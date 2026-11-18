@@ -27,12 +27,13 @@ internal static class Program
             ? Path.GetFullPath(args[1]) : null;
         var smoke = args switch
         {
-            ["--smoke" or "--verify-batch-packages" or "--verify-batch-package-conflict", var evidence] => Path.GetFullPath(evidence),
+            ["--smoke" or "--verify-batch-packages" or "--verify-batch-package-conflict" or "--verify-package-cancellation", var evidence] => Path.GetFullPath(evidence),
             ["--verify-unity-workflow" or "--verify-pause-import" or "--verify-new-project", var evidence, _] => Path.GetFullPath(evidence),
             _ => null
         };
         var verifyBatchConflict = args is ["--verify-batch-package-conflict", _];
-        var verifyBatchPackages = verifyBatchConflict || args is ["--verify-batch-packages", _];
+        var verifyPackageCancellation = args is ["--verify-package-cancellation", _];
+        var verifyBatchPackages = verifyBatchConflict || verifyPackageCancellation || args is ["--verify-batch-packages", _];
         var verifyPrepared = args is ["--verify-prepared-update", _];
         var verifyFeed = args is ["--verify-feed-update", _];
         var verifyRestarted = args is ["--verify-update-smoke", _];
@@ -300,7 +301,8 @@ internal static class Program
                         await VerifyDraftActionsAsync(core);
                         using var screenshot = File.Create(Path.Combine(smoke, "import-react-720.png"));
                         await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, screenshot);
-                        await VerifyProjectListAsync(core, verifyBatchPackages ? smoke : null, verifyBatchConflict);
+                        await VerifyProjectListAsync(core, verifyBatchPackages ? smoke : null, verifyBatchConflict,
+                            verifyPackageCancellation ? engine : null);
                         if (verifyBatchPackages)
                         {
                             window.Close();
@@ -405,7 +407,7 @@ internal static class Program
         }));
     }
 
-    private static async Task VerifyProjectListAsync(CoreWebView2 core, string? batchEvidence, bool simulateConflict)
+    private static async Task VerifyProjectListAsync(CoreWebView2 core, string? batchEvidence, bool simulateConflict, VrcSetupApplication? cancelEngine)
     {
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Progetti').click()");
         await RequireAsync(core, "document.querySelector('.project-table tbody')?.textContent.includes('Avatar di prova')");
@@ -450,6 +452,7 @@ internal static class Program
             var changed = Path.Combine(workspace, "Avatar di prova", "Packages", "vpm-manifest.json");
             var unchanged = Path.Combine(workspace, "Secondo avatar", "Packages", "vpm-manifest.json");
             var unchangedBefore = await File.ReadAllTextAsync(unchanged);
+            var changedBefore = await File.ReadAllTextAsync(changed);
             if (simulateConflict)
             {
                 unchangedBefore += Environment.NewLine;
@@ -457,6 +460,26 @@ internal static class Program
             }
             using (var preview = File.Create(Path.Combine(batchEvidence, "batch-review-720.png")))
                 await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, preview);
+            if (cancelEngine is not null)
+            {
+                using var lease = await cancelEngine.Projects.AcquireAsync(Path.Combine(workspace, "Avatar di prova"), CancellationToken.None);
+                await core.ExecuteScriptAsync("document.querySelector('.view .extras button.primary').click()");
+                using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while (!Directory.EnumerateFiles(cancelEngine.Paths.Logs, "vrcsetup-*.log").Any())
+                    await Task.Delay(25, wait.Token);
+                await core.ExecuteScriptAsync("""document.querySelector('[data-package-action="cancel"]').click()""");
+                await RequireAsync(core, """
+                    document.querySelector('header button')?.disabled === false &&
+                    [...document.querySelectorAll('[aria-live="polite"] .package')].some(row =>
+                      row.textContent.includes('Avatar di prova') && row.textContent.includes('Annullato')
+                      && row.textContent.includes('Il progetto è conservato.'))
+                    """);
+                if (await File.ReadAllTextAsync(changed) != changedBefore || await File.ReadAllTextAsync(unchanged) != unchangedBefore)
+                    throw new IOException("Cancelling package changes modified a project manifest.");
+                await AtomicFile.WriteJsonAsync(Path.Combine(batchEvidence, "package-cancellation.json"),
+                    new { Passed = true, BothManifestsPreserved = true, CancelledThroughReact = true });
+                return;
+            }
             await core.ExecuteScriptAsync("document.querySelector('.view .extras button.primary').click()");
             var expectedSecondResult = JsonSerializer.Serialize(simulateConflict ? "Il progetto è cambiato" : "Nessuna modifica.");
             await RequireAsync(core, $$"""

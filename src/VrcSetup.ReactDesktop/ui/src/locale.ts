@@ -6,6 +6,8 @@ const english: Record<string, string> = {
   "Interrotta": "Interrupted",
   "Saltato": "Skipped",
   "Completata in parte": "Partially completed",
+  "Operazione annullata.": "Operation cancelled.",
+  "Annulla modifiche in corso": "Cancel package changes",
   "Aggiunta": "Added",
   "Modifica": "Modified",
   "Rimozione": "Removed",

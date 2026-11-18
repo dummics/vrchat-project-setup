@@ -712,6 +712,8 @@
   "A project folder appeared. Review the cancellation again before continuing.": "È comparsa una cartella del progetto. Controlla di nuovo l’annullamento prima di continuare.",
   "The project location is unavailable. Reconnect its drive before cancelling.": "Il percorso del progetto non è disponibile. Ricollega l’unità prima di annullare.",
   "Interrupted": "Interrotta",
+  "Operation interrupted. Project and recovery information preserved.": "Il progetto è conservato.",
+  "Operation interrupted. Automatic restore incomplete; use recovery.": "Ripristino incompleto. Apri le opzioni del progetto per ripristinare l’ultimo backup.",
   "Cancelling": "Annullamento in corso",
   "Hide finished imports; unfinished imports remain available here and in Projects.": "Nascondi le importazioni concluse. Quelle da completare restano disponibili qui e in Progetti.",
   "The project was created; it was not added to Creator Companion.": "Il progetto è stato creato; non è stato aggiunto a Creator Companion.",

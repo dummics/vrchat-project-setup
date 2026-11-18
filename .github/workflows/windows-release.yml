@@ -233,15 +233,21 @@ jobs:
           $failure = Join-Path $artifacts 'failure.txt'
           if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
           if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $artifacts 'result.json'))) { throw 'React UI verification failed.' }
-          $batch = Join-Path $env:RUNNER_TEMP 'vrcsetup-react-batch'
-          $start.ArgumentList.Clear()
-          $start.ArgumentList.Add('--verify-batch-package-conflict')
-          $start.ArgumentList.Add($batch)
-          $process = [Diagnostics.Process]::Start($start)
-          if (-not $process.WaitForExit(180000)) { $process.Kill($true); throw 'React batch verification timed out.' }
-          $failure = Join-Path $batch 'failure.txt'
-          if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
-          if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $batch 'batch-packages.json'))) { throw 'React batch verification failed.' }
+          $packageCases = @(
+            @{ Command = '--verify-batch-package-conflict'; Name = 'vrcsetup-react-batch'; Report = 'batch-packages.json' },
+            @{ Command = '--verify-package-cancellation'; Name = 'vrcsetup-react-cancel'; Report = 'package-cancellation.json' }
+          )
+          foreach ($case in $packageCases) {
+            $folder = Join-Path $env:RUNNER_TEMP $case.Name
+            $start.ArgumentList.Clear()
+            $start.ArgumentList.Add($case.Command)
+            $start.ArgumentList.Add($folder)
+            $process = [Diagnostics.Process]::Start($start)
+            if (-not $process.WaitForExit(180000)) { $process.Kill($true); throw "React verification timed out: $($case.Command)" }
+            $failure = Join-Path $folder 'failure.txt'
+            if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+            if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $folder $case.Report))) { throw "React verification failed: $($case.Command)" }
+          }
       - name: Build timing summary
         if: always()
         shell: pwsh
@@ -261,6 +267,8 @@ jobs:
             ${{ runner.temp }}/vrcsetup-ui
             ${{ runner.temp }}/vrcsetup-react-batch/batch-packages.json
             ${{ runner.temp }}/vrcsetup-react-batch/failure.txt
+            ${{ runner.temp }}/vrcsetup-react-cancel/package-cancellation.json
+            ${{ runner.temp }}/vrcsetup-react-cancel/failure.txt
             ${{ runner.temp }}/vrcsetup-appearance-restart
             ${{ runner.temp }}/vrcsetup-italian-import
             release/release-build.json

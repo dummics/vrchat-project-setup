@@ -46,6 +46,8 @@ export function ProjectPackages({ project, busy, request, run, onApplied }: Prop
   const [review, setReview] = useState<PackageReview>();
   const [acceptRisk, setAcceptRisk] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[]>();
+  const [applying, setApplying] = useState(false);
+  const [cancelRequested, setCancelRequested] = useState(false);
   const batch = project.targets.length > 1;
 
   function stage(item: PackageChoice, selectedVersion: string | null) {
@@ -97,20 +99,32 @@ export function ProjectPackages({ project, busy, request, run, onApplied }: Prop
       <button className="primary" disabled={busy || !review.projects.some(target => target.packages.length) || review.riskyDowngrade && !acceptRisk}
         onClick={() => void run(t("Applicazione modifiche…"), async () => {
           setReview(undefined);
-          const result = await request<{ warning?: string; results?: BatchResult[] }>('applyProjectPackages', { id: review.id, acceptRisk });
+          setApplying(true);
+          setCancelRequested(false);
+          let result: { warning?: string; results?: BatchResult[]; cancelled?: boolean };
+          try {
+            result = await request('applyProjectPackages', { id: review.id, acceptRisk });
+          } finally {
+            setApplying(false);
+          }
           setBatchResults(result.results);
           setDraft([]);
           setResults(undefined);
           const refreshed = batch
             ? await request<ProjectPackageList>('batchProjectPackages', project.targets.map(target => target.path))
             : await request<ProjectPackageList>('projectPackages', project.path);
-          onApplied(refreshed, batch ? '' : result.warning ?? (review.restore ? t("Pacchetti ripristinati.") : t("Pacchetti aggiornati.")));
+          const notice = result.cancelled ? t("Operazione annullata.") : review.restore ? t("Pacchetti ripristinati.") : t("Pacchetti aggiornati.");
+          onApplied(refreshed, batch && result.results ? '' : result.warning ?? notice);
         })}>{review.restore ? t("Conferma ripristino") : t("Applica modifiche")}</button>
     </div>
   </section>;
 
   return <>
     <div className="package"><h2>{t("Pacchetti VPM")}</h2>
+      {applying && <button data-package-action="cancel" disabled={cancelRequested} onClick={() => {
+        setCancelRequested(true);
+        void request('cancelPackageApply', null).catch(() => setCancelRequested(false));
+      }}>{cancelRequested ? t("Annullamento…") : t("Annulla modifiche in corso")}</button>}
       {project.canRestore && <button disabled={busy || !!draft.length || project.editorOpen}
         aria-describedby={project.editorOpen ? 'restore-editor-open' : undefined}
         onClick={() => reviewChanges(true)}>{t("Ripristina pacchetti")}</button>}

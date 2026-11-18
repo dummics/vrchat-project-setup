@@ -20,6 +20,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private OperationPlan? reviewed;
     private string? continuationId;
     private OperationPlan? packageReview;
+    private CancellationTokenSource? packageApply;
     private ProjectPackageTarget[] packageReviewTargets = [];
     private OperationPlan? newProjectReview;
     private BackupReview? backupReview;
@@ -52,6 +53,12 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             var root = message.RootElement;
             id = root.GetProperty("id").GetString();
             var method = root.GetProperty("method").GetString();
+            if (method == "cancelPackageApply" && !Closing)
+            {
+                packageApply?.Cancel();
+                Send(new { id, result = packageApply is not null });
+                return;
+            }
             if (method == "projectEditorStates" && !Closing)
             {
                 if (editorStatusRead is not { IsCompleted: false })
@@ -513,30 +520,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 if (PackageDowngrades.RequiresConfirmation(acceptedPackages) && !approval.AcceptRisk)
                     throw new IOException(UiText.Text("Confirm installing older versions."));
                 packageReview = null;
-                var approvedTargets = packageReviewTargets;
-                foreach (var reviewedProject in acceptedPackages.Projects)
-                {
-                    var reviewedPath = await ProjectPath(reviewedProject.Path, token);
-                    EnsureProjectIdle(reviewedPath);
-                    if (reviewedProject.ReinstallLockedPackages && engine.Projects.IsBusy(reviewedPath))
-                        throw new IOException(UiText.Text("Close Unity before restoring packages."));
-                    if ((await engine.Projects.ReadAsync(reviewedPath, token)).Incomplete)
-                        throw new IOException(UiText.Text("Finish the import before changing its packages."));
-                }
-                var outcome = await Task.Run(() => engine.ApplyAsync(acceptedPackages, cancellationToken: token), token);
-                if (approvedTargets.Length > 1)
-                {
-                    var applied = outcome.Results.ToDictionary(item => item.Path, StringComparer.OrdinalIgnoreCase);
-                    var skipped = outcome.NotProcessed.ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    return new { results = approvedTargets.Select(target => applied.TryGetValue(target.Path, out var item)
-                        ? new BatchResult(item.Project, item.Path, item.Status.ToString(),
-                            item.Status is OperationStatus.Failed or OperationStatus.CompletedWithWarnings or OperationStatus.Skipped
-                                ? UserErrors.Message(new IOException(item.Message)) : null)
-                        : new BatchResult(target.Name, target.Path, skipped.Contains(target.Path) ? "Skipped" : "Unchanged", null)) };
-                }
-                var result = outcome.Results.FirstOrDefault();
-                if (!outcome.Success) throw new IOException(result?.Message ?? UiText.Text("Could not change the packages. Open the log in Activity."));
-                return new { warning = result?.Status == OperationStatus.CompletedWithWarnings ? UserErrors.Message(new IOException(result.Message)) : null };
+                return await ApplyPackageEditAsync(acceptedPackages, packageReviewTargets, token);
             case "activity":
                 return await Activity(token);
             case "activityDetails":
@@ -662,6 +646,52 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             removals = project.Changes.Where(x => x.Kind == ChangeKind.Remove)
                 .Select(x => PackageCatalog.FriendlyName(x.Id))
         })
+    };
+
+    private async Task<object> ApplyPackageEditAsync(OperationPlan plan, ProjectPackageTarget[] targets, CancellationToken shutdown)
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
+        packageApply = cancellation;
+        var token = cancellation.Token;
+        try
+        {
+            foreach (var project in plan.Projects)
+            {
+                var path = await ProjectPath(project.Path, token);
+                EnsureProjectIdle(path);
+                if (project.ReinstallLockedPackages && engine.Projects.IsBusy(path))
+                    throw new IOException(UiText.Text("Close Unity before restoring packages."));
+                if ((await engine.Projects.ReadAsync(path, token)).Incomplete)
+                    throw new IOException(UiText.Text("Finish the import before changing its packages."));
+            }
+            var outcome = await Task.Run(() => engine.ApplyAsync(plan, cancellationToken: token));
+            if (targets.Length > 1)
+            {
+                var applied = outcome.Results.ToDictionary(item => item.Path, StringComparer.OrdinalIgnoreCase);
+                var skipped = outcome.NotProcessed.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                return new { cancelled = outcome.Cancelled, results = targets.Select(target => applied.TryGetValue(target.Path, out var item)
+                    ? new BatchResult(item.Project, item.Path, item.Status.ToString(), PackageOutcomeNotice(item))
+                    : new BatchResult(target.Name, target.Path, skipped.Contains(target.Path) ? "Skipped" : "Unchanged", null)) };
+            }
+            var result = outcome.Results.FirstOrDefault();
+            if (outcome.Cancelled)
+                return new { cancelled = true, warning = result is null ? null : PackageOutcomeNotice(result) };
+            if (!outcome.Success) throw new IOException(result?.Message ?? UiText.Text("Could not change the packages. Open the log in Activity."));
+            return new { warning = result?.Status == OperationStatus.CompletedWithWarnings ? UserErrors.Message(new IOException(result.Message)) : null };
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return new { cancelled = true };
+        }
+        finally { packageApply = null; }
+    }
+
+    private static string? PackageOutcomeNotice(ProjectOutcome outcome) => outcome.Status switch
+    {
+        OperationStatus.Cancelled => UiText.Text(outcome.Message),
+        OperationStatus.Failed or OperationStatus.CompletedWithWarnings or OperationStatus.Skipped
+            => UserErrors.Message(new IOException(outcome.Message)),
+        _ => null
     };
 
     private static object SummarizePackageReview(OperationPlan plan, ProjectPackageTarget[] targets)
