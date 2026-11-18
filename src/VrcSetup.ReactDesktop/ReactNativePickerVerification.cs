@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Interop;
 using Microsoft.Web.WebView2.Core;
+using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 
 namespace VrcSetup.ReactDesktop;
@@ -17,6 +18,8 @@ internal static class ReactNativePickerVerification
     private const uint CommandMessage = 0x0111;
     private const int AcceptButton = 1;
     private const int CancelButton = 2;
+    private const int YesButton = 6;
+    private const int NoButton = 7;
 
     internal static async Task RunAsync(CoreWebView2 core, Window window, VrcSetupApplication engine, string folder, CancellationToken token)
     {
@@ -34,9 +37,14 @@ internal static class ReactNativePickerVerification
             && document.querySelector('input[aria-label="Nome progetto"]')?.value === 'Probe'
             """, attempts: 400);
 
-        var originalRoot = (await engine.Configuration.LoadAsync(token)).UnityProjectsRoot;
+        var original = await engine.Configuration.LoadAsync(token);
+        var originalRoot = original.UnityProjectsRoot;
         var selectedRoot = Path.Combine(folder, "Progetti selezionati");
         Directory.CreateDirectory(selectedRoot);
+        var extras = Directory.CreateDirectory(Path.Combine(folder, "Pacchetti aggiuntivi")).FullName;
+        // Selecting this inert file exercises path validation without launching Unity.
+        var editor = Path.Combine(Directory.CreateDirectory(Path.Combine(folder, "Editor fixture")).FullName, "Unity.exe");
+        await File.WriteAllBytesAsync(editor, [], token);
         var restoreFile = Path.Combine(folder, "ripristino-fixture.json");
         File.Copy(engine.Paths.ConfigFile, restoreFile);
         var sentinel = Path.Combine(originalRoot, "fixture-project.keep");
@@ -52,11 +60,16 @@ internal static class ReactNativePickerVerification
         await Program.RequireAsync(core, folderPicker + "?.disabled === false && " + root + "?.value === " + JsonSerializer.Serialize(originalRoot));
         await OpenPickerAsync(folderPicker, selectedRoot);
         await Program.RequireAsync(core, folderPicker + "?.disabled === false && " + root + "?.value === " + JsonSerializer.Serialize(selectedRoot), attempts: 400);
+        await SelectSettingAsync("unityEditorPath", original.UnityEditorPath, editor);
+        await SelectSettingAsync("unityPackagesFolder", original.UnityPackagesFolder ?? "", extras);
         await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
         const string footer = "document.querySelector('footer [role=status]')?.textContent";
         await Program.RequireAsync(core, footer + " === 'Impostazioni salvate.'");
-        if (!string.Equals((await engine.Configuration.LoadAsync(token)).UnityProjectsRoot, selectedRoot, StringComparison.OrdinalIgnoreCase))
-            throw new IOException("The folder selected with the native picker was not persisted.");
+        var saved = await engine.Configuration.LoadAsync(token);
+        if (!string.Equals(saved.UnityProjectsRoot, selectedRoot, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(saved.UnityEditorPath, editor, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(saved.UnityPackagesFolder, extras, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("One or more paths selected with the native pickers were not persisted.");
         var changedConfig = AtomicFile.Hash(engine.Paths.ConfigFile);
 
         await core.ExecuteScriptAsync("document.querySelector('.settings-maintenance summary').click()");
@@ -73,15 +86,60 @@ internal static class ReactNativePickerVerification
         await OpenPickerAsync(confirm, restoreFile);
         await Program.RequireAsync(core, footer + " === 'Impostazioni ripristinate.' && " + root + "?.value === " + JsonSerializer.Serialize(originalRoot), attempts: 400);
         var backups = Path.Combine(engine.Paths.Home, "migration");
-        if (!string.Equals((await engine.Configuration.LoadAsync(token)).UnityProjectsRoot, originalRoot, StringComparison.OrdinalIgnoreCase) ||
+        var restored = await engine.Configuration.LoadAsync(token);
+        if (restored.UnityProjectsRoot != originalRoot || restored.UnityEditorPath != original.UnityEditorPath ||
+            restored.UnityPackagesFolder != original.UnityPackagesFolder ||
             AtomicFile.Hash(sentinel) != assetHash || !Directory.GetFiles(backups, "config-*.json").Any(file => AtomicFile.Hash(file) == changedConfig))
             throw new IOException("Restoring settings did not preserve the previous configuration and project files.");
+
+        const string back = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === '← Importa')";
+        await Program.RequireAsync(core, back + "?.disabled === false");
+        await core.ExecuteScriptAsync(back + ".click()");
+        const string presets = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Preset')";
+        const string exportPreset = "Array.from(document.querySelectorAll('.settings button')).find(button => button.textContent === 'Esporta preset')";
+        const string importPreset = "Array.from(document.querySelectorAll('.settings button')).find(button => button.textContent === 'Importa preset')";
+        await Program.RequireAsync(core, presets + "?.disabled === false");
+        await core.ExecuteScriptAsync(presets + ".click()");
+        await Program.RequireAsync(core, exportPreset + "?.disabled === false");
+        var presetFile = Path.Combine(folder, "preset condiviso.json");
+        await OpenPickerAsync(exportPreset, null);
+        await Program.RequireAsync(core, exportPreset + "?.disabled === false");
+        await OpenPickerAsync(exportPreset, presetFile);
+        await Program.RequireAsync(core, exportPreset + "?.disabled === false");
+        var portable = PortablePreset.Read(await File.ReadAllTextAsync(presetFile, token));
+        var presetName = portable.AvailableName(restored.PackagePresets.Keys);
+        var restoredHash = AtomicFile.Hash(engine.Paths.ConfigFile);
+        await OpenPickerAsync(importPreset, presetFile);
+        await Task.Run(() => CompletePresetConfirmationAsync(owner, thread, NoButton, token), token);
+        await Program.RequireAsync(core, importPreset + "?.disabled === false");
+        if (AtomicFile.Hash(engine.Paths.ConfigFile) != restoredHash)
+            throw new IOException("Declining the preset confirmation changed the configuration.");
+        await OpenPickerAsync(importPreset, presetFile);
+        await Task.Run(() => CompletePresetConfirmationAsync(owner, thread, YesButton, token), token);
+        await Program.RequireAsync(core, "document.querySelector('select[aria-label=Preset]')?.value === " + JsonSerializer.Serialize(presetName), attempts: 400);
+        var imported = await engine.Configuration.LoadAsync(token);
+        if (!imported.PackagePresets.TryGetValue(presetName, out var packages) ||
+            packages.Count != portable.Packages.Count ||
+            portable.Packages.Any(package => !packages.TryGetValue(package.Key, out var version) || version != package.Value))
+            throw new IOException("The imported preset did not preserve the exported package choices.");
         await AtomicFile.WriteJsonAsync(Path.Combine(folder, "react-native-picker.json"), new
         {
             Passed = true, NativeDialogCancelledWithoutDraft = true, SelectedArchiveStagedThroughReact = true,
-            FolderSelectionPersisted = true, CancelledRestorePreservedConfiguration = true,
-            SettingsFileRestored = true, PriorConfigurationAndProjectFilesPreserved = true
+            ProjectEditorAndExtrasPathsPersisted = true, CancelledRestorePreservedConfiguration = true,
+            SettingsFileRestored = true, PriorConfigurationAndProjectFilesPreserved = true,
+            PortablePresetRoundTrip = true, DeclinedPresetPreservedConfiguration = true
         }, token);
+
+        async Task SelectSettingAsync(string id, string previousPath, string path)
+        {
+            var input = "document.getElementById(" + JsonSerializer.Serialize(id) + ")";
+            var button = input + "?.parentElement.querySelector('button')";
+            await Program.RequireAsync(core, button + "?.disabled === false");
+            await OpenPickerAsync(button, null);
+            await Program.RequireAsync(core, button + "?.disabled === false && " + input + "?.value === " + JsonSerializer.Serialize(previousPath));
+            await OpenPickerAsync(button, path);
+            await Program.RequireAsync(core, button + "?.disabled === false && " + input + "?.value === " + JsonSerializer.Serialize(path), attempts: 400);
+        }
 
         async Task OpenPickerAsync(string trigger, string? selectedPath)
         {
@@ -93,6 +151,28 @@ internal static class ReactNativePickerVerification
             await click;
             File.AppendAllText(trace, "WebView completed the picker request.\n");
         }
+    }
+
+    private static async Task CompletePresetConfirmationAsync(nint owner, uint thread, int button, CancellationToken token)
+    {
+        var watch = Stopwatch.StartNew();
+        while (watch.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            token.ThrowIfCancellationRequested();
+            nint dialog = 0;
+            nint control = 0;
+            EnumThreadWindows(thread, (candidate, _) =>
+            {
+                if (GetWindow(candidate, OwnerWindow) != owner) return true;
+                control = GetDlgItem(candidate, button);
+                if (control == 0) return true;
+                dialog = candidate;
+                return false;
+            }, 0);
+            if (dialog != 0 && PostMessage(dialog, CommandMessage, button, control)) return;
+            await Task.Delay(100, token);
+        }
+        throw new IOException("The native preset confirmation did not accept the fixture's response.");
     }
 
     private static async Task CompletePickerAsync(nint owner, uint thread, string? selectedPath, string trace, CancellationToken token)

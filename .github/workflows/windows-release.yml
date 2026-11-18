@@ -204,7 +204,7 @@ jobs:
           $exited = $process.WaitForExit(120000)
           if (-not $exited) { $process.Kill($true) }
           $progress = Join-Path $fixture 'picker-progress.txt'
-          if (Test-Path $progress) { Get-Content $progress -TotalCount 20 }
+          if (Test-Path $progress) { Get-Content $progress -Tail 30 }
           $failure = Join-Path $fixture 'failure.txt'
           if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
           if (-not $exited) { throw 'Native picker verification timed out.' }
