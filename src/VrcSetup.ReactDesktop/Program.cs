@@ -14,6 +14,7 @@ internal static class Program
     private static void Main(string[] args)
     {
         var startup = System.Diagnostics.Stopwatch.StartNew();
+        var benchmark = args is ["--verify-projects-startup", var metricFolder] ? Path.GetFullPath(metricFolder) : null;
         var unityEditor = args is ["--verify-unity-workflow" or "--verify-pause-import" or "--verify-new-project", _, var editor] ? Path.GetFullPath(editor) : null;
         var verifyNewProject = args is ["--verify-new-project", _, _];
         var launchFixture = args is ["--verify-open-project", var openProjectFixture] ? Path.GetFullPath(openProjectFixture) : null;
@@ -59,7 +60,13 @@ internal static class Program
             profileFixture = root;
         }
         var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null || portableFixture is not null ||
-            recoveryFixture is not null || packageFixture is not null || launchFixture is not null;
+            recoveryFixture is not null || packageFixture is not null || launchFixture is not null || benchmark is not null;
+        if (benchmark is not null && (!File.Exists(Path.Combine(benchmark, ".startup-fixture")) ||
+            !File.Exists(Path.Combine(benchmark, "home", "config.json"))))
+        {
+            Environment.ExitCode = 2;
+            return;
+        }
         if (smoke is not null && Directory.Exists(smoke))
         {
             Environment.ExitCode = 2;
@@ -114,8 +121,9 @@ internal static class Program
             ProjectRules.EnsureContained(profileFixture, paths.Home);
         }
         var isolated = smoke is not null || restoreFixture is not null || recoveryFixture is not null || packageFixture is not null ||
-            launchFixture is not null || !distributed;
-        var home = smoke ?? restoreFixture ?? recoveryFixture ?? packageFixture ?? launchFixture ?? (isolated
+            launchFixture is not null || benchmark is not null || !distributed;
+        var home = smoke ?? restoreFixture ?? recoveryFixture ?? packageFixture ?? launchFixture
+            ?? (benchmark is null ? null : Path.Combine(benchmark, "home")) ?? (isolated
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup-React-Candidate")
             : paths.Home);
         Directory.CreateDirectory(home);
@@ -133,7 +141,7 @@ internal static class Program
         var window = new Window
         {
             Title = isolated ? "VRC Project Setup • React candidate" : "VRC Project Setup",
-            Width = offscreen ? 720 : 1160, Height = offscreen ? 620 : 800,
+            Width = offscreen && benchmark is null ? 720 : 1160, Height = offscreen && benchmark is null ? 620 : 800,
             MinWidth = 520, MinHeight = 420, Content = web
         };
         if (offscreen)
@@ -228,6 +236,8 @@ internal static class Program
                     await bridge.SeedSmokeAsync(smoke);
                 var configuration = await engine.Configuration.LoadAsync();
                 UiText.Language = configuration.Language;
+                if (benchmark is not null)
+                    ProjectRules.EnsureContained(benchmark, configuration.UnityProjectsRoot);
                 if (profileFixture is not null)
                     ProjectRules.EnsureContained(profileFixture, configuration.UnityProjectsRoot);
                 if (verifyVcc && profileFixture is not null)
@@ -238,6 +248,12 @@ internal static class Program
                 await engine.Imports.InitializeAsync();
                 bridge.Attach(core);
                 core.Navigate(ImportBridge.Page);
+                if (benchmark is not null)
+                {
+                    await MeasureProjectsStartupAsync(core, environment, benchmark, shutdown.Token);
+                    window.Close();
+                    return;
+                }
                 if (profileFixture is null) _ = updates.RunInBackgroundAsync(shutdown.Token);
                 if (portableFixture is not null)
                 {
@@ -388,7 +404,7 @@ internal static class Program
             }
             catch (Exception error)
             {
-                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture ?? recoveryFixture ?? packageFixture ?? launchFixture) is { } evidenceFolder)
+                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture ?? recoveryFixture ?? packageFixture ?? launchFixture ?? benchmark) is { } evidenceFolder)
                     File.WriteAllText(Path.Combine(evidenceFolder, "failure.txt"), error.ToString());
                 else MessageBox.Show(window, error.Message, window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.ExitCode = 1;
@@ -396,6 +412,27 @@ internal static class Program
             }
         };
         app.Run(window);
+    }
+
+    private static async Task MeasureProjectsStartupAsync(CoreWebView2 core, CoreWebView2Environment environment, string folder, CancellationToken token)
+    {
+        const string projects = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Progetti')";
+        await RequireAsync(core, projects + "?.disabled === false");
+        await core.ExecuteScriptAsync(projects + ".click()");
+        await RequireAsync(core, "document.querySelectorAll('.project-table tbody tr').length === 1");
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        var readyMs = (DateTime.UtcNow - process.StartTime.ToUniversalTime()).TotalMilliseconds;
+        await Task.Delay(500, token);
+        process.Refresh();
+        var privateBytes = process.PrivateMemorySize64;
+        var browserProcesses = environment.GetProcessInfos().Select(info => info.ProcessId).Distinct().ToArray();
+        foreach (var id in browserProcesses)
+        {
+            using var browser = System.Diagnostics.Process.GetProcessById(id);
+            privateBytes += browser.PrivateMemorySize64;
+        }
+        await AtomicFile.WriteJsonAsync(Path.Combine(folder, "startup.json"),
+            new { readyMs, privateBytes, processes = 1 + browserProcesses.Length }, token);
     }
 
     private static bool IsDistribution(AppPaths paths)

@@ -18,6 +18,11 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var arguments = Environment.GetCommandLineArgs();
+        if (arguments is [_, "--verify-projects-startup", var benchmarkFolder])
+        {
+            await MeasureProjectsStartupAsync(benchmarkFolder);
+            return;
+        }
         var appearanceRestart = Array.IndexOf(arguments, "--verify-appearance-restart");
         if (appearanceRestart >= 0 && appearanceRestart + 2 < arguments.Length)
         {
@@ -230,5 +235,45 @@ public partial class App : Application
         if (await StartPreparedUpdateAsync(normalApplication)) { desktopLease?.Dispose(); Exit(); return; }
         window = new MainWindow(normalApplication); window.Activate();
         window.Closed += (_, _) => desktopLease?.Dispose();
+    }
+
+    private async Task MeasureProjectsStartupAsync(string folder)
+    {
+        folder = System.IO.Path.GetFullPath(folder);
+        var profile = new VrcSetup.Infrastructure.AppPaths(System.IO.Path.Combine(folder, "home"));
+        if (!System.IO.File.Exists(System.IO.Path.Combine(folder, ".startup-fixture")) || !System.IO.File.Exists(profile.ConfigFile))
+        {
+            Environment.ExitCode = 2;
+            Exit();
+            return;
+        }
+        try
+        {
+            var app = new VrcSetup.Infrastructure.VrcSetupApplication(profile.Home,
+                ["--no-catalog-refresh", "--no-update-check", "--no-editor-discovery", "--no-vcc-registration"]);
+            var config = await app.Configuration.LoadAsync();
+            VrcSetup.Core.ProjectRules.EnsureContained(folder, config.UnityProjectsRoot);
+            var main = new MainWindow(app);
+            window = main;
+            main.AppWindow.MoveAndResize(new(-12000, -12000, 1160, 800));
+            main.AppWindow.Show(false);
+            await main.Page.Initialized;
+            main.Page.UpdateLayout();
+            if (main.Page.ViewModel.CurrentPage != "Projects" || main.Page.ViewModel.Projects.Count != 1)
+                throw new System.IO.IOException("The isolated Projects fixture did not display its project.");
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            var readyMs = (DateTime.UtcNow - process.StartTime.ToUniversalTime()).TotalMilliseconds;
+            await Task.Delay(500);
+            process.Refresh();
+            await VrcSetup.Infrastructure.AtomicFile.WriteJsonAsync(System.IO.Path.Combine(folder, "startup.json"),
+                new { readyMs, privateBytes = process.PrivateMemorySize64, processes = 1 });
+            main.Close();
+        }
+        catch (Exception error)
+        {
+            await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(folder, "failure.txt"), error.ToString());
+            Environment.ExitCode = 1;
+        }
+        Exit();
     }
 }

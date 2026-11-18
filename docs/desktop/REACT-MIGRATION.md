@@ -38,13 +38,29 @@ The full 0.4.0-alpha.1 candidate at `b809009` measured 109,065,793 bytes
 for the Evergreen portable ZIP and 6,173,696 bytes for the unified installer.
 The corresponding published 0.3.7 assets were 115,134,873 and 6,180,864 bytes.
 These package sizes exclude the downloaded component payloads from the
-installer size. Comparable process-tree memory measurements remain open.
+installer size.
+
+For a same-machine Projects startup comparison, use
+`tests/Test-DesktopStartup.ps1 -WinUi <exe> -React <exe> -OutputDirectory <fresh-directory>`.
+Both executables are built from the same source with their respective desktop
+hosts. The script uses a fresh profile with one local project per launch,
+alternates the test order and excludes the first pair as warmup. It measures
+start-to-Projects readiness before taking a private-memory snapshot 500 ms
+later. The React count includes the browser processes reported by the isolated
+WebView2 environment. These are startup snapshots without Unity running.
+
+| Windows 11, three measured launches per host | WinUI | React |
+| --- | ---: | ---: |
+| Median start to Projects | 1,222 ms | 1,710 ms |
+| Range | 1,156–1,545 ms | 1,571–1,945 ms |
+| Median private memory | 146.6 MiB | 287.3 MiB |
+| Processes sampled | 1 | 6 |
 
 The offscreen native smoke exercised the startup handshake, six real fixture
 archives, Quest filename detection, independent draft platform state and
 package exclusion/reinclusion. Build reports retain timings and the candidate
-archive hash. First-ready time includes fixture staging; compare startup and
-process-tree RAM with equivalent workloads before promoting the candidate.
+archive hash. First-ready time from that smoke includes fixture staging. Use
+the Projects comparison above for equivalent startup workloads.
 Exercise Explorer drag-and-drop and a real Unity import in a disposable
 workspace before beta.
 
