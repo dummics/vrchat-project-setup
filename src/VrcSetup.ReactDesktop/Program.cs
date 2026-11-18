@@ -14,7 +14,8 @@ internal static class Program
     private static void Main(string[] args)
     {
         var startup = System.Diagnostics.Stopwatch.StartNew();
-        var unityEditor = args is ["--verify-unity-workflow" or "--verify-pause-import", _, var editor] ? Path.GetFullPath(editor) : null;
+        var unityEditor = args is ["--verify-unity-workflow" or "--verify-pause-import" or "--verify-new-project", _, var editor] ? Path.GetFullPath(editor) : null;
+        var verifyNewProject = args is ["--verify-new-project", _, _];
         var pauseImport = args is ["--verify-pause-import", _, _];
         var discardImport = args is ["--verify-discard-import", _];
         var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import", var recovery]
@@ -26,7 +27,7 @@ internal static class Program
         var smoke = args switch
         {
             ["--smoke" or "--verify-batch-packages", var evidence] => Path.GetFullPath(evidence),
-            ["--verify-unity-workflow" or "--verify-pause-import", var evidence, _] => Path.GetFullPath(evidence),
+            ["--verify-unity-workflow" or "--verify-pause-import" or "--verify-new-project", var evidence, _] => Path.GetFullPath(evidence),
             _ => null
         };
         var verifyBatchPackages = args is ["--verify-batch-packages", _];
@@ -197,7 +198,7 @@ internal static class Program
                 core.NewWindowRequested += (_, e) => e.Handled = true;
                 core.DownloadStarting += (_, e) => e.Cancel = true;
                 if (smoke is not null && unityEditor is not null)
-                    await bridge.SeedUnityWorkflowAsync(smoke, unityEditor);
+                    await bridge.SeedUnityWorkflowAsync(smoke, unityEditor, stageArchive: !verifyNewProject);
                 else if (smoke is not null)
                     await bridge.SeedSmokeAsync(smoke);
                 var configuration = await engine.Configuration.LoadAsync();
@@ -258,9 +259,14 @@ internal static class Program
                 {
                     if (unityEditor is not null)
                     {
-                        await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null && document.querySelector('.tabs button') !== null");
-                        if (pauseImport) await ReactImportVerification.VerifyPauseAsync(core, engine, smoke, shutdown.Token);
-                        else await ReactImportVerification.RunAsync(core, engine, smoke, shutdown.Token);
+                        await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
+                        if (verifyNewProject) await ReactNewProjectVerification.RunAsync(core, engine, smoke, unityEditor, shutdown.Token);
+                        else
+                        {
+                            await RequireAsync(core, "document.querySelector('.tabs button') !== null");
+                            if (pauseImport) await ReactImportVerification.VerifyPauseAsync(core, engine, smoke, shutdown.Token);
+                            else await ReactImportVerification.RunAsync(core, engine, smoke, shutdown.Token);
+                        }
                         window.Close();
                         return;
                     }

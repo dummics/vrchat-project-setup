@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ProjectPackages, type ProjectPackageList } from './ProjectPackages';
+import { NewProjectPackages } from './NewProjectPackages';
 import { Presets, type PresetLibrary } from './Presets';
 import { AppearanceForm, type Appearance, type Palettes, useAppearance } from './appearance';
 import { Activity, type ActivityEntry } from './Activity';
@@ -105,8 +106,9 @@ function ImportPage() {
   const [backup, setBackup] = useState<{ id: string; path: string; completedUtc: string }>();
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [projectPackages, setProjectPackages] = useState<ProjectPackageList>();
-  const [newProject, setNewProject] = useState<{ name: string; target: string; preset: string }>();
-  const [newProjectReview, setNewProjectReview] = useState<{ id: string; destination: string }>();
+  const [newProject, setNewProject] = useState<{ name: string; target: string; preset: string; packages?: Packages }>();
+  const [newProjectReview, setNewProjectReview] = useState<Review>();
+  const [newProjectLibrary, setNewProjectLibrary] = useState<PresetLibrary>();
   const [packageBack, setPackageBack] = useState<'import' | 'projects'>('projects');
   const [notice, setNotice] = useState('');
   const [preferences, setPreferences] = useState<ImportPreferences>();
@@ -364,18 +366,24 @@ function ImportPage() {
         </button>
         <button disabled={!!busy} onClick={() => setSelectedPaths([])}>{t("Deseleziona")}</button>
       </div>}
-      {newProject && <section className="extras settings">
+      {newProject && <section className="extras settings" aria-label={t("Nuovo progetto")}>
         <h2>{t("Nuovo progetto")}</h2>
         {newProjectReview ? <>
-          <p className="path">{newProjectReview.destination}</p>
+          {newProjectReview.projects.map(project => <div key={project.path}>
+            <div className="package"><strong>{project.name}</strong><span>{project.target === 'Android' ? 'Quest' : project.target === 'iOS' ? 'iOS' : 'PC'}</span></div>
+            <p className="path">{project.path}</p>
+            <dl className="new-project-review-packages">{project.packages.map(item => <div className="package" key={item.id}>
+              <dt>{item.name}</dt><dd>{item.version}</dd>
+            </div>)}</dl>
+          </div>)}
           <div className="actions">
             <button disabled={!!busy} onClick={() => setNewProjectReview(undefined)}>{t("Indietro")}</button>
             <button className="primary" disabled={!!busy} onClick={() => void run(t("Creazione progetto…"), async () => {
               setState(await request<State>('createProject', newProjectReview.id));
-              setNewProject(undefined); setNewProjectReview(undefined); setPanel('import'); setScreen('import');
+              setNewProject(undefined); setNewProjectReview(undefined); setNewProjectLibrary(undefined); setPanel('import'); setScreen('import');
             })}>{t("Crea progetto")}</button>
           </div>
-        </> : <form onSubmit={event => {
+        </> : <><form className="new-project-form" onSubmit={event => {
           event.preventDefault();
           void run(t("Preparazione progetto…"), async () => setNewProjectReview(await request('reviewNewProject', { ...newProject, preset: newProject.preset || null })));
         }}>
@@ -386,16 +394,29 @@ function ImportPage() {
             </select>
           </label>
           <label className="package">Preset
-            <select value={newProject.preset} onChange={event => setNewProject({ ...newProject, preset: event.target.value })}>
+            <select aria-label="Preset" value={newProject.preset} onChange={event => setNewProject({ ...newProject, preset: event.target.value, packages: undefined })}>
               <option value="">{t("Predefinito")}</option>
               {Object.keys(state?.presets ?? {}).map(name => <option key={name}>{name}</option>)}
             </select>
           </label>
           <div className="actions">
-            <button type="button" disabled={!!busy} onClick={() => setNewProject(undefined)}>{t("Annulla")}</button>
+            <button type="button" disabled={!!busy} aria-expanded={!!newProjectLibrary} onClick={() => {
+              if (newProjectLibrary) setNewProjectLibrary(undefined);
+              else void run(t("Lettura pacchetti…"), async () => setNewProjectLibrary(await request('presets')));
+            }}>{newProjectLibrary ? t("Chiudi pacchetti") : t("Personalizza pacchetti")}</button>
+            <button type="button" disabled={!!busy} onClick={() => { setNewProject(undefined); setNewProjectLibrary(undefined); }}>{t("Annulla")}</button>
             <button className="primary" disabled={!!busy || !newProject.name.trim()}>{t("Rivedi progetto")}</button>
           </div>
-        </form>}
+        </form>
+        {newProjectLibrary && <NewProjectPackages library={newProjectLibrary} busy={!!busy} request={request} run={run}
+          selection={newProject.packages ?? (newProject.preset ? newProjectLibrary.presets[newProject.preset] ?? {} : newProjectLibrary.defaults)}
+          onChange={packages => setNewProject({ ...newProject, packages })}
+          onSaved={async library => {
+            setNewProjectLibrary(library);
+            setNewProject({ ...newProject, preset: library.selected ?? '', packages: undefined });
+            setState(await request<State>('state'));
+          }} />}
+        </>}
       </section>}
       {visibleProjects.length ? <table className="project-table">
         <thead><tr><th className="project-select" scope="col" aria-label={t("Selezione")} /><th><button onClick={() => setSort('name')}>{t("Nome")}</button></th>

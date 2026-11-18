@@ -266,6 +266,11 @@ const english: Record<string, string> = {
   "I file attuali verranno conservati in una cartella di recupero.": "The current files will be kept in a recovery folder.",
   "Ripristino backup…": "Restoring backup…",
   "Backup ripristinato.": "Backup restored.",
+  "Personalizza pacchetti": "Customize packages",
+  "Chiudi pacchetti": "Close packages",
+  "Pacchetti del nuovo progetto": "New project packages",
+  "Salva come preset": "Save as preset",
+  "Nessun pacchetto disponibile da aggiungere.": "No packages available to add.",
   "Da installare · {version}": "To install · {version}",
   "Lingua": "Language"
 };

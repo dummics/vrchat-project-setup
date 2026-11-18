@@ -267,9 +267,17 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 EnsureProjectIdle(destination);
                 if (File.Exists(destination) || Directory.Exists(destination))
                     throw new IOException(UiText.Text("That name is already in use. Choose another name or open the project from the list."));
+                if (creation.Packages is { } newPackages)
+                {
+                    var selection = new PortablePreset(creation.Preset ?? "Default", newPackages);
+                    selection.Validate();
+                    if (creation.Preset is null) newSettings.VpmPackages = selection.Packages;
+                    else if (newSettings.PackagePresets.ContainsKey(creation.Preset)) newSettings.PackagePresets[creation.Preset] = selection.Packages;
+                    else throw new IOException(UiText.Text("The preset is no longer available."));
+                }
                 newProjectReview = await engine.PlanEmptyProjectAsync(name, newSettings,
                     creation.Preset, creation.Target, token);
-                return new { newProjectReview.Id, destination };
+                return SummarizeImportReview(newProjectReview, continuation: false);
             case "createProject":
                 if (newProjectReview is not { } emptyProject || data.GetString() != emptyProject.Id)
                     throw new IOException(UiText.Text("Review the new project first."));
@@ -528,8 +536,10 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 nameCheck.Validate();
                 if (nameCheck.AvailableName(config.PackagePresets.Keys) != name)
                     throw new IOException(UiText.Text("Choose another preset name."));
-                var source = edit.Name is null ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(edit.Name)
-                    ?? throw new IOException(UiText.Text("The preset is no longer available."));
+                var customSource = edit.Action == "create" ? edit.Packages : null;
+                if (customSource is not null) new PortablePreset(name, customSource).Validate();
+                var source = customSource ?? (edit.Name is null ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(edit.Name)
+                    ?? throw new IOException(UiText.Text("The preset is no longer available.")));
                 config.PackagePresets[name] = new(source, StringComparer.OrdinalIgnoreCase);
                 if (edit.Action == "rename")
                 {
@@ -1001,7 +1011,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             { Plan = packagePlan }, lifetime.Token);
     }
 
-    internal async Task SeedUnityWorkflowAsync(string folder, string editor)
+    internal async Task SeedUnityWorkflowAsync(string folder, string editor, bool stageArchive = true)
     {
         UnityProjectDriver.ValidateEditor(editor);
         Directory.CreateDirectory(candidateProjects);
@@ -1017,8 +1027,8 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             [ProjectRules.Resolver] = "0.1.29"
         };
         await engine.Configuration.SaveAsync(configuration, lifetime.Token);
-        var archive = ReactImportVerification.MakeArchive(folder);
-        initial = await Stage([archive], lifetime.Token);
+        if (stageArchive)
+            initial = await Stage([ReactImportVerification.MakeArchive(folder)], lifetime.Token);
     }
 
     private void Send(object response)
@@ -1068,5 +1078,5 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private sealed record DiscardApproval(string Id, bool RemoveFolder);
     private sealed record PresetEdit(string Revision, string Action, string? Name,
         string? NewName, Dictionary<string, string>? Packages, string? Package);
-    private sealed record NewProjectChoice(string Name, string Target, string? Preset);
+    private sealed record NewProjectChoice(string Name, string Target, string? Preset, Dictionary<string, string>? Packages);
 }

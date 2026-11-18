@@ -52,7 +52,7 @@ recorded by the installer, or its own `data/` in portable mode.
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
 | Import | Six archives, Quest name and prefab-path detection, version review, queue and real Unity import from React. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive | Explorer drop, native relocation picker, installed Creator Companion registration, and recovery of a pre-existing destination. The recovery planner has separate checks for matching the original archive bytes |
-| Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders. The Unity indicator follows editor start and exit while the list stays open. Project options restore the newest VPM backup after confirmation, keeping displaced edits in a recovery folder | Verify the native folder picker, empty project creation and launch from the app, and external registrations |
+| Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders. The Unity indicator follows editor start and exit while the list stays open. Project options restore the newest VPM backup after confirmation, keeping displaced edits in a recovery folder. Empty project creation supports per-project package choices, numeric version review and saving choices as a preset | Verify the native folder picker, opening the generated project from the app, and external registrations |
 | Project packages | Read installed/locked versions, protect required packages and restore damaged locked SDK metadata. Real vrc-get added, upgraded, downgraded and removed Gesture Manager from React, with Unity closed and in one open Unity batch session. Batch review and apply use per-package targets and show results by project; the excluded project's manifest stayed unchanged | Exercise partial batch failures and verify recovery messaging after a failed change with Unity open |
 | Activity | Import and package operation history, per-project details, inline logs, and diagnostic ZIP containing the operation report and log | Native Save picker and multi-project failure presentation |
 | Settings | Import preferences, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. Settings discovers, prepares and applies an alpha using a fixture feed | Native pickers and edits, color picker interaction, review translated errors in native failure flows |
@@ -99,6 +99,12 @@ The Projects list stays open for the start and exit assertions, without
 manually refreshing it. After removal, run `--verify-project-backup <same-path>`
 to restore the latest backup through Project options and check that the
 post-backup fixture edit was preserved in the recovery folder.
+
+Run `--verify-new-project <fresh-short-path> <Unity.exe>` to create an empty
+project through React. The verifier saves a preset with Gesture Manager
+3.9.7, chooses 3.9.9 for the new project only, then checks both policies
+and the new Projects row. It also opens the resulting project in a separate
+batch editor and checks the compiled SDK assembly.
 
 ## Distribution checkpoint
 
