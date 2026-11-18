@@ -6,7 +6,8 @@ param(
     [string]$UpdateFeedUri,
     [string]$UpdateAssetPrefix,
     [switch]$SkipInstaller,
-    [switch]$ReactCandidate
+    [switch]$ReactCandidate,
+    [string]$FixedWebView2Runtime
 )
 $ErrorActionPreference = 'Stop'
 $buildClock = [Diagnostics.Stopwatch]::StartNew()
@@ -17,6 +18,9 @@ if (-not $Version) { $Version = ([xml](Get-Content (Join-Path $repoRoot 'Directo
 $Version = (Get-ReleaseVersion $Version).Text
 if ($ReactCandidate -and $Version -notmatch '^0\.4\.0-alpha\.[0-9]+$') {
     throw 'React candidate packaging requires an explicit 0.4.0 alpha version.'
+}
+if ($FixedWebView2Runtime -and -not $ReactCandidate) {
+    throw 'Fixed Version packaging requires the React desktop.'
 }
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repoRoot '.work\artifacts\release' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
@@ -106,12 +110,18 @@ if (-not $SkipInstaller) {
     Copy-Item -LiteralPath (Join-Path $bootstrapOutput 'VrcSetupSetup.exe') -Destination $installer
 }
 $outputs = @($archive) + @($installer | Where-Object { $_ })
+$offlineArchive = $null
+if ($FixedWebView2Runtime) {
+    $offlineArchive = Join-Path $OutputDirectory ('VrcSetup-' + $Version + '-win-x64-offline.zip')
+    $outputs += & (Join-Path $PSScriptRoot 'Publish-FixedWebView2Portable.ps1') -Payload $payload -Runtime $FixedWebView2Runtime -Output $offlineArchive
+}
 if (-not $SkipInstaller) { $outputs += @(Get-ChildItem -LiteralPath $OutputDirectory -Filter '*.zip' -File | Where-Object { $_.Name -match '^[a-f0-9]{64}\.zip$' } | ForEach-Object FullName); $outputs += $componentManifest }
 $checksums = @($outputs | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash,[IO.Path]::GetFileName($_) })
 [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'SHA256SUMS.txt'),$checksums,[Text.UTF8Encoding]::new($false))
 $report = [ordered]@{Version=$Version;Payload=$payload;Archive=$archive;Installer=$installer;Checksums=(Join-Path $OutputDirectory 'SHA256SUMS.txt');Artifacts=@($outputs|ForEach-Object{[ordered]@{Name=[IO.Path]::GetFileName($_);Bytes=(Get-Item -LiteralPath $_).Length}})}
 $report['StageSeconds'] = $stageSeconds
 $report['Desktop'] = $(if ($ReactCandidate) { 'ReactCandidate' } else { 'WinUI' })
+$report['OfflineArchive'] = $offlineArchive
 $report['TotalSeconds'] = [math]::Round($buildClock.Elapsed.TotalSeconds, 2)
 $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'release-build.json') -Encoding utf8
 [pscustomobject]$report

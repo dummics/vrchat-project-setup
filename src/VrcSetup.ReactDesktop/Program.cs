@@ -24,6 +24,7 @@ internal static class Program
         };
         var verifyPrepared = args is ["--verify-prepared-update", _];
         var verifyRestarted = args is ["--verify-update-smoke", _];
+        var portableFixture = args is ["--verify-portable-startup", var archiveRoot] ? Path.GetFullPath(archiveRoot) : null;
         var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke", var fixture]
             ? Path.GetFullPath(fixture) : null;
         if (verifyRestarted && profileFixture is not null && File.Exists(profileFixture))
@@ -36,7 +37,7 @@ internal static class Program
                 throw new IOException("Update fixture marker missing.");
             profileFixture = root;
         }
-        var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null;
+        var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null || portableFixture is not null;
         if (smoke is not null && Directory.Exists(smoke))
         {
             Environment.ExitCode = 2;
@@ -49,6 +50,15 @@ internal static class Program
         }
         var paths = new AppPaths();
         var distributed = IsDistribution(paths);
+        var portable = distributed && File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-portable"));
+        if (portableFixture is not null && (!portable ||
+            !paths.PayloadRoot.Equals(portableFixture, StringComparison.OrdinalIgnoreCase) ||
+            !paths.Home.Equals(Path.Combine(portableFixture, "data"), StringComparison.OrdinalIgnoreCase) ||
+            !File.Exists(Path.Combine(portableFixture, ".react-profile-fixture")) || File.Exists(paths.ConfigFile)))
+        {
+            Environment.ExitCode = 2;
+            return;
+        }
         if (profileFixture is not null)
         {
             if (!distributed || !File.Exists(Path.Combine(profileFixture, ".react-profile-fixture")) ||
@@ -67,7 +77,7 @@ internal static class Program
         Directory.CreateDirectory(home);
         using var lease = new FileStream(Path.Combine(home, "react-desktop.lock"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
         var app = new Application();
-        var engine = new VrcSetupApplication(isolated ? home : null, isolated || offscreen
+        var engine = new VrcSetupApplication(isolated || portable ? home : null, isolated || offscreen
             ? ["--no-vcc-registration", "--no-catalog-refresh"] : []);
         UiText.LoadPreference(engine.Paths.ConfigFile);
         using var shutdown = new CancellationTokenSource();
@@ -143,7 +153,17 @@ internal static class Program
                 if (verifyPrepared) throw new IOException("The prepared fixture update did not start.");
                 if (!Directory.Exists(Path.Combine(AppContext.BaseDirectory, "web")))
                     throw new IOException(UiText.Text("The web assets for this build are unavailable."));
-                var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(home, "webview"));
+                var fixedRuntime = WebViewRuntime.FindFixed();
+                CoreWebView2Environment environment;
+                try
+                {
+                    environment = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: fixedRuntime,
+                        userDataFolder: Path.Combine(home, "webview"));
+                }
+                catch (WebView2RuntimeNotFoundException error) when (fixedRuntime is null)
+                {
+                    throw new IOException(UiText.Text("Install Microsoft Edge WebView2 Runtime or use the offline portable archive."), error);
+                }
                 await web.EnsureCoreWebView2Async(environment);
                 var core = web.CoreWebView2;
                 core.Settings.AreHostObjectsAllowed = false;
@@ -167,6 +187,15 @@ internal static class Program
                 bridge.Attach(core);
                 core.Navigate(ImportBridge.Page);
                 _ = updates.RunInBackgroundAsync(shutdown.Token);
+                if (portableFixture is not null)
+                {
+                    await RequireAsync(core, "document.querySelector('[data-ready=true] .drop') !== null");
+                    var browserExecutable = VerifyFixedBrowser(core, fixedRuntime);
+                    await AtomicFile.WriteJsonAsync(Path.Combine(portableFixture, "portable-startup.json"),
+                        new { home, browserExecutable, runtime = environment.BrowserVersionString, freshConfiguration = File.Exists(paths.ConfigFile) });
+                    window.Close();
+                    return;
+                }
                 if (restoreFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
@@ -210,9 +239,12 @@ internal static class Program
                         await VerifySettingsAsync(core);
                         await VerifyPresetsAsync(core);
                         await VerifyLanguageAsync(core);
+                        string? browserExecutable = null;
+                        if (fixedRuntime is not null)
+                            browserExecutable = VerifyFixedBrowser(core, fixedRuntime);
                         await File.WriteAllTextAsync(Path.Combine(smoke, "result.json"), JsonSerializer.Serialize(new
                         {
-                            passed = true, readyMs, runtime = environment.BrowserVersionString, drafts = 6, target = "Android",
+                            passed = true, readyMs, runtime = environment.BrowserVersionString, browserExecutable, drafts = 6, target = "Android",
                             checks = new[] { "native handshake", "six analyzed archives", "Quest filename and prefab path detection",
                                 "independent tab state", "package panel and exclusion", "project discovery, search and name validation",
                                 "compilation recovery action and dismissal", "activity detail, operation log and diagnostics archive",
@@ -229,7 +261,7 @@ internal static class Program
             }
             catch (Exception error)
             {
-                if ((smoke ?? profileFixture ?? restoreFixture) is { } evidenceFolder)
+                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture) is { } evidenceFolder)
                     File.WriteAllText(Path.Combine(evidenceFolder, "failure.txt"), error.ToString());
                 else MessageBox.Show(window, error.Message, window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.ExitCode = 1;
@@ -245,6 +277,16 @@ internal static class Program
         return string.Equals(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory), desktop, StringComparison.OrdinalIgnoreCase) &&
             (File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-install.json")) ||
              File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-portable")));
+    }
+
+    private static string VerifyFixedBrowser(CoreWebView2 core, string? runtime)
+    {
+        if (runtime is null) throw new IOException("The offline archive has no bundled runtime.");
+        using var process = System.Diagnostics.Process.GetProcessById((int)core.BrowserProcessId);
+        var executable = process.MainModule?.FileName;
+        if (!string.Equals(executable, Path.Combine(runtime, "msedgewebview2.exe"), StringComparison.OrdinalIgnoreCase))
+            throw new IOException("The offline preview did not start the bundled WebView2 executable.");
+        return executable!;
     }
 
     private static async Task VerifyInstalledProfileAsync(CoreWebView2 core, string folder, string home,

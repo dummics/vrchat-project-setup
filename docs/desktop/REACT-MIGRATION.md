@@ -57,7 +57,7 @@ recorded by the installer, or its own `data/` in portable mode.
 | Activity | Import and package operation history, per-project details, inline logs, and diagnostic ZIP containing the operation report and log | Native Save picker and multi-project failure presentation |
 | Settings | Import preferences, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart | Native pickers and edits, color picker interaction, live feed and preparation, review translated errors in native failure flows |
 | Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
-| Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7 | Live feed/download/prefetch, Fixed Version offline portable, same-version build ordering, final production release |
+| Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7; offline archive runs its bundled Fixed Version | Live feed/download/prefetch, Windows 10 Fixed Version verification, same-version build ordering, final production release |
 
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
@@ -84,6 +84,19 @@ The switch is explicit and restricted to the 0.4.0 alpha series. The React
 entry point is `app/desktop/VrcSetup.Desktop.exe`, and the generated HTML, CSS
 and JavaScript are in a separate checksum-verified web component. The default
 publication path still builds WinUI.
+
+For a second portable archive using the bundled browser, pass
+`-FixedWebView2Runtime <extracted-x64-runtime-folder>`. Obtain the Microsoft
+Fixed Version CAB and extract it using the [Microsoft distribution guide](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution).
+The packaging step checks the signature and architecture of
+`msedgewebview2.exe` and hashes each runtime file in the offline manifest.
+Evergreen and installer payloads stay unchanged. The first verified archives
+were about 104 MiB (Evergreen) and 400 MiB (offline). On Windows 11, two
+isolated launches verified both the normal portable `data/` directory and
+the actual browser executable from the ZIP with external browser DNS
+resolution disabled. On Windows 10 the app
+grants read and execute access to the two AppContainer groups for the bundled
+runtime folder. That branch still needs a Windows 10 fixture.
 
 The CLI installer and component bootstrapper both upgraded the verified
 0.3.7 portable release in an isolated install directory. The bootstrapper used

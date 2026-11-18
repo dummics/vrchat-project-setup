@@ -1,4 +1,6 @@
 {
+  "The bundled WebView2 runtime is incomplete. Extract the entire archive again.": "Il runtime WebView2 incluso è incompleto. Estrai di nuovo tutto l’archivio.",
+  "Install Microsoft Edge WebView2 Runtime or use the offline portable archive.": "Installa Microsoft Edge WebView2 Runtime oppure usa l’archivio portatile offline.",
   "Wait for the current operation to finish.": "Attendi l’operazione in corso.",
   "Unity 2022.3.22f1 was not found.": "Unity 2022.3.22f1 non trovato.",
   "Choose the Unity projects folder": "Scegli la cartella dei progetti Unity",
