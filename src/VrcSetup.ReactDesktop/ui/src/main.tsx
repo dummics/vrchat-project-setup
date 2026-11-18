@@ -28,6 +28,14 @@ type Review = { id: string; continuation: boolean; projects: {
   name: string; path: string; target?: string; existingProject: boolean; packages: { id: string; name: string; version?: string }[]; removals: string[];
 }[] };
 type Naming = { defaultPrefix: string; defaultSuffix: string; regexRemovePatterns: string[]; rememberUnityPackageNames: boolean };
+type Diagnostics = { developerMode: boolean; verbose: boolean; traceTools: boolean };
+const maintenance = {
+  restoreSettings: ['Ripristina da file', 'Le impostazioni e i preset verranno sostituiti.'],
+  resetSettings: ['Ripristina impostazioni iniziali', 'Percorsi, preferenze e preset torneranno ai valori iniziali.'],
+  clearAnalysis: ['Svuota cache delle analisi', 'Le analisi verranno rifatte quando aggiungi un file.'],
+  uninstallInstallation: ['Disinstalla applicazione', 'Impostazioni e progetti Unity saranno conservati.'],
+} as const;
+type Maintenance = keyof typeof maintenance;
 type ImportPreferences = {
   maxParallelImports: number; autoHideCompletedImports: boolean; checkUpdatesOnStartup: boolean;
   automaticUpdates: boolean; includeBetaUpdates: boolean; includeAlphaUpdates: boolean;
@@ -35,6 +43,7 @@ type ImportPreferences = {
   appearance: Appearance; palettes: Palettes;
   preferenceLanguage: Language;
   manualImportPath: boolean; naming: Naming;
+  diagnostics: Diagnostics;
 };
 const workspaceOptions = [
   ['unityProjectsRoot', 'projects', 'Cartella progetti'],
@@ -116,6 +125,7 @@ function ImportPage() {
   const [notice, setNotice] = useState('');
   const [preferences, setPreferences] = useState<ImportPreferences>();
   const [settingsDirty, setSettingsDirty] = useState(false);
+  const [maintenanceAction, setMaintenanceAction] = useState<Maintenance>();
   const [update, setUpdate] = useState<UpdateView>();
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<'name' | 'lastUpdatedUtc' | 'createdUtc'>('lastUpdatedUtc');
@@ -342,7 +352,7 @@ function ImportPage() {
               }} />
             </label>
           </details>
-          <details><summary>{t("Impostazioni avanzate")}</summary>
+          <details><summary>{t("Strumenti sviluppatore")}</summary>
             <label className="package">{t("Limite importazioni simultanee")}
               <select id="import-limit" value={preferences.maxParallelImports} onChange={event => {
                 setPreferences({ ...preferences, maxParallelImports: Number(event.target.value) }); setNotice(''); setSettingsDirty(true);
@@ -351,6 +361,15 @@ function ImportPage() {
                 {Array.from({ length: 8 }, (_, index) => <option value={index + 1} key={index}>{index + 1}</option>)}
               </select>
             </label>
+            {([['developerMode', 'Modalità sviluppatore'], ['verbose', 'Diagnostica dettagliata'], ['traceTools', 'Registra i dettagli degli strumenti']] as const).map(([key, label]) => (
+              <label key={key} className="package">{t(label)}
+                <input type="checkbox" checked={preferences.diagnostics[key]} onChange={event => {
+                  setPreferences({ ...preferences, diagnostics: { ...preferences.diagnostics, [key]: event.target.checked } });
+                  setNotice(''); setSettingsDirty(true);
+                }} />
+              </label>
+            ))}
+            <button type="button" onClick={() => void run(t("Apertura log…"), async () => { await request('openDiagnostics'); })}>{t("Mostra cartella dei log")}</button>
           </details>
           <h2>{t("Aggiornamenti")}</h2>
           {updateOptions.map(([key, label]) => <label className="package" key={key}>{t(label)}
@@ -358,9 +377,54 @@ function ImportPage() {
               setPreferences({ ...preferences, [key]: event.target.checked }); setNotice(''); setSettingsDirty(true);
             }} />
           </label>)}
-          <button type="submit" className="primary">{t("Salva")}</button>
+          <div className="actions">
+            {settingsDirty && <button type="button" onClick={() => void run(t("Aggiornamento…"), async () => {
+              setPreferences(await request<ImportPreferences>('importPreferences'));
+              setSettingsDirty(false);
+              setNotice('');
+            })}>{t("Scarta modifiche")}</button>}
+            <button type="submit" className="primary">{t("Salva")}</button>
+          </div>
         </fieldset>
       </form>
+      <details className="settings-maintenance"><summary>{t("Manutenzione")}</summary>
+        <div className="actions">
+          {(Object.keys(maintenance) as Maintenance[]).filter(action => action !== 'uninstallInstallation' || update?.installed).map(action => (
+            <button key={action} disabled={!!busy || settingsDirty || state?.jobs.some(job => job.active)}
+              onClick={() => setMaintenanceAction(action)}>{t(maintenance[action][0])}</button>
+          ))}
+          {update?.installed && <button disabled={!!busy || settingsDirty || state?.jobs.some(job => job.active)}
+            onClick={() => void run(t("Verifica installazione…"), async () => {
+              await request('repairInstallation');
+              setNotice(t("Installazione e collegamenti verificati."));
+            })}>{t("Ripara installazione")}</button>}
+        </div>
+      </details>
+      {maintenanceAction && <dialog open aria-label={t(maintenance[maintenanceAction][0])}>
+        <h2>{t(maintenance[maintenanceAction][0])}</h2>
+        <p>{t(maintenance[maintenanceAction][1])}</p>
+        <div className="actions">
+          <button onClick={() => setMaintenanceAction(undefined)}>{t("Annulla")}</button>
+          <button className="primary" onClick={() => {
+            const action = maintenanceAction;
+            setMaintenanceAction(undefined);
+            void run(t("Aggiornamento…"), async () => {
+              if (action === 'clearAnalysis') {
+                await request(action);
+                setNotice(t("Cache delle analisi svuotata."));
+              } else if (action === 'uninstallInstallation') await request(action);
+              else {
+                const updated = await request<State | false>(action);
+                if (!updated) return;
+                setState(updated);
+                setPreferences(await request<ImportPreferences>('importPreferences'));
+                setUpdate(await request<UpdateView>('updateStatus'));
+                setNotice(t("Impostazioni ripristinate."));
+              }
+            });
+          }}>{t(maintenance[maintenanceAction][0])}</button>
+        </div>
+      </dialog>}
       {update?.enabled && <section className="extras" aria-label={t("Versione applicazione")}>
         <p>{t('Versione {version}', { version: displayVersion(update.current) })}{update.ready ? t(' · {version} pronta', { version: displayVersion(update.ready) })
           : update.available ? t(' · {version} disponibile', { version: displayVersion(update.available) }) : ''}</p>

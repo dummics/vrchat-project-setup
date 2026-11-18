@@ -310,6 +310,7 @@ internal static class Program
                         await VerifySettingsAsync(core, smoke);
                         await VerifyPresetsAsync(core);
                         await VerifyLanguageAsync(core);
+                        await VerifyMaintenanceAsync(core, engine);
                         string? browserExecutable = null;
                         if (fixedRuntime is not null)
                             browserExecutable = VerifyFixedBrowser(core, fixedRuntime);
@@ -323,7 +324,7 @@ internal static class Program
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
                                 "theme changes and custom accent persist", "help and plain version label", "manual file path and project naming settings",
                                 "preset create and rename persist", "preset favorites, pinning, discard, save and delete",
-                                "live English labels and language persistence" }
+                                "live English labels and language persistence", "diagnostics settings and maintenance confirmations" }
                         }));
                         window.Close();
                         return;
@@ -557,6 +558,7 @@ internal static class Program
         await core.ExecuteScriptAsync("""
             document.querySelector('#hide-completed').click();
             document.querySelector('#manual-import-path').click();
+            Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('Diagnostica dettagliata')).querySelector('input').click();
             Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('alpha sperimentali')).querySelector('input').click();
             const limit = document.querySelector('#import-limit');
             limit.value = '6';
@@ -609,6 +611,7 @@ internal static class Program
         await RequireAsync(core, "document.querySelector('#hide-completed')?.checked && document.querySelector('#import-limit').value === '6'");
         await RequireAsync(core, "document.querySelector('#appearance-theme').value === 'Light' && document.querySelector('#accentColor').value === '#68cab6'");
         await RequireAsync(core, "document.querySelector('#manual-import-path').checked && document.querySelector('.naming-fields input').value === 'Importato '");
+        await RequireAsync(core, "Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('Diagnostica dettagliata')).querySelector('input').checked");
         await RequireAsync(core, "document.querySelector('.app-version')?.textContent.trim().length > 0");
         await core.ExecuteScriptAsync("document.querySelector('.help summary').click()");
         await RequireAsync(core, "document.querySelector('.help details[open] p')?.textContent.includes('UnityPackage')");
@@ -712,6 +715,35 @@ internal static class Program
         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Settings').click()");
         await RequireAsync(core, "document.querySelector('#language')?.value === 'en'");
+    }
+
+    private static async Task VerifyMaintenanceAsync(CoreWebView2 core, VrcSetupApplication engine)
+    {
+        var cached = Directory.GetFiles(engine.Paths.Cache, "archive-*.json", SearchOption.AllDirectories);
+        if (cached.Length == 0) throw new IOException("Missing archive cache for maintenance verification.");
+        var configHash = AtomicFile.Hash(engine.Paths.ConfigFile);
+        var project = Path.Combine(engine.Paths.Home, "candidate-projects", "Avatar di prova", "Packages", "vpm-manifest.json");
+        var projectHash = AtomicFile.Hash(project);
+        var archive = Path.Combine(engine.Paths.Home, "Manuale-123.unitypackage");
+        const string clear = "Array.from(document.querySelectorAll('.settings-maintenance button')).find(x => x.textContent === 'Clear analysis cache').click()";
+        await core.ExecuteScriptAsync("document.querySelector('.settings-maintenance summary').click()");
+        await core.ExecuteScriptAsync(clear);
+        await RequireAsync(core, "document.querySelector('dialog[open]') !== null");
+        await core.ExecuteScriptAsync("document.querySelector('dialog button').click()");
+        if (cached.Any(file => !File.Exists(file))) throw new IOException("Cancelling maintenance removed a cache entry.");
+        await core.ExecuteScriptAsync(clear);
+        await core.ExecuteScriptAsync("document.querySelector('dialog .primary').click()");
+        await RequireAsync(core, "document.querySelector('footer [role=status]').textContent === 'Analysis cache cleared.'");
+        if (cached.Any(File.Exists) || AtomicFile.Hash(engine.Paths.ConfigFile) != configHash)
+            throw new IOException("Cache maintenance did not preserve the configuration or clear the cached observations.");
+
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.settings-maintenance button')).find(x => x.textContent === 'Reset settings').click()");
+        await RequireAsync(core, "document.querySelector('dialog[open]') !== null");
+        await core.ExecuteScriptAsync("document.querySelector('dialog .primary').click()");
+        await RequireAsync(core, "document.querySelector('#manual-import-path')?.checked === false");
+        if (AtomicFile.Hash(project) != projectHash || !File.Exists(archive) ||
+            !Directory.GetFiles(Path.Combine(engine.Paths.Home, "migration"), "before-reset-*.json").Any(file => AtomicFile.Hash(file) == configHash))
+            throw new IOException("Reset did not preserve the Unity fixture, source and previous configuration.");
     }
 
     internal static async Task RequireAsync(CoreWebView2 core, string condition, int attempts = 30)

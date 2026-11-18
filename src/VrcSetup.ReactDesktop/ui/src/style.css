@@ -49,6 +49,7 @@ header .actions{flex-wrap:wrap;justify-content:flex-end}
 .naming-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .65rem; margin-block: .85rem; }
 .naming input:not([type=checkbox]), .naming textarea { display: block; width: 100%; margin-top: .35rem; padding: .55rem .65rem; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: .45rem; }
 .naming textarea { min-height: 4rem; resize: vertical; }
+.settings-maintenance .actions { flex-wrap: wrap; justify-content: flex-start; margin-top: .85rem; }
 
 :root {
   --canvas: #181a1d;

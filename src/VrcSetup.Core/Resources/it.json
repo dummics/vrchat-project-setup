@@ -52,6 +52,7 @@
   "Unknown preset change.": "Modifica del preset sconosciuta.",
   "The preset file is too large.": "Il file del preset è troppo grande.",
   "Enter a full path.": "Indica un percorso completo.",
+  "This action is available only in an installed copy.": "Questa azione è disponibile nella versione installata.",
   "Enable manual file paths in Settings.": "Attiva il campo per il percorso del file nelle Impostazioni.",
   "Enter the full path to an existing UnityPackage file.": "Inserisci il percorso completo di un file .unitypackage esistente.",
   "Check the removal patterns in Project names before saving.": "Controlla le espressioni in Nomi dei progetti prima di salvare.",

@@ -66,7 +66,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             if (handlingRequest || Closing) throw new InvalidOperationException(UiText.Text("Wait for the current operation to finish."));
             handlingRequest = ownsRequest = true;
             var result = await Dispatch(method, root.GetProperty("data"), args);
-            closeAfterReply = method == "applyUpdate";
+            closeAfterReply = method is "applyUpdate" or "uninstallInstallation";
             Send(new { id, result });
         }
         catch (Exception error) when (!lifetime.IsCancellationRequested)
@@ -320,6 +320,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     appearance = Appearance(preferencesBaseline), palettes = AppearancePalette.Presets,
                     preferenceLanguage = preferencesBaseline.Language,
                     preferencesBaseline.ManualImportPath, naming = preferencesBaseline.Naming,
+                    diagnostics = preferencesBaseline.Diagnostics,
                     CanEditPaths = !isolated, preferencesBaseline.UnityEditorPath, preferencesBaseline.UnityProjectsRoot,
                     preferencesBaseline.UnityPackagesFolder
                 };
@@ -349,6 +350,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 updated.IncludeBetaUpdates = preferences.IncludeBetaUpdates;
                 updated.IncludeAlphaUpdates = preferences.IncludeAlphaUpdates;
                 updated.ManualImportPath = preferences.ManualImportPath;
+                if (preferences.Diagnostics is { } diagnostics) updated.Diagnostics = diagnostics;
                 if (preferences.Naming is { } naming)
                 {
                     naming.RegexRemovePatterns = naming.RegexRemovePatterns.Select(pattern => pattern.Trim())
@@ -395,8 +397,47 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 }
                 preferencesBaseline = await engine.Configuration.MergeAsync(baseline, updated, token);
                 UiText.Language = preferencesBaseline.Language;
+                engine.ConfigureDiagnostics(preferencesBaseline);
                 ConfigureQueue(preferencesBaseline);
                 return await State(token);
+            case "resetSettings":
+            case "restoreSettings":
+                RequireImportsIdle();
+                if (method == "restoreSettings")
+                {
+                    var settingsFile = new OpenFileDialog
+                    {
+                        Title = UiText.Text("Restore settings from file"),
+                        Filter = "JSON|*.json"
+                    };
+                    if (settingsFile.ShowDialog(window) != true) return false;
+                    RequireImportsIdle();
+                    await engine.Configuration.ImportAsync(settingsFile.FileName, token);
+                }
+                else await engine.Configuration.ResetAsync(token);
+                var loaded = await engine.Configuration.LoadAsync(token);
+                UiText.Language = loaded.Language;
+                engine.ConfigureDiagnostics(loaded);
+                ConfigureQueue(loaded);
+                preferencesBaseline = null;
+                return await State(token);
+            case "clearAnalysis":
+                RequireImportsIdle();
+                return await engine.Inspection.ClearObservationCacheAsync(token);
+            case "openDiagnostics":
+                Directory.CreateDirectory(engine.Paths.Logs);
+                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(engine.Paths.Logs) { UseShellExecute = true })) { }
+                return true;
+            case "repairInstallation":
+            case "uninstallInstallation":
+                RequireImportsIdle();
+                var installRoot = engine.Paths.PayloadRoot;
+                if (isolated || !File.Exists(Path.Combine(installRoot, ".vrcsetup-install.json")))
+                    throw new IOException(UiText.Text("This action is available only in an installed copy."));
+                var installation = new InstallationManager(engine.Paths);
+                if (method == "repairInstallation") await installation.RepairAsync(installRoot, token);
+                else await installation.UninstallAsync(installRoot, true, token);
+                return true;
             case "updateStatus":
                 return await updates.StatusAsync(token);
             case "openSupport":
@@ -915,6 +956,11 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     internal void ConfigureQueue(AppConfiguration configuration)
         => engine.Imports.ConfigureAutomaticLimit(configuration.MaxParallelImports == 0 ? 8 : Math.Clamp(configuration.MaxParallelImports, 1, 8));
 
+    private void RequireImportsIdle()
+    {
+        if (engine.Imports.HasActiveJobs) throw new IOException(UiText.Text("Wait for the import to finish."));
+    }
+
     private object[] VisibleJobs(bool hideCompleted)
     {
         var jobs = engine.Imports.Snapshot();
@@ -1132,7 +1178,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private sealed record ImportPreferences(int MaxParallelImports, bool AutoHideCompletedImports,
         bool CheckUpdatesOnStartup, bool AutomaticUpdates, bool IncludeBetaUpdates, bool IncludeAlphaUpdates,
         string UnityEditorPath, string UnityProjectsRoot, string? UnityPackagesFolder, AppearancePreferences? Appearance,
-        string? PreferenceLanguage, bool ManualImportPath, NamingSettings? Naming);
+        string? PreferenceLanguage, bool ManualImportPath, NamingSettings? Naming, DiagnosticSettings? Diagnostics);
     private sealed record ProjectPackageEdit(Dictionary<string, string> Targets, Dictionary<string, string> Selected, string[] Removed,
         Dictionary<string, string[]>? PackageTargets);
     private sealed record ProjectPackageTarget(string Name, string Path);
