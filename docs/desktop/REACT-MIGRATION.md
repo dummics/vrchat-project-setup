@@ -87,7 +87,9 @@ project, preset and history without modifying the configuration.
 With verified components in the isolated profile cache, React rejected a
 prepared alpha with alpha opt-in off. After opting in, `0.4.0-alpha.3`
 handed off to the bootstrapper, exited, and relaunched as
-`0.4.0-alpha.4` with the same profile. A forced Start menu path collision
+`0.4.0-alpha.4` with the same profile. The shipped 0.3.7 also handed off to
+the same bootstrapper format and reopened the fixture directly in
+`0.4.0-alpha.5`, without constructing a WinUI window. A forced Start menu path collision
 after the program swap restored the original 0.3.7 marker, WinUI files and
 configuration. The prepared-update test seeds the receipt and cached files
 to exercise channel gating, installation and restart. Feed discovery and

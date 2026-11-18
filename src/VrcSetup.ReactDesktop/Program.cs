@@ -19,6 +19,16 @@ internal static class Program
         var verifyRestarted = args is ["--verify-update-smoke", _];
         var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke", var fixture]
             ? Path.GetFullPath(fixture) : null;
+        if (verifyRestarted && profileFixture is not null && File.Exists(profileFixture))
+        {
+            using var specification = JsonDocument.Parse(File.ReadAllText(profileFixture));
+            var root = ProjectRules.NormalizePath(specification.RootElement.GetProperty("Root").GetString()
+                ?? throw new IOException("Update fixture root missing."));
+            ProjectRules.EnsureContained(root, profileFixture);
+            if (!File.Exists(Path.Combine(root, ".vrcsetup-update-smoke")))
+                throw new IOException("Update fixture marker missing.");
+            profileFixture = root;
+        }
         var offscreen = smoke is not null || profileFixture is not null;
         if (smoke is not null && Directory.Exists(smoke))
         {
