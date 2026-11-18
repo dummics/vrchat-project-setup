@@ -598,7 +598,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 var save = new SaveFileDialog { FileName = SupportLogs.SuggestedName, Filter = "ZIP|*.zip", DefaultExt = ".zip" };
                 if (await ShowPickerAsync(save) != true) return false;
                 await SupportLogs.ExportAsync(engine.Paths, save.FileName, token);
-                return true;
+                return save.FileName;
             case "openProject":
                 var selected = (await Projects(token)).SingleOrDefault(x => x.Path.Equals(data.GetString(), StringComparison.OrdinalIgnoreCase));
                 if (selected is null) throw new IOException(UiText.Text("The project is no longer available. Refresh the list."));

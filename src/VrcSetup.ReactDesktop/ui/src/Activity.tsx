@@ -27,7 +27,7 @@ export function Activity({ entries, busy, date, request, run, refresh, onExporte
     <div className="actions">
       <button disabled={busy} onClick={() => { setDetails(undefined); setLog(undefined); refresh(); }}>{t("Aggiorna")}</button>
       <button disabled={busy} onClick={() => void run(t("Esportazione…"), async () => {
-        if (await request<boolean>('exportDiagnostics')) onExported();
+        if (await request<string | false>('exportDiagnostics')) onExported();
       })}>{t("Esporta diagnostica")}</button>
     </div>
     {entries.length ? entries.map(entry => {

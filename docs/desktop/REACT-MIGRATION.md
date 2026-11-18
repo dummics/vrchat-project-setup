@@ -80,9 +80,25 @@ journal and an edit made during the pause. The fixture writes
 The hosted native test accepted a relocated archive with matching bytes for
 review, rejected a valid archive with different bytes, and kept the import
 paused. It also saved the selected Unity executable and extra-imports folder,
-then restored the original settings. These assertions passed before the suite
-stopped at the preset Save dialog. Completing an import from the relocated
-path and the remaining native Save paths still require verification.
+then restored the original settings. A later hosted run confirmed that a
+portable preset retains its pinned SDK version on export and reimport, and
+that the existing-project picker opens the selected project without changing
+its manifest. That run also confirmed that Projects reads the saved sort and
+persists a changed sort. The diagnostic export still requires verification
+against the path actually returned by the Save dialog.
+
+For the real Unity relocation check, pause an import in a fresh fixture with
+`--verify-pause-import`, move its archive within that fixture and reopen it with
+`--verify-relocated-import <fixture> <moved-archive>`. The verifier sends the
+replacement through the same recovery planner and queue used by the native
+picker. It confirmed that Unity compiled in the original project and the
+completed job saved the new source path in `imports.json`. The fixture writes
+`resumed-relocated-import.json`.
+
+The offscreen Settings smoke opens the WebView2 accent picker with a browser
+pointer event and dismisses it by clicking outside. It checks that the
+original color remains selected, then exercises the color input's change
+event and verifies the new accent after saving and reopening Settings.
 
 With the bundled package tool available, run `--verify-batch-packages <fresh-path>`
 to remove a fixture package from one of two projects through the React review.

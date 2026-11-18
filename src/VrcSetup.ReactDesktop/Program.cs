@@ -19,9 +19,10 @@ internal static class Program
         var launchFixture = args is ["--verify-open-project", var openProjectFixture] ? Path.GetFullPath(openProjectFixture) : null;
         var pauseImport = args is ["--verify-pause-import", _, _];
         var discardImport = args is ["--verify-discard-import", _];
+        var relocatedSource = args is ["--verify-relocated-import", _, var relocated] ? Path.GetFullPath(relocated) : null;
         var recoverWithoutJournal = args is ["--verify-resume-from-receipt", _];
-        var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import" or "--verify-resume-from-receipt", var recovery]
-            ? Path.GetFullPath(recovery) : null;
+        var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import" or "--verify-resume-from-receipt", _] || relocatedSource is not null
+            ? Path.GetFullPath(args[1]) : null;
         var restoreFixture = args is ["--verify-restore-workflow" or "--verify-import-missing-assets", var restore] ? Path.GetFullPath(restore) : null;
         var verifyMissingAssets = args is ["--verify-import-missing-assets", _];
         var verifyCancelledPackageRecovery = args is ["--verify-cancelled-package-recovery", _];
@@ -263,7 +264,7 @@ internal static class Program
                     if (recoverWithoutJournal)
                         await ReactImportVerification.VerifyResumeFromReceiptAsync(core, engine, recoveryFixture, shutdown.Token);
                     else
-                        await ReactImportVerification.VerifyRecoveryAsync(core, engine, recoveryFixture, discardImport, shutdown.Token);
+                        await ReactImportVerification.VerifyRecoveryAsync(core, engine, recoveryFixture, discardImport, shutdown.Token, relocatedSource);
                     window.Close();
                     return;
                 }
@@ -369,7 +370,7 @@ internal static class Program
                                 "compilation recovery action and dismissal", "activity detail, operation log and diagnostics archive",
                                 "VPM restore and removal review", "VPM batch review distinguishes changed and unchanged projects",
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
-                                "theme changes and custom accent persist", "help and plain version label", "manual file path and project naming settings",
+                                "color picker opens and closes; theme and custom accent persist", "help and plain version label", "manual file path and project naming settings",
                                 "preset create and rename persist", "preset favorites, pinning, discard, save and delete",
                                 "live English labels and language persistence", "diagnostics settings and maintenance confirmations",
                                 "WebView2 file drop stages two independent archives", "Projects rebuilds an import review from the project receipt" }
@@ -654,6 +655,7 @@ internal static class Program
             palette.dispatchEvent(new Event('change', { bubbles: true }));
             """);
         await RequireAsync(core, "document.querySelector('#accentColor').value === '#70b9f2'");
+        await VerifyColorPickerAsync(core);
         await core.ExecuteScriptAsync("""
             const accent = document.querySelector('#accentColor');
             Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(accent, '#68cab6');
@@ -697,6 +699,29 @@ internal static class Program
             Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('alpha sperimentali')).querySelector('input').checked &&
               !Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('versioni beta')).querySelector('input').checked
             """);
+    }
+
+    private static async Task VerifyColorPickerAsync(CoreWebView2 core)
+    {
+        var position = JsonSerializer.Deserialize<double[]>(await core.ExecuteScriptAsync("""
+            (() => {
+              const input = document.querySelector('#accentColor');
+              input.scrollIntoView({ block: 'center' });
+              const box = input.getBoundingClientRect();
+              return [box.x + box.width / 2, box.y + box.height / 2];
+            })()
+            """)) ?? throw new IOException("The accent color control is not visible.");
+        await ClickAsync(position[0], position[1]);
+        await RequireAsync(core, "document.querySelector('#accentColor:open') !== null");
+        await ClickAsync(2, 2);
+        await RequireAsync(core, "document.querySelector('#accentColor:open') === null && document.querySelector('#accentColor').value === '#70b9f2'");
+
+        async Task ClickAsync(double x, double y)
+        {
+            foreach (var type in new[] { "mousePressed", "mouseReleased" })
+                await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",
+                    JsonSerializer.Serialize(new { type, x, y, button = "left", clickCount = 1 }));
+        }
     }
 
     private static async Task VerifyPresetsAsync(CoreWebView2 core)

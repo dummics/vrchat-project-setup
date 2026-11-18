@@ -295,7 +295,8 @@ internal static class ReactImportVerification
         }, token);
     }
 
-    internal static async Task VerifyRecoveryAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, bool discard, CancellationToken token)
+    internal static async Task VerifyRecoveryAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, bool discard, CancellationToken token,
+        string? relocatedSource = null)
     {
         var path = Path.Combine(folder, "candidate-projects", "Probe");
         var journal = engine.Imports.Snapshot();
@@ -332,14 +333,34 @@ internal static class ReactImportVerification
             return;
         }
 
-        await ClickJobAsync(core, paused.Id, "Riprendi importazione", token);
-        const string resume = """document.querySelector('[aria-label="Riprendi importazione"] .primary')""";
-        await WaitForPageAsync(core, resume + "?.disabled === false", TimeSpan.FromMinutes(2), token);
-        await WaitForPageAsync(core, """
-            document.querySelector('[aria-label="Riprendi importazione"]').textContent.includes('Continua nel progetto esistente')
-            """, TimeSpan.FromSeconds(10), token);
         await WaitForFixtureHeadroomAsync(token);
-        await core.ExecuteScriptAsync(resume + ".click()");
+        if (relocatedSource is null)
+        {
+            await ClickJobAsync(core, paused.Id, "Riprendi importazione", token);
+            const string resume = """document.querySelector('[aria-label="Riprendi importazione"] .primary')""";
+            await WaitForPageAsync(core, resume + "?.disabled === false", TimeSpan.FromMinutes(2), token);
+            await WaitForPageAsync(core, """
+                document.querySelector('[aria-label="Riprendi importazione"]').textContent.includes('Continua nel progetto esistente')
+                """, TimeSpan.FromSeconds(10), token);
+            await core.ExecuteScriptAsync(resume + ".click()");
+        }
+        else
+        {
+            ProjectRules.EnsureContained(folder, relocatedSource);
+            ProjectRules.EnsureContained(folder, paused.Source.UnityPackagePath);
+            if (File.Exists(paused.Source.UnityPackagePath))
+                throw new IOException("Move the original archive within the fixture before testing relocation.");
+            // The hosted native picker exercises selection into this planner. Here
+            // run that same plan through the real Unity executor and persisted queue.
+            var configuration = await engine.Configuration.LoadAsync(token);
+            var movedPlan = await engine.Imports.RecoveryPlanAsync(paused.Id, configuration, token, relocatedSource);
+            var project = movedPlan.Projects.Single();
+            if (project.RecoveryOriginalSource != paused.Source.UnityPackagePath ||
+                !project.ExtraImports.SequenceEqual([relocatedSource], StringComparer.OrdinalIgnoreCase) ||
+                !project.Path.Equals(path, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Relocation did not retain ownership of the original project and use the moved source.");
+            await engine.Imports.EnqueueAsync(movedPlan, parallelism: 0, token: token, expectedImportId: paused.Id);
+        }
         var queued = await WaitForJobAsync(engine, path, job => job.Id != paused.Id, TimeSpan.FromSeconds(30), token);
         engine.Imports.ConfigureParallelism(1);
         var finished = await WaitForJobAsync(engine, path, job => job.Id == queued.Id && !job.Active, TimeSpan.FromMinutes(8), token);
@@ -348,11 +369,22 @@ internal static class ReactImportVerification
             await File.ReadAllTextAsync(Path.Combine(path, "Assets", "ReactProbe.txt"), token) != "React import succeeded" ||
             !File.Exists(Path.Combine(path, "Library", "ScriptAssemblies", "Assembly-CSharp.dll")))
             throw new IOException($"The paused import did not complete in its original project: {finished.Step}, {finished.State}. {finished.Message}");
-        await WaitForPageAsync(core, "document.querySelector('.jobs article')?.textContent.includes('Completata') === true",
-            TimeSpan.FromSeconds(15), token);
-        await AtomicFile.WriteJsonAsync(Path.Combine(folder, "resumed-import.json"), new
+        var result = relocatedSource is null ? "resumed-import.json" : "resumed-relocated-import.json";
+        if (relocatedSource is null)
+            await WaitForPageAsync(core, "document.querySelector('.jobs article')?.textContent.includes('Completata') === true",
+                TimeSpan.FromSeconds(15), token);
+        else
+        {
+            var saved = await AtomicFile.ReadJsonAsync<ImportJob[]>(Path.Combine(folder, "imports.json"), token) ?? [];
+            var savedJob = saved.SingleOrDefault(job => job.Id == finished.Id);
+            if (!File.Exists(relocatedSource) || savedJob is not { State: "Completed" } ||
+                !savedJob.Source.UnityPackagePath.Equals(relocatedSource, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("The completed import did not persist the relocated archive path.");
+        }
+        await AtomicFile.WriteJsonAsync(Path.Combine(folder, result), new
         { Passed = true, FromState = paused.State, finished.State, finished.ProjectPath, finished.LogFile,
-            OriginalProjectPreserved = true, ExistingProjectReview = true, ReopenedProfile = true }, token);
+            OriginalProjectPreserved = true, ExistingProjectReview = relocatedSource is null, RelocatedSource = relocatedSource,
+            ReopenedProfile = true }, token);
     }
 
     internal static async Task VerifyResumeFromReceiptAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, CancellationToken token)

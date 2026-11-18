@@ -236,7 +236,10 @@ internal static class ReactNativePickerVerification
         await Program.RequireAsync(core, diagnostics + "?.disabled === false");
         await OpenPickerAsync(diagnostics, diagnosticsPath);
         await Program.RequireAsync(core, footer + " === 'Diagnostica esportata.'", attempts: 400);
-        using var zip = ZipFile.OpenRead(Directory.GetFiles(folder, "VRC-Project-Setup-Diagnostics-*.zip").Single());
+        var exportedPath = JsonSerializer.Deserialize<string>(await core.ExecuteScriptAsync("window.lastFixtureReply.result"))
+            ?? throw new IOException("The native diagnostic export did not return a destination.");
+        ProjectRules.EnsureContained(folder, exportedPath);
+        using var zip = ZipFile.OpenRead(exportedPath);
         if (zip.GetEntry("VRC-Project-Setup.txt") is null || zip.GetEntry("Archive-contents.txt") is null)
             throw new IOException("The native diagnostic export did not produce a valid support archive.");
 
