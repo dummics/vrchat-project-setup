@@ -13,7 +13,7 @@ type Props = {
   refresh(): void; onExported(): void;
 };
 const statuses: Record<string, string> = {
-  completed: 'Completata', recovered: 'Completata', warning: 'Completata con avviso', failed: 'Non riuscita',
+  completed: 'Completata', recovered: 'Completata', warning: 'Completata con avviso', partial: 'Completata in parte', failed: 'Non riuscita',
   cancelled: 'Annullata', interrupted: 'Interrotta', paused: 'In pausa', queued: 'In coda', running: 'In corso',
   pausing: 'Messa in pausa…', cancelling: 'Arresto in corso…', unchanged: 'Già aggiornato', skipped: 'Saltato'
 };

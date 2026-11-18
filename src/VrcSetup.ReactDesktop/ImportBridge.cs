@@ -465,7 +465,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     var skipped = outcome.NotProcessed.ToHashSet(StringComparer.OrdinalIgnoreCase);
                     return new { results = approvedTargets.Select(target => applied.TryGetValue(target.Path, out var item)
                         ? new BatchResult(item.Project, item.Path, item.Status.ToString(),
-                            item.Status is OperationStatus.Failed or OperationStatus.CompletedWithWarnings
+                            item.Status is OperationStatus.Failed or OperationStatus.CompletedWithWarnings or OperationStatus.Skipped
                                 ? UserErrors.Message(new IOException(item.Message)) : null)
                         : new BatchResult(target.Name, target.Path, skipped.Contains(target.Path) ? "Skipped" : "Unchanged", null)) };
                 }
@@ -761,9 +761,17 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 x.Source.EmptyProject ? "project" : "import", JobStatus(x)))
             .Concat(reports.Where(x => !jobPlans.Contains(x.Id)).Select(x => new ActivityRow(
                 x.Id, string.Join(", ", x.Results.Select(result => result.Project).Distinct()),
-                x.CompletedUtc, "operation", x.Success ? x.Results.Any(y => y.Status == OperationStatus.CompletedWithWarnings)
-                    ? "warning" : "completed" : x.Cancelled ? "cancelled" : "failed")))
+                x.CompletedUtc, "operation", OperationStatusLabel(x))))
             .OrderByDescending(x => x.Date).ToArray();
+    }
+
+    private static string OperationStatusLabel(OperationReport report)
+    {
+        if (report.Success)
+            return report.Results.Any(result => result.Status == OperationStatus.CompletedWithWarnings) ? "warning" : "completed";
+        if (report.Results.Any(result => result.Status is OperationStatus.Completed or OperationStatus.CompletedWithWarnings))
+            return "partial";
+        return report.Cancelled ? "cancelled" : "failed";
     }
 
     private async Task<object> GetActivityDetails(ActivitySelection selected, CancellationToken token)

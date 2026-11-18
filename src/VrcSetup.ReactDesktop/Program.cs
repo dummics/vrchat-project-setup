@@ -27,11 +27,12 @@ internal static class Program
             ? Path.GetFullPath(args[1]) : null;
         var smoke = args switch
         {
-            ["--smoke" or "--verify-batch-packages", var evidence] => Path.GetFullPath(evidence),
+            ["--smoke" or "--verify-batch-packages" or "--verify-batch-package-conflict", var evidence] => Path.GetFullPath(evidence),
             ["--verify-unity-workflow" or "--verify-pause-import" or "--verify-new-project", var evidence, _] => Path.GetFullPath(evidence),
             _ => null
         };
-        var verifyBatchPackages = args is ["--verify-batch-packages", _];
+        var verifyBatchConflict = args is ["--verify-batch-package-conflict", _];
+        var verifyBatchPackages = verifyBatchConflict || args is ["--verify-batch-packages", _];
         var verifyPrepared = args is ["--verify-prepared-update", _];
         var verifyFeed = args is ["--verify-feed-update", _];
         var verifyRestarted = args is ["--verify-update-smoke", _];
@@ -292,7 +293,7 @@ internal static class Program
                         await VerifyDraftActionsAsync(core);
                         using var screenshot = File.Create(Path.Combine(smoke, "import-react-720.png"));
                         await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, screenshot);
-                        await VerifyProjectListAsync(core, verifyBatchPackages ? smoke : null);
+                        await VerifyProjectListAsync(core, verifyBatchPackages ? smoke : null, verifyBatchConflict);
                         if (verifyBatchPackages)
                         {
                             window.Close();
@@ -396,7 +397,7 @@ internal static class Program
         }));
     }
 
-    private static async Task VerifyProjectListAsync(CoreWebView2 core, string? batchEvidence)
+    private static async Task VerifyProjectListAsync(CoreWebView2 core, string? batchEvidence, bool simulateConflict)
     {
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Progetti').click()");
         await RequireAsync(core, "document.querySelector('.project-table tbody')?.textContent.includes('Avatar di prova')");
@@ -417,18 +418,22 @@ internal static class Program
         await RequireAsync(core, "document.querySelectorAll('.batch-targets li').length === 2");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.project-table button')).find(x => x.textContent === 'Rimuovi').click()");
         await RequireAsync(core, "document.querySelector('.view .extras')?.textContent.includes('example.fixture · Da rimuovere')");
-        await core.ExecuteScriptAsync("""
+        if (!simulateConflict)
+        {
+            await core.ExecuteScriptAsync("""
             document.querySelector('.batch-package-targets summary').click();
             Array.from(document.querySelectorAll('.batch-package-targets label')).find(x => x.textContent.includes('Secondo avatar'))
               .querySelector('input').click();
             """);
-        await RequireAsync(core, "document.querySelector('.batch-package-targets summary')?.textContent.includes('1 / 2')");
+            await RequireAsync(core, "document.querySelector('.batch-package-targets summary')?.textContent.includes('1 / 2')");
+        }
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === 'Rivedi modifiche').click()");
-        await RequireAsync(core, """
+        var expectedSecondReview = JsonSerializer.Serialize(simulateConflict ? "example.fixture · Da rimuovere" : "Nessuna modifica.");
+        await RequireAsync(core, $$"""
             (() => {
               const rows = Array.from(document.querySelectorAll('[aria-label="Riepilogo pacchetti"] h3'));
               return rows.some(x => x.textContent === 'Avatar di prova' && x.parentElement.textContent.includes('example.fixture · Da rimuovere'))
-                && rows.some(x => x.textContent === 'Secondo avatar' && x.parentElement.textContent.includes('Nessuna modifica.'));
+                && rows.some(x => x.textContent === 'Secondo avatar' && x.parentElement.textContent.includes({{expectedSecondReview}}));
             })()
             """);
         if (batchEvidence is not null)
@@ -437,21 +442,45 @@ internal static class Program
             var changed = Path.Combine(workspace, "Avatar di prova", "Packages", "vpm-manifest.json");
             var unchanged = Path.Combine(workspace, "Secondo avatar", "Packages", "vpm-manifest.json");
             var unchangedBefore = await File.ReadAllTextAsync(unchanged);
+            if (simulateConflict)
+            {
+                unchangedBefore += Environment.NewLine;
+                await File.WriteAllTextAsync(unchanged, unchangedBefore);
+            }
             using (var preview = File.Create(Path.Combine(batchEvidence, "batch-review-720.png")))
                 await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, preview);
             await core.ExecuteScriptAsync("document.querySelector('.view .extras button.primary').click()");
-            await RequireAsync(core, """
+            var expectedSecondResult = JsonSerializer.Serialize(simulateConflict ? "Il progetto è cambiato" : "Nessuna modifica.");
+            await RequireAsync(core, $$"""
                 (() => {
                   const rows = Array.from(document.querySelectorAll('[aria-live="polite"] .package'));
                   return rows.some(x => x.textContent.includes('Avatar di prova') && x.textContent.includes('Completato'))
-                    && rows.some(x => x.textContent.includes('Secondo avatar') && x.textContent.includes('Nessuna modifica.'));
+                    && rows.some(x => x.textContent.includes('Secondo avatar') && x.textContent.includes({{expectedSecondResult}}));
                 })()
                 """, attempts: 360);
             if ((await File.ReadAllTextAsync(changed)).Contains("example.fixture", StringComparison.Ordinal) ||
                 unchangedBefore != await File.ReadAllTextAsync(unchanged))
                 throw new IOException("Batch apply did not update only the intended manifest.");
+            if (simulateConflict)
+            {
+                await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+                await RequireAsync(core, "document.querySelector('h1').textContent === 'Progetti'");
+                await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+                await RequireAsync(core, "document.querySelector('header .actions') !== null");
+                await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Attività').click()");
+                await RequireAsync(core, "document.querySelector('.activity article')?.textContent.includes('Completata in parte')");
+                await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.activity article button')).find(x => x.textContent === 'Dettagli').click()");
+                await RequireAsync(core, """
+                    (() => {
+                      const rows = Array.from(document.querySelectorAll('.activity-detail'));
+                      return rows.some(x => x.textContent.includes('Avatar di prova') && x.textContent.includes('Completata'))
+                        && rows.some(x => x.textContent.includes('Secondo avatar') && x.textContent.includes('Saltato'));
+                    })()
+                    """);
+            }
             await AtomicFile.WriteJsonAsync(Path.Combine(batchEvidence, "batch-packages.json"),
-                new { Passed = true, Changed = "Avatar di prova", Unchanged = "Secondo avatar", PerPackageSelection = true,
+                new { Passed = true, Changed = "Avatar di prova", Unchanged = "Secondo avatar", PerPackageSelection = !simulateConflict,
+                    StaleProjectSkipped = simulateConflict, PartialActivityVerified = simulateConflict,
                     ReviewedAndAppliedThroughReact = true });
             return;
         }

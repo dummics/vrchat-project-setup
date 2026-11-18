@@ -5,6 +5,7 @@ const english: Record<string, string> = {
   "Annullata": "Cancelled",
   "Interrotta": "Interrupted",
   "Saltato": "Skipped",
+  "Completata in parte": "Partially completed",
   "Aggiunta": "Added",
   "Modifica": "Modified",
   "Rimozione": "Removed",
