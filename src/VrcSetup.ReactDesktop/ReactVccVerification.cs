@@ -8,7 +8,8 @@ namespace VrcSetup.ReactDesktop;
 
 internal static class ReactVccVerification
 {
-    private const string ProjectName = "ReactVccProbe";
+    // Keep the probe name short so the CLI's text table does not wrap it.
+    private const string ProjectName = "VccRetry";
     private const string JobId = "hosted-vcc-probe";
 
     internal static bool IsHostedFixture(string folder)
