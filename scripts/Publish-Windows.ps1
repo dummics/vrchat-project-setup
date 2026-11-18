@@ -5,7 +5,8 @@ param(
     [string]$AssetBaseUri,
     [string]$UpdateFeedUri,
     [string]$UpdateAssetPrefix,
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [switch]$ReactCandidate
 )
 $ErrorActionPreference = 'Stop'
 $buildClock = [Diagnostics.Stopwatch]::StartNew()
@@ -14,6 +15,9 @@ $stageSeconds = [ordered]@{}
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $Version) { $Version = ([xml](Get-Content (Join-Path $repoRoot 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version }
 $Version = (Get-ReleaseVersion $Version).Text
+if ($ReactCandidate -and $Version -notmatch '^0\.4\.0-alpha\.[0-9]+$') {
+    throw 'React candidate packaging requires an explicit 0.4.0 alpha version.'
+}
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repoRoot '.work\artifacts\release' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 [void][IO.Directory]::CreateDirectory($OutputDirectory)
@@ -31,9 +35,27 @@ function Invoke-Dotnet {
     $stageSeconds[('publish-' + [IO.Path]::GetFileNameWithoutExtension($Arguments[1]))] = [math]::Round($stageClock.Elapsed.TotalSeconds, 2)
 }
 Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Cli\VrcSetup.Cli.csproj'),'-c','Release','-r','win-x64','--self-contained','true',('-p:Version=' + $Version),'-o',(Join-Path $payload 'app\cli'),'--nologo')
-Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Desktop\VrcSetup.Desktop.csproj'),'-c','Release','-p:Platform=x64',('-p:Version=' + $Version),'-o',(Join-Path $payload 'app\desktop'),'--nologo')
-foreach ($resource in @('MainWindow.xbf','MainPage.xbf','PackageBrowserView.xbf','AppearanceEditor.xbf','VrcSetup.Desktop.pri')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $payload ('app\desktop\' + $resource)))) { throw "Native XAML publish resource missing: $resource" }
+$desktopOutput = Join-Path $payload 'app\desktop'
+if ($ReactCandidate) {
+    $desktopSource = Join-Path $repoRoot 'src\VrcSetup.ReactDesktop'
+    $uiClock = [Diagnostics.Stopwatch]::StartNew()
+    & npm.cmd --prefix (Join-Path $desktopSource 'ui') ci --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw 'React dependency restore failed.' }
+    & npm.cmd --prefix (Join-Path $desktopSource 'ui') run build
+    if ($LASTEXITCODE -ne 0) { throw 'React build failed.' }
+    $stageSeconds['build-react-ui'] = [math]::Round($uiClock.Elapsed.TotalSeconds, 2)
+    Invoke-Dotnet -Arguments @('publish',(Join-Path $desktopSource 'VrcSetup.ReactDesktop.csproj'),'-c','Release',
+        '-p:ReactInstalledEntryPoint=true',('-p:Version=' + $Version),'-o',$desktopOutput,'--nologo')
+    foreach ($resource in @('VrcSetup.Desktop.exe','VrcSetup.Desktop.dll','web\index.html','WebView2Loader.dll')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $desktopOutput $resource) -PathType Leaf)) {
+            throw "React publish resource missing: $resource"
+        }
+    }
+} else {
+    Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Desktop\VrcSetup.Desktop.csproj'),'-c','Release','-p:Platform=x64',('-p:Version=' + $Version),'-o',$desktopOutput,'--nologo')
+    foreach ($resource in @('MainWindow.xbf','MainPage.xbf','PackageBrowserView.xbf','AppearanceEditor.xbf','VrcSetup.Desktop.pri')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $desktopOutput $resource))) { throw "Native XAML publish resource missing: $resource" }
+    }
 }
 foreach ($client in @('cli','desktop')) {
     $resources = Join-Path $payload ('app\' + $client + '\Resources')
@@ -89,6 +111,7 @@ $checksums = @($outputs | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralP
 [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'SHA256SUMS.txt'),$checksums,[Text.UTF8Encoding]::new($false))
 $report = [ordered]@{Version=$Version;Payload=$payload;Archive=$archive;Installer=$installer;Checksums=(Join-Path $OutputDirectory 'SHA256SUMS.txt');Artifacts=@($outputs|ForEach-Object{[ordered]@{Name=[IO.Path]::GetFileName($_);Bytes=(Get-Item -LiteralPath $_).Length}})}
 $report['StageSeconds'] = $stageSeconds
+$report['Desktop'] = $(if ($ReactCandidate) { 'ReactCandidate' } else { 'WinUI' })
 $report['TotalSeconds'] = [math]::Round($buildClock.Elapsed.TotalSeconds, 2)
 $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'release-build.json') -Encoding utf8
 [pscustomobject]$report

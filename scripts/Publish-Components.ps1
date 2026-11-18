@@ -12,7 +12,8 @@ foreach ($source in @(@{ Prefix='payload'; Root=$Payload }, @{ Prefix='engine'; 
         if ($file.Name -eq '.vrcsetup-portable') { continue }
         $relative = $source.Prefix + '/' + $file.FullName.Substring($source.Root.Length + 1).Replace('\','/')
         $application = $file.Name -match '^(VrcSetup|vrcsetup)' -or $file.Extension -in @('.xbf','.pri','.json') -or $relative -notmatch '^(engine/|payload/app/)'
-        $category = if ($application) { 'application' } else {
+        $category = if ($relative.StartsWith('payload/app/desktop/web/', [StringComparison]::Ordinal)) { 'desktop-web' }
+        elseif ($application) { 'application' } else {
             $family = if ($relative.StartsWith('engine/')) { 'engine' } elseif ($relative.StartsWith('payload/app/desktop/')) { 'desktop' } else { 'cli' }
             $bucket = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($relative))[0] % 4
             "$family-runtime-$bucket"

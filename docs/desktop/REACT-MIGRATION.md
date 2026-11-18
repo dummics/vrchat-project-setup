@@ -56,11 +56,33 @@ app. This does not enable the candidate to operate on the installed profile.
 | Activity | Import history and opening its log | Operation detail, operation log and diagnostic ZIP verification |
 | Settings | Save and reload import limit and hide-completed preference | Editor/path options, appearance, native update service, help and complete IT/EN |
 | Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
-| Installer | Bridge 0.3.7 on the stable feed | Production payload, updater and offline portable, clean upgrade from 0.3.7 with preserved data, same-version builds and rollback |
+| Installer | Bridge 0.3.7 on the stable feed; candidate payload and component bootstrapper replace 0.3.7 on an isolated fixture | Production profile startup, update feed and restart, offline portable, same-version builds and exercised rollback |
 
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
 `result.json`. The smoke uses no live Unity editor or project.
+
+## Distribution checkpoint
+
+To package a private React candidate in the normal installation layout:
+
+```powershell
+./scripts/Publish-Windows.ps1 -Version 0.4.0-alpha.2 -OutputDirectory .work/artifacts/react-040-layout -ReactCandidate
+```
+
+The switch is explicit and restricted to the 0.4.0 alpha series. The React
+entry point is `app/desktop/VrcSetup.Desktop.exe`, and the generated HTML, CSS
+and JavaScript are in a separate checksum-verified web component. The default
+publication path still builds WinUI.
+
+The CLI installer and component bootstrapper both upgraded the verified
+0.3.7 portable release in an isolated install directory. The bootstrapper used
+locally cached components. Checks confirmed the shortcut target, unchanged
+configuration and import journal, removal of active WinUI resources and a
+preserved WinUI rollback copy. The installed React executable passed
+`--smoke` with its own fixture profile. Normal startup of the React candidate
+still uses candidate data, so the successful swap does not establish that
+React opens the migrated profile or processes automatic updates.
 
 ## Integration order
 
