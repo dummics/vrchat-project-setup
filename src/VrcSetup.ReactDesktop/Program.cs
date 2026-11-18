@@ -298,7 +298,7 @@ internal static class Program
                     }
                     if (verifyNativePicker)
                     {
-                        await ReactNativePickerVerification.RunAsync(core, window, profileFixture, shutdown.Token);
+                        await ReactNativePickerVerification.RunAsync(core, window, engine, profileFixture, shutdown.Token);
                         window.Close();
                         return;
                     }

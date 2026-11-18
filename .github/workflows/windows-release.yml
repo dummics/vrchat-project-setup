@@ -189,7 +189,7 @@ jobs:
             if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
             if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $fixture 'react-vcc-registration.json'))) { throw 'React VCC verification failed.' }
           }
-      - name: Verify native UnityPackage picker on hosted profile
+      - name: Verify native file and folder dialogs on hosted profile
         if: env.REACT_DESKTOP == 'true'
         shell: pwsh
         run: |

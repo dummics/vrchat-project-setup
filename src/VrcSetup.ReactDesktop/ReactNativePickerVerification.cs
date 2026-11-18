@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Interop;
@@ -16,7 +17,7 @@ internal static class ReactNativePickerVerification
     private const uint CommandMessage = 0x0111;
     private const int CancelButton = 2;
 
-    internal static async Task RunAsync(CoreWebView2 core, Window window, string folder, CancellationToken token)
+    internal static async Task RunAsync(CoreWebView2 core, Window window, VrcSetupApplication engine, string folder, CancellationToken token)
     {
         var owner = new WindowInteropHelper(window).Handle;
         var thread = GetWindowThreadProcessId(owner, out _);
@@ -24,24 +25,69 @@ internal static class ReactNativePickerVerification
         var trace = Path.Combine(folder, "picker-progress.txt");
         const string picker = "document.querySelector('.drop')";
         await Program.RequireAsync(core, picker + "?.disabled === false");
-        await OpenPickerAsync(null);
+        await OpenPickerAsync(picker, null);
         await Program.RequireAsync(core, picker + "?.disabled === false && document.querySelector('.tabs') === null");
-        await OpenPickerAsync(archive);
+        await OpenPickerAsync(picker, archive);
         await Program.RequireAsync(core, """
             document.querySelector('.tabs button')?.textContent === 'Probe.unitypackage'
             && document.querySelector('input[aria-label="Nome progetto"]')?.value === 'Probe'
             """, attempts: 400);
+
+        var originalRoot = (await engine.Configuration.LoadAsync(token)).UnityProjectsRoot;
+        var selectedRoot = Path.Combine(folder, "Progetti selezionati");
+        Directory.CreateDirectory(selectedRoot);
+        var restoreFile = Path.Combine(folder, "ripristino-fixture.json");
+        File.Copy(engine.Paths.ConfigFile, restoreFile);
+        var sentinel = Path.Combine(originalRoot, "fixture-project.keep");
+        await File.WriteAllTextAsync(sentinel, "The native settings operations preserve existing files.", token);
+        var assetHash = AtomicFile.Hash(sentinel);
+        const string settings = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Impostazioni')";
+        await Program.RequireAsync(core, settings + "?.disabled === false");
+        await core.ExecuteScriptAsync(settings + ".click()");
+        const string folderPicker = "document.getElementById('unityProjectsRoot')?.parentElement.querySelector('button')";
+        await Program.RequireAsync(core, folderPicker + "?.disabled === false");
+        await OpenPickerAsync(folderPicker, null);
+        const string root = "document.getElementById('unityProjectsRoot')";
+        await Program.RequireAsync(core, folderPicker + "?.disabled === false && " + root + "?.value === " + JsonSerializer.Serialize(originalRoot));
+        await OpenPickerAsync(folderPicker, selectedRoot);
+        await Program.RequireAsync(core, folderPicker + "?.disabled === false && " + root + "?.value === " + JsonSerializer.Serialize(selectedRoot), attempts: 400);
+        await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
+        const string footer = "document.querySelector('footer [role=status]')?.textContent";
+        await Program.RequireAsync(core, footer + " === 'Impostazioni salvate.'");
+        if (!string.Equals((await engine.Configuration.LoadAsync(token)).UnityProjectsRoot, selectedRoot, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("The folder selected with the native picker was not persisted.");
+        var changedConfig = AtomicFile.Hash(engine.Paths.ConfigFile);
+
+        await core.ExecuteScriptAsync("document.querySelector('.settings-maintenance summary').click()");
+        const string restore = """document.querySelector('[data-maintenance-action="restoreSettings"]')""";
+        const string confirm = "document.querySelector('dialog[open] .primary')";
+        await core.ExecuteScriptAsync(restore + ".click()");
+        await Program.RequireAsync(core, confirm + "?.disabled === false");
+        await OpenPickerAsync(confirm, null);
+        await Program.RequireAsync(core, restore + "?.disabled === false");
+        if (AtomicFile.Hash(engine.Paths.ConfigFile) != changedConfig)
+            throw new IOException("Cancelling the native settings file picker changed the configuration.");
+        await core.ExecuteScriptAsync(restore + ".click()");
+        await Program.RequireAsync(core, confirm + "?.disabled === false");
+        await OpenPickerAsync(confirm, restoreFile);
+        await Program.RequireAsync(core, footer + " === 'Impostazioni ripristinate.' && " + root + "?.value === " + JsonSerializer.Serialize(originalRoot), attempts: 400);
+        var backups = Path.Combine(engine.Paths.Home, "migration");
+        if (!string.Equals((await engine.Configuration.LoadAsync(token)).UnityProjectsRoot, originalRoot, StringComparison.OrdinalIgnoreCase) ||
+            AtomicFile.Hash(sentinel) != assetHash || !Directory.GetFiles(backups, "config-*.json").Any(file => AtomicFile.Hash(file) == changedConfig))
+            throw new IOException("Restoring settings did not preserve the previous configuration and project files.");
         await AtomicFile.WriteJsonAsync(Path.Combine(folder, "react-native-picker.json"), new
         {
-            Passed = true, NativeDialogCancelledWithoutDraft = true, SelectedArchiveStagedThroughReact = true
+            Passed = true, NativeDialogCancelledWithoutDraft = true, SelectedArchiveStagedThroughReact = true,
+            FolderSelectionPersisted = true, CancelledRestorePreservedConfiguration = true,
+            SettingsFileRestored = true, PriorConfigurationAndProjectFilesPreserved = true
         }, token);
 
-        async Task OpenPickerAsync(string? selectedPath)
+        async Task OpenPickerAsync(string trigger, string? selectedPath)
         {
             // UI Automation needs a separate thread when inspecting windows in this process.
             File.AppendAllText(trace, selectedPath is null ? "Requesting cancel.\n" : "Requesting file selection.\n");
             var native = Task.Run(() => CompletePickerAsync(owner, thread, selectedPath, trace, token), token);
-            var click = core.ExecuteScriptAsync(picker + ".click()");
+            var click = core.ExecuteScriptAsync(trigger + ".click()");
             await native;
             await click;
             File.AppendAllText(trace, "WebView completed the picker request.\n");
