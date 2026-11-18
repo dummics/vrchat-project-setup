@@ -10,6 +10,7 @@ type Draft = Source & { preset: string | null; packages: Packages };
 type Job = {
   id: string; name: string; projectPath: string; state: string; progress: number; active: boolean; recoverable: boolean;
   hasCompilationBlock: boolean; unityCompilationNeedsAttention: boolean; packageContentsNeedRestore: boolean;
+  creatorCompanionPending: boolean; creatorCompanionUnknown: boolean; canRetryRegistration: boolean; packageResolutionFailed: boolean;
   historySaveFailed: boolean; canDismiss: boolean; recoveryNoticeDismissed: boolean; discardRequested: boolean; discardCompleted: boolean;
   canDiscard: boolean; discardRemovesFolder: boolean;
 };
@@ -17,7 +18,9 @@ type Project = {
   name: string; path: string; unityVersion: string; lastUpdatedUtc: string; createdUtc: string;
   incomplete: boolean; open: boolean; importing: boolean; recoveryId?: string;
 };
-type Review = { id: string; destinations: string[]; continuation?: boolean };
+type Review = { id: string; continuation: boolean; projects: {
+  name: string; path: string; target?: string; packages: { id: string; name: string; version?: string }[]; removals: string[];
+}[] };
 type Activity = { id: string; name: string; date: string; kind: 'project' | 'import' | 'operation'; status: string };
 type ImportPreferences = {
   maxParallelImports: number; autoHideCompletedImports: boolean; checkUpdatesOnStartup: boolean;
@@ -41,7 +44,7 @@ const activityStatuses: Record<string, string> = {
   cancelled: 'Annullata', interrupted: 'Interrotta', paused: 'In pausa', queued: 'In coda', running: 'In corso',
   pausing: 'Messa in pausa…', cancelling: 'Arresto in corso…'
 };
-type State = { root: string; packages: Packages; presets: Record<string, Packages>; jobs: Job[]; initial: Source[] };
+type State = { root: string; packages: Packages; presets: Record<string, Packages>; jobs: Job[]; initial: Source[]; waitingForMemory: boolean };
 type Reply = { id: string; result?: unknown; error?: string };
 type Host = { postMessage(message: unknown): void; postMessageWithAdditionalObjects(message: unknown, files: File[]): void; addEventListener(type: 'message', callback: (event: MessageEvent<Reply>) => void): void };
 const host = (window as Window & { chrome?: { webview?: Host } }).chrome?.webview;
@@ -79,6 +82,8 @@ function jobStatus(job: Job) {
   if (job.discardRequested) return 'Annullamento in corso';
   if (job.hasCompilationBlock || job.unityCompilationNeedsAttention) return 'Compilazione da verificare';
   if (job.packageContentsNeedRestore) return 'Pacchetti da ripristinare';
+  if (job.packageResolutionFailed) return 'Pacchetti da controllare';
+  if (job.creatorCompanionPending || job.creatorCompanionUnknown) return 'Completata con avviso';
   const labels: Record<string, string> = {
     Queued: 'In coda', Running: 'In corso', Pausing: 'Messa in pausa…', Cancelling: 'Arresto in corso…',
     Paused: 'In pausa', Interrupted: 'Interrotta', Cancelled: 'Fermata', Failed: 'Da riprendere',
@@ -396,10 +401,14 @@ function ImportPage() {
           {state.jobs.map(job => <article key={job.id} id={'job-' + job.id}>
           <div className="package"><strong>{job.name}</strong><span>{jobStatus(job)}</span></div>
           <progress max="100" value={job.progress} aria-label={jobStatus(job)} />
+          {job.state === 'Queued' && state.waitingForMemory && <p>In attesa di memoria. L’importazione partirà automaticamente.</p>}
           {!job.recoveryNoticeDismissed && (job.hasCompilationBlock || job.unityCompilationNeedsAttention) &&
             <p>Apri il progetto in Unity per controllare gli errori negli script.</p>}
           {!job.recoveryNoticeDismissed && job.state === 'Paused' && <p>Il progetto è conservato. Puoi riprendere quando vuoi.</p>}
           {!job.recoveryNoticeDismissed && job.state === 'Interrupted' && <p>L’app si è chiusa prima della fine. Puoi riprendere l’importazione.</p>}
+          {!job.recoveryNoticeDismissed && job.packageResolutionFailed && <p>Controlla le versioni e le fonti dei pacchetti, poi riprendi l’importazione.</p>}
+          {job.creatorCompanionPending && <p>Il progetto è pronto. Aggiungilo a Creator Companion da qui oppure dalla sua lista progetti.</p>}
+          {job.creatorCompanionUnknown && <p>Il progetto è pronto. Controlla se compare nella lista di Creator Companion.</p>}
           <div className="actions">
             {job.active && !job.discardRequested && <button disabled={!!busy || !!review || ['Pausing', 'Cancelling'].includes(job.state)} onClick={() => void run('Pausa…', async () => setState(await request<State>('pause', job.id)))}>Pausa</button>}
             {!job.active && !job.discardRequested && !job.historySaveFailed && (job.hasCompilationBlock || job.unityCompilationNeedsAttention) &&
@@ -407,9 +416,16 @@ function ImportPage() {
             {!job.active && !job.discardRequested && job.packageContentsNeedRestore && <button disabled={!!busy || !!review}
               onClick={() => showProjectPackages(job.projectPath)}>Gestisci pacchetti</button>}
             {job.recoverable && !job.hasCompilationBlock && !job.packageContentsNeedRestore && !job.historySaveFailed && <button disabled={!!busy || !!review}
-              onClick={() => void run('Preparazione…', async () => setReview(await request<Review>('reviewContinuation', job.id)))}>
+              onClick={() => void run('Preparazione…', async () => {
+                const next = await request<Review | false>('reviewContinuation', job.id);
+                if (next) setReview(next);
+              })}>
               {job.state === 'Failed' ? 'Rivedi e riprova' : 'Riprendi importazione'}</button>}
             {job.historySaveFailed && <button disabled={!!busy || !!review} onClick={() => void run('Salvataggio…', async () => setState(await request<State>('retrySave', job.id)))}>Salva stato</button>}
+            {job.canRetryRegistration && <button disabled={!!busy || !!review} onClick={() =>
+              void run('Aggiunta a Creator Companion…', async () => setState(await request<State>('retryRegistration', job.id)))}>
+              Aggiungi a Creator Companion
+            </button>}
             {job.canDismiss && <button disabled={!!busy || !!review} onClick={() => void run('Aggiornamento…', async () => setState(await request<State>('dismiss', job.id)))}>{job.recoverable ? 'Nascondi avviso' : 'Rimuovi dalla lista'}</button>}
             {job.canDiscard && <button disabled={!!busy || !!review} onClick={() => void run('Annullamento…', async () => {
               try { setState(await request<State>('discard', job.id)); }
@@ -432,12 +448,22 @@ function ImportPage() {
         {Object.entries(active.preset ? state?.presets[active.preset] ?? {} : state?.packages ?? {}).filter(([id]) => !(id in active.packages))
           .map(([id, version]) => <div className="package" key={id}><span>{id}</span><button onClick={() => edit({ packages: { ...active.packages, [id]: version } })}>Includi</button></div>)}
       </div>}
-      {review && <section className="extras" aria-label={review.continuation ? 'Riprendi importazione' : 'Rivedi importazione'}><h2>{review.continuation ? 'Riprendi importazione' : 'Destinazioni'}</h2>{review.destinations.map(path => <p key={path}>{path}</p>)}
+      {review && <section className="extras" aria-label={review.continuation ? 'Riprendi importazione' : 'Rivedi importazione'}>
+        <h2>{review.continuation ? 'Riprendi importazione' : 'Rivedi importazione'}</h2>
+        {review.projects.map(project => <article key={project.path}>
+          <strong>{project.name}</strong>{project.target && <span> · {project.target === 'Android' ? 'Quest' : project.target === 'iOS' ? 'iOS' : 'PC'}</span>}
+          <p className="path">{project.path}</p>
+          <details open={project.removals.length > 0}>
+            <summary>Pacchetti · {project.packages.length}</summary>
+            <ul>{project.packages.map(item => <li key={item.id}>{item.name} {item.version}</li>)}</ul>
+          </details>
+          {project.removals.length > 0 && <p>Da rimuovere · {project.removals.join(', ')}</p>}
+        </article>)}
         <div className="actions"><button onClick={() => setReview(undefined)}>Indietro</button>
           <button className="primary" disabled={!!busy} onClick={() => void run('Avvio importazioni…', async () => {
             setState(await request<State>('start', review.id)); setReview(undefined);
             if (!review.continuation) { setDrafts([]); setActiveId(''); }
-          })}>{review.continuation ? 'Riprendi' : `Avvia ${review.destinations.length === 1 ? 'importazione' : review.destinations.length + ' importazioni'}`}</button></div></section>}
+          })}>{review.continuation ? 'Riprendi' : `Avvia ${review.projects.length === 1 ? 'importazione' : review.projects.length + ' importazioni'}`}</button></div></section>}
     </section>}
     <footer>
       <div role="status">{error || busy || notice || (screen === 'import' && drafts.length ? drafts.length + ' file' : '')}</div>

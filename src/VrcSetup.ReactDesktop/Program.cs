@@ -14,7 +14,14 @@ internal static class Program
     private static void Main(string[] args)
     {
         var startup = System.Diagnostics.Stopwatch.StartNew();
-        var smoke = args is ["--smoke", var evidence] ? Path.GetFullPath(evidence) : null;
+        var unityEditor = args is ["--verify-unity-workflow", _, var editor] ? Path.GetFullPath(editor) : null;
+        var restoreFixture = args is ["--verify-restore-workflow", var restore] ? Path.GetFullPath(restore) : null;
+        var smoke = args switch
+        {
+            ["--smoke", var evidence] => Path.GetFullPath(evidence),
+            ["--verify-unity-workflow", var evidence, _] => Path.GetFullPath(evidence),
+            _ => null
+        };
         var verifyPrepared = args is ["--verify-prepared-update", _];
         var verifyRestarted = args is ["--verify-update-smoke", _];
         var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke", var fixture]
@@ -29,8 +36,13 @@ internal static class Program
                 throw new IOException("Update fixture marker missing.");
             profileFixture = root;
         }
-        var offscreen = smoke is not null || profileFixture is not null;
+        var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null;
         if (smoke is not null && Directory.Exists(smoke))
+        {
+            Environment.ExitCode = 2;
+            return;
+        }
+        if (restoreFixture is not null && !File.Exists(Path.Combine(restoreFixture, "react-unity-import.json")))
         {
             Environment.ExitCode = 2;
             return;
@@ -48,8 +60,8 @@ internal static class Program
             ProjectRules.EnsureContained(profileFixture, paths.PayloadRoot);
             ProjectRules.EnsureContained(profileFixture, paths.Home);
         }
-        var isolated = smoke is not null || !distributed;
-        var home = smoke ?? (isolated
+        var isolated = smoke is not null || restoreFixture is not null || !distributed;
+        var home = smoke ?? restoreFixture ?? (isolated
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup-React-Candidate")
             : paths.Home);
         Directory.CreateDirectory(home);
@@ -88,7 +100,7 @@ internal static class Program
                 return;
             }
             draining = true;
-            if (engine.Imports.HasActiveJobs &&
+            if (!offscreen && engine.Imports.HasActiveJobs &&
                 MessageBox.Show(window, "Mettere in pausa le importazioni e chiudere l’app?", window.Title,
                     MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes)
             {
@@ -141,7 +153,10 @@ internal static class Program
                 core.FrameNavigationStarting += (_, e) => e.Cancel = true;
                 core.NewWindowRequested += (_, e) => e.Handled = true;
                 core.DownloadStarting += (_, e) => e.Cancel = true;
-                if (smoke is not null) await bridge.SeedSmokeAsync(smoke);
+                if (smoke is not null && unityEditor is not null)
+                    await bridge.SeedUnityWorkflowAsync(smoke, unityEditor);
+                else if (smoke is not null)
+                    await bridge.SeedSmokeAsync(smoke);
                 var configuration = await engine.Configuration.LoadAsync();
                 if (profileFixture is not null)
                     ProjectRules.EnsureContained(profileFixture, configuration.UnityProjectsRoot);
@@ -150,6 +165,13 @@ internal static class Program
                 bridge.Attach(core);
                 core.Navigate(ImportBridge.Page);
                 _ = updates.RunInBackgroundAsync(shutdown.Token);
+                if (restoreFixture is not null)
+                {
+                    await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
+                    await ReactImportVerification.VerifyRestoreAsync(core, engine, restoreFixture, shutdown.Token);
+                    window.Close();
+                    return;
+                }
                 if (profileFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
@@ -160,6 +182,13 @@ internal static class Program
                 }
                 if (smoke is not null)
                 {
+                    if (unityEditor is not null)
+                    {
+                        await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null && document.querySelector('.tabs button') !== null");
+                        await ReactImportVerification.RunAsync(core, engine, smoke, shutdown.Token);
+                        window.Close();
+                        return;
+                    }
                     for (var i = 0; i < 100; ++i)
                     {
                         await Task.Delay(100);
@@ -175,7 +204,7 @@ internal static class Program
                         await File.WriteAllTextAsync(Path.Combine(smoke, "result.json"), JsonSerializer.Serialize(new
                         {
                             passed = true, readyMs, runtime = environment.BrowserVersionString, drafts = 6, target = "Android",
-                            checks = new[] { "native handshake", "six analyzed archives", "compact Quest filename",
+                            checks = new[] { "native handshake", "six analyzed archives", "Quest filename and prefab path detection",
                                 "independent tab state", "package panel and exclusion", "project discovery, search and name validation",
                                 "compilation recovery action and dismissal", "activity and import log", "VPM restore and removal review",
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
@@ -189,7 +218,7 @@ internal static class Program
             }
             catch (Exception error)
             {
-                if ((smoke ?? profileFixture) is { } evidenceFolder)
+                if ((smoke ?? profileFixture ?? restoreFixture) is { } evidenceFolder)
                     File.WriteAllText(Path.Combine(evidenceFolder, "failure.txt"), error.ToString());
                 else MessageBox.Show(window, error.Message, window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.ExitCode = 1;

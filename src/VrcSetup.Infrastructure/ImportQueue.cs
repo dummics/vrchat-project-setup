@@ -311,22 +311,40 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
     }
     public void CancelAll() { foreach (var job in Snapshot().Where(x => x.Active)) Cancel(job.Id); }
 
-    public async Task<OperationPlan> RecoveryPlanAsync(string id, AppConfiguration configuration, CancellationToken token = default)
+    public async Task<OperationPlan> RecoveryPlanAsync(string id, AppConfiguration configuration, CancellationToken token = default,
+        string? selectedArchive = null)
     {
         var job = Snapshot().Single(x => x.Id == id);
         if (!job.Recoverable) throw new IOException("This import does not need recovery.");
         var project = job.Plan.Projects.Single(); var source = job.Source;
+        var original = project.RecoveryOriginalSource ?? source.UnityPackagePath;
+        if (selectedArchive is not null)
+        {
+            if (source.EmptyProject) throw new ArgumentException("This project has no UnityPackage source.");
+            var chosen = ProjectRules.NormalizePath(selectedArchive);
+            await UnityPackageFormat.ValidateAsync(chosen, token);
+            var identity = await PackageSourceIdentity.ReadAsync(chosen, token);
+            if (source.SourceIdentity is { } expected && identity != expected)
+                throw new IOException("This package differs from the original. Choose the original UnityPackage to continue.");
+            source = source with { UnityPackagePath = chosen, SourceIdentity = identity };
+        }
+        if (!string.IsNullOrWhiteSpace(configuration.UnityEditorPath))
+            source = source with { UnityEditorPath = configuration.UnityEditorPath };
         UnityProjectDriver.ValidateEditor(source.UnityEditorPath);
         foreach (var platform in source.PublishingPlatforms.Append(source.BuildTarget).Distinct())
             if (!UnityProjectDriver.HasBuildSupport(source.UnityEditorPath, platform)) throw new IOException("Unity build support is missing for " + platform);
-        var imports = source.ExtraImports.Concat(project.ExtraImports).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var imports = source.ExtraImports.Concat(project.ExtraImports)
+            .Where(x => !x.Equals(original, StringComparison.OrdinalIgnoreCase) &&
+                !x.Equals(job.Source.UnityPackagePath, StringComparison.OrdinalIgnoreCase) &&
+                !x.Equals(source.UnityPackagePath, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         ProjectPlan planned;
         if (!Directory.Exists(project.Path))
             planned = await app.Planner.PlanAsync(project.Path, project.DesiredPolicy, configuration, exact: true, preset: project.PresetName,
                 creation: source, extraImports: imports, cancellationToken: token);
         else
         {
-            planned = await app.PlanResumeAsync(source, project.DesiredPolicy, configuration, project.PresetName, imports, token, project.RecoveryOriginalSource);
+            planned = await app.PlanResumeAsync(source, project.DesiredPolicy, configuration, project.PresetName, imports, token, original);
         }
         return new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, [planned]);
     }

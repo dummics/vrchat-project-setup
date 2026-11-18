@@ -34,6 +34,13 @@ public sealed class RulesTests
     [InlineData(@"F:\Quest exports\Avatar.unitypackage", "StandaloneWindows64")]
     public void PlatformSuggestionUsesUnambiguousFileNameMarkers(string name, string expected)
         => Assert.Equal(expected, ProjectRules.SuggestBuildTarget(name));
+    [Fact] public void SuggestTargetUsesInternalPrefabNamesWithoutTreatingToolAssetsAsPlatforms()
+    {
+        Assert.Equal("Android", ProjectRules.SuggestBuildTarget("Avatar.unitypackage", ["Assets/Avatar/Quest/Avatar.prefab", "Assets/Tool/PC.cs"]));
+        Assert.Equal("StandaloneWindows64", ProjectRules.SuggestBuildTarget("Avatar.unitypackage", ["Assets/AvatarQuest.prefab", @"Assets\PC\Avatar.prefab"]));
+        Assert.Equal("StandaloneWindows64", ProjectRules.SuggestBuildTarget("AvatarPC.unitypackage", ["Assets/Avatar/Quest/Avatar.prefab"]));
+        Assert.Equal("StandaloneWindows64", ProjectRules.SuggestBuildTarget("Avatar.unitypackage", ["Assets/QuestTools/Utility.cs", "Assets/SomeAvatar.prefab"]));
+    }
     [Fact] public void SemanticVersionOrderingIncludesNumericPrerelease()
     {
         Assert.Equal(["1.10.0", "1.9.0", "1.9.0-beta.10", "1.9.0-beta.2", "1.9.0-alpha", "0.1.29", "0.1.9"], SemanticVersion.Sort(["0.1.9", "1.9.0-beta.2", "1.9.0-alpha", "1.10.0", "0.1.29", "1.9.0-beta.10", "1.9.0"]));

@@ -112,7 +112,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 if (plans.Count == 0 || plans.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plans.Count)
                     throw new ArgumentException("Scegli una destinazione distinta per ogni progetto.");
                 reviewed = new(Guid.NewGuid().ToString("N"), DateTime.UtcNow, plans.ToArray());
-                return new { reviewed.Id, destinations = plans.Select(x => x.Path).ToArray() };
+                return SummarizeImportReview(reviewed, continuation: false);
             case "reviewContinuation":
                 reviewed = null;
                 continuationId = null;
@@ -120,14 +120,29 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 if (!job.Recoverable || job.HasCompilationBlock)
                     throw new IOException("Questa importazione non può essere ripresa.");
                 _ = await ProjectPath(job.ProjectPath, token);
-                if (!job.Source.EmptyProject && !File.Exists(job.Source.UnityPackagePath))
-                    throw new IOException("Ricollega l’unità che contiene il file originale e riprova.");
-                if (!job.Source.EmptyProject && job.Source.SourceIdentity is { } identity &&
-                    await PackageSourceIdentity.ReadAsync(job.Source.UnityPackagePath, token) != identity)
-                    throw new IOException("Il file originale è cambiato. Ripristinalo prima di riprendere.");
-                reviewed = await engine.Imports.RecoveryPlanAsync(job.Id, await engine.Configuration.LoadAsync(token), token);
+                string? replacement = null;
+                if (!job.Source.EmptyProject)
+                {
+                    var archive = job.Source.UnityPackagePath;
+                    var changed = File.Exists(archive) && job.Source.SourceIdentity is { } identity &&
+                        await PackageSourceIdentity.ReadAsync(archive, token) != identity;
+                    if (!File.Exists(archive) || changed)
+                    {
+                        var sourcePicker = new OpenFileDialog { Title = "Scegli il file UnityPackage originale", Filter = "UnityPackage|*.unitypackage" };
+                        if (sourcePicker.ShowDialog(window) != true) return false;
+                        replacement = sourcePicker.FileName;
+                    }
+                    if (job.Source.SourceIdentity is null)
+                    {
+                        if (MessageBox.Show(window, "Questa importazione è precedente alla verifica del file. Vuoi proseguire con il file selezionato?",
+                                "Conferma UnityPackage", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                            return false;
+                        replacement ??= archive;
+                    }
+                }
+                reviewed = await engine.Imports.RecoveryPlanAsync(job.Id, await engine.Configuration.LoadAsync(token), token, replacement);
                 continuationId = job.Id;
-                return new { reviewed.Id, destinations = reviewed.Projects.Select(x => x.Path).ToArray(), continuation = true };
+                return SummarizeImportReview(reviewed, continuation: true);
             case "start":
                 if (reviewed is not { } accepted || data.GetString() != accepted.Id) throw new InvalidOperationException("Rivedi l’importazione.");
                 var expectedId = continuationId;
@@ -151,6 +166,14 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             case "retrySave":
                 if (!await engine.Imports.RetryHistorySaveAsync(CurrentJob(data.GetString()).Id, token))
                     throw new IOException("Impossibile salvare lo stato. Controlla lo spazio sul disco e riprova.");
+                return await State(token);
+            case "retryRegistration":
+                if (isolated) throw new IOException("La registrazione richiede un profilo installato o portatile.");
+                var registration = CurrentJob(data.GetString());
+                _ = await ProjectPath(registration.ProjectPath, token);
+                if (!await engine.Imports.RetryRegistrationAsync(registration.Id,
+                        (job, registerToken) => engine.Unity.RegisterAsync(job.ProjectPath, null, registerToken), token))
+                    throw new IOException("Impossibile aggiungere il progetto a Creator Companion. Puoi aggiungerlo lì come progetto esistente.");
                 return await State(token);
             case "openImportProject":
                 var import = CurrentJob(data.GetString());
@@ -433,6 +456,19 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         return await ReadPresets(token, name);
     }
 
+    private static object SummarizeImportReview(OperationPlan plan, bool continuation) => new
+    {
+        plan.Id, continuation,
+        projects = plan.Projects.Select(project => new
+        {
+            project.Name, project.Path, Target = (project.Creation ?? project.RecoverySource)?.BuildTarget,
+            packages = project.Changes.Where(x => x.Kind != ChangeKind.Remove)
+                .Select(x => new { x.Id, Name = PackageCatalog.FriendlyName(x.Id), Version = x.ResolvedVersion }),
+            removals = project.Changes.Where(x => x.Kind == ChangeKind.Remove)
+                .Select(x => PackageCatalog.FriendlyName(x.Id))
+        })
+    };
+
     private static object SummarizePackageReview(OperationPlan plan)
     {
         var project = plan.Projects.Single();
@@ -633,6 +669,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             {
                 x.Id, x.Name, x.ProjectPath, x.State, x.Progress, x.Active, x.Recoverable, x.HasCompilationBlock,
                 x.UnityCompilationNeedsAttention, x.PackageContentsNeedRestore, x.HistorySaveFailed,
+                x.CreatorCompanionPending, x.CreatorCompanionUnknown,
+                CanRetryRegistration = !isolated && x.CreatorCompanionPending && !x.Active && !x.HistorySaveFailed,
+                PackageResolutionFailed = x.State == "Failed" && x.Message.StartsWith("VPM resolve failed.", StringComparison.Ordinal),
                 x.RecoveryNoticeDismissed, x.DiscardCompleted, x.DiscardRequested,
                 CanDiscard = CanDiscard(x),
                 DiscardRemovesFolder = x.Source.CreationId is not null && Directory.Exists(x.ProjectPath),
@@ -660,6 +699,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             packages = settings.VpmPackages,
             presets = settings.PackagePresets,
             initial,
+            waitingForMemory = engine.Imports.EffectiveParallelism == 0,
             jobs = VisibleJobs(settings.AutoHideCompletedImports)
         };
     }
@@ -679,8 +719,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 .Select(x => new PackageChoice(x.Id, PackageCatalog.FriendlyName(x.Id), DependencyAdvisor.SuggestedVersion(x)))
                 .Where(x => x.Version is not null).ToArray();
             var id = Guid.NewGuid();
+            var assetPaths = report.Observation.ArchiveComplete ? report.Observation.Assets.Select(x => x.Path) : null;
             added.Add((new(id, Path.GetFileName(file), ProjectRules.SuggestName(file, settings),
-                ProjectRules.SuggestBuildTarget(file), suggestions), file, report.SourceIdentity));
+                ProjectRules.SuggestBuildTarget(file, assetPaths), suggestions), file, report.SourceIdentity));
         }
         foreach (var item in added) sources.Add(item.Draft.Id, (item.Path, item.Identity));
         reviewed = null;
@@ -692,14 +733,14 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         var inputs = new List<string>();
         for (var i = 1; i <= 6; ++i)
         {
-            var input = Path.Combine(folder, $"avatarquestv{i}.unitypackage");
+            var input = Path.Combine(folder, i == 2 ? "avatarv2.unitypackage" : $"avatarquestv{i}.unitypackage");
             using (var gzip = new System.IO.Compression.GZipStream(File.Create(input), System.IO.Compression.CompressionMode.Compress))
             using (var tar = new System.Formats.Tar.TarWriter(gzip))
             {
                 var entry = new System.Formats.Tar.PaxTarEntry(System.Formats.Tar.TarEntryType.RegularFile,
                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/pathname")
                 {
-                    DataStream = new MemoryStream("Assets/Avatar.prefab"u8.ToArray())
+                    DataStream = new MemoryStream(i == 2 ? "Assets/Quest/Avatar.prefab"u8.ToArray() : "Assets/Avatar.prefab"u8.ToArray())
                 };
                 tar.WriteEntry(entry);
             }
@@ -741,6 +782,25 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         var completedPlan = new OperationPlan("smoke-completed", DateTime.UtcNow, [plan.Projects[0] with { Path = completed.TargetPath, Name = completed.Name }]);
         var completedJob = new ImportJob("smoke-completed", completedPlan, completed, "Completed", "Finish", 100, "", log);
         await AtomicFile.WriteJsonAsync(Path.Combine(engine.Paths.Home, "imports.json"), new[] { job, completedJob }, lifetime.Token);
+    }
+
+    internal async Task SeedUnityWorkflowAsync(string folder, string editor)
+    {
+        UnityProjectDriver.ValidateEditor(editor);
+        Directory.CreateDirectory(candidateProjects);
+        var configuration = await engine.Configuration.LoadAsync(lifetime.Token);
+        configuration.UnityEditorPath = editor;
+        configuration.UnityProjectsRoot = candidateProjects;
+        configuration.UnityPackagesFolder = null;
+        configuration.VpmPackages = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [ProjectRules.BaseSdk] = "3.10.6",
+            [ProjectRules.AvatarSdk] = "3.10.6",
+            [ProjectRules.Resolver] = "0.1.29"
+        };
+        await engine.Configuration.SaveAsync(configuration, lifetime.Token);
+        var archive = ReactImportVerification.MakeArchive(folder);
+        initial = await Stage([archive], lifetime.Token);
     }
 
     private void Send(object response)

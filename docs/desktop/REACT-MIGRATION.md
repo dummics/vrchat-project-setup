@@ -51,9 +51,9 @@ recorded by the installer, or its own `data/` in portable mode.
 
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
-| Import | Six archives, independent draft targets, package exclusions and compilation recovery UI. Shared driver imported and compiled an archive in real Unity on a short fixture path | Explorer drop, full import from React, source relocation, existing destination recovery, pause/resume, owned-project cancellation and Creator Companion with real fixtures |
+| Import | Six archives, Quest name and prefab-path detection, version review, queue and real Unity import from React. Recovery planner validates relocated sources against the original bytes | Explorer drop, native relocation picker, existing destination recovery, pause/resume, owned-project cancellation and Creator Companion in an installed fixture |
 | Projects | Discovery, search and invalid name validation on an isolated Unity folder | Verify folder picker, create using installed Unity, opening and live editor indicator, batch and project options, external registrations |
-| Project packages | Read installed/locked versions, review restore and removal, protect required packages. Shared planner and real vrc-get restored locked package contents on a disposable project | Exercise catalog, edits and restore from React with a real package repository and validate Unity-open behavior |
+| Project packages | Read installed/locked versions, review restore and removal, protect required packages. Real vrc-get restored damaged locked SDK metadata via the React UI and preserved an imported asset | Exercise catalog and package edits from React with a real repository and validate Unity-open behavior |
 | Activity | Import history and opening its log | Operation detail, operation log and diagnostic ZIP verification |
 | Settings | Save and reload import preferences; independent alpha opt-in controls prepared installation; workspace paths loaded into the installed React UI | Verify native pickers and edits, appearance, live feed and update preparation, help and complete IT/EN |
 | Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
@@ -62,6 +62,15 @@ recorded by the installer, or its own `data/` in portable mode.
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
 `result.json`. The smoke uses no live Unity editor or project.
+
+For a real Unity/VPM test, launch the built React executable with
+`--verify-unity-workflow <fresh-short-path> <Unity.exe>`. It creates the
+test archive, starts import from the React review, and verifies the installed
+SDK, a compiled assembly and the imported asset. A second run with
+`--verify-restore-workflow <same-path>` uses that owned project to verify
+the restore action and unchanged imported asset. If the automatic scheduler
+holds the import, the test permits one slot only when at least 6 GiB of
+physical and commit memory remain. This override applies to the fixture only.
 
 ## Distribution checkpoint
 

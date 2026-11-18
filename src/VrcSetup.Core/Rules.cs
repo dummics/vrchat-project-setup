@@ -46,10 +46,29 @@ public static partial class ProjectRules
         return config.Naming.DefaultPrefix + name.Trim() + config.Naming.DefaultSuffix;
     }
 
-    public static string SuggestBuildTarget(string name)
+    public static string SuggestBuildTarget(string name, IEnumerable<string>? assetPaths = null)
     {
         var fileName = Path.GetFileNameWithoutExtension(name.Replace('\\', '/'));
-        var words = Regex.Replace(fileName, @"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ");
+        var (mobileName, otherName) = Markers(fileName);
+        if (otherName) return "StandaloneWindows64";
+        var mobileAsset = false;
+        foreach (var path in assetPaths ?? [])
+        {
+            if (!path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase) && !path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase))
+                continue;
+            foreach (var segment in Path.ChangeExtension(path, null)!.Split('/', '\\'))
+            {
+                var (mobile, other) = Markers(segment);
+                if (other) return "StandaloneWindows64";
+                mobileAsset |= mobile;
+            }
+        }
+        return mobileName || mobileAsset ? "Android" : "StandaloneWindows64";
+    }
+
+    private static (bool Mobile, bool Other) Markers(string name)
+    {
+        var words = Regex.Replace(name, @"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ");
         const string mobile = "(?:quest|android)";
         const string other = "(?:pc|windows(?:64)?|win64|ios|iphone|ipad|macos|linux)";
         const RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
@@ -57,13 +76,11 @@ public static partial class ProjectRules
         // Honor both separated markers (PC + Quest) and compact combinations (pcquestv2).
         if (Regex.IsMatch(words, $@"(?<!\p{{L}}){other}(?!\p{{L}})", options)
             || Regex.IsMatch(words, $@"{other}(?:and)?{mobile}|{mobile}(?:and)?{other}", options))
-            return "StandaloneWindows64";
+            return (false, true);
 
         var tokens = Regex.Split(words, @"[^\p{L}\p{Nd}]+");
-        return tokens.Any(token => Regex.IsMatch(token, mobile, options)
-            && !Regex.IsMatch(token, "^(?:request|conquest|bequest|inquest|question|questing)", options))
-            ? "Android"
-            : "StandaloneWindows64";
+        return (tokens.Any(token => Regex.IsMatch(token, mobile, options)
+            && !Regex.IsMatch(token, "^(?:request|conquest|bequest|inquest|question|questing)", options)), false);
     }
     public static void ValidatePackageId(string id)
     {

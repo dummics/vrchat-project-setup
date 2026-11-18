@@ -1,3 +1,5 @@
+using System.Formats.Tar;
+using System.IO.Compression;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 using Xunit;
@@ -6,6 +8,47 @@ namespace VrcSetup.Tests;
 
 public sealed class ImportQueueTests : IDisposable
 {
+    [Fact] public async Task RelocatedArchiveKeepsProjectOwnershipAndRejectsDifferentBytes()
+    {
+        var app = App;
+        var plan = Plan("Relocated archive");
+        var project = plan.Projects.Single();
+        var original = project.Creation!;
+        var relocated = Path.Combine(root, "relocated.unitypackage");
+        var different = Path.Combine(root, "different.unitypackage");
+        Directory.CreateDirectory(Path.Combine(project.Path, "Assets"));
+        Directory.CreateDirectory(Path.Combine(project.Path, "Packages"));
+        await File.WriteAllTextAsync(Path.Combine(project.Path, "Packages", "manifest.json"), "{}");
+        await File.WriteAllTextAsync(Path.Combine(root, "Unity.exe"), "");
+        var versions = new Dictionary<string, string> { [ProjectRules.BaseSdk] = "3.10.6", [ProjectRules.Resolver] = "0.1.29" };
+        await AtomicFile.WriteJsonAsync(Path.Combine(project.Path, "Packages", "vpm-manifest.json"), new { dependencies = versions });
+        await AtomicFile.WriteJsonAsync(Path.Combine(project.Path, ".vrcsetup", "state.json"),
+            new SetupState { UnityPackagePath = original.UnityPackagePath });
+        WriteArchive(relocated, "Assets/Original.prefab");
+        WriteArchive(different, "Assets/Different.prefab");
+        var source = original with { SourceIdentity = await PackageSourceIdentity.ReadAsync(relocated, default) };
+        plan = plan with { Projects = [project with { Creation = source, DesiredPolicy = versions, ExtraImports = [original.UnityPackagePath] }] };
+        var job = new ImportJob("moved", plan, source, "Paused", "Paused", 30, "", "");
+        await AtomicFile.WriteJsonAsync(Path.Combine(app.Paths.Home, "imports.json"), new[] { job });
+        await using var queue = new ImportQueue(app);
+        await queue.InitializeAsync();
+        var configuration = new AppConfiguration { UnityProjectsRoot = root, UnityEditorPath = Path.Combine(root, "Unity.exe") };
+        await Assert.ThrowsAsync<IOException>(() => queue.RecoveryPlanAsync(job.Id, configuration, selectedArchive: different));
+        var recovery = Assert.Single((await queue.RecoveryPlanAsync(job.Id, configuration, selectedArchive: relocated)).Projects);
+        Assert.Equal(original.UnityPackagePath, recovery.RecoveryOriginalSource);
+        Assert.Equal(relocated, recovery.RecoverySource?.UnityPackagePath);
+        Assert.Equal(new[] { relocated }, recovery.ExtraImports);
+        Assert.Equal(configuration.UnityEditorPath, recovery.UnityEditorPath);
+
+        static void WriteArchive(string path, string text)
+        {
+            using var gzip = new GZipStream(File.Create(path), CompressionLevel.Fastest);
+            using var writer = new TarWriter(gzip);
+            using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text));
+            writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, new string('a', 32) + "/pathname") { DataStream = stream });
+        }
+    }
+
     [Fact] public async Task PackageContentNoticeIsPreservedAcrossRestartWithoutQueuingAnotherImport()
     {
         var app = App;
