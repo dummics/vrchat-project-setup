@@ -164,6 +164,31 @@ jobs:
           $env:PATH = "$toolPath;$env:PATH"
           dotnet run --project tests/VrcSetup.E2E/VrcSetup.E2E.csproj -c Release --property:Platform=x64 -- --verify-hosted-vcc (Join-Path $env:RUNNER_TEMP 'vcc-fixture')
           if ($LASTEXITCODE -ne 0) { throw 'Hosted VCC registration verification failed.' }
+          if ($env:REACT_DESKTOP -eq 'true') {
+            $fixture = Join-Path $env:RUNNER_TEMP 'react-vcc'
+            $install = Join-Path $fixture 'install'
+            $env:VRCSETUP_HOME = Join-Path $fixture 'home'
+            $env:VRCSETUP_SKIP_PATH_UPDATE = '1'
+            $env:VRCSETUP_START_MENU_ROOT = Join-Path $fixture 'start-menu'
+            $env:VRCSETUP_DESKTOP_ROOT = Join-Path $fixture 'desktop'
+            New-Item -ItemType Directory -Path $env:VRCSETUP_HOME | Out-Null
+            @{ UnityProjectsRoot = (Join-Path $fixture 'projects'); Language = 'it'; AutoHideCompletedImports = $false } |
+              ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:VRCSETUP_HOME 'config.json')
+            Set-Content -LiteralPath (Join-Path $fixture '.react-profile-fixture') 'Disposable hosted registration verification.'
+            $payload = Join-Path $pwd "release/VrcSetup-$env:RELEASE_ASSET_ID-win-x64"
+            & (Join-Path $payload 'app/cli/vrcsetup.exe') install --root $install
+            if ($LASTEXITCODE -ne 0) { throw 'Could not install the React VCC fixture.' }
+            $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'app/desktop/VrcSetup.Desktop.exe'))
+            $start.UseShellExecute = $false
+            $start.CreateNoWindow = $true
+            $start.ArgumentList.Add('--verify-hosted-vcc')
+            $start.ArgumentList.Add($fixture)
+            $process = [Diagnostics.Process]::Start($start)
+            if (-not $process.WaitForExit(180000)) { $process.Kill($true); throw 'React VCC verification timed out.' }
+            $failure = Join-Path $fixture 'failure.txt'
+            if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+            if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $fixture 'react-vcc-registration.json'))) { throw 'React VCC verification failed.' }
+          }
       - name: Native UI smoke verification
         if: env.REACT_DESKTOP != 'true'
         shell: pwsh
@@ -265,6 +290,8 @@ jobs:
           name: native-ui-verification
           path: |
             ${{ runner.temp }}/vrcsetup-ui
+            ${{ runner.temp }}/react-vcc/react-vcc-registration.json
+            ${{ runner.temp }}/react-vcc/failure.txt
             ${{ runner.temp }}/vrcsetup-react-batch/batch-packages.json
             ${{ runner.temp }}/vrcsetup-react-batch/failure.txt
             ${{ runner.temp }}/vrcsetup-react-cancel/package-cancellation.json

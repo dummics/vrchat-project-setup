@@ -42,7 +42,8 @@ internal static class Program
         var verifyRestarted = args is ["--verify-update-smoke", _];
         var portableFixture = args is ["--verify-portable-startup", var archiveRoot] ? Path.GetFullPath(archiveRoot) : null;
         var verifyMaintenance = args is ["--verify-installation-maintenance", _];
-        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update" or "--verify-installation-maintenance", var fixture]
+        var verifyVcc = args is ["--verify-hosted-vcc", _];
+        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update" or "--verify-installation-maintenance" or "--verify-hosted-vcc", var fixture]
             ? Path.GetFullPath(fixture) : null;
         if (verifyRestarted && profileFixture is not null && File.Exists(profileFixture))
         {
@@ -95,6 +96,11 @@ internal static class Program
         }
         if (profileFixture is not null)
         {
+            if (verifyVcc && !ReactVccVerification.IsHostedFixture(profileFixture))
+            {
+                Environment.ExitCode = 2;
+                return;
+            }
             if (!distributed || !File.Exists(Path.Combine(profileFixture, ".react-profile-fixture")) ||
                 !File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-install.json")) || !File.Exists(paths.ConfigFile))
             {
@@ -113,7 +119,8 @@ internal static class Program
         using var lease = new FileStream(Path.Combine(home, "react-desktop.lock"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
         var app = new Application();
         var feedFixture = verifyFeed && profileFixture is not null ? new ReactUpdateVerification(profileFixture) : null;
-        var engine = new VrcSetupApplication(isolated || portable ? home : null, isolated || offscreen
+        var engine = new VrcSetupApplication(isolated || portable ? home : null, verifyVcc
+            ? ["--no-catalog-refresh"] : isolated || offscreen
             ? ["--no-vcc-registration", "--no-catalog-refresh"] : [])
         { UpdateHttpClientFactory = feedFixture is null ? null : feedFixture.CreateClient };
         UiText.LoadPreference(engine.Paths.ConfigFile);
@@ -220,6 +227,8 @@ internal static class Program
                 UiText.Language = configuration.Language;
                 if (profileFixture is not null)
                     ProjectRules.EnsureContained(profileFixture, configuration.UnityProjectsRoot);
+                if (verifyVcc && profileFixture is not null)
+                    await ReactVccVerification.SeedAsync(engine, profileFixture, configuration, shutdown.Token);
                 bridge.ConfigureQueue(configuration);
                 await engine.Imports.InitializeAsync();
                 bridge.Attach(core);
@@ -278,6 +287,12 @@ internal static class Program
                     if (verifyMaintenance)
                     {
                         await VerifyInstallationMaintenanceAsync(core, engine, profileFixture);
+                        return;
+                    }
+                    if (verifyVcc)
+                    {
+                        await ReactVccVerification.RunAsync(core, engine, profileFixture, shutdown.Token);
+                        window.Close();
                         return;
                     }
                     await VerifyInstalledProfileAsync(core, profileFixture, home, configuration,

@@ -216,7 +216,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 _ = await ProjectPath(registration.ProjectPath, token);
                 if (!await engine.Imports.RetryRegistrationAsync(registration.Id,
                         (job, registerToken) => engine.Unity.RegisterAsync(job.ProjectPath, null, registerToken), token))
-                    throw new IOException(UiText.Text("Could not add the project to Creator Companion. You can add it there as an existing project."));
+                    throw new IOException("Could not add the project to Creator Companion. You can add it there as an existing project.");
                 return await State(token);
             case "openImportProject":
                 var import = CurrentJob(data.GetString());
