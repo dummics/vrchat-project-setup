@@ -224,10 +224,13 @@ internal static class Program
         var projects = await Read("Progetti", ".project-table tbody th");
         var presets = await Read("Preset", ".view select option");
         var activity = await Read("Attività", ".activity article strong");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Impostazioni').click()");
+        await RequireAsync(core, $"document.querySelector('#unityProjectsRoot')?.value === {JsonSerializer.Serialize(configuration.UnityProjectsRoot)}");
         await File.WriteAllTextAsync(Path.Combine(folder, reportName), JsonSerializer.Serialize(new
         {
             home, version = ApplicationUpdates.CurrentVersion, process = Environment.ProcessId,
-            configuration.UnityProjectsRoot, configuration.IncludeAlphaUpdates, projects, presets, activity
+            configuration.UnityProjectsRoot, configuration.IncludeAlphaUpdates, projects, presets, activity,
+            workspaceSettingsVisible = true
         }));
     }
 

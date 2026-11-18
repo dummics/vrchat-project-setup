@@ -22,7 +22,13 @@ type Activity = { id: string; name: string; date: string; kind: 'project' | 'imp
 type ImportPreferences = {
   maxParallelImports: number; autoHideCompletedImports: boolean; checkUpdatesOnStartup: boolean;
   automaticUpdates: boolean; includeBetaUpdates: boolean; includeAlphaUpdates: boolean;
+  canEditPaths: boolean; unityEditorPath: string; unityProjectsRoot: string; unityPackagesFolder?: string;
 };
+const workspaceOptions = [
+  ['unityProjectsRoot', 'projects', 'Cartella progetti'],
+  ['unityEditorPath', 'editor', 'Editor Unity'],
+  ['unityPackagesFolder', 'extras', 'Importazioni aggiuntive']
+] as const;
 type UpdateView = { current: string; enabled: boolean; installed: boolean; available?: string; ready?: string };
 const updateOptions = [
   ['checkUpdatesOnStartup', 'Controlla automaticamente gli aggiornamenti'],
@@ -228,12 +234,28 @@ function ImportPage() {
         event.preventDefault();
         void run('Salvataggio…', async () => {
           setState(await request<State>('saveImportPreferences', preferences));
+          setPreferences(await request<ImportPreferences>('importPreferences'));
           setUpdate(await request<UpdateView>('updateStatus'));
           setSettingsDirty(false);
           setNotice('Impostazioni salvate.');
         });
       }}>
         <fieldset disabled={!!busy}>
+          {preferences.canEditPaths && <section className="workspace-paths">
+            <h2>Unity</h2>
+            {workspaceOptions.map(([key, picker, label]) => <div className="workspace-path" key={key}>
+              <label htmlFor={key}>{label}</label>
+              <input id={key} value={preferences[key] ?? ''} onChange={event => {
+                setPreferences({ ...preferences, [key]: event.target.value }); setNotice(''); setSettingsDirty(true);
+              }} />
+              <button type="button" aria-label={`Sfoglia: ${label}`} onClick={() => void run('Selezione percorso…', async () => {
+                const path = await request<string | false>('pickSettingsPath', picker);
+                if (path) {
+                  setPreferences({ ...preferences, [key]: path }); setNotice(''); setSettingsDirty(true);
+                }
+              })}>Sfoglia</button>
+            </div>)}
+          </section>}
           <label className="package">Nascondi importazioni completate
             <input type="checkbox" checked={preferences.autoHideCompletedImports} onChange={event => {
               setPreferences({ ...preferences, autoHideCompletedImports: event.target.checked }); setNotice(''); setSettingsDirty(true);

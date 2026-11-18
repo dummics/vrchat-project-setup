@@ -220,8 +220,24 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 {
                     preferencesBaseline.MaxParallelImports, preferencesBaseline.AutoHideCompletedImports,
                     preferencesBaseline.CheckUpdatesOnStartup, preferencesBaseline.AutomaticUpdates,
-                    preferencesBaseline.IncludeBetaUpdates, preferencesBaseline.IncludeAlphaUpdates
+                    preferencesBaseline.IncludeBetaUpdates, preferencesBaseline.IncludeAlphaUpdates,
+                    CanEditPaths = !isolated, preferencesBaseline.UnityEditorPath, preferencesBaseline.UnityProjectsRoot,
+                    preferencesBaseline.UnityPackagesFolder
                 };
+            case "pickSettingsPath":
+                if (isolated) return false;
+                switch (data.GetString())
+                {
+                    case "editor":
+                        var editorPicker = new OpenFileDialog { Title = "Scegli Unity.exe", Filter = "Unity Editor|Unity.exe" };
+                        return editorPicker.ShowDialog(window) == true ? ProjectRules.NormalizePath(editorPicker.FileName) : false;
+                    case "projects":
+                    case "extras":
+                        var directoryPicker = new OpenFolderDialog { Title = "Scegli una cartella" };
+                        return directoryPicker.ShowDialog(window) == true ? ProjectRules.NormalizePath(directoryPicker.FolderName) : false;
+                    default:
+                        throw new ArgumentException("Percorso sconosciuto.");
+                }
             case "saveImportPreferences":
                 var baseline = preferencesBaseline ?? throw new IOException("Riapri le impostazioni prima di salvare.");
                 var preferences = data.Deserialize<ImportPreferences>(Json) ?? throw new ArgumentException("Impostazioni non valide.");
@@ -233,6 +249,18 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 updated.AutomaticUpdates = preferences.AutomaticUpdates;
                 updated.IncludeBetaUpdates = preferences.IncludeBetaUpdates;
                 updated.IncludeAlphaUpdates = preferences.IncludeAlphaUpdates;
+                if (!isolated)
+                {
+                    if (preferences.UnityEditorPath != baseline.UnityEditorPath)
+                    {
+                        updated.UnityEditorPath = NormalizeOptionalPath(preferences.UnityEditorPath);
+                        if (updated.UnityEditorPath.Length != 0) UnityProjectDriver.ValidateEditor(updated.UnityEditorPath);
+                    }
+                    if (preferences.UnityProjectsRoot != baseline.UnityProjectsRoot)
+                        updated.UnityProjectsRoot = ValidateOptionalFolder(preferences.UnityProjectsRoot);
+                    if (preferences.UnityPackagesFolder != baseline.UnityPackagesFolder)
+                        updated.UnityPackagesFolder = ValidateOptionalFolder(preferences.UnityPackagesFolder);
+                }
                 preferencesBaseline = await engine.Configuration.MergeAsync(baseline, updated, token);
                 ConfigureQueue(preferencesBaseline);
                 return await State(token);
@@ -420,6 +448,20 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     }
 
     private string ProjectRoot(AppConfiguration config) => isolated ? candidateProjects : config.UnityProjectsRoot;
+
+    private static string NormalizeOptionalPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "";
+        if (!Path.IsPathFullyQualified(path.Trim())) throw new ArgumentException("Indica un percorso completo.");
+        return ProjectRules.NormalizePath(path);
+    }
+
+    private static string ValidateOptionalFolder(string? path)
+    {
+        var folder = NormalizeOptionalPath(path);
+        if (folder.Length != 0 && !Directory.Exists(folder)) throw new IOException("La cartella selezionata non è disponibile.");
+        return folder;
+    }
 
     private string RequireWorkspace(AppConfiguration config)
     {
@@ -720,7 +762,8 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         DateTime CreatedUtc, bool Incomplete, bool Open, bool Importing, string? RecoveryId);
     private sealed record ActivityRow(string Id, string Name, DateTime Date, string Kind, string Status);
     private sealed record ImportPreferences(int MaxParallelImports, bool AutoHideCompletedImports,
-        bool CheckUpdatesOnStartup, bool AutomaticUpdates, bool IncludeBetaUpdates, bool IncludeAlphaUpdates);
+        bool CheckUpdatesOnStartup, bool AutomaticUpdates, bool IncludeBetaUpdates, bool IncludeAlphaUpdates,
+        string UnityEditorPath, string UnityProjectsRoot, string? UnityPackagesFolder);
     private sealed record ProjectPackageEdit(string Path, string Fingerprint, Dictionary<string, string> Selected, string[] Removed);
     private sealed record PackageApproval(string Id, bool AcceptRisk);
     private sealed record PresetEdit(string Revision, string Action, string? Name,

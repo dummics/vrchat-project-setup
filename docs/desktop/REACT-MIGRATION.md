@@ -51,11 +51,11 @@ recorded by the installer, or its own `data/` in portable mode.
 
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
-| Import | Six archives, independent draft targets, package exclusions, distinct compilation error action and dismissible notice | Explorer drop, full Unity import, source relocation, existing destination recovery, pause and resume across restart, owned-project cancellation and Creator Companion with real fixtures |
+| Import | Six archives, independent draft targets, package exclusions and compilation recovery UI. Shared driver imported and compiled an archive in real Unity on a short fixture path | Explorer drop, full import from React, source relocation, existing destination recovery, pause/resume, owned-project cancellation and Creator Companion with real fixtures |
 | Projects | Discovery, search and invalid name validation on an isolated Unity folder | Verify folder picker, create using installed Unity, opening and live editor indicator, batch and project options, external registrations |
-| Project packages | Read installed/locked versions, review restore and removal, protect required packages | Exercise catalog, version pin, add/update/downgrade/remove/restore with a real package repository and validate Unity-open behavior |
+| Project packages | Read installed/locked versions, review restore and removal, protect required packages. Shared planner and real vrc-get restored locked package contents on a disposable project | Exercise catalog, edits and restore from React with a real package repository and validate Unity-open behavior |
 | Activity | Import history and opening its log | Operation detail, operation log and diagnostic ZIP verification |
-| Settings | Save and reload import preferences; independent alpha opt-in controls prepared installation | Editor/path options, appearance, live feed and update preparation, help and complete IT/EN |
+| Settings | Save and reload import preferences; independent alpha opt-in controls prepared installation; workspace paths loaded into the installed React UI | Verify native pickers and edits, appearance, live feed and update preparation, help and complete IT/EN |
 | Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
 | Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7 | Live feed/download/prefetch, Fixed Version offline portable, same-version build ordering, final production release |
 
