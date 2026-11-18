@@ -54,8 +54,8 @@ public sealed class AutomaticUpdates(AppPaths paths, TimeProvider? time = null)
         state.Ready = null; await SaveAsync(state, token);
         try
         {
-            var version = new SemanticVersion(ready.Version);
-            if (version.CompareTo(new SemanticVersion(installedVersion)) <= 0 || !ApplicationUpdates.AllowsChannel(version, includeBeta, includeAlpha)
+            var version = new ApplicationBuild(ready.Version);
+            if (version.CompareTo(new ApplicationBuild(installedVersion)) <= 0 || !ApplicationUpdates.AllowsChannel(version.Version, includeBeta, includeAlpha)
                 || state.LastAttemptVersion == ready.Version || clock.GetUtcNow() - ready.PreparedUtc > TimeSpan.FromHours(48)
                 || ready.PreparedUtc > clock.GetUtcNow().AddMinutes(5)
                 || !string.Equals(Path.GetFullPath(paths.PayloadRoot), ready.Root, StringComparison.OrdinalIgnoreCase)
@@ -71,21 +71,21 @@ public sealed class AutomaticUpdates(AppPaths paths, TimeProvider? time = null)
     { var state = await ReadAsync(token); state.Ready = null; state.LastAttemptVersion = version; await SaveAsync(state, token); }
     private bool IsExpectedPath(string path, string version)
     {
-        _ = new SemanticVersion(version);
+        var build = new ApplicationBuild(version);
         if (version != Path.GetFileName(version)) return false;
-        var expected = Path.GetFullPath(Path.Combine(paths.Home, "updates", version, $"Install-VrcSetup-{version}-win-x64.exe"));
+        var expected = Path.GetFullPath(Path.Combine(paths.Home, "updates", version, $"Install-VrcSetup-{build.AssetId}-win-x64.exe"));
         return string.Equals(Path.GetFullPath(path), expected, StringComparison.OrdinalIgnoreCase);
     }
     private void PruneInstallers(string keep)
     {
         // Only our exact installer/receipt names, never component archives or unrelated update files.
-        var versions = new List<(DirectoryInfo Directory, SemanticVersion Version)>();
+        var versions = new List<(DirectoryInfo Directory, ApplicationBuild Version)>();
         foreach (var directory in new DirectoryInfo(Path.GetDirectoryName(StateFile)!).EnumerateDirectories())
-            try { versions.Add((directory, new SemanticVersion(directory.Name))); } catch (Exception error) when (error is ArgumentException or OverflowException) { }
+            try { versions.Add((directory, new ApplicationBuild(directory.Name))); } catch (Exception error) when (error is ArgumentException or OverflowException) { }
         foreach (var entry in versions.OrderByDescending(x => x.Version).Skip(3).Where(x => x.Directory.Name != keep))
             try
             {
-                File.Delete(Path.Combine(entry.Directory.FullName, $"Install-VrcSetup-{entry.Directory.Name}-win-x64.exe"));
+                File.Delete(Path.Combine(entry.Directory.FullName, $"Install-VrcSetup-{entry.Version.AssetId}-win-x64.exe"));
                 File.Delete(Path.Combine(entry.Directory.FullName, "prefetch-result.json"));
                 if (!entry.Directory.EnumerateFileSystemInfos().Any()) entry.Directory.Delete();
             }

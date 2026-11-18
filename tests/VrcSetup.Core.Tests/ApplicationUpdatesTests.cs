@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using VrcSetup.Core;
 using VrcSetup.Infrastructure;
 using Xunit;
 
@@ -9,12 +10,30 @@ namespace VrcSetup.Tests;
 
 public sealed class ApplicationUpdatesTests
 {
-    private static object Release(string version, bool draft = false, bool beta = true, string host = ApplicationUpdates.Repository, bool complete = true) => new
+    private static object Release(string version, bool draft = false, bool beta = true, string host = ApplicationUpdates.Repository, bool complete = true)
     {
-        tag_name = "v" + version, draft, prerelease = beta,
-        assets = new[] { new { name = $"Install-VrcSetup-{version}-win-x64.exe", browser_download_url = $"{host}/releases/download/v{version}/Install-VrcSetup-{version}-win-x64.exe" },
-            new { name = complete ? "SHA256SUMS.txt" : "missing.txt", browser_download_url = $"{host}/releases/download/v{version}/SHA256SUMS.txt" } }
-    };
+        var installer = $"Install-VrcSetup-{new ApplicationBuild(version).AssetId}-win-x64.exe";
+        var directory = $"{host}/releases/download/v{version}";
+        return new
+        {
+            tag_name = "v" + version, draft, prerelease = beta,
+            assets = new[] { new { name = installer, browser_download_url = $"{directory}/{installer}" },
+                new { name = complete ? "SHA256SUMS.txt" : "missing.txt", browser_download_url = $"{directory}/SHA256SUMS.txt" } }
+        };
+    }
+    [Fact] public void NumberedBuildsAreOrderedWithinTheSameReleaseOnOptInClients()
+    {
+        var json = JsonSerializer.Serialize(new[] { Release("0.4.0", beta: false),
+            Release("0.4.0+build.9", beta: false), Release("0.4.0+build.20", beta: false),
+            Release("0.4.1-alpha.1+build.21") });
+        Assert.Equal("0.4.0", ApplicationUpdates.SelectRelease(json, "0.3.7", false)!.Version);
+        Assert.Null(ApplicationUpdates.SelectRelease(json, "0.4.0", false));
+        var stable = ApplicationUpdates.SelectRelease(json, "0.4.0+build.9", false, includeBuilds: true)!;
+        Assert.Equal("0.4.0+build.20", stable.Version);
+        Assert.EndsWith("/Install-VrcSetup-0.4.0-build.20-win-x64.exe", stable.Installer.AbsolutePath);
+        Assert.Equal("0.4.1-alpha.1+build.21", ApplicationUpdates.SelectRelease(json, stable.Version, false, includeAlpha: true, includeBuilds: true)!.Version);
+        Assert.Null(ApplicationUpdates.SelectRelease(json, stable.Version, false, includeBuilds: true));
+    }
     [Fact] public void SelectsNewestCompletePublishedReleaseAndHonorsBetaPreference()
     {
         var json = JsonSerializer.Serialize(new[] { Release("0.2.0", beta: false), Release("0.2.1-beta.2"), Release("0.2.1-beta.10"), Release("0.3.0", draft: true), Release("0.4.0", complete: false) });
@@ -62,6 +81,24 @@ public sealed class ApplicationUpdatesTests
     {
         using var client = new HttpClient(new FixtureHandler(_ => new(HttpStatusCode.NotFound)));
         Assert.Null(await new ApplicationUpdates(client).CheckAsync("0.2.0-beta.1", true));
+    }
+    [Theory]
+    [InlineData(false, "releases.json", "0.4.0")]
+    [InlineData(true, "releases-experimental.json", "0.4.1-alpha.1")]
+    public async Task ReactUsesTheCompatibleChannelIfTheBuildFeedDoesNotExist(bool alpha, string fallback, string expected)
+    {
+        var requested = new List<string>();
+        using var client = new HttpClient(new FixtureHandler(request =>
+        {
+            var name = Path.GetFileName(request.RequestUri!.AbsolutePath);
+            requested.Add(name);
+            return name == "releases-builds.json" ? new(HttpStatusCode.NotFound)
+                : new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(
+                    new[] { Release("0.4.0", beta: false), Release("0.4.1-alpha.1") })) };
+        }));
+        var release = await new ApplicationUpdates(client).CheckAsync("0.3.7", false, includeAlpha: alpha, includeBuilds: true);
+        Assert.Equal(expected, release?.Version);
+        Assert.Equal(new[] { "releases-builds.json", fallback }, requested);
     }
     [Fact] public void IncompleteMetadataIsIgnored()
     { Assert.Null(ApplicationUpdates.SelectRelease("[{},null,{\"draft\":false,\"tag_name\":\"0.3.0\"}]", "0.2.0-beta.1", true)); }

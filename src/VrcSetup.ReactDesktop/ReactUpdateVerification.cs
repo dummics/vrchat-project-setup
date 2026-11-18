@@ -29,9 +29,10 @@ internal sealed class ReactUpdateVerification(string root)
         if (!root.Equals(spec.RootElement.GetProperty("Root").GetString(), StringComparison.OrdinalIgnoreCase))
             throw new IOException("Update specification does not match the fixture.");
         version = spec.RootElement.GetProperty("Version").GetString() ?? "";
-        if (new SemanticVersion(version).CompareTo(new(ApplicationUpdates.CurrentVersion)) <= 0 || version != Path.GetFileName(version))
+        var build = new ApplicationBuild(version);
+        if (build.CompareTo(new(ApplicationUpdates.CurrentVersion)) <= 0 || version != Path.GetFileName(version))
             throw new IOException("Choose a newer fixture build.");
-        installerName = $"Install-VrcSetup-{version}-win-x64.exe";
+        installerName = $"Install-VrcSetup-{build.AssetId}-win-x64.exe";
         var folder = Path.Combine(engine.Paths.Home, "updates", version);
         var installer = Path.Combine(folder, installerName);
         if (Directory.Exists(folder) || (await new AutomaticUpdates(engine.Paths).ReadAsync(token)).Ready is not null)
@@ -52,8 +53,8 @@ internal sealed class ReactUpdateVerification(string root)
         await Require(check + "?.disabled === false");
         await Click(check);
         await Require(check + "?.disabled === false && document.querySelector('footer [role=status]')?.textContent.length > 0");
-        if (requests.Count != 1 || requests[0] != "stable")
-            throw new IOException("The default channel did not use the stable feed.");
+        if (requests.Count != 1 || requests[0] != "builds")
+            throw new IOException("The default channel did not use the React release feed.");
         await Require(prepare + " === null");
 
         await Click("document.querySelector('#includeAlphaUpdates')");
@@ -62,8 +63,8 @@ internal sealed class ReactUpdateVerification(string root)
         await Require(check + "?.disabled === false");
         await Click(check);
         await Require(prepare + "?.disabled === false");
-        if (requests.Count != 2 || requests[1] != "experimental")
-            throw new IOException("Alpha opt-in did not use the experimental feed.");
+        if (requests.Count != 2 || requests[1] != "builds")
+            throw new IOException("Alpha opt-in did not use the React release feed.");
 
         await Click(prepare);
         await Require(prepare + "?.disabled === false && document.querySelector('footer [role=status]')?.textContent.length > 0", 240);
@@ -99,16 +100,11 @@ internal sealed class ReactUpdateVerification(string root)
 
     private HttpContent Respond(Uri uri)
     {
-        var experimentalFeed = new Uri(new Uri(legacyFeed), "releases-experimental.json").AbsoluteUri;
-        if (uri.AbsoluteUri == legacyFeed)
+        var numberedFeed = new Uri(new Uri(legacyFeed), "releases-builds.json").AbsoluteUri;
+        var prefix = ApplicationUpdateSource.Default.AssetPrefix + Uri.EscapeDataString("v" + version) + "/";
+        if (uri.AbsoluteUri == numberedFeed)
         {
-            requests.Add("stable");
-            return new StringContent("[]");
-        }
-        var prefix = ApplicationUpdateSource.Default.AssetPrefix + $"v{version}/";
-        if (uri.AbsoluteUri == experimentalFeed)
-        {
-            requests.Add("experimental");
+            requests.Add("builds");
             return new StringContent(JsonSerializer.Serialize(new[]
             {
                 new { tag_name = "v" + version, draft = false, prerelease = true,

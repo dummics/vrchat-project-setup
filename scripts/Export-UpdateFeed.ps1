@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][object[]]$Releases,
     [Parameter(Mandatory)][string]$OutputPath,
     [switch]$IncludeAlpha,
+    [switch]$IncludeBuilds,
     [string]$Repository = 'dummics/vrchat-project-setup'
 )
 $ErrorActionPreference = 'Stop'
@@ -12,20 +13,22 @@ $entries = @(foreach ($release in $Releases) {
     if ($release.draft) { continue }
     try { $version = Get-ReleaseVersion $release.tag_name } catch { continue }
     if ($version.Rank -eq 0 -and -not $IncludeAlpha) { continue }
+    if ($version.Build -and -not $IncludeBuilds) { continue }
     $prefix = "https://github.com/$Repository/releases/download/$($release.tag_name)/"
+    $escaped = "https://github.com/$Repository/releases/download/$([uri]::EscapeDataString($release.tag_name))/"
     $assets = @($release.assets | Where-Object {
-        $_.browser_download_url -eq ($prefix + $_.name) -and
-        ($_.name -in @("Install-VrcSetup-$($version.Text)-win-x64.exe", "VrcSetup-$($version.Text)-win-x64.zip", 'SHA256SUMS.txt', 'components.json') -or
+        $_.browser_download_url -in @(($prefix + $_.name), ($escaped + $_.name)) -and
+        ($_.name -in @("Install-VrcSetup-$($version.AssetId)-win-x64.exe", "VrcSetup-$($version.AssetId)-win-x64.zip", 'SHA256SUMS.txt', 'components.json') -or
          $_.name -match '^Update-VrcSetup-[0-9A-Za-z.-]+-win-x64\.exe$')
     } | Sort-Object name | ForEach-Object { [ordered]@{ name = $_.name; browser_download_url = $_.browser_download_url } })
-    if ($assets.name -notcontains "Install-VrcSetup-$($version.Text)-win-x64.exe" -or $assets.name -notcontains 'SHA256SUMS.txt') { continue }
+    if ($assets.name -notcontains "Install-VrcSetup-$($version.AssetId)-win-x64.exe" -or $assets.name -notcontains 'SHA256SUMS.txt') { continue }
     [pscustomobject]@{
-        Core = $version.Core; Rank = $version.Rank; Iteration = $version.Iteration
+        Core = $version.Core; Rank = $version.Rank; Iteration = $version.Iteration; Build = $version.Build
         Entry = [ordered]@{ tag_name = $release.tag_name; draft = $false; prerelease = [bool]$release.prerelease; assets = $assets }
     }
 })
 if ($entries.Count -eq 0) { throw 'No complete public releases; refusing to replace the update feed.' }
-$json = ConvertTo-Json -InputObject @($entries | Sort-Object Core,Rank,Iteration -Descending | ForEach-Object Entry) -Depth 6
+$json = ConvertTo-Json -InputObject @($entries | Sort-Object Core,Rank,Iteration,Build -Descending | ForEach-Object Entry) -Depth 6
 $target = [IO.Path]::GetFullPath($OutputPath)
 [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
 [IO.File]::WriteAllText($target, $json + "`n", [Text.UTF8Encoding]::new($false))

@@ -10,6 +10,7 @@ import { Locale, type Language, translator } from './locale';
 import './style.css';
 
 type Packages = Record<string, string>;
+const displayVersion = (identity: string) => identity.replace(/\+build\.(\d+)$/, ' · build $1');
 type Source = { id: string; file: string; name: string; target: string; suggestions: { id: string; name: string; version: string }[] };
 type Draft = Source & { preset: string | null; packages: Packages };
 type Job = {
@@ -328,8 +329,8 @@ function ImportPage() {
         </fieldset>
       </form>
       {update?.enabled && <section className="extras" aria-label={t("Versione applicazione")}>
-        <p>{t('Versione {version}', { version: update.current })}{update.ready ? t(' · {version} pronta', { version: update.ready })
-          : update.available ? t(' · {version} disponibile', { version: update.available }) : ''}</p>
+        <p>{t('Versione {version}', { version: displayVersion(update.current) })}{update.ready ? t(' · {version} pronta', { version: displayVersion(update.ready) })
+          : update.available ? t(' · {version} disponibile', { version: displayVersion(update.available) }) : ''}</p>
         <div className="actions">
           <button data-update-action="check" disabled={!!busy || settingsDirty} onClick={() => void run(t("Ricerca aggiornamenti…"), async () => {
             const status = await request<UpdateView>('checkUpdate');
@@ -579,7 +580,7 @@ function ImportPage() {
         {active && panel === 'import' && !review && state?.root &&
           <button className="primary" disabled={!!busy} onClick={() => void run(t("Preparazione…"), async () => setReview(await request('review', drafts)))}>{t("Rivedi e importa")}</button>}
       </div>}
-      {state && <span className="app-version" aria-label={t('Versione {version}', { version: state.version })}>{state.version}</span>}
+      {state && <span className="app-version" aria-label={t('Versione {version}', { version: displayVersion(state.version) })}>{displayVersion(state.version)}</span>}
     </footer>
   </main></Locale.Provider>;
 }

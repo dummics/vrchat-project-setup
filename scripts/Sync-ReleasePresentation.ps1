@@ -21,17 +21,18 @@ if ($SnapshotPath) { $releases | ConvertTo-Json -Depth 20 | Set-Content -Literal
 $ranked = foreach ($release in $releases) {
     if ($release.draft) { continue }
     try { $key = Get-ReleaseVersion $release.tag_name } catch { continue }
-    [pscustomobject]@{ Release=$release; Version=$key.Text; Core=$key.Core; Rank=$key.Rank; Iteration=$key.Iteration }
+    [pscustomobject]@{ Release=$release; Version=$key.Text; Core=$key.Core; Rank=$key.Rank; Iteration=$key.Iteration; Build=$key.Build }
 }
-$latest = $ranked | Where-Object Rank -ne 0 | Sort-Object Core,Rank,Iteration -Descending | Select-Object -First 1
+$latest = $ranked | Where-Object Rank -ne 0 | Sort-Object Core,Rank,Iteration,Build -Descending | Select-Object -First 1
 if (-not $latest) { throw 'No numbered public release found.' }
 $latestUrl = $latest.Release.html_url
 $start = '<!-- vrcsetup-download:start -->'; $end = '<!-- vrcsetup-download:end -->'
 foreach ($release in $releases) {
-    $match = [regex]::Match($release.tag_name, '^v?(\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?)$')
-    if ($release.draft -or -not $match.Success) { continue }
-    $version = $match.Groups[1].Value
-    $installer = @($release.assets | Where-Object name -In @("VrcSetup-$version-win-x64.exe", "Install-VrcSetup-$version-win-x64.exe") | Sort-Object name | Select-Object -First 1)
+    if ($release.draft) { continue }
+    try { $key = Get-ReleaseVersion $release.tag_name } catch { continue }
+    $version = $key.Text
+    $title = if ($key.Build) { "$($key.Base) · build $($key.Build)" } else { $version }
+    $installer = @($release.assets | Where-Object name -In @("VrcSetup-$($key.AssetId)-win-x64.exe", "Install-VrcSetup-$($key.AssetId)-win-x64.exe") | Sort-Object name | Select-Object -First 1)
     if ($installer.Count -ne 1) { throw "No unified installer for $($release.tag_name); left untouched." }
     $asset = $installer[0]
     $badge = '[![Download this version](https://img.shields.io/badge/Download_this_version-Windows_x64-2ea493?style=for-the-badge)](' + $asset.browser_download_url + ')'
@@ -39,14 +40,14 @@ foreach ($release in $releases) {
     $body = [regex]::Replace($body, '(?s)<!-- vrcsetup-download:start -->.*?<!-- vrcsetup-download:end -->\s*', '')
     $latestLine = if ($version -ne $latest.Version) { 'Latest version: **[' + $latest.Version + '](' + $latestUrl + ')**' + "`n`n" } else { '' }
     $body = "$start`n$latestLine$badge`n$end`n`n" + $body.TrimStart()
-    if ($release.name -ne $version -or $release.body -ne $body) {
+    if ($release.name -ne $title -or $release.body -ne $body) {
         if ($PSCmdlet.ShouldProcess($release.tag_name, 'Set version-only title and installer download button')) {
             if (-not $env:GH_TOKEN) { throw 'A repository-scoped GH_TOKEN is required for changes. Use the maintenance workflow.' }
-            $payload = @{ name = $version; body = $body } | ConvertTo-Json -Depth 4
+            $payload = @{ name = $title; body = $body } | ConvertTo-Json -Depth 4
             $null = Invoke-RestMethod "$base/releases/$($release.id)" -Method Patch -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($payload))
         }
     }
-    $label = "VrcSetup-$version-win-x64.exe"
+    $label = "VrcSetup-$($key.AssetId)-win-x64.exe"
     if ($asset.label -ne $label -and $PSCmdlet.ShouldProcess($asset.name, "Set display label to $label")) {
         if (-not $env:GH_TOKEN) { throw 'A repository-scoped GH_TOKEN is required for changes.' }
         $payload = @{ label = $label } | ConvertTo-Json
@@ -66,10 +67,10 @@ if ($ReadmeBranch) {
     }
 }
 if ($FeedBranch) {
-    foreach ($experimental in @($false, $true)) {
-        $name = if ($experimental) { 'releases-experimental.json' } else { 'releases.json' }
+    foreach ($name in @('releases.json', 'releases-experimental.json', 'releases-builds.json')) {
         $feedFile = Join-Path $PSScriptRoot "../.work/artifacts/update-feed/$name"
-        & (Join-Path $PSScriptRoot 'Export-UpdateFeed.ps1') -Releases $releases -Repository $Repository -OutputPath $feedFile -IncludeAlpha:$experimental
+        & (Join-Path $PSScriptRoot 'Export-UpdateFeed.ps1') -Releases $releases -Repository $Repository -OutputPath $feedFile `
+            -IncludeAlpha:($name -ne 'releases.json') -IncludeBuilds:($name -eq 'releases-builds.json')
         $json = [IO.File]::ReadAllText($feedFile)
         $contentUrl = "$base/contents/.github/updates/$name"
         $existing = $null

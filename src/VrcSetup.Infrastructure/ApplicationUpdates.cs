@@ -13,58 +13,68 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
 {
     private ApplicationUpdateSource Source => source ?? ApplicationUpdateSource.Default;
     public const string Repository = "https://github.com/dummics/vrchat-project-setup";
-    public static string CurrentVersion => typeof(ApplicationUpdates).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.2.0-beta.1";
+    public static string CurrentVersion => ApplicationBuild.FromAssemblyVersion(
+        typeof(ApplicationUpdates).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.2.0-beta.1");
     public static string BugReportUrl => Repository + "/issues/new?title=" + Uri.EscapeDataString("[Bug]: ") + "&body="
         + Uri.EscapeDataString("App version: " + CurrentVersion + "\n\nWhat did you do?\n\nWhat happened?\n\nWhat did you expect?\n\nOptional screenshot or log excerpt (remove personal details):\n");
     private const long MaximumInstallerBytes = 1024L * 1024 * 1024;
 
-    public async Task<ApplicationRelease?> CheckAsync(string installed, bool includeBeta, CancellationToken token = default, bool forceRefresh = false, bool includeAlpha = false)
+    public async Task<ApplicationRelease?> CheckAsync(string installed, bool includeBeta, CancellationToken token = default, bool forceRefresh = false, bool includeAlpha = false, bool includeBuilds = false)
     {
         var feed = includeAlpha && Source.Feed.AbsoluteUri == LegacyFeed ? ExperimentalFeed : Source.Feed.AbsoluteUri;
-        using var request = Request(feed);
-        if (forceRefresh) request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
-        var json = await UpdateFeed.ReadAsync(client, request, cacheDirectory, token, forceRefresh);
-        return json is null ? null : SelectRelease(json, installed, includeBeta, Source, includeAlpha);
+        var json = includeBuilds && Source.Feed.AbsoluteUri == LegacyFeed ? await Read(BuildFeed) : null;
+        json ??= await Read(feed);
+        return json is null ? null : SelectRelease(json, installed, includeBeta, Source, includeAlpha, includeBuilds);
+
+        async Task<string?> Read(string url)
+        {
+            using var request = Request(url);
+            if (forceRefresh) request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
+            return await UpdateFeed.ReadAsync(client, request, cacheDirectory, token, forceRefresh);
+        }
     }
 
-    public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta, ApplicationUpdateSource? source = null, bool includeAlpha = false)
+    public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta, ApplicationUpdateSource? source = null, bool includeAlpha = false, bool includeBuilds = false)
     {
         source ??= ApplicationUpdateSource.Default;
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("Expected a GitHub releases list.");
-        var current = new SemanticVersion(installed);
-        var candidates = new List<(SemanticVersion Version, ApplicationRelease Release)>();
+        var current = new ApplicationBuild(installed);
+        var candidates = new List<(ApplicationBuild Build, ApplicationRelease Release)>();
         foreach (var entry in doc.RootElement.EnumerateArray())
         {
             try
             {
             if (entry.GetProperty("draft").GetBoolean()) continue;
             var tag = entry.GetProperty("tag_name").GetString() ?? "";
-            SemanticVersion version;
-            try { version = new(tag); } catch (Exception e) when (e is ArgumentException or OverflowException) { continue; }
+            ApplicationBuild build;
+            try { build = new(tag); } catch (Exception e) when (e is ArgumentException or OverflowException) { continue; }
+            if (build.Number != 0 && !includeBuilds) continue;
+            var version = build.Version;
             if (version.Major == 2 && version.PreRelease.FirstOrDefault() == "preview") continue;
             if (!AllowsChannel(version, includeBeta, includeAlpha, entry.GetProperty("prerelease").GetBoolean())) continue;
             // Old 2.0 previews predate the owner-approved 0.2 beta numbering.
-            var legacyMigration = current.Major == 2 && current.PreRelease.FirstOrDefault() == "preview" && version.Major == 0 && version.Minor >= 2;
-            if (!legacyMigration && version.CompareTo(current) <= 0) continue;
-            var normalized = tag.TrimStart('v');
-            var installerName = $"Install-VrcSetup-{normalized}-win-x64.exe";
+            var legacyMigration = current.Version.Major == 2 && current.Version.PreRelease.FirstOrDefault() == "preview" && version.Major == 0 && version.Minor >= 2;
+            if (!legacyMigration && build.CompareTo(current) <= 0) continue;
+            var installerName = $"Install-VrcSetup-{build.AssetId}-win-x64.exe";
             var assets = entry.GetProperty("assets").EnumerateArray().ToArray();
             string? Asset(string name) => assets.FirstOrDefault(x => x.GetProperty("name").GetString() == name) is var asset && asset.ValueKind == JsonValueKind.Object ? asset.GetProperty("browser_download_url").GetString() : null;
             if (!source.AllowsAsset(Asset(installerName), out var installer) || !source.AllowsAsset(Asset("SHA256SUMS.txt"), out var checksums)) continue;
             var page = new Uri(source.Repository.AbsoluteUri.TrimEnd('/') + "/releases/tag/" + Uri.EscapeDataString(tag));
-            var baseVersion = installed.TrimStart('v');
-            source.AllowsAsset(Asset($"Update-VrcSetup-{normalized}-from-{baseVersion}-win-x64.exe"), out var delta);
+            Uri? delta = null;
+            if (build.Number == 0 && current.Number == 0)
+                source.AllowsAsset(Asset($"Update-VrcSetup-{build.AssetId}-from-{current.AssetId}-win-x64.exe"), out delta);
             source.AllowsAsset(Asset("components.json"), out var components);
-            candidates.Add((version, new(normalized, installer!, checksums!, page, delta, delta is null ? null : baseVersion, components)));
+            candidates.Add((build, new(build.Identity, installer!, checksums!, page, delta, delta is null ? null : current.Identity, components)));
             }
             catch (Exception error) when (error is KeyNotFoundException or InvalidOperationException) { /* Ignore incomplete release metadata. */ }
         }
-        return candidates.OrderByDescending(x => x.Version).FirstOrDefault().Release;
+        return candidates.OrderByDescending(x => x.Build).FirstOrDefault().Release;
     }
 
     private const string LegacyFeed = "https://raw.githubusercontent.com/dummics/vrchat-project-setup/main/.github/updates/releases.json";
     private const string ExperimentalFeed = "https://raw.githubusercontent.com/dummics/vrchat-project-setup/main/.github/updates/releases-experimental.json";
+    private const string BuildFeed = "https://raw.githubusercontent.com/dummics/vrchat-project-setup/main/.github/updates/releases-builds.json";
 
     public static bool AllowsChannel(SemanticVersion version, bool includeBeta, bool includeAlpha, bool markedPrerelease = false)
     {
@@ -109,7 +119,8 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
                 try { return await DownloadInstallerWithRetryAsync(release, release.DeltaInstaller, $"Update-VrcSetup-{release.Version}-from-{release.BaseVersion}-win-x64.exe", directory, progress, token); }
             catch (Exception error) when (error is IOException or HttpRequestException) { /* Full installer is the compatible fallback. */ }
         }
-        return await DownloadInstallerWithRetryAsync(release, release.Installer, $"Install-VrcSetup-{release.Version}-win-x64.exe", directory, progress, token);
+        return await DownloadInstallerWithRetryAsync(release, release.Installer,
+            $"Install-VrcSetup-{new ApplicationBuild(release.Version).AssetId}-win-x64.exe", directory, progress, token);
     }
     private async Task<string> DownloadInstallerWithRetryAsync(ApplicationRelease release, Uri installer, string name, string directory, IProgress<int>? progress, CancellationToken token)
     {

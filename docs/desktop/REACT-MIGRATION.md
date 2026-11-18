@@ -118,10 +118,12 @@ To package a private React candidate in the normal installation layout:
 ./scripts/Publish-Windows.ps1 -Version 0.4.0-alpha.2 -OutputDirectory .work/artifacts/react-040-layout -ReactCandidate
 ```
 
-The switch is explicit and restricted to the 0.4.0 alpha series. The React
-entry point is `app/desktop/VrcSetup.Desktop.exe`, and the generated HTML, CSS
-and JavaScript are in a separate checksum-verified web component. The default
-publication path still builds WinUI.
+The React entry point is `app/desktop/VrcSetup.Desktop.exe`. The generated
+HTML, CSS and JavaScript are in a separate checksum-verified web component.
+The Windows release workflow uses React for 0.4.0 and later. Use
+`verify_only` to exercise this path from a branch whose source version still
+points to 0.3.7. The workflow builds and checks the React payload and exercises
+setup and restart over a verified WinUI release.
 
 For a second portable archive using the bundled browser, pass
 `-FixedWebView2Runtime <extracted-x64-runtime-folder>`. Obtain the Microsoft
@@ -161,13 +163,26 @@ markers, an installed profile with alpha off, and `spec.json` with its
 absolute `Root` and a newer alpha `Version`. Stage that release's installer,
 `SHA256SUMS.txt` and `components.json` under `delivery/` and the hash-named ZIPs
 under the fixture home's `updates/components/`. The verifier exercises Settings
-against the two normal feed URLs with fixture responses, rejects corrupt
+against the React feed URL with fixture responses, rejects corrupt
 installer bytes, then runs the real bootstrapper's prefetch and install. It
 redirects shortcuts and relaunches offscreen with the same install and profile
 paths. The `feed-handoff.json`, `restarted-profile.json` and installation receipt
 show what was offered, prepared and applied. A local integration run upgraded
 alpha.3 to alpha.5 with the profile unchanged after alpha was enabled, and
 retained the older installation. Production HTTP delivery remains a release check.
+
+The same path upgraded `0.4.0-alpha.11+build.101` to
+`0.4.0-alpha.11+build.102` using two packaged builds. Alpha consent,
+installer checksum rejection, component prefetch, restart and retention of
+build 101 passed. The configuration hash was identical before and after
+handoff. React renders the identity as `0.4.0-alpha.11 · build 102`.
+
+Publish the canonical unnumbered release first so 0.3.7 can discover the
+migration. Subsequent revisions of that release use a Windows workflow
+dispatch from `main` with the same base version and a higher `+build.N`.
+Git tags carry the whole identity, and asset filenames use `-build.N`.
+The old feeds keep canonical versions. React checks the build feed and
+falls back to the appropriate legacy feed if the build feed is absent.
 
 ## Integration order
 

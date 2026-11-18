@@ -1,4 +1,5 @@
 using VrcSetup.Infrastructure;
+using VrcSetup.Core;
 using Xunit;
 
 namespace VrcSetup.Tests;
@@ -20,7 +21,7 @@ public sealed class AutomaticUpdatesTests
         }
         public async Task<string> Prepare(string version = "0.2.0-beta.16")
         {
-            var installer = Path.Combine(Paths.Home, "updates", version, $"Install-VrcSetup-{version}-win-x64.exe");
+            var installer = Path.Combine(Paths.Home, "updates", version, $"Install-VrcSetup-{new ApplicationBuild(version).AssetId}-win-x64.exe");
             Directory.CreateDirectory(Path.GetDirectoryName(installer)!); await File.WriteAllTextAsync(installer, "verified download fixture");
             await Updates.SetReadyAsync(await Updates.ReadAsync(), version, installer); return installer;
         }
@@ -55,6 +56,18 @@ public sealed class AutomaticUpdatesTests
     {
         using var f = new Fixture(); var path = await f.Prepare(); await File.AppendAllTextAsync(path, "corrupt");
         Assert.Null(await f.Updates.TakeReadyAsync("0.2.0-beta.15", true, true));
+    }
+    [Fact] public async Task PreparedNumberedBuildCanAdvanceTheSameStableRelease()
+    {
+        using var f = new Fixture();
+        var next = "0.4.0+build.20";
+        var file = await f.Prepare(next);
+        var ready = await f.Updates.TakeReadyAsync("0.4.0+build.19", true, false);
+        Assert.Equal(next, ready?.Version);
+        Assert.Equal(file, ready?.Installer);
+        Assert.Null(await f.Updates.TakeReadyAsync("0.4.0+build.19", true, false));
+        await f.Prepare("0.4.0+build.18");
+        Assert.Null(await f.Updates.TakeReadyAsync("0.4.0+build.19", true, false));
     }
     [Theory] [InlineData(false, true, "0.2.0-beta.15", false)] [InlineData(true, false, "0.2.0-beta.15", false)]
     [InlineData(true, true, "0.2.0-beta.16", false)] [InlineData(true, true, "0.2.0-beta.17", false)]

@@ -216,7 +216,7 @@ internal static class Program
                 await engine.Imports.InitializeAsync();
                 bridge.Attach(core);
                 core.Navigate(ImportBridge.Page);
-                if (!verifyFeed) _ = updates.RunInBackgroundAsync(shutdown.Token);
+                if (profileFixture is null) _ = updates.RunInBackgroundAsync(shutdown.Token);
                 if (portableFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true] .drop') !== null");
@@ -369,7 +369,7 @@ internal static class Program
             await RequireAsync(core, $"document.querySelector('h1').textContent === {label}");
             var result = await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll({JsonSerializer.Serialize(selector)}), x => x.textContent.trim())");
             await core.ExecuteScriptAsync("document.querySelector('header button').click()");
-            await RequireAsync(core, $"document.querySelector('h1').textContent === {JsonSerializer.Serialize(UiText.Text("Import"))}");
+            await RequireAsync(core, "document.querySelector('header .actions') !== null");
             return JsonSerializer.Deserialize<string[]>(result) ?? [];
         }
 

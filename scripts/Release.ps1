@@ -17,7 +17,9 @@ try {
         $Version = $Matches[1] + '-beta.' + (1 + [int]$Matches[2])
     }
     if (-not $Version) { throw 'Use -NextBeta or -Version x.y.z[-beta.N|-rc.N]. Add -Publish to publish; otherwise this is a preview.' }
-    $Version = (Get-ReleaseVersion $Version).Text
+    $release = Get-ReleaseVersion $Version
+    if ($release.Build) { throw 'Publish numbered builds from the Windows release workflow without updating Directory.Build.props.' }
+    $Version = $release.Text
     if ((Compare-ReleaseVersion $Version $current) -le 0) { throw 'The release version must be newer than Directory.Build.props.' }
     $branch = (Git-Checked -Arguments @('branch','--show-current')).Trim()
     if (-not $branch) { throw 'Release from a named branch, not detached HEAD.' }

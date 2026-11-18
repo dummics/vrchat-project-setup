@@ -15,9 +15,14 @@ $stageSeconds = [ordered]@{}
 . (Join-Path $PSScriptRoot 'ReleaseVersion.ps1')
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $Version) { $Version = ([xml](Get-Content (Join-Path $repoRoot 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version }
-$Version = (Get-ReleaseVersion $Version).Text
-if ($ReactCandidate -and $Version -notmatch '^0\.4\.0-alpha\.[0-9]+$') {
-    throw 'React candidate packaging requires an explicit 0.4.0 alpha version.'
+$release = Get-ReleaseVersion $Version
+$Version = $release.Text
+$assetId = $release.AssetId
+if ($ReactCandidate -and $release.Core -lt [version]'0.4.0') {
+    throw 'React packaging requires version 0.4.0 or later.'
+}
+if ($release.Build -and -not $ReactCandidate) {
+    throw 'Numbered builds require the React desktop.'
 }
 if ($FixedWebView2Runtime -and -not $ReactCandidate) {
     throw 'Fixed Version packaging requires the React desktop.'
@@ -25,7 +30,7 @@ if ($FixedWebView2Runtime -and -not $ReactCandidate) {
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repoRoot '.work\artifacts\release' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 [void][IO.Directory]::CreateDirectory($OutputDirectory)
-$payload = Join-Path $OutputDirectory ('VrcSetup-' + $Version + '-win-x64')
+$payload = Join-Path $OutputDirectory ('VrcSetup-' + $assetId + '-win-x64')
 if (Test-Path -LiteralPath $payload) { throw "Output already exists: $payload. Choose a new directory; existing releases are preserved." }
 [void][IO.Directory]::CreateDirectory($payload)
 function Invoke-Dotnet {
@@ -91,7 +96,7 @@ $manifest = [ordered]@{ Version=$Version; Files=$hashes }
 [IO.File]::WriteAllText((Join-Path $payload '.vrcsetup-payload.json'),($manifest | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
 # Portable marker is intentionally outside the integrity manifest, and is not installed.
 [IO.File]::WriteAllText((Join-Path $payload '.vrcsetup-portable'),'Portable user data lives in data/ next to this payload.')
-$archive = Join-Path $OutputDirectory ('VrcSetup-' + $Version + '-win-x64.zip')
+$archive = Join-Path $OutputDirectory ('VrcSetup-' + $assetId + '-win-x64.zip')
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archiveClock = [Diagnostics.Stopwatch]::StartNew()
 [IO.Compression.ZipFile]::CreateFromDirectory($payload,$archive,[IO.Compression.CompressionLevel]::SmallestSize,$false)
@@ -100,19 +105,19 @@ $installer = $null
 if (-not $SkipInstaller) {
     $installerOutput = Join-Path $OutputDirectory 'installer-build'
     Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Installer\VrcSetup.Installer.csproj'),'-c','Release',('-p:Version=' + $Version),'-p:PublishSingleFile=false','-p:IncludeAllContentForSelfExtract=false','-o',$installerOutput,'--nologo')
-    if (-not $AssetBaseUri) { $AssetBaseUri = "https://github.com/dummics/vrchat-project-setup/releases/download/v$Version/" }
+    if (-not $AssetBaseUri) { $AssetBaseUri = "https://github.com/dummics/vrchat-project-setup/releases/download/$([uri]::EscapeDataString("v$Version"))/" }
     $componentClock = [Diagnostics.Stopwatch]::StartNew()
     $componentManifest = & (Join-Path $PSScriptRoot 'Publish-Components.ps1') -Payload $payload -Engine $installerOutput -Version $Version -OutputDirectory $OutputDirectory -AssetBaseUri $AssetBaseUri
     $stageSeconds['component-compression'] = [math]::Round($componentClock.Elapsed.TotalSeconds, 2)
     $bootstrapOutput = Join-Path $OutputDirectory 'bootstrap-build'
     Invoke-Dotnet -Arguments @('publish',(Join-Path $repoRoot 'src\VrcSetup.Bootstrapper\VrcSetup.Bootstrapper.csproj'),'-c','Release',('-p:Version=' + $Version),('-p:ComponentManifest=' + $componentManifest),'-o',$bootstrapOutput,'--nologo')
-    $installer = Join-Path $OutputDirectory ('Install-VrcSetup-' + $Version + '-win-x64.exe')
+    $installer = Join-Path $OutputDirectory ('Install-VrcSetup-' + $assetId + '-win-x64.exe')
     Copy-Item -LiteralPath (Join-Path $bootstrapOutput 'VrcSetupSetup.exe') -Destination $installer
 }
 $outputs = @($archive) + @($installer | Where-Object { $_ })
 $offlineArchive = $null
 if ($FixedWebView2Runtime) {
-    $offlineArchive = Join-Path $OutputDirectory ('VrcSetup-' + $Version + '-win-x64-offline.zip')
+    $offlineArchive = Join-Path $OutputDirectory ('VrcSetup-' + $assetId + '-win-x64-offline.zip')
     $outputs += & (Join-Path $PSScriptRoot 'Publish-FixedWebView2Portable.ps1') -Payload $payload -Runtime $FixedWebView2Runtime -Output $offlineArchive
 }
 if (-not $SkipInstaller) { $outputs += @(Get-ChildItem -LiteralPath $OutputDirectory -Filter '*.zip' -File | Where-Object { $_.Name -match '^[a-f0-9]{64}\.zip$' } | ForEach-Object FullName); $outputs += $componentManifest }
@@ -121,6 +126,7 @@ $checksums = @($outputs | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralP
 $report = [ordered]@{Version=$Version;Payload=$payload;Archive=$archive;Installer=$installer;Checksums=(Join-Path $OutputDirectory 'SHA256SUMS.txt');Artifacts=@($outputs|ForEach-Object{[ordered]@{Name=[IO.Path]::GetFileName($_);Bytes=(Get-Item -LiteralPath $_).Length}})}
 $report['StageSeconds'] = $stageSeconds
 $report['Desktop'] = $(if ($ReactCandidate) { 'ReactCandidate' } else { 'WinUI' })
+$report['BuildNumber'] = $release.Build
 $report['OfflineArchive'] = $offlineArchive
 $report['TotalSeconds'] = [math]::Round($buildClock.Elapsed.TotalSeconds, 2)
 $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'release-build.json') -Encoding utf8

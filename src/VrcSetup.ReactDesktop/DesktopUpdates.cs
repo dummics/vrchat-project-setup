@@ -57,7 +57,7 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
             using var client = NewClient();
             var updates = new ApplicationUpdates(client, cacheDirectory: Path.Combine(engine.Paths.Home, "updates"));
             available = await updates.CheckAsync(ApplicationUpdates.CurrentVersion, config.IncludeBetaUpdates,
-                token, forceRefresh: manual, includeAlpha: config.IncludeAlphaUpdates);
+                token, forceRefresh: manual, includeAlpha: config.IncludeAlphaUpdates, includeBuilds: true);
             if (!manual && automatic.Installed && config.AutomaticUpdates && !engine.Imports.HasActiveJobs &&
                 available is { } release && state.LastAttemptVersion != release.Version && state.Ready?.Version != release.Version)
                 await PrepareCoreAsync(updates, state, release, manual: false, token);
@@ -175,15 +175,15 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
     }
 
     private static bool Allows(string version, AppConfiguration config) =>
-        ApplicationUpdates.AllowsChannel(new SemanticVersion(version), config.IncludeBetaUpdates, config.IncludeAlphaUpdates);
+        ApplicationUpdates.AllowsChannel(new ApplicationBuild(version).Version, config.IncludeBetaUpdates, config.IncludeAlphaUpdates);
 
     private static bool IsNewerAllowed(string version, AppConfiguration config)
     {
         try
         {
-            var candidate = new SemanticVersion(version);
+            var candidate = new ApplicationBuild(version);
             return candidate.CompareTo(new(ApplicationUpdates.CurrentVersion)) > 0 &&
-                ApplicationUpdates.AllowsChannel(candidate, config.IncludeBetaUpdates, config.IncludeAlphaUpdates);
+                ApplicationUpdates.AllowsChannel(candidate.Version, config.IncludeBetaUpdates, config.IncludeAlphaUpdates);
         }
         catch (Exception error) when (error is ArgumentException or OverflowException) { return false; }
     }

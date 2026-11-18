@@ -6,6 +6,7 @@ param(
     [switch]$UseRealNetwork,
     [switch]$DirectInstaller,
     [switch]$NextLaunch,
+    [switch]$ReactTarget,
     [string]$ComponentsDirectory,
     [ValidateRange(30,600)][int]$TimeoutSeconds = 180
 )
@@ -19,8 +20,9 @@ if ($OutputDirectory.StartsWith($BasePayload.TrimEnd('\') + '\', [StringComparis
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'Choose a new output directory; existing evidence is preserved.' }
 if (-not (Test-Path -LiteralPath (Join-Path $BasePayload '.vrcsetup-payload.json'))) { throw 'Base must be a published payload.' }
 $installerName = [IO.Path]::GetFileName($UpdateInstaller)
-if ($installerName -notmatch '^(?:Install|Update)-VrcSetup-(\d+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+)?)(?:-from-\d+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+)?)?-win-x64\.exe$') { throw 'Use a published versioned installer.' }
+if ($installerName -notmatch '^(?:Install|Update)-VrcSetup-(\d+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+)?)(?:-build\.([1-9]\d*)|-from-\d+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+)?)?-win-x64\.exe$') { throw 'Use a published versioned installer.' }
 $targetVersion = $Matches[1]
+if ($Matches[2]) { $targetVersion += '+build.' + $Matches[2] }
 $checksums = Join-Path ([IO.Path]::GetDirectoryName($UpdateInstaller)) 'SHA256SUMS.txt'
 $checksumLine = @(Get-Content -LiteralPath $checksums | Where-Object { $_ -match ('^[A-Fa-f0-9]{64}\s+\*?' + [regex]::Escape($installerName) + '$') })
 if ($checksumLine.Count -ne 1 -or ($checksumLine[0] -split '\s+')[0] -ne (Get-FileHash -LiteralPath $UpdateInstaller -Algorithm SHA256).Hash) { throw 'Candidate checksum mismatch.' }
@@ -37,10 +39,11 @@ if ($ComponentsDirectory) {
     Get-ChildItem -LiteralPath $ComponentsDirectory -File -Filter '*.zip' | Where-Object Name -Match '^[a-f0-9]{64}\.zip$' | Copy-Item -Destination $cache
 }
 [IO.File]::WriteAllText((Join-Path $OutputDirectory '.vrcsetup-update-smoke'), 'Owned isolated updater fixture. No user projects.')
+if ($ReactTarget) { [IO.File]::WriteAllText((Join-Path $OutputDirectory '.react-profile-fixture'), 'Owned isolated React profile.') }
 foreach ($item in Get-ChildItem -LiteralPath $BasePayload -Force) { Copy-Item -LiteralPath $item.FullName -Destination $install -Recurse }
 $record = @{Version=$manifest.Version;Root=$install;InstalledUtc=[DateTime]::UtcNow;PreviousInstall=$null}
 $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $install '.vrcsetup-install.json') -Encoding utf8
-$config = @{UnityProjectsRoot=(Join-Path $OutputDirectory 'projects');CheckUpdatesOnStartup=[bool]$NextLaunch;AutomaticUpdates=$true;IncludeBetaUpdates=$true;Theme='Dark';SavedProjectNames=@{'update-test-sentinel'='preserve me'}}
+$config = @{UnityProjectsRoot=(Join-Path $OutputDirectory 'projects');CheckUpdatesOnStartup=[bool]$NextLaunch;AutomaticUpdates=$true;IncludeBetaUpdates=$true;IncludeAlphaUpdates=[bool]$ReactTarget;Theme='Dark';SavedProjectNames=@{'update-test-sentinel'='preserve me'}}
 $config.UnityEditorPath = 'Z:\Saved Unity\2022.3.22f1\Editor\Unity.exe'
 $config.AutoHideCompletedImports = $true
 [void][IO.Directory]::CreateDirectory($config.UnityProjectsRoot)
@@ -69,7 +72,7 @@ if ($NextLaunch) {
 if ($DirectInstaller) {
     if ($UseRealNetwork) { throw 'Direct installer mode does not test network discovery.' }
     $start = [Diagnostics.ProcessStartInfo]::new($UpdateInstaller)
-    $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = $install
+    $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = [IO.Path]::GetTempPath()
     foreach ($argument in @('--silent','--root',$install,'--home',$testHome,'--result',(Join-Path $testHome 'updates/last-result.json'),'--launch')) { $start.ArgumentList.Add($argument) }
     $start.Environment['VRCSETUP_UPDATE_SMOKE_SPEC'] = $specFile
     $start.Environment['VRCSETUP_HOME'] = $testHome
@@ -79,7 +82,8 @@ if ($DirectInstaller) {
 }
 $process = [Diagnostics.Process]::Start($start)
 $timer = [Diagnostics.Stopwatch]::StartNew()
-$receipt = Join-Path $OutputDirectory 'passed.json'; $failure = Join-Path $OutputDirectory 'failure.txt'
+$receipt = Join-Path $OutputDirectory $(if ($ReactTarget) { 'restarted-profile.json' } else { 'passed.json' })
+$failure = Join-Path $OutputDirectory 'failure.txt'
 while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
     if (Test-Path -LiteralPath $failure) { throw (Get-Content -LiteralPath $failure -Raw) }
     if ($process.HasExited -and -not (Test-Path -LiteralPath (Join-Path $OutputDirectory 'handoff.json'))) { throw "Base app exited before updater handoff. Use a payload containing --update-smoke-test; inspect $OutputDirectory." }
@@ -87,6 +91,17 @@ while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
     if (Test-Path -LiteralPath $installerResult) { $outcome = Get-Content -LiteralPath $installerResult -Raw | ConvertFrom-Json; if (-not $outcome.Success) { throw $outcome.Error } }
     if (Test-Path -LiteralPath $receipt) {
         $result = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+        if ($ReactTarget) {
+            $installation = Get-Content -LiteralPath (Join-Path $install '.vrcsetup-install.json') -Raw | ConvertFrom-Json
+            $previous = Get-Content -LiteralPath (Join-Path $installation.PreviousInstall '.vrcsetup-install.json') -Raw | ConvertFrom-Json
+            $settingsHash = (Get-Content -LiteralPath $specFile -Raw | ConvertFrom-Json).SettingsHash
+            if (-not $result.workspaceSettingsVisible -or $result.version -ne $targetVersion -or
+                $installation.Version -ne $targetVersion -or $previous.Version -ne $manifest.Version -or
+                (Get-FileHash -LiteralPath $configFile -Algorithm SHA256).Hash -ne $settingsHash) {
+                throw 'React restart, profile preservation or retained installation check failed.'
+            }
+            $result | Add-Member -NotePropertyName Passed -NotePropertyValue $true
+        }
         if (-not $result.Passed) { throw 'Updater did not report success.' }
         if ($outcome.PSObject.Properties['DispatcherTicks']) {
             if ($outcome.DispatcherTicks -lt 2 -or $outcome.DispatcherMaximumGapMs -gt 1000) { throw 'Updater dispatcher stalled during installation.' }
