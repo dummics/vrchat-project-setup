@@ -269,6 +269,13 @@ preserved WinUI rollback copy. An isolated profile originally installed by
 0.3.7 then started React from that same entry point. React showed the saved
 project, preset and history without modifying the configuration.
 
+The same direct-installer fixture passed with the published 0.3.6 portable
+archive as the starting point. It verified the public archive checksum before
+installing, launched 0.4.0-alpha.1 from the same installation path, preserved
+the profile and retained a rollback copy identified as 0.3.6. The installer
+used cached components. The 0.3.7 bridge remains the verified in-app route
+for discovering the alpha from the experimental feed.
+
 With verified components in the isolated profile cache, React rejected a
 prepared alpha with alpha opt-in off. After opting in, `0.4.0-alpha.3`
 handed off to the bootstrapper, exited, and relaunched as
