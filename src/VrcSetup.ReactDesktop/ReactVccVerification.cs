@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
 using VrcSetup.Core;
 using VrcSetup.Infrastructure;
@@ -56,20 +57,30 @@ internal static class ReactVccVerification
             throw new IOException("VCC rejection changed the completed import.");
 
         var manifest = Path.Combine(pending.ProjectPath, "Packages", "vpm-manifest.json");
-        var originalManifest = AtomicFile.Hash(manifest);
+        var originalManifest = JsonNode.Parse(await File.ReadAllTextAsync(manifest, token));
         Directory.CreateDirectory(Path.Combine(pending.ProjectPath, "Assets"));
+        var asset = Path.Combine(pending.ProjectPath, "Assets", "keep.txt");
+        await File.WriteAllTextAsync(asset, "Fixture asset to preserve during registration.", token);
+        var assetHash = AtomicFile.Hash(asset);
         await Program.RequireAsync(core, retry + "?.disabled === false");
         await core.ExecuteScriptAsync(retry + ".click()");
         await Program.RequireAsync(core, retry + " === undefined && " + row + "?.textContent.includes('Completata')", attempts: 400);
         var persisted = await AtomicFile.ReadJsonAsync<ImportJob[]>(Path.Combine(engine.Paths.Home, "imports.json"), token);
         var listed = await new ToolRunner().VpmAsync(["list", "projects"], cancellationToken: token);
-        if (persisted?.Single(job => job.Id == JobId) is not { State: "Completed", CreatorCompanionPending: false } ||
-            listed.ExitCode != 0 || !listed.Output.Contains(ProjectName, StringComparison.OrdinalIgnoreCase) ||
-            AtomicFile.Hash(manifest) != originalManifest)
-            throw new IOException("Creator Companion retry did not preserve the completed project and persist registration.");
+        if (persisted?.Single(job => job.Id == JobId) is not { State: "Completed", CreatorCompanionPending: false })
+            throw new IOException("The completed status and successful registration were not persisted.");
+        if (listed.ExitCode != 0 || !listed.Output.Contains(ProjectName, StringComparison.OrdinalIgnoreCase))
+            throw new IOException($"VPM did not list the registered fixture (exit {listed.ExitCode}). {listed.Output}");
+        var currentManifest = JsonNode.Parse(await File.ReadAllTextAsync(manifest, token));
+        if (!JsonNode.DeepEquals(currentManifest?["dependencies"], originalManifest?["dependencies"]) ||
+            !JsonNode.DeepEquals(currentManifest?["locked"], originalManifest?["locked"]))
+            throw new IOException($"VPM changed the fixture dependencies. Before: {originalManifest}. After: {currentManifest}.");
+        if (AtomicFile.Hash(asset) != assetHash)
+            throw new IOException("Registration changed the fixture asset.");
         await AtomicFile.WriteJsonAsync(Path.Combine(folder, "react-vcc-registration.json"), new
         {
-            Passed = true, RecoverableRejection = true, CompletedImportPreserved = true, RetryPersisted = true, ListedByVpm = true
+            Passed = true, RecoverableRejection = true, CompletedImportPreserved = true,
+            RetryPersisted = true, ListedByVpm = true, PackagePolicyPreserved = true
         }, token);
     }
 }
