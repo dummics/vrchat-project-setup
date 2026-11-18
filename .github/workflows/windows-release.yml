@@ -201,9 +201,13 @@ jobs:
           $start.ArgumentList.Add('--verify-hosted-native-picker')
           $start.ArgumentList.Add($fixture)
           $process = [Diagnostics.Process]::Start($start)
-          if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Native picker verification timed out.' }
+          $exited = $process.WaitForExit(120000)
+          if (-not $exited) { $process.Kill($true) }
+          $progress = Join-Path $fixture 'picker-progress.txt'
+          if (Test-Path $progress) { Get-Content $progress -TotalCount 20 }
           $failure = Join-Path $fixture 'failure.txt'
           if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+          if (-not $exited) { throw 'Native picker verification timed out.' }
           if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $fixture 'react-native-picker.json'))) { throw 'Native picker verification failed.' }
       - name: Native UI smoke verification
         if: env.REACT_DESKTOP != 'true'
@@ -308,6 +312,7 @@ jobs:
             ${{ runner.temp }}/vrcsetup-ui
             ${{ runner.temp }}/react-vcc/react-vcc-registration.json
             ${{ runner.temp }}/react-vcc/react-native-picker.json
+            ${{ runner.temp }}/react-vcc/picker-progress.txt
             ${{ runner.temp }}/react-vcc/failure.txt
             ${{ runner.temp }}/vrcsetup-react-batch/batch-packages.json
             ${{ runner.temp }}/vrcsetup-react-batch/failure.txt

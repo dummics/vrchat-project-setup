@@ -11,6 +11,7 @@ internal static class ReactNativePickerVerification
     internal static async Task RunAsync(CoreWebView2 core, string folder, CancellationToken token)
     {
         var archive = ReactImportVerification.MakeArchive(folder);
+        var trace = Path.Combine(folder, "picker-progress.txt");
         const string picker = "document.querySelector('.drop')";
         await Program.RequireAsync(core, picker + "?.disabled === false");
         await OpenPickerAsync(null);
@@ -28,13 +29,16 @@ internal static class ReactNativePickerVerification
         async Task OpenPickerAsync(string? selectedPath)
         {
             // UI Automation needs a separate thread when inspecting windows in this process.
-            var native = Task.Run(() => CompletePickerAsync(selectedPath, token), token);
-            await core.ExecuteScriptAsync(picker + ".click()");
+            File.AppendAllText(trace, selectedPath is null ? "Requesting cancel.\n" : "Requesting file selection.\n");
+            var native = Task.Run(() => CompletePickerAsync(selectedPath, trace, token), token);
+            var click = core.ExecuteScriptAsync(picker + ".click()");
             await native;
+            await click;
+            File.AppendAllText(trace, "WebView completed the picker request.\n");
         }
     }
 
-    private static async Task CompletePickerAsync(string? selectedPath, CancellationToken token)
+    private static async Task CompletePickerAsync(string? selectedPath, string trace, CancellationToken token)
     {
         var ownDialog = new AndCondition(
             new PropertyCondition(AutomationElement.ProcessIdProperty, Environment.ProcessId),
@@ -70,7 +74,9 @@ internal static class ReactNativePickerVerification
                             }
                             ((ValuePattern)value).SetValue(selectedPath);
                         }
+                        File.AppendAllText(trace, "Invoking the hosted picker button.\n");
                         ((InvokePattern)invoke).Invoke();
+                        File.AppendAllText(trace, "Hosted picker button returned.\n");
                         return;
                     }
                 }

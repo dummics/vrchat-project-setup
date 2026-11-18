@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using VrcSetup.Core;
@@ -102,7 +103,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return await State(token);
             case "pick":
                 var picker = new OpenFileDialog { Filter = "UnityPackage|*.unitypackage", Multiselect = true };
-                return picker.ShowDialog(window) == true ? await Stage(picker.FileNames, token) : [];
+                return await ShowPickerAsync(picker) == true ? await Stage(picker.FileNames, token) : [];
             case "drop":
                 return await Stage(args.AdditionalObjects.OfType<CoreWebView2File>().Select(x => x.Path), token);
             case "stagePath":
@@ -125,7 +126,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 else if (!Directory.Exists(config.UnityProjectsRoot))
                 {
                     var projectRootPicker = new OpenFolderDialog { Title = UiText.Text("Choose the Unity projects folder") };
-                    if (projectRootPicker.ShowDialog(window) != true) return await State(token);
+                    if (await ShowPickerAsync(projectRootPicker) != true) return await State(token);
                     config.UnityProjectsRoot = ProjectRules.NormalizePath(projectRootPicker.FolderName);
                 }
                 await engine.Configuration.SaveAsync(config, token);
@@ -170,11 +171,12 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     if (!File.Exists(archive) || changed)
                     {
                         var sourcePicker = new OpenFileDialog { Title = UiText.Text("Choose the original UnityPackage file"), Filter = "UnityPackage|*.unitypackage" };
-                        if (sourcePicker.ShowDialog(window) != true) return false;
+                        if (await ShowPickerAsync(sourcePicker) != true) return false;
                         replacement = sourcePicker.FileName;
                     }
                     if (job.Source.SourceIdentity is null)
                     {
+                        await Dispatcher.Yield(DispatcherPriority.Background);
                         if (MessageBox.Show(window, UiText.Text("This import was created before file verification. Continue with the selected file?"),
                                 UiText.Text("Confirm UnityPackage"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
                             return false;
@@ -259,7 +261,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 var configuredRoot = ProjectRoot(await engine.Configuration.LoadAsync(token));
                 var folder = new OpenFolderDialog { Title = UiText.Text("Choose a Unity project") };
                 if (Directory.Exists(configuredRoot)) folder.InitialDirectory = configuredRoot;
-                if (folder.ShowDialog(window) != true) return false;
+                if (await ShowPickerAsync(folder) != true) return false;
                 var pickedPath = ProjectRules.NormalizePath(folder.FolderName);
                 if (!isolated)
                 {
@@ -314,7 +316,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 export.Validate();
                 var fileName = string.Concat(export.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
                 var exportDialog = new SaveFileDialog { FileName = fileName, Filter = "Preset|*.json", DefaultExt = ".json" };
-                if (exportDialog.ShowDialog(window) != true) return false;
+                if (await ShowPickerAsync(exportDialog) != true) return false;
                 await AtomicFile.WriteJsonAsync(exportDialog.FileName, export, token);
                 return true;
             case "importPreferences":
@@ -337,11 +339,11 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 {
                     case "editor":
                         var editorPicker = new OpenFileDialog { Title = UiText.Text("Choose Unity.exe"), Filter = "Unity Editor|Unity.exe" };
-                        return editorPicker.ShowDialog(window) == true ? ProjectRules.NormalizePath(editorPicker.FileName) : false;
+                        return await ShowPickerAsync(editorPicker) == true ? ProjectRules.NormalizePath(editorPicker.FileName) : false;
                     case "projects":
                     case "extras":
                         var directoryPicker = new OpenFolderDialog { Title = UiText.Text("Choose a folder") };
-                        return directoryPicker.ShowDialog(window) == true ? ProjectRules.NormalizePath(directoryPicker.FolderName) : false;
+                        return await ShowPickerAsync(directoryPicker) == true ? ProjectRules.NormalizePath(directoryPicker.FolderName) : false;
                     default:
                         throw new ArgumentException(UiText.Text("Unknown path option."));
                 }
@@ -417,7 +419,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                         Title = UiText.Text("Restore settings from file"),
                         Filter = "JSON|*.json"
                     };
-                    if (settingsFile.ShowDialog(window) != true) return false;
+                    if (await ShowPickerAsync(settingsFile) != true) return false;
                     RequireImportsIdle();
                     await engine.Configuration.ImportAsync(settingsFile.FileName, token);
                 }
@@ -538,7 +540,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return await SharedLog.ReadTailAsync(log, token);
             case "exportDiagnostics":
                 var save = new SaveFileDialog { FileName = SupportLogs.SuggestedName, Filter = "ZIP|*.zip", DefaultExt = ".zip" };
-                if (save.ShowDialog(window) != true) return false;
+                if (await ShowPickerAsync(save) != true) return false;
                 await SupportLogs.ExportAsync(engine.Paths, save.FileName, token);
                 return true;
             case "openProject":
@@ -622,7 +624,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private async Task<object> ImportPreset(CancellationToken token)
     {
         var picker = new OpenFileDialog { Filter = "Preset|*.json" };
-        if (picker.ShowDialog(window) != true) return false;
+        if (await ShowPickerAsync(picker) != true) return false;
         if (new FileInfo(picker.FileName).Length > PortablePreset.MaxBytes) throw new InvalidDataException(UiText.Text("The preset file is too large."));
         var preset = PortablePreset.Read(await File.ReadAllTextAsync(picker.FileName, token));
         var config = await engine.Configuration.LoadAsync(token);
@@ -1168,6 +1170,14 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         await engine.Configuration.SaveAsync(configuration, lifetime.Token);
         if (stageArchive)
             initial = await Stage([ReactImportVerification.MakeArchive(folder)], lifetime.Token);
+    }
+
+    private async Task<bool?> ShowPickerAsync(CommonDialog picker)
+    {
+        // WebView2 callbacks must unwind before a native modal dialog starts a nested message loop.
+        await Dispatcher.Yield(DispatcherPriority.Background);
+        lifetime.Token.ThrowIfCancellationRequested();
+        return picker.ShowDialog(window);
     }
 
     private void Send(object response)
