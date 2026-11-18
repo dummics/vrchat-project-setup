@@ -34,6 +34,12 @@ compression strategy. Extracted desktop size was 161,135,449 versus
 system Evergreen runtime. These measurements exclude the installer, CLI,
 WebView2 runtime and browser profile.
 
+The full 0.4.0-alpha.1 candidate at `b809009` measured 109,065,793 bytes
+for the Evergreen portable ZIP and 6,173,696 bytes for the unified installer.
+The corresponding published 0.3.7 assets were 115,134,873 and 6,180,864 bytes.
+These package sizes exclude the downloaded component payloads from the
+installer size. Comparable process-tree memory measurements remain open.
+
 The offscreen native smoke exercised the startup handshake, six real fixture
 archives, Quest filename detection, independent draft platform state and
 package exclusion/reinclusion. Build reports retain timings and the candidate
@@ -51,20 +57,21 @@ recorded by the installer, or its own `data/` in portable mode.
 
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
-| Import | Six archives, Quest name and prefab-path detection, manual file path using the saved naming policy, version review, queue and real Unity import from React. The native archive picker was cancelled without creating a draft, then used to select and stage an archive on a disposable Windows runner. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive. Reimporting into a completed project restored a missing asset and its original metadata while keeping an edited script. The installed React app handled a Creator Companion rejection and retry with the official VPM CLI on a disposable Windows runner | Explorer drop and native relocation picker. The recovery planner has separate checks for matching the original archive bytes |
-| Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders. The Unity indicator follows editor start and exit while the list stays open. Project options restore the newest VPM backup after confirmation, keeping displaced edits in a recovery folder. Empty project creation supports per-project package choices, numeric version review and saving choices as a preset. The Projects button opens the selected project with a matching installed editor if the configured path is stale | Verify the native folder picker and external registrations |
+| Import | Six archives, Quest name and prefab-path detection, manual file path using the saved naming policy, version review, queue and real Unity import from React. Dragging a real archive from Explorer into the installed app on the hosted runner stages a Quest draft and preserves the archive. The native picker stages an archive and can select the original again after relocation. Real Unity completion from the relocated archive was verified separately through the same planner and queue. Pausing preserves the owned project across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart shows the exact folder and preserves the original archive. Reimport restores missing assets and their metadata while keeping existing edits. The installed React app handled a Creator Companion rejection and retry with the official VPM CLI on a disposable runner | |
+| Projects | Discovery, search, persisted sorting, multi-project selection and invalid name validation on isolated Unity folders. The native picker opens existing projects outside the configured root and explains invalid folders. The Unity indicator follows editor start and exit while the list stays open. Project options restore the newest VPM backup after confirmation, keeping displaced edits in a recovery folder. Empty project creation supports per-project package choices, numeric version review and saving choices as a preset. The Projects button opens the selected project with a matching installed editor if the configured path is stale. Projects can resume from a valid creation receipt when the queue entry is lost | |
 | Project packages | Read installed/locked versions, protect required packages and restore damaged locked SDK metadata. Real vrc-get added, upgraded, downgraded and removed Gesture Manager from React, with Unity closed and in one open Unity batch session. Batch review and apply use per-package targets. A project edited after review was skipped with a localized next action. Cancelling before the project lock preserved both manifests. Cancelling after VPM changed the manifest while Unity was open retained the backup and displayed the recovery action. After closing Unity, restoring the backup recovered the exact original manifest and kept the displaced edit in the recovery copy | |
-| Activity | Import and package operation history, per-project details, inline logs and diagnostic ZIP. A real batch with one successful project and one skipped project displays a partially completed operation and both outcomes | Native Save picker |
-| Settings | Import preferences, manual file entry, project naming, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. Settings discovers, prepares and applies an alpha using a fixture feed. Diagnostics preferences persist. Cache clearing and reset confirmations preserve a Unity project and its archive; reset preserves the old configuration. Installed repair and confirmed self-uninstall were exercised through React Settings with redirected shortcuts and an isolated profile. The native project folder selection and configuration file restore were verified on a disposable runner, including cancellation and preservation of project files and prior settings | Verify native editor and extras path selection, color picker interaction and translated errors in remaining native failure flows |
-| Presets | Select a saved preset during import. Create, rename, pin, favourite, discard unsaved edits, save, reopen and delete through the library. The fixture exercises catalog choices and confirms a saved pin after reopening | Verify portable sharing with the native file dialogs |
+| Activity | Import and package operation history, per-project details and inline logs. The native diagnostics Save picker supports cancellation and produces a ZIP with the support summary. A real batch with one successful project and one skipped project displays a partially completed operation and both outcomes | |
+| Settings | Import preferences, manual file entry, project naming, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. The color picker opens and dismisses, and changed colors persist after saving. Settings discovers, prepares and applies an alpha using a fixture feed. Diagnostics preferences persist. Cache clearing and reset confirmations preserve a Unity project and its archive; reset preserves the old configuration. Installed repair and confirmed self-uninstall were exercised through React Settings with redirected shortcuts and an isolated profile. The native project folder, Unity editor selection, extra packages folder and configuration file restore were verified on a disposable runner, including cancellation and preservation of project files and prior settings | |
+| Presets | Select a saved preset during import. Create, rename, pin, favourite, discard unsaved edits, save, reopen and delete through the library. The fixture exercises catalog choices and confirms a saved pin after reopening. Native export and reimport preserve the pinned SDK and handle a name collision | |
 | Installer | CLI and component bootstrapper upgrade 0.3.7; React reads the existing profile; prepared alpha restarts on the new version; shortcut failure restores 0.3.7; offline archive runs its bundled Fixed Version. Same-release build ordering, installer checksum rejection and real prefetch, swap and restart verified with a fixture feed and cached components | Verify download over the production feed and component transport, Windows 10 Fixed Version and final production release |
 
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
 `result.json`. It also drops two local archives through WebView2's file
 drag events and verifies both drafts and their independent PC and Quest
-targets. This covers the browser-to-host file bridge. An Explorer-origin
-drag remains a separate check. The smoke uses no live Unity editor or project.
+targets. A hosted Windows check also drags a real archive from Explorer into
+the app, verifies the Quest draft and confirms the source archive is intact.
+The smoke uses no live Unity editor or project.
 The Projects screen also rebuilds an import review from a valid project
 creation receipt after the queue entry is lost. The smoke cancels one review
 and rejects a second after the receipt changes, preserving the project in both
@@ -84,8 +91,12 @@ then restored the original settings. A later hosted run confirmed that a
 portable preset retains its pinned SDK version on export and reimport, and
 that the existing-project picker opens the selected project without changing
 its manifest. That run also confirmed that Projects reads the saved sort and
-persists a changed sort. The diagnostic export still requires verification
-against the path actually returned by the Save dialog.
+persists a changed sort. [Windows verification run 44349242143](https://github.com/dummics/vrchat-project-setup/actions/runs/44349242143)
+also opened the diagnostic ZIP at the path returned by the Save dialog and
+verified both support summary entries.
+[Windows verification run 44350022289](https://github.com/dummics/vrchat-project-setup/actions/runs/44350022289)
+passed the native suite with Explorer drag and drop, packaged React UI,
+installer lifecycle and the WinUI 0.3.7 upgrade and restart.
 
 For the real Unity relocation check, pause an import in a fresh fixture with
 `--verify-pause-import`, move its archive within that fixture and reopen it with
@@ -218,6 +229,17 @@ the actual browser executable from the ZIP with external browser DNS
 resolution disabled. On Windows 10 the app
 grants read and execute access to the two AppContainer groups for the bundled
 runtime folder. That branch still needs a Windows 10 fixture.
+
+On a disposable Windows 10 client, disconnect the guest network and extract
+the offline ZIP to a fresh directory. In the extracted directory, use
+`New-Item .react-profile-fixture -ItemType File` and launch
+`app/desktop/VrcSetup.Desktop.exe --verify-portable-startup <extracted-directory>`.
+Preserve `portable-startup.json` and the output of
+`Get-CimInstance Win32_OperatingSystem | Select-Object Caption, BuildNumber, ProductType`.
+The report must identify the bundled browser executable and show that the new
+profile was created in that directory. On builds below 22000, verify inherited
+read/execute grants for AppContainer groups S-1-15-2-1 and S-1-15-2-2 on
+`app/desktop/webview2-runtime`.
 
 The CLI installer and component bootstrapper both upgraded the verified
 0.3.7 portable release in an isolated install directory. The bootstrapper used

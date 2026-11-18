@@ -244,7 +244,12 @@ internal static class Program
                     await RequireAsync(core, "document.querySelector('[data-ready=true] .drop') !== null");
                     var browserExecutable = VerifyFixedBrowser(core, fixedRuntime);
                     await AtomicFile.WriteJsonAsync(Path.Combine(portableFixture, "portable-startup.json"),
-                        new { home, browserExecutable, runtime = environment.BrowserVersionString, freshConfiguration = File.Exists(paths.ConfigFile) });
+                        new
+                        {
+                            home, browserExecutable, runtime = environment.BrowserVersionString,
+                            windowsVersion = Environment.OSVersion.Version.ToString(),
+                            freshConfiguration = File.Exists(paths.ConfigFile)
+                        });
                     window.Close();
                     return;
                 }
