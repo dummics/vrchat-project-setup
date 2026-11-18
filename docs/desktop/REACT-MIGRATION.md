@@ -53,7 +53,7 @@ recorded by the installer, or its own `data/` in portable mode.
 | --- | --- | --- |
 | Import | Six archives, Quest name and prefab-path detection, version review, queue and real Unity import from React. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive | Explorer drop, native relocation picker, installed Creator Companion registration, and recovery of a pre-existing destination. The recovery planner has separate checks for matching the original archive bytes |
 | Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders | Verify folder picker, create using installed Unity, opening and live editor indicator, project options and external registrations |
-| Project packages | Read installed/locked versions, review restore and removal, protect required packages. Real vrc-get restored damaged locked SDK metadata. Batch review and apply use per-package targets and show results by project; an unselected project with the same package was left untouched | Exercise catalog and add/update/downgrade from React with a real repository, validate Unity-open behavior and exercise partial batch failures |
+| Project packages | Read installed/locked versions, protect required packages and restore damaged locked SDK metadata. Real vrc-get added, upgraded, downgraded and removed Gesture Manager from React, with Unity closed and in one open Unity batch session. Batch review and apply use per-package targets and show results by project; the excluded project's manifest stayed unchanged | Exercise partial batch failures and verify recovery messaging after a failed change with Unity open |
 | Activity | Import and package operation history, per-project details, inline logs, and diagnostic ZIP containing the operation report and log | Native Save picker and multi-project failure presentation |
 | Settings | Import preferences, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart. Settings discovers, prepares and applies an alpha using a fixture feed | Native pickers and edits, color picker interaction, review translated errors in native failure flows |
 | Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
@@ -86,6 +86,15 @@ The discard check verifies the terminal journal entry and preservation of the
 source and a neighboring file. The resume check requires the same project and
 creation identity, the imported asset and a compiled C# assembly. The fixture
 runs one Unity import at a time following a 6 GiB physical and commit check.
+
+Use `--verify-vpm-edits <resumed-fixture> [<Unity.exe>]` to exercise search,
+review, installation, upgrade, downgrade and removal through React with the
+bundled vrc-get and the curated Gesture Manager package. With Unity specified,
+the verifier launches the fixture in batch mode and waits for the same
+editor to register each requested version. The asset and VPM lock are checked
+after every change. Full restoration remains disabled while Unity is open.
+The open-editor run showed transient compiler errors during package
+replacement and a subsequent successful compilation before the editor exited.
 
 ## Distribution checkpoint
 

@@ -20,6 +20,8 @@ internal static class Program
         var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import", var recovery]
             ? Path.GetFullPath(recovery) : null;
         var restoreFixture = args is ["--verify-restore-workflow", var restore] ? Path.GetFullPath(restore) : null;
+        var packageFixture = args is ["--verify-vpm-edits", _] or ["--verify-vpm-edits", _, _]
+            ? Path.GetFullPath(args[1]) : null;
         var smoke = args switch
         {
             ["--smoke" or "--verify-batch-packages", var evidence] => Path.GetFullPath(evidence),
@@ -43,7 +45,8 @@ internal static class Program
                 throw new IOException("Update fixture marker missing.");
             profileFixture = root;
         }
-        var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null || portableFixture is not null || recoveryFixture is not null;
+        var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null || portableFixture is not null ||
+            recoveryFixture is not null || packageFixture is not null;
         if (smoke is not null && Directory.Exists(smoke))
         {
             Environment.ExitCode = 2;
@@ -55,6 +58,11 @@ internal static class Program
             return;
         }
         if (recoveryFixture is not null && !File.Exists(Path.Combine(recoveryFixture, "paused-import.json")))
+        {
+            Environment.ExitCode = 2;
+            return;
+        }
+        if (packageFixture is not null && !File.Exists(Path.Combine(packageFixture, "resumed-import.json")))
         {
             Environment.ExitCode = 2;
             return;
@@ -81,8 +89,8 @@ internal static class Program
             ProjectRules.EnsureContained(profileFixture, paths.PayloadRoot);
             ProjectRules.EnsureContained(profileFixture, paths.Home);
         }
-        var isolated = smoke is not null || restoreFixture is not null || recoveryFixture is not null || !distributed;
-        var home = smoke ?? restoreFixture ?? recoveryFixture ?? (isolated
+        var isolated = smoke is not null || restoreFixture is not null || recoveryFixture is not null || packageFixture is not null || !distributed;
+        var home = smoke ?? restoreFixture ?? recoveryFixture ?? packageFixture ?? (isolated
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup-React-Candidate")
             : paths.Home);
         Directory.CreateDirectory(home);
@@ -223,6 +231,14 @@ internal static class Program
                     window.Close();
                     return;
                 }
+                if (packageFixture is not null)
+                {
+                    await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
+                    await ReactPackageVerification.RunAsync(core, engine, packageFixture,
+                        args.Length == 3 ? Path.GetFullPath(args[2]) : null, shutdown.Token);
+                    window.Close();
+                    return;
+                }
                 if (profileFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
@@ -292,7 +308,7 @@ internal static class Program
             }
             catch (Exception error)
             {
-                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture ?? recoveryFixture) is { } evidenceFolder)
+                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture ?? recoveryFixture ?? packageFixture) is { } evidenceFolder)
                     File.WriteAllText(Path.Combine(evidenceFolder, "failure.txt"), error.ToString());
                 else MessageBox.Show(window, error.Message, window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.ExitCode = 1;
@@ -588,7 +604,8 @@ internal static class Program
             if (await core.ExecuteScriptAsync(condition) == "true") return;
             await Task.Delay(50);
         }
-        throw new IOException($"React smoke assertion failed: {condition}");
+        var status = await core.ExecuteScriptAsync("document.querySelector('footer [role=status]')?.textContent");
+        throw new IOException($"React smoke assertion failed: {condition}. Status: {status}");
     }
 
     private static async Task VerifyDraftActionsAsync(CoreWebView2 core)

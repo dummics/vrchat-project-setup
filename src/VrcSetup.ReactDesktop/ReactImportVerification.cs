@@ -205,7 +205,7 @@ internal static class ReactImportVerification
             OriginalProjectPreserved = true, ReopenedProfile = true }, token);
     }
 
-    private static async Task WaitForFixtureHeadroomAsync(CancellationToken token)
+    internal static async Task WaitForFixtureHeadroomAsync(CancellationToken token)
     {
         var sampler = new SystemResourceSampler();
         var wait = System.Diagnostics.Stopwatch.StartNew();

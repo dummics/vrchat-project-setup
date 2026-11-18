@@ -258,6 +258,7 @@ const english: Record<string, string> = {
   "Verrà eliminata la cartella creata per questa importazione.": "The folder created for this import will be deleted.",
   "L’importazione verrà rimossa dalla coda.": "The import will be removed from the queue.",
   "Elimina progetto": "Delete project",
+  "Chiudi Unity per ripristinare i pacchetti.": "Close Unity to restore packages.",
   "Da installare · {version}": "To install · {version}",
   "Lingua": "Language"
 };

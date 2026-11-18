@@ -633,6 +633,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             Path = single?.Path, Name = single?.Name, Targets = projects.Select(project => new { project.Name, project.Path, project.Fingerprint }),
             CanEdit = projects.All(project => !project.Incomplete),
             CanRestore = single is { Incomplete: false } && PackagePresence.Selection(single.LockedPackages).Count > 0,
+            EditorOpen = single is not null && engine.Projects.IsBusy(single.Path),
             packages = projects.SelectMany(project => PackagePresence.Selection(project.LockedPackages).Keys
                 .Union(PackagePresence.Selection(project.Packages).Keys, StringComparer.OrdinalIgnoreCase)
                 .Union(PackagePresence.Selection(project.InstalledVersions).Keys, StringComparer.OrdinalIgnoreCase))

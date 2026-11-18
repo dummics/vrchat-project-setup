@@ -9,6 +9,7 @@ export type ProjectPackageList = {
   targets: { name: string; path: string; fingerprint: string }[];
   canEdit: boolean;
   canRestore: boolean;
+  editorOpen: boolean;
   packages: (PackageChoice & { installed?: string; locked?: string; installedCount: number; required: boolean })[];
 };
 type PackageReview = {
@@ -110,8 +111,16 @@ export function ProjectPackages({ project, busy, request, run, onApplied }: Prop
 
   return <>
     <div className="package"><h2>{t("Pacchetti VPM")}</h2>
-      {project.canRestore && <button disabled={busy || !!draft.length} onClick={() => reviewChanges(true)}>{t("Ripristina pacchetti")}</button>}
+      {project.canRestore && <button disabled={busy || !!draft.length || project.editorOpen}
+        aria-describedby={project.editorOpen ? 'restore-editor-open' : undefined}
+        onClick={() => reviewChanges(true)}>{t("Ripristina pacchetti")}</button>}
     </div>
+    {project.canRestore && project.editorOpen && <div className="package">
+      <span id="restore-editor-open">{t("Chiudi Unity per ripristinare i pacchetti.")}</span>
+      <button disabled={busy} onClick={() => void run(t("Lettura pacchetti…"), async () => {
+        onApplied(await request<ProjectPackageList>('projectPackages', project.path), '');
+      })}>{t("Aggiorna")}</button>
+    </div>}
     {batch && <ul className="batch-targets" aria-label={t("Progetti selezionati")}>{project.targets.map(target =>
       <li key={target.path} title={target.path}>{target.name}</li>)}</ul>}
     {batchResults && <section className="extras" aria-live="polite">
@@ -132,7 +141,7 @@ export function ProjectPackages({ project, busy, request, run, onApplied }: Prop
     </form>}
     {results && <section className="extras" aria-label={t("Risultati catalogo")}>
       <div className="package"><h2>{t("Risultati")}</h2><button onClick={() => setResults(undefined)}>{t("Chiudi risultati")}</button></div>
-      {results.length ? results.map(item => <div className="package" key={item.id}>
+      {results.length ? results.map(item => <div className="package" key={item.id} data-package-id={item.id}>
         <span>{item.name}</span><button disabled={busy} onClick={() => chooseVersion(item)}>{t("Scegli versione")}</button>
       </div>) : <p>{t("Nessun pacchetto trovato.")}</p>}
     </section>}
@@ -170,7 +179,7 @@ export function ProjectPackages({ project, busy, request, run, onApplied }: Prop
     </section>}
     {project.packages.length ? <table className="project-table">
       <thead><tr><th>{t("Pacchetto")}</th><th>{batch ? t("Installato in") : t("Installata")}</th>{!batch && <th>{t("Registrata")}</th>}{project.canEdit && <th scope="col" aria-label={t("Azioni")} />}</tr></thead>
-      <tbody>{project.packages.map(item => <tr key={item.id}><th scope="row">{item.name}</th>
+      <tbody>{project.packages.map(item => <tr key={item.id} data-package-id={item.id}><th scope="row">{item.name}</th>
         <td>{batch ? `${item.installedCount} / ${project.targets.length}` : item.installed ?? t("Mancante")}</td>{!batch && <td>{item.locked ?? '—'}</td>}
         {project.canEdit && <td><div className="actions project-actions">
           <button disabled={busy} onClick={() => chooseVersion(item)}>{t("Versione")}</button>
