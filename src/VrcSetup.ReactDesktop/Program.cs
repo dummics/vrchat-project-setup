@@ -96,13 +96,14 @@ internal static class Program
                         await VerifyProjectListAsync(core);
                         await VerifyRecoveryAndActivityAsync(core);
                         await VerifySettingsAsync(core);
+                        await VerifyPresetsAsync(core);
                         await File.WriteAllTextAsync(Path.Combine(smoke, "result.json"), JsonSerializer.Serialize(new
                         {
                             passed = true, readyMs, runtime = environment.BrowserVersionString, drafts = 6, target = "Android",
                             checks = new[] { "native handshake", "six analyzed archives", "compact Quest filename",
-                                "independent tab state", "package panel and exclusion", "project discovery and search",
-                                "compilation recovery action and dismissal", "activity and import log", "VPM restore review",
-                                "import preferences persist and hide completed imports" }
+                                "independent tab state", "package panel and exclusion", "project discovery, search and name validation",
+                                "compilation recovery action and dismissal", "activity and import log", "VPM restore and removal review",
+                                "import preferences persist and hide completed imports", "preset create and rename persist" }
                         }));
                         window.Close();
                         return;
@@ -140,8 +141,28 @@ internal static class Program
         await RequireAsync(core, "document.querySelector('.view').textContent.includes('Mancante')");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === 'Ripristina pacchetti').click()");
         await RequireAsync(core, "document.querySelector('.view .extras')?.textContent.includes('1.0.0')");
+        await core.ExecuteScriptAsync("document.querySelector('.view .extras button').click()");
+        await RequireAsync(core, "document.querySelectorAll('.project-table tbody tr').length === 3");
+        await RequireAsync(core, "Array.from(document.querySelectorAll('.project-table tbody tr')).filter(x => x.textContent.includes('Richiesto')).length === 2");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.project-table button')).find(x => x.textContent === 'Rimuovi').click()");
+        await RequireAsync(core, "document.querySelector('.view .extras')?.textContent.includes('example.fixture · Da rimuovere')");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === 'Rivedi modifiche').click()");
+        await RequireAsync(core, "document.querySelector('[aria-label=\"Riepilogo pacchetti\"]')?.textContent.includes('example.fixture · Da rimuovere')");
         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
         await RequireAsync(core, "document.querySelector('h1').textContent === 'Progetti'");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.project-tools button')).find(x => x.textContent === 'Nuovo progetto').click()");
+        await RequireAsync(core, """document.querySelector('input[aria-label="Nome nuovo progetto"]') !== null""");
+        await core.ExecuteScriptAsync("""
+            (() => {
+              const input = document.querySelector('input[aria-label="Nome nuovo progetto"]');
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '..');
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+            })()
+            """);
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.extras button')).find(x => x.textContent === 'Rivedi progetto').click()");
+        await RequireAsync(core, "document.querySelector('footer [role=status]').textContent.length > 0 && !document.querySelector('.extras button.primary').disabled");
+        await RequireAsync(core, "document.querySelector('.extras button.primary').textContent === 'Rivedi progetto'");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.extras button')).find(x => x.textContent === 'Annulla').click()");
     }
 
     private static async Task VerifyRecoveryAndActivityAsync(CoreWebView2 core)
@@ -180,6 +201,38 @@ internal static class Program
         await RequireAsync(core, "document.getElementById('job-smoke-completed') === null");
         await core.ExecuteScriptAsync(settings);
         await RequireAsync(core, "document.querySelector('.settings input')?.checked && document.querySelector('.settings select').value === '6'");
+    }
+
+    private static async Task VerifyPresetsAsync(CoreWebView2 core)
+    {
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        const string open = "Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Preset').click()";
+        await core.ExecuteScriptAsync(open);
+        await RequireAsync(core, "document.querySelector('h1').textContent === 'Preset'");
+        await Click("Nuovo preset");
+        await EnterName("Preset fixture");
+        await RequireAsync(core, "document.querySelector('.view select').value === 'Preset fixture'");
+        await Click("Rinomina");
+        await EnterName("Preset rinominato");
+        await RequireAsync(core, "document.querySelector('.view select').value === 'Preset rinominato'");
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await core.ExecuteScriptAsync(open);
+        await RequireAsync(core, "Array.from(document.querySelectorAll('.view select option')).some(x => x.value === 'Preset rinominato')");
+
+        Task Click(string label) => core.ExecuteScriptAsync(
+            $"Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === {JsonSerializer.Serialize(label)}).click()");
+        async Task EnterName(string name)
+        {
+            await RequireAsync(core, """document.querySelector('input[aria-label="Nome preset"]') !== null""");
+            await core.ExecuteScriptAsync($$"""
+                (() => {
+                  const input = document.querySelector('input[aria-label="Nome preset"]');
+                  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, {{JsonSerializer.Serialize(name)}});
+                  input.dispatchEvent(new Event('input', { bubbles: true }));
+                })()
+                """);
+            await Click("Conferma nome");
+        }
     }
 
     private static async Task RequireAsync(CoreWebView2 core, string condition)

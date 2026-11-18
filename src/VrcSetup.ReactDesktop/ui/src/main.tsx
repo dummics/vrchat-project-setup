@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ProjectPackages, type ProjectPackageList } from './ProjectPackages';
+import { Presets, type PresetLibrary } from './Presets';
 import './style.css';
 
 type Packages = Record<string, string>;
@@ -17,9 +19,6 @@ type Project = {
 };
 type Review = { id: string; destinations: string[]; continuation?: boolean };
 type Activity = { id: string; name: string; date: string; kind: 'project' | 'import' | 'operation'; status: string };
-type ProjectPackages = { path: string; name: string; canRestore: boolean;
-  packages: { id: string; name: string; installed?: string; locked?: string }[] };
-type RestoreReview = { id: string; packages: { name: string; version: string }[] };
 type ImportPreferences = { maxParallelImports: number; autoHideCompletedImports: boolean };
 const activityStatuses: Record<string, string> = {
   completed: 'Completata', recovered: 'Completata', warning: 'Completata con avviso', failed: 'Non riuscita',
@@ -77,12 +76,15 @@ function ImportPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activeId, setActiveId] = useState('');
   const [panel, setPanel] = useState<'import' | 'preset' | 'packages'>('import');
-  const [screen, setScreen] = useState<'import' | 'projects' | 'activity' | 'project-packages' | 'settings'>('import');
+  const [screen, setScreen] = useState<'import' | 'projects' | 'activity' | 'project-packages' | 'settings' | 'presets'>('import');
+  const [presetLibrary, setPresetLibrary] = useState<PresetLibrary>();
+  const [presetDirty, setPresetDirty] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
-  const [projectPackages, setProjectPackages] = useState<ProjectPackages>();
+  const [projectPackages, setProjectPackages] = useState<ProjectPackageList>();
+  const [newProject, setNewProject] = useState<{ name: string; target: string; preset: string }>();
+  const [newProjectReview, setNewProjectReview] = useState<{ id: string; destination: string }>();
   const [packageBack, setPackageBack] = useState<'import' | 'projects'>('projects');
-  const [restoreReview, setRestoreReview] = useState<RestoreReview>();
   const [notice, setNotice] = useState('');
   const [preferences, setPreferences] = useState<ImportPreferences>();
   const [filter, setFilter] = useState('');
@@ -167,11 +169,18 @@ function ImportPage() {
     });
   }
 
+  function showPresets() {
+    void run('Lettura preset…', async () => {
+      setPresetLibrary(await request<PresetLibrary>('presets'));
+      setPresetDirty(false);
+      setScreen('presets');
+    });
+  }
+
   function showProjectPackages(path: string) {
     void run('Lettura pacchetti…', async () => {
-      setProjectPackages(await request<ProjectPackages>('projectPackages', path));
+      setProjectPackages(await request<ProjectPackageList>('projectPackages', path));
       setPackageBack(screen === 'import' ? 'import' : 'projects');
-      setRestoreReview(undefined);
       setNotice('');
       setScreen('project-packages');
     });
@@ -184,18 +193,22 @@ function ImportPage() {
   return <main data-ready={!!state} className={dragging ? 'dragging' : ''} onDragOver={event => { event.preventDefault(); setDragging(true); }}
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
     onDrop={event => { event.preventDefault(); setDragging(false); stage([...event.dataTransfer.files]); }}>
-    <header><div><span className="brand">VRC Project Setup</span><h1>{screen === 'projects' ? 'Progetti' : screen === 'activity' ? 'Attività' : screen === 'settings' ? 'Impostazioni' :
+    <header><div><span className="brand">VRC Project Setup</span><h1>{screen === 'projects' ? 'Progetti' : screen === 'activity' ? 'Attività' : screen === 'settings' ? 'Impostazioni' : screen === 'presets' ? 'Preset' :
       screen === 'project-packages' ? projectPackages?.name : panel === 'packages' ? 'Pacchetti' : panel === 'preset' ? 'Scegli un preset' : 'Importa'}</h1></div>
-      {screen !== 'import' ? <button disabled={!!busy} onClick={() => {
-        if (screen === 'project-packages') { setRestoreReview(undefined); setNotice(''); setScreen(packageBack); }
-        else { setNotice(''); setScreen('import'); }
+      {screen !== 'import' ? <button disabled={!!busy || screen === 'presets' && presetDirty} onClick={() => {
+        if (screen === 'project-packages') { setNotice(''); setScreen(packageBack); }
+        else { setNotice(''); setNewProject(undefined); setNewProjectReview(undefined); setScreen('import'); }
       }}>{screen === 'project-packages' && packageBack === 'projects' ? '← Progetti' : '← Importa'}</button> :
         panel === 'import' ? <div className="actions"><button disabled={!!busy || !state || !!review} onClick={showProjects}>Progetti</button>
           <button disabled={!!busy || !state || !!review} onClick={showActivity}>Attività</button>
+          <button disabled={!!busy || !state || !!review} onClick={showPresets}>Preset</button>
           <button disabled={!!busy || !state || !!review} onClick={showSettings}>Impostazioni</button>
           <button disabled={!!busy || !state || !!review} onClick={() => stage()}>+ Aggiungi file</button></div> :
           <button onClick={() => setPanel('import')}>← Torna all’importazione</button>}</header>
-    {screen === 'settings' && preferences ? <section className="view settings" key="settings">
+    {screen === 'presets' && presetLibrary ? <section className="view" key="presets">
+      <Presets library={presetLibrary} busy={!!busy} request={request} run={run} onDirty={setPresetDirty}
+        onChange={async next => { setPresetLibrary(next); setState(await request<State>('state')); }} />
+    </section> : screen === 'settings' && preferences ? <section className="view settings" key="settings">
       <h2>Importazioni</h2>
       <form onSubmit={event => {
         event.preventDefault();
@@ -224,23 +237,8 @@ function ImportPage() {
         </fieldset>
       </form>
     </section> : screen === 'project-packages' && projectPackages ? <section className="view" key="project-packages">
-      <div className="package"><h2>Pacchetti VPM</h2>
-        {projectPackages.canRestore && <button disabled={!!busy || !!restoreReview}
-          onClick={() => void run('Preparazione ripristino…', async () => setRestoreReview(await request<RestoreReview>('reviewPackageRestore', projectPackages.path)))}>
-          Ripristina pacchetti</button>}</div>
-      {restoreReview ? <section className="extras"><h2>Versioni da reinstallare</h2>
-        <ul>{restoreReview.packages.map(item => <li key={item.name + item.version}>{item.name} · {item.version}</li>)}</ul>
-        <div className="actions"><button disabled={!!busy} onClick={() => setRestoreReview(undefined)}>Indietro</button>
-          <button className="primary" disabled={!!busy} onClick={() => void run('Ripristino…', async () => {
-            setRestoreReview(undefined);
-            const result = await request<{ warning?: string }>('applyPackageRestore', restoreReview.id);
-            setNotice(result.warning ?? 'Pacchetti ripristinati.');
-            setProjectPackages(await request<ProjectPackages>('projectPackages', projectPackages.path));
-          })}>Conferma ripristino</button></div>
-      </section> : projectPackages.packages.length ? <table className="project-table">
-        <thead><tr><th>Pacchetto</th><th>Installata</th><th>Registrata</th></tr></thead>
-        <tbody>{projectPackages.packages.map(item => <tr key={item.id}><th scope="row">{item.name}</th>
-          <td>{item.installed ?? 'Mancante'}</td><td>{item.locked ?? '—'}</td></tr>)}</tbody></table> : <p>Nessun pacchetto VPM.</p>}
+      <ProjectPackages project={projectPackages} busy={!!busy} request={request} run={run}
+        onApplied={(project, message) => { setProjectPackages(project); setNotice(message); }} />
     </section> : screen === 'activity' ? <section className="view activity" key="activity">
       <div className="actions"><button disabled={!!busy} onClick={showActivity}>Aggiorna</button>
         <button disabled={!!busy} onClick={() => void run('Esportazione…', async () => { await request('exportDiagnostics'); })}>Esporta diagnostica</button></div>
@@ -254,7 +252,46 @@ function ImportPage() {
       </article>) : <p>Nessuna attività registrata.</p>}
     </section> : screen === 'projects' ? <section className="view" key="projects">
       <div className="actions project-tools"><input aria-label="Cerca progetti" placeholder="Cerca progetti" value={filter} onChange={event => setFilter(event.target.value)} />
-        <button disabled={!!busy} onClick={showProjects}>Aggiorna</button></div>
+        <button disabled={!!busy} onClick={showProjects}>Aggiorna</button>
+        <button disabled={!!busy || !!newProject} onClick={() => void run('Apertura progetto…', async () => {
+          const project = await request<ProjectPackageList | false>('pickExistingProject');
+          if (project) { setProjectPackages(project); setPackageBack('projects'); setScreen('project-packages'); }
+        })}>Apri progetto esistente</button>
+        <button disabled={!!busy || !!newProject} onClick={() => setNewProject({ name: '', target: 'StandaloneWindows64', preset: '' })}>Nuovo progetto</button>
+      </div>
+      {newProject && <section className="extras settings">
+        <h2>Nuovo progetto</h2>
+        {newProjectReview ? <>
+          <p className="path">{newProjectReview.destination}</p>
+          <div className="actions">
+            <button disabled={!!busy} onClick={() => setNewProjectReview(undefined)}>Indietro</button>
+            <button className="primary" disabled={!!busy} onClick={() => void run('Creazione progetto…', async () => {
+              setState(await request<State>('createProject', newProjectReview.id));
+              setNewProject(undefined); setNewProjectReview(undefined); setPanel('import'); setScreen('import');
+            })}>Crea progetto</button>
+          </div>
+        </> : <form onSubmit={event => {
+          event.preventDefault();
+          void run('Preparazione progetto…', async () => setNewProjectReview(await request('reviewNewProject', { ...newProject, preset: newProject.preset || null })));
+        }}>
+          <label className="package">Nome progetto <input aria-label="Nome nuovo progetto" value={newProject.name} onChange={event => setNewProject({ ...newProject, name: event.target.value })} /></label>
+          <label className="package">Piattaforma
+            <select value={newProject.target} onChange={event => setNewProject({ ...newProject, target: event.target.value })}>
+              <option value="StandaloneWindows64">PC</option><option value="Android">Quest</option><option value="iOS">iOS</option>
+            </select>
+          </label>
+          <label className="package">Preset
+            <select value={newProject.preset} onChange={event => setNewProject({ ...newProject, preset: event.target.value })}>
+              <option value="">Predefinito</option>
+              {Object.keys(state?.presets ?? {}).map(name => <option key={name}>{name}</option>)}
+            </select>
+          </label>
+          <div className="actions">
+            <button type="button" disabled={!!busy} onClick={() => setNewProject(undefined)}>Annulla</button>
+            <button className="primary" disabled={!!busy || !newProject.name.trim()}>Rivedi progetto</button>
+          </div>
+        </form>}
+      </section>}
       {visibleProjects.length ? <table className="project-table">
         <thead><tr><th><button onClick={() => setSort('name')}>Nome</button></th>
           <th><button onClick={() => setSort('lastUpdatedUtc')}>Modifica</button></th>

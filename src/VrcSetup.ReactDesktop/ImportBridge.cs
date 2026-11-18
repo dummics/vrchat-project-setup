@@ -19,6 +19,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine) : 
     private OperationPlan? reviewed;
     private string? continuationId;
     private OperationPlan? packageReview;
+    private OperationPlan? newProjectReview;
     private AppConfiguration? preferencesBaseline;
     private SourceDraft[] initial = [];
     private readonly string candidateProjects = Path.Combine(engine.Paths.Home, "candidate-projects");
@@ -148,6 +149,50 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine) : 
                 return true;
             case "projects":
                 return await Projects(token);
+            case "pickExistingProject":
+                var folder = new OpenFolderDialog { Title = "Scegli un progetto Unity", InitialDirectory = candidateProjects };
+                if (folder.ShowDialog(window) != true) return false;
+                packageReview = null;
+                return await ReadProjectPackages(folder.FolderName, token);
+            case "reviewNewProject":
+                newProjectReview = null;
+                var creation = data.Deserialize<NewProjectChoice>(Json) ?? throw new ArgumentException("Scegli un nome e una piattaforma.");
+                var name = creation.Name.Trim();
+                ProjectRules.ValidateName(name);
+                var newSettings = await engine.Configuration.LoadAsync(token);
+                if (!string.Equals(newSettings.UnityProjectsRoot, candidateProjects, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Configura Unity nella pagina Importa prima di creare il progetto.");
+                var destination = CandidateProjectPath(Path.Combine(candidateProjects, name));
+                EnsureProjectIdle(destination);
+                if (File.Exists(destination) || Directory.Exists(destination))
+                    throw new IOException("Il nome è già in uso. Scegli un nome diverso o apri il progetto dall’elenco.");
+                newProjectReview = await engine.PlanEmptyProjectAsync(name, newSettings,
+                    creation.Preset, creation.Target, token);
+                return new { newProjectReview.Id, destination };
+            case "createProject":
+                if (newProjectReview is not { } emptyProject || data.GetString() != emptyProject.Id)
+                    throw new IOException("Rivedi il nuovo progetto.");
+                var emptyPath = CandidateProjectPath(emptyProject.Projects.Single().Path);
+                EnsureProjectIdle(emptyPath);
+                if (File.Exists(emptyPath) || Directory.Exists(emptyPath))
+                    throw new IOException("Il nome è già in uso. Scegli un nome diverso o apri il progetto dall’elenco.");
+                await engine.Imports.EnqueueAsync(emptyProject, parallelism: 0, token: token);
+                newProjectReview = null;
+                return await State(token);
+            case "presets":
+                return await ReadPresets(token);
+            case "editPreset":
+                return await EditPreset(data.Deserialize<PresetEdit>(Json) ?? throw new ArgumentException("Scegli un preset."), token);
+            case "importPreset":
+                return await ImportPreset(token);
+            case "exportPreset":
+                var export = data.Deserialize<PortablePreset>(Json) ?? throw new ArgumentException("Scegli un preset.");
+                export.Validate();
+                var fileName = string.Concat(export.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+                var exportDialog = new SaveFileDialog { FileName = fileName, Filter = "Preset|*.json", DefaultExt = ".json" };
+                if (exportDialog.ShowDialog(window) != true) return false;
+                await AtomicFile.WriteJsonAsync(exportDialog.FileName, export, token);
+                return true;
             case "importPreferences":
                 preferencesBaseline = await engine.Configuration.LoadAsync(token);
                 return new { preferencesBaseline.MaxParallelImports, preferencesBaseline.AutoHideCompletedImports };
@@ -164,27 +209,53 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine) : 
             case "projectPackages":
                 packageReview = null;
                 return await ReadProjectPackages(data.GetString(), token);
+            case "searchProjectPackages":
+                var query = data.GetString()?.Trim();
+                if (string.IsNullOrWhiteSpace(query)) return Array.Empty<object>();
+                return (await engine.Catalog.SearchAsync(query, token)).Take(100)
+                    .Select(x => new { x.Id, Name = x.DisplayName }).ToArray();
+            case "projectPackageVersions":
+                var versions = await engine.Catalog.GetVersionsForPreviewAsync(data.GetString() ?? "", token);
+                return new { versions, latest = SemanticVersion.Sort(versions, false).FirstOrDefault() };
+            case "reviewProjectPackages":
+                packageReview = null;
+                var edit = data.Deserialize<ProjectPackageEdit>(Json) ?? throw new ArgumentException("Scegli i pacchetti.");
+                var editPath = CandidateProjectPath(edit.Path);
+                EnsureProjectIdle(editPath);
+                var snapshot = await engine.Projects.ReadAsync(editPath, token);
+                if (snapshot.Incomplete) throw new IOException("Termina l’importazione prima di modificare i pacchetti.");
+                if (edit.Fingerprint != snapshot.Fingerprint) throw new IOException("Il progetto è cambiato. Riapri i pacchetti per aggiornare l’elenco.");
+                var configuration = await engine.Configuration.LoadAsync(token);
+                var proposed = await engine.Planner.PlanBulkAsync([editPath], edit.Selected, configuration,
+                    remove: edit.Removed, cancellationToken: token);
+                if (proposed.Projects.Single().ExpectedFingerprint != edit.Fingerprint)
+                    throw new IOException("Il progetto è cambiato. Riapri i pacchetti per aggiornare l’elenco.");
+                packageReview = proposed;
+                return SummarizePackageReview(proposed);
             case "reviewPackageRestore":
                 packageReview = null;
                 var restorePath = CandidateProjectPath(data.GetString());
                 EnsureProjectIdle(restorePath);
                 if (engine.Projects.IsBusy(restorePath)) throw new IOException("Chiudi Unity prima di ripristinare i pacchetti.");
                 packageReview = await engine.Planner.PlanPackageReinstallAsync(restorePath, token);
-                return new
-                {
-                    packageReview.Id,
-                    packages = packageReview.Projects.Single().Changes.Select(x => new { Name = PackageCatalog.FriendlyName(x.Id), Version = x.ResolvedVersion })
-                };
-            case "applyPackageRestore":
-                if (packageReview is not { } restore || data.GetString() != restore.Id)
-                    throw new IOException("Rivedi il ripristino dei pacchetti.");
+                return SummarizePackageReview(packageReview);
+            case "applyProjectPackages":
+                var approval = data.Deserialize<PackageApproval>(Json);
+                if (packageReview is not { } acceptedPackages || approval?.Id != acceptedPackages.Id)
+                    throw new IOException("Rivedi le modifiche ai pacchetti.");
+                if (PackageDowngrades.RequiresConfirmation(acceptedPackages) && !approval.AcceptRisk)
+                    throw new IOException("Conferma l’installazione delle versioni precedenti.");
                 packageReview = null;
-                var restoreProject = restore.Projects.Single().Path;
-                EnsureProjectIdle(restoreProject);
-                if (engine.Projects.IsBusy(restoreProject)) throw new IOException("Chiudi Unity prima di ripristinare i pacchetti.");
-                var outcome = await Task.Run(() => engine.ApplyAsync(restore, cancellationToken: token), token);
+                var reviewedProject = acceptedPackages.Projects.Single();
+                var reviewedPath = CandidateProjectPath(reviewedProject.Path);
+                EnsureProjectIdle(reviewedPath);
+                if (reviewedProject.ReinstallLockedPackages && engine.Projects.IsBusy(reviewedPath))
+                    throw new IOException("Chiudi Unity prima di ripristinare i pacchetti.");
+                if ((await engine.Projects.ReadAsync(reviewedPath, token)).Incomplete)
+                    throw new IOException("Termina l’importazione prima di modificare i pacchetti.");
+                var outcome = await Task.Run(() => engine.ApplyAsync(acceptedPackages, cancellationToken: token), token);
                 var result = outcome.Results.FirstOrDefault();
-                if (!outcome.Success) throw new IOException(result?.Message ?? "Impossibile ripristinare i pacchetti. Consulta il log in Attività.");
+                if (!outcome.Success) throw new IOException(result?.Message ?? "Impossibile modificare i pacchetti. Consulta il log in Attività.");
                 return new { warning = result?.Status == OperationStatus.CompletedWithWarnings ? UserErrors.Message(new IOException(result.Message)) : null };
             case "activity":
                 return await Activity(token);
@@ -214,6 +285,99 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine) : 
         }
     }
 
+    private async Task<object> ReadPresets(CancellationToken token, string? selected = null)
+    {
+        var config = await engine.Configuration.LoadAsync(token);
+        var catalog = await engine.Catalog.KnownAsync(config, cancellationToken: token);
+        return new
+        {
+            config.Revision, selected, defaults = config.VpmPackages, presets = config.PackagePresets,
+            favorites = config.FavoritePackages, required = ProjectRules.Foundation(config.VpmPackages, config),
+            catalog = catalog.Select(x => new { x.Id, Name = x.DisplayName, Latest = SemanticVersion.Sort(x.Versions, false).FirstOrDefault() })
+        };
+    }
+
+    private async Task<object> EditPreset(PresetEdit edit, CancellationToken token)
+    {
+        var config = await engine.Configuration.LoadAsync(token);
+        if (edit.Revision != config.Revision) throw new IOException("I preset sono cambiati. Riapri la schermata prima di salvare.");
+        string? selected = edit.Name;
+        switch (edit.Action)
+        {
+            case "save":
+                var preset = new PortablePreset(edit.Name ?? "Predefinito", edit.Packages ?? []);
+                preset.Validate();
+                if (edit.Name is null) config.VpmPackages = preset.Packages;
+                else if (config.PackagePresets.ContainsKey(edit.Name)) config.PackagePresets[edit.Name] = preset.Packages;
+                else throw new IOException("Il preset non è più disponibile.");
+                break;
+            case "create":
+            case "rename":
+                var name = edit.NewName?.Trim() ?? "";
+                var nameCheck = new PortablePreset(name, new() { [ProjectRules.BaseSdk] = "latest" });
+                nameCheck.Validate();
+                if (nameCheck.AvailableName(config.PackagePresets.Keys) != name)
+                    throw new IOException("Scegli un nome diverso per il preset.");
+                var source = edit.Name is null ? config.VpmPackages : config.PackagePresets.GetValueOrDefault(edit.Name)
+                    ?? throw new IOException("Il preset non è più disponibile.");
+                config.PackagePresets[name] = new(source, StringComparer.OrdinalIgnoreCase);
+                if (edit.Action == "rename")
+                {
+                    if (edit.Name is null) throw new IOException("Il preset predefinito ha un nome fisso.");
+                    config.PackagePresets.Remove(edit.Name);
+                    foreach (var (recipeName, recipe) in config.CreationRecipes.ToArray())
+                        if (recipe.Preset.Equals(edit.Name, StringComparison.OrdinalIgnoreCase))
+                            config.CreationRecipes[recipeName] = recipe with { Preset = name };
+                }
+                selected = name;
+                break;
+            case "delete":
+                if (edit.Name is null || !config.PackagePresets.Remove(edit.Name))
+                    throw new IOException("Scegli un preset salvato da eliminare.");
+                selected = null;
+                break;
+            case "favorite":
+                var id = edit.Package ?? "";
+                ProjectRules.ValidatePackageId(id);
+                if (config.FavoritePackages.RemoveAll(x => x.Equals(id, StringComparison.OrdinalIgnoreCase)) == 0)
+                    config.FavoritePackages.Add(id);
+                break;
+            default:
+                throw new ArgumentException("Modifica del preset sconosciuta.");
+        }
+        await engine.Configuration.SaveAsync(config, token);
+        return await ReadPresets(token, selected);
+    }
+
+    private async Task<object> ImportPreset(CancellationToken token)
+    {
+        var picker = new OpenFileDialog { Filter = "Preset|*.json" };
+        if (picker.ShowDialog(window) != true) return false;
+        if (new FileInfo(picker.FileName).Length > PortablePreset.MaxBytes) throw new InvalidDataException("Il file del preset è troppo grande.");
+        var preset = PortablePreset.Read(await File.ReadAllTextAsync(picker.FileName, token));
+        var config = await engine.Configuration.LoadAsync(token);
+        var name = preset.AvailableName(config.PackagePresets.Keys);
+        if (MessageBox.Show(window, $"Importare «{name}» con {preset.Packages.Count} pacchetti?", "Importa preset",
+                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return false;
+        config.PackagePresets[name] = preset.Packages;
+        await engine.Configuration.SaveAsync(config, token);
+        return await ReadPresets(token, name);
+    }
+
+    private static object SummarizePackageReview(OperationPlan plan)
+    {
+        var project = plan.Projects.Single();
+        return new
+        {
+            plan.Id, Restore = project.ReinstallLockedPackages,
+            RiskyDowngrade = PackageDowngrades.RequiresConfirmation(plan),
+            packages = project.Changes
+                .Where(x => project.ReinstallLockedPackages || x.Kind != ChangeKind.Keep)
+                .Select(x => new { x.Id, Name = PackageCatalog.FriendlyName(x.Id), Before = x.InstalledVersion,
+                    Version = x.ResolvedVersion, Kind = x.Kind.ToString() })
+        };
+    }
+
     private string CandidateProjectPath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Scegli un progetto.");
@@ -236,9 +400,11 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine) : 
         var projectPath = CandidateProjectPath(path);
         EnsureProjectIdle(projectPath);
         var project = await engine.Projects.ReadAsync(projectPath, token);
+        var config = await engine.Configuration.LoadAsync(token);
+        var required = ProjectRules.Foundation(project.Packages, config).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return new
         {
-            project.Path, project.Name,
+            project.Path, project.Name, project.Fingerprint, CanEdit = !project.Incomplete,
             CanRestore = !project.Incomplete && PackagePresence.Selection(project.LockedPackages).Count > 0,
             packages = PackagePresence.Selection(project.LockedPackages).Keys
                 .Union(PackagePresence.Selection(project.Packages).Keys, StringComparer.OrdinalIgnoreCase)
@@ -247,7 +413,8 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine) : 
                 {
                     id, Name = project.PackageDisplayNames.GetValueOrDefault(id) ?? PackageCatalog.FriendlyName(id),
                     Installed = project.InstalledVersions.GetValueOrDefault(id),
-                    Locked = project.LockedPackages.GetValueOrDefault(id)
+                    Locked = project.LockedPackages.GetValueOrDefault(id),
+                    Required = required.Contains(id)
                 }).OrderBy(x => x.Name).ToArray()
         };
     }
@@ -448,7 +615,23 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine) : 
         Directory.CreateDirectory(Path.Combine(project, "ProjectSettings"));
         await File.WriteAllTextAsync(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1");
         await File.WriteAllTextAsync(Path.Combine(project, "Packages", "vpm-manifest.json"),
-            """{"dependencies":{"example.fixture":{"version":"1.0.0"}},"locked":{"example.fixture":{"version":"1.0.0"}}}""");
+            """
+            {
+                "dependencies": {
+                    "example.fixture": {"version":"1.0.0"},
+                    "com.vrchat.base": {"version":"3.10.6"},
+                    "com.vrchat.core.vpm-resolver": {"version":"0.1.29"}
+                },
+                "locked": {"example.fixture":{"version":"1.0.0"}}
+            }
+            """);
+        foreach (var (id, version) in new[] { (ProjectRules.BaseSdk, "3.10.6"), (ProjectRules.Resolver, "0.1.29") })
+        {
+            var packagePath = Path.Combine(project, "Packages", id);
+            Directory.CreateDirectory(packagePath);
+            await File.WriteAllTextAsync(Path.Combine(packagePath, "package.json"),
+                JsonSerializer.Serialize(new { name = id, version }, Json));
+        }
         var source = new CreationRequest(inputs[0], "Avatar di prova", project, "", "Android", ["Android"], []);
         var plan = new OperationPlan("smoke-compilation", DateTime.UtcNow,
             [new() { Path = project, Name = source.Name, DesiredPolicy = new Dictionary<string, string>(), Changes = [], ExpectedFingerprint = "" }]);
@@ -482,4 +665,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine) : 
         DateTime CreatedUtc, bool Incomplete, bool Open, bool Importing, string? RecoveryId);
     private sealed record ActivityRow(string Id, string Name, DateTime Date, string Kind, string Status);
     private sealed record ImportPreferences(int MaxParallelImports, bool AutoHideCompletedImports);
+    private sealed record ProjectPackageEdit(string Path, string Fingerprint, Dictionary<string, string> Selected, string[] Removed);
+    private sealed record PackageApproval(string Id, bool AcceptRisk);
+    private sealed record PresetEdit(string Revision, string Action, string? Name,
+        string? NewName, Dictionary<string, string>? Packages, string? Package);
+    private sealed record NewProjectChoice(string Name, string Target, string? Preset);
 }
