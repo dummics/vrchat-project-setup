@@ -21,7 +21,8 @@ internal static class Program
         var discardImport = args is ["--verify-discard-import", _];
         var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import", var recovery]
             ? Path.GetFullPath(recovery) : null;
-        var restoreFixture = args is ["--verify-restore-workflow", var restore] ? Path.GetFullPath(restore) : null;
+        var restoreFixture = args is ["--verify-restore-workflow" or "--verify-import-missing-assets", var restore] ? Path.GetFullPath(restore) : null;
+        var verifyMissingAssets = args is ["--verify-import-missing-assets", _];
         var verifyBackup = args is ["--verify-project-backup", _];
         var packageFixture = args is ["--verify-vpm-edits" or "--verify-project-backup", _] or ["--verify-vpm-edits", _, _]
             ? Path.GetFullPath(args[1]) : null;
@@ -58,7 +59,8 @@ internal static class Program
             Environment.ExitCode = 2;
             return;
         }
-        if (restoreFixture is not null && !File.Exists(Path.Combine(restoreFixture, "react-unity-import.json")))
+        if (restoreFixture is not null && !File.Exists(Path.Combine(restoreFixture, "react-unity-import.json")) &&
+            (!verifyMissingAssets || !File.Exists(Path.Combine(restoreFixture, "resumed-import.json"))))
         {
             Environment.ExitCode = 2;
             return;
@@ -233,7 +235,10 @@ internal static class Program
                 if (restoreFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
-                    await ReactImportVerification.VerifyRestoreAsync(core, engine, restoreFixture, shutdown.Token);
+                    if (verifyMissingAssets)
+                        await ReactImportVerification.VerifyMissingAssetsAsync(core, engine, restoreFixture, shutdown.Token);
+                    else
+                        await ReactImportVerification.VerifyRestoreAsync(core, engine, restoreFixture, shutdown.Token);
                     window.Close();
                     return;
                 }

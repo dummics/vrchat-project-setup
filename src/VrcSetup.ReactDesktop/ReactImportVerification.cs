@@ -82,6 +82,76 @@ internal static class ReactImportVerification
         Task WaitForAsync(string condition, TimeSpan maximum) => WaitForPageAsync(core, condition, maximum, token);
     }
 
+    internal static async Task VerifyMissingAssetsAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, CancellationToken token)
+    {
+        var path = Path.Combine(folder, "candidate-projects", "Probe");
+        var archive = Path.Combine(folder, "Probe.unitypackage");
+        var prior = ImportQueue.CurrentForProject(engine.Imports.Snapshot(), path);
+        if (prior is not { State: "Completed" } || prior.Source.UnityPackagePath != archive ||
+            engine.Projects.IsBusy(path) || engine.Imports.HasActiveJobs)
+            throw new IOException("Use a completed, closed Unity import fixture.");
+
+        if (!(await engine.Configuration.LoadAsync(token)).ManualImportPath)
+        {
+            await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Impostazioni').click()");
+            await WaitForPageAsync(core, "document.querySelector('#manual-import-path')?.checked === false", TimeSpan.FromSeconds(15), token);
+            await core.ExecuteScriptAsync("document.querySelector('#manual-import-path').click(); document.querySelector('.settings button[type=submit]').click()");
+            await WaitForPageAsync(core, "document.querySelector('footer [role=status]')?.textContent === 'Impostazioni salvate.'", TimeSpan.FromSeconds(15), token);
+            await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        }
+        await WaitForPageAsync(core, "document.querySelector('.manual-path input') !== null", TimeSpan.FromSeconds(15), token);
+
+        var asset = Path.Combine(path, "Assets", "ReactProbe.txt");
+        var meta = asset + ".meta";
+        var script = Path.Combine(path, "Assets", "ReactProbe.cs");
+        var archivedAssetHash = AtomicFile.Hash(asset);
+        var archivedMetaHash = AtomicFile.Hash(meta);
+        using (ProjectDirectoryIdentity.HoldPath(path, ProjectDirectoryIdentity.TryRead(path)
+            ?? throw new IOException("The fixture folder cannot be verified.")))
+        {
+            foreach (var file in new[] { asset, meta, script })
+            {
+                ProjectRules.EnsureContained(path, file);
+                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("The fixture asset is linked.");
+            }
+            if (await File.ReadAllTextAsync(asset, token) != "React import succeeded")
+                throw new IOException("Use the original probe asset from the completed import.");
+            await File.AppendAllTextAsync(script, "\n// Local edit retained.\n", token);
+            File.Move(asset, Path.Combine(folder, "original-probe.txt"));
+            File.Move(meta, Path.Combine(folder, "original-probe.txt.meta"));
+        }
+        var scriptHash = AtomicFile.Hash(script);
+        await WaitForFixtureHeadroomAsync(token);
+        await core.ExecuteScriptAsync($$"""
+            (() => {
+                const path = document.querySelector('.manual-path input');
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(path, {{JsonSerializer.Serialize(archive)}});
+                path.dispatchEvent(new Event('input', { bubbles: true }));
+            })()
+            """);
+        await WaitForPageAsync(core, "document.querySelector('.manual-path button')?.disabled === false", TimeSpan.FromSeconds(10), token);
+        await core.ExecuteScriptAsync("document.querySelector('.manual-path button').click()");
+        await WaitForPageAsync(core, """document.querySelector('input[aria-label="Nome progetto"]')?.value === 'Probe'""", TimeSpan.FromMinutes(1), token);
+        await core.ExecuteScriptAsync("document.querySelector('footer .primary').click()");
+        const string review = """document.querySelector('[aria-label="Rivedi importazione"]')""";
+        await WaitForPageAsync(core, review + "?.textContent.includes('Continua nel progetto esistente')", TimeSpan.FromMinutes(2), token);
+        await WaitForPageAsync(core, review + "?.querySelector('.primary')?.textContent === 'Completa importazione'", TimeSpan.FromSeconds(10), token);
+        await core.ExecuteScriptAsync(review + ".querySelector('.primary').click()");
+
+        var queued = await WaitForJobAsync(engine, path, job => job.Id != prior.Id, TimeSpan.FromSeconds(30), token);
+        engine.Imports.ConfigureParallelism(1);
+        var finished = await WaitForJobAsync(engine, path, job => job.Id == queued.Id && !job.Active, TimeSpan.FromMinutes(8), token);
+        if (finished.State != "Completed" || finished.UnityCompilationNeedsAttention ||
+            AtomicFile.Hash(asset) != archivedAssetHash || AtomicFile.Hash(meta) != archivedMetaHash || AtomicFile.Hash(script) != scriptHash)
+            throw new IOException($"Existing project import did not restore only the missing asset. {finished.State}: {finished.Message} {finished.LogFile}");
+        await AtomicFile.WriteJsonAsync(Path.Combine(folder, "react-import-missing-assets.json"), new
+        {
+            Passed = true, finished.ProjectPath, finished.LogFile, ExistingProjectReview = true,
+            RestoredAssetAndOriginalMeta = true, LocalScriptEditPreserved = true
+        }, token);
+    }
+
     internal static async Task VerifyRestoreAsync(CoreWebView2 core, VrcSetupApplication engine, string folder, CancellationToken shutdown)
     {
         var job = engine.Imports.Snapshot().Single(x => x.State == "Completed");
