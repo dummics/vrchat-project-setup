@@ -18,10 +18,11 @@ internal static class Program
         var restoreFixture = args is ["--verify-restore-workflow", var restore] ? Path.GetFullPath(restore) : null;
         var smoke = args switch
         {
-            ["--smoke", var evidence] => Path.GetFullPath(evidence),
+            ["--smoke" or "--verify-batch-packages", var evidence] => Path.GetFullPath(evidence),
             ["--verify-unity-workflow", var evidence, _] => Path.GetFullPath(evidence),
             _ => null
         };
+        var verifyBatchPackages = args is ["--verify-batch-packages", _];
         var verifyPrepared = args is ["--verify-prepared-update", _];
         var verifyRestarted = args is ["--verify-update-smoke", _];
         var portableFixture = args is ["--verify-portable-startup", var archiveRoot] ? Path.GetFullPath(archiveRoot) : null;
@@ -228,7 +229,12 @@ internal static class Program
                         await VerifyDraftActionsAsync(core);
                         using var screenshot = File.Create(Path.Combine(smoke, "import-react-720.png"));
                         await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, screenshot);
-                        await VerifyProjectListAsync(core);
+                        await VerifyProjectListAsync(core, verifyBatchPackages ? smoke : null);
+                        if (verifyBatchPackages)
+                        {
+                            window.Close();
+                            return;
+                        }
                         await VerifyRecoveryAndActivityAsync(core);
                         var diagnostics = Path.Combine(smoke, "diagnostics.zip");
                         await SupportLogs.ExportAsync(engine.Paths, diagnostics);
@@ -248,7 +254,7 @@ internal static class Program
                             checks = new[] { "native handshake", "six analyzed archives", "Quest filename and prefab path detection",
                                 "independent tab state", "package panel and exclusion", "project discovery, search and name validation",
                                 "compilation recovery action and dismissal", "activity detail, operation log and diagnostics archive",
-                                "VPM restore and removal review",
+                                "VPM restore and removal review", "VPM batch review distinguishes changed and unchanged projects",
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
                                 "theme changes and custom accent persist", "help and plain version label",
                                 "preset create and rename persist", "live English labels and language persistence" }
@@ -326,10 +332,10 @@ internal static class Program
         }));
     }
 
-    private static async Task VerifyProjectListAsync(CoreWebView2 core)
+    private static async Task VerifyProjectListAsync(CoreWebView2 core, string? batchEvidence)
     {
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Progetti').click()");
-        await RequireAsync(core, "document.querySelector('.project-table tbody th')?.textContent.includes('Avatar di prova')");
+        await RequireAsync(core, "document.querySelector('.project-table tbody')?.textContent.includes('Avatar di prova')");
         await core.ExecuteScriptAsync("""
             const search = document.querySelector('.project-tools input');
             Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(search, 'no-match');
@@ -340,8 +346,58 @@ internal static class Program
             Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(search, '');
             search.dispatchEvent(new Event('input', { bubbles: true }));
             """);
-        await RequireAsync(core, "document.querySelector('.project-actions button')?.textContent === 'Pacchetti'");
-        await core.ExecuteScriptAsync("document.querySelector('.project-actions button').click()");
+        await RequireAsync(core, "document.querySelectorAll('.project-select input').length === 2");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.project-select input')).forEach(x => x.click())");
+        await RequireAsync(core, "document.querySelector('.batch-actions button')?.textContent.includes('2 selezionati')");
+        await core.ExecuteScriptAsync("document.querySelector('.batch-actions button').click()");
+        await RequireAsync(core, "document.querySelectorAll('.batch-targets li').length === 2");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.project-table button')).find(x => x.textContent === 'Rimuovi').click()");
+        await RequireAsync(core, "document.querySelector('.view .extras')?.textContent.includes('example.fixture · Da rimuovere')");
+        await core.ExecuteScriptAsync("""
+            document.querySelector('.batch-package-targets summary').click();
+            Array.from(document.querySelectorAll('.batch-package-targets label')).find(x => x.textContent.includes('Secondo avatar'))
+              .querySelector('input').click();
+            """);
+        await RequireAsync(core, "document.querySelector('.batch-package-targets summary')?.textContent.includes('1 / 2')");
+        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === 'Rivedi modifiche').click()");
+        await RequireAsync(core, """
+            (() => {
+              const rows = Array.from(document.querySelectorAll('[aria-label="Riepilogo pacchetti"] h3'));
+              return rows.some(x => x.textContent === 'Avatar di prova' && x.parentElement.textContent.includes('example.fixture · Da rimuovere'))
+                && rows.some(x => x.textContent === 'Secondo avatar' && x.parentElement.textContent.includes('Nessuna modifica.'));
+            })()
+            """);
+        if (batchEvidence is not null)
+        {
+            var workspace = Path.Combine(batchEvidence, "candidate-projects");
+            var changed = Path.Combine(workspace, "Avatar di prova", "Packages", "vpm-manifest.json");
+            var unchanged = Path.Combine(workspace, "Secondo avatar", "Packages", "vpm-manifest.json");
+            var unchangedBefore = await File.ReadAllTextAsync(unchanged);
+            using (var preview = File.Create(Path.Combine(batchEvidence, "batch-review-720.png")))
+                await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, preview);
+            await core.ExecuteScriptAsync("document.querySelector('.view .extras button.primary').click()");
+            await RequireAsync(core, """
+                (() => {
+                  const rows = Array.from(document.querySelectorAll('[aria-live="polite"] .package'));
+                  return rows.some(x => x.textContent.includes('Avatar di prova') && x.textContent.includes('Completato'))
+                    && rows.some(x => x.textContent.includes('Secondo avatar') && x.textContent.includes('Nessuna modifica.'));
+                })()
+                """, attempts: 360);
+            if ((await File.ReadAllTextAsync(changed)).Contains("example.fixture", StringComparison.Ordinal) ||
+                unchangedBefore != await File.ReadAllTextAsync(unchanged))
+                throw new IOException("Batch apply did not update only the intended manifest.");
+            await AtomicFile.WriteJsonAsync(Path.Combine(batchEvidence, "batch-packages.json"),
+                new { Passed = true, Changed = "Avatar di prova", Unchanged = "Secondo avatar", PerPackageSelection = true,
+                    ReviewedAndAppliedThroughReact = true });
+            return;
+        }
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await RequireAsync(core, "document.querySelector('.batch-actions') !== null");
+        await core.ExecuteScriptAsync("""
+            Array.from(document.querySelectorAll('.batch-actions button')).find(x => x.textContent === 'Deseleziona').click();
+            Array.from(document.querySelectorAll('.project-table tbody tr')).find(x => x.textContent.includes('Avatar di prova'))
+              .querySelector('.project-actions button').click();
+            """);
         await RequireAsync(core, "document.querySelector('.view').textContent.includes('Mancante')");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.view button')).find(x => x.textContent === 'Ripristina pacchetti').click()");
         await RequireAsync(core, "document.querySelector('.view .extras')?.textContent.includes('1.0.0')");
@@ -500,9 +556,9 @@ internal static class Program
         await RequireAsync(core, "document.querySelector('#language')?.value === 'en'");
     }
 
-    private static async Task RequireAsync(CoreWebView2 core, string condition)
+    private static async Task RequireAsync(CoreWebView2 core, string condition, int attempts = 30)
     {
-        for (var attempt = 0; attempt < 30; ++attempt)
+        for (var attempt = 0; attempt < attempts; ++attempt)
         {
             if (await core.ExecuteScriptAsync(condition) == "true") return;
             await Task.Delay(50);

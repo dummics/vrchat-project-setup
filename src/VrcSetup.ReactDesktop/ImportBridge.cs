@@ -20,6 +20,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private OperationPlan? reviewed;
     private string? continuationId;
     private OperationPlan? packageReview;
+    private ProjectPackageTarget[] packageReviewTargets = [];
     private OperationPlan? newProjectReview;
     private AppConfiguration? preferencesBaseline;
     private SourceDraft[] initial = [];
@@ -197,7 +198,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     chosenProjects.Add(pickedPath);
                 }
                 packageReview = null;
-                return await ReadProjectPackages(pickedPath, token);
+                return await ReadProjectPackages([pickedPath], token);
             case "reviewNewProject":
                 newProjectReview = null;
                 var creation = data.Deserialize<NewProjectChoice>(Json) ?? throw new ArgumentException(UiText.Text("Choose a name and platform."));
@@ -323,7 +324,10 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return true;
             case "projectPackages":
                 packageReview = null;
-                return await ReadProjectPackages(data.GetString(), token);
+                return await ReadProjectPackages([data.GetString() ?? ""], token);
+            case "batchProjectPackages":
+                packageReview = null;
+                return await ReadProjectPackages(data.Deserialize<string[]>(Json) ?? [], token);
             case "searchProjectPackages":
                 var query = data.GetString()?.Trim();
                 if (string.IsNullOrWhiteSpace(query)) return Array.Empty<object>();
@@ -335,25 +339,44 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             case "reviewProjectPackages":
                 packageReview = null;
                 var edit = data.Deserialize<ProjectPackageEdit>(Json) ?? throw new ArgumentException(UiText.Text("Choose the packages."));
-                var editPath = await ProjectPath(edit.Path, token);
-                EnsureProjectIdle(editPath);
-                var snapshot = await engine.Projects.ReadAsync(editPath, token);
-                if (snapshot.Incomplete) throw new IOException(UiText.Text("Finish the import before changing its packages."));
-                if (edit.Fingerprint != snapshot.Fingerprint) throw new IOException(UiText.Text("The project changed. Reopen Packages to refresh the list."));
+                var editPaths = await ProjectPaths(edit.Targets.Keys, token);
+                var reviewedTargets = new List<ProjectPackageTarget>();
+                foreach (var path in editPaths)
+                {
+                    EnsureProjectIdle(path);
+                    var snapshot = await engine.Projects.ReadAsync(path, token);
+                    if (snapshot.Incomplete) throw new IOException(UiText.Text("Finish the import before changing its packages."));
+                    if (edit.Targets.GetValueOrDefault(path) != snapshot.Fingerprint)
+                        throw new IOException(UiText.Text("The project changed. Reopen Packages to refresh the list."));
+                    reviewedTargets.Add(new(snapshot.Name, path));
+                }
+                var requested = edit.Selected.Keys.Concat(edit.Removed).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                var packageTargets = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+                foreach (var id in requested)
+                {
+                    var paths = edit.PackageTargets is null ? editPaths : edit.PackageTargets.GetValueOrDefault(id);
+                    if (paths is null || paths.Length == 0 || paths.Any(path => !editPaths.Contains(path, StringComparer.OrdinalIgnoreCase)))
+                        throw new ArgumentException(UiText.Text("Choose the projects for each package."));
+                    packageTargets.Add(id, paths);
+                }
+                var targetedPaths = packageTargets.Values.SelectMany(paths => paths).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var configuration = await engine.Configuration.LoadAsync(token);
-                var proposed = await engine.Planner.PlanBulkAsync([editPath], edit.Selected, configuration,
-                    remove: edit.Removed, cancellationToken: token);
-                if (proposed.Projects.Single().ExpectedFingerprint != edit.Fingerprint)
+                var proposed = await engine.Planner.PlanBulkAsync(editPaths.Where(targetedPaths.Contains), edit.Selected, configuration,
+                    remove: edit.Removed, packageTargets: packageTargets, cancellationToken: token);
+                if (proposed.Projects.Any(project => project.ExpectedFingerprint != edit.Targets.GetValueOrDefault(project.Path)))
                     throw new IOException(UiText.Text("The project changed. Reopen Packages to refresh the list."));
                 packageReview = proposed;
-                return SummarizePackageReview(proposed);
+                packageReviewTargets = reviewedTargets.ToArray();
+                return SummarizePackageReview(proposed, packageReviewTargets);
             case "reviewPackageRestore":
                 packageReview = null;
                 var restorePath = await ProjectPath(data.GetString(), token);
                 EnsureProjectIdle(restorePath);
                 if (engine.Projects.IsBusy(restorePath)) throw new IOException(UiText.Text("Close Unity before restoring packages."));
                 packageReview = await engine.Planner.PlanPackageReinstallAsync(restorePath, token);
-                return SummarizePackageReview(packageReview);
+                var restoreProject = packageReview.Projects.Single();
+                packageReviewTargets = [new(restoreProject.Name, restorePath)];
+                return SummarizePackageReview(packageReview, packageReviewTargets);
             case "applyProjectPackages":
                 var approval = data.Deserialize<PackageApproval>(Json);
                 if (packageReview is not { } acceptedPackages || approval?.Id != acceptedPackages.Id)
@@ -361,14 +384,27 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 if (PackageDowngrades.RequiresConfirmation(acceptedPackages) && !approval.AcceptRisk)
                     throw new IOException(UiText.Text("Confirm installing older versions."));
                 packageReview = null;
-                var reviewedProject = acceptedPackages.Projects.Single();
-                var reviewedPath = await ProjectPath(reviewedProject.Path, token);
-                EnsureProjectIdle(reviewedPath);
-                if (reviewedProject.ReinstallLockedPackages && engine.Projects.IsBusy(reviewedPath))
-                    throw new IOException(UiText.Text("Close Unity before restoring packages."));
-                if ((await engine.Projects.ReadAsync(reviewedPath, token)).Incomplete)
-                    throw new IOException(UiText.Text("Finish the import before changing its packages."));
+                var approvedTargets = packageReviewTargets;
+                foreach (var reviewedProject in acceptedPackages.Projects)
+                {
+                    var reviewedPath = await ProjectPath(reviewedProject.Path, token);
+                    EnsureProjectIdle(reviewedPath);
+                    if (reviewedProject.ReinstallLockedPackages && engine.Projects.IsBusy(reviewedPath))
+                        throw new IOException(UiText.Text("Close Unity before restoring packages."));
+                    if ((await engine.Projects.ReadAsync(reviewedPath, token)).Incomplete)
+                        throw new IOException(UiText.Text("Finish the import before changing its packages."));
+                }
                 var outcome = await Task.Run(() => engine.ApplyAsync(acceptedPackages, cancellationToken: token), token);
+                if (approvedTargets.Length > 1)
+                {
+                    var applied = outcome.Results.ToDictionary(item => item.Path, StringComparer.OrdinalIgnoreCase);
+                    var skipped = outcome.NotProcessed.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    return new { results = approvedTargets.Select(target => applied.TryGetValue(target.Path, out var item)
+                        ? new BatchResult(item.Project, item.Path, item.Status.ToString(),
+                            item.Status is OperationStatus.Failed or OperationStatus.CompletedWithWarnings
+                                ? UserErrors.Message(new IOException(item.Message)) : null)
+                        : new BatchResult(target.Name, target.Path, skipped.Contains(target.Path) ? "Skipped" : "Unchanged", null)) };
+                }
                 var result = outcome.Results.FirstOrDefault();
                 if (!outcome.Success) throw new IOException(result?.Message ?? UiText.Text("Could not change the packages. Open the log in Activity."));
                 return new { warning = result?.Status == OperationStatus.CompletedWithWarnings ? UserErrors.Message(new IOException(result.Message)) : null };
@@ -496,17 +532,25 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         })
     };
 
-    private static object SummarizePackageReview(OperationPlan plan)
+    private static object SummarizePackageReview(OperationPlan plan, ProjectPackageTarget[] targets)
     {
-        var project = plan.Projects.Single();
+        var byPath = plan.Projects.ToDictionary(project => project.Path, StringComparer.OrdinalIgnoreCase);
         return new
         {
-            plan.Id, Restore = project.ReinstallLockedPackages,
+            plan.Id, Restore = plan.Projects.All(project => project.ReinstallLockedPackages),
             RiskyDowngrade = PackageDowngrades.RequiresConfirmation(plan),
-            packages = project.Changes
-                .Where(x => project.ReinstallLockedPackages || x.Kind != ChangeKind.Keep)
-                .Select(x => new { x.Id, Name = PackageCatalog.FriendlyName(x.Id), Before = x.InstalledVersion,
-                    Version = x.ResolvedVersion, Kind = x.Kind.ToString() })
+            projects = targets.Select(target =>
+            {
+                var project = byPath.GetValueOrDefault(target.Path);
+                return new
+                {
+                    target.Name, target.Path,
+                    packages = (project?.Changes ?? [])
+                        .Where(x => project?.ReinstallLockedPackages == true || x.Kind != ChangeKind.Keep)
+                        .Select(x => new { x.Id, Name = PackageCatalog.FriendlyName(x.Id), Before = x.InstalledVersion,
+                            Version = x.ResolvedVersion, Kind = x.Kind.ToString() })
+                };
+            })
         };
     }
 
@@ -553,25 +597,41 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             throw new IOException(UiText.Text("Wait for the import to finish."));
     }
 
-    private async Task<object> ReadProjectPackages(string? path, CancellationToken token)
+    private async Task<string[]> ProjectPaths(IEnumerable<string> paths, CancellationToken token)
     {
-        var projectPath = await ProjectPath(path, token);
-        EnsureProjectIdle(projectPath);
-        var project = await engine.Projects.ReadAsync(projectPath, token);
+        var verified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths) verified.Add(await ProjectPath(path, token));
+        if (verified.Count == 0) throw new ArgumentException(UiText.Text("Select a project."));
+        return verified.ToArray();
+    }
+
+    private async Task<object> ReadProjectPackages(string[] paths, CancellationToken token)
+    {
+        var projects = new List<ProjectSnapshot>();
+        foreach (var path in await ProjectPaths(paths, token))
+        {
+            EnsureProjectIdle(path);
+            projects.Add(await engine.Projects.ReadAsync(path, token));
+        }
         var config = await engine.Configuration.LoadAsync(token);
-        var required = ProjectRules.Foundation(project.Packages, config).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var required = projects.SelectMany(project => ProjectRules.Foundation(project.Packages, config)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var single = projects.Count == 1 ? projects[0] : null;
         return new
         {
-            project.Path, project.Name, project.Fingerprint, CanEdit = !project.Incomplete,
-            CanRestore = !project.Incomplete && PackagePresence.Selection(project.LockedPackages).Count > 0,
-            packages = PackagePresence.Selection(project.LockedPackages).Keys
+            Path = single?.Path, Name = single?.Name, Targets = projects.Select(project => new { project.Name, project.Path, project.Fingerprint }),
+            CanEdit = projects.All(project => !project.Incomplete),
+            CanRestore = single is { Incomplete: false } && PackagePresence.Selection(single.LockedPackages).Count > 0,
+            packages = projects.SelectMany(project => PackagePresence.Selection(project.LockedPackages).Keys
                 .Union(PackagePresence.Selection(project.Packages).Keys, StringComparer.OrdinalIgnoreCase)
-                .Union(PackagePresence.Selection(project.InstalledVersions).Keys, StringComparer.OrdinalIgnoreCase)
+                .Union(PackagePresence.Selection(project.InstalledVersions).Keys, StringComparer.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Select(id => new
                 {
-                    id, Name = project.PackageDisplayNames.GetValueOrDefault(id) ?? PackageCatalog.FriendlyName(id),
-                    Installed = project.InstalledVersions.GetValueOrDefault(id),
-                    Locked = project.LockedPackages.GetValueOrDefault(id),
+                    id, Name = projects.Select(project => project.PackageDisplayNames.GetValueOrDefault(id))
+                        .FirstOrDefault(name => name is not null) ?? PackageCatalog.FriendlyName(id),
+                    Installed = single?.InstalledVersions.GetValueOrDefault(id),
+                    Locked = single?.LockedPackages.GetValueOrDefault(id),
+                    InstalledCount = projects.Count(project => project.InstalledVersions.ContainsKey(id)),
                     Required = required.Contains(id)
                 }).OrderBy(x => x.Name).ToArray()
         };
@@ -815,16 +875,29 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     "com.vrchat.base": {"version":"3.10.6"},
                     "com.vrchat.core.vpm-resolver": {"version":"0.1.29"}
                 },
-                "locked": {"example.fixture":{"version":"1.0.0"}}
+                "locked": {
+                    "example.fixture":{"version":"1.0.0","dependencies":{}},
+                    "com.vrchat.base":{"version":"3.10.6","dependencies":{}},
+                    "com.vrchat.core.vpm-resolver":{"version":"0.1.29","dependencies":{}}
+                }
             }
             """);
-        foreach (var (id, version) in new[] { (ProjectRules.BaseSdk, "3.10.6"), (ProjectRules.Resolver, "0.1.29") })
-        {
-            var packagePath = Path.Combine(project, "Packages", id);
-            Directory.CreateDirectory(packagePath);
-            await File.WriteAllTextAsync(Path.Combine(packagePath, "package.json"),
-                JsonSerializer.Serialize(new { name = id, version }, Json));
-        }
+        var secondProject = Path.Combine(candidateProjects, "Secondo avatar");
+        Directory.CreateDirectory(Path.Combine(secondProject, "Assets"));
+        Directory.CreateDirectory(Path.Combine(secondProject, "Packages"));
+        Directory.CreateDirectory(Path.Combine(secondProject, "ProjectSettings"));
+        File.Copy(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"),
+            Path.Combine(secondProject, "ProjectSettings", "ProjectVersion.txt"));
+        File.Copy(Path.Combine(project, "Packages", "vpm-manifest.json"),
+            Path.Combine(secondProject, "Packages", "vpm-manifest.json"));
+        foreach (var fixture in new[] { project, secondProject })
+            foreach (var (id, version) in new[] { (ProjectRules.BaseSdk, "3.10.6"), (ProjectRules.Resolver, "0.1.29") })
+            {
+                var packagePath = Path.Combine(fixture, "Packages", id);
+                Directory.CreateDirectory(packagePath);
+                await File.WriteAllTextAsync(Path.Combine(packagePath, "package.json"),
+                    JsonSerializer.Serialize(new { name = id, version }, Json));
+            }
         var source = new CreationRequest(inputs[0], "Avatar di prova", project, "", "Android", ["Android"], []);
         var plan = new OperationPlan("smoke-compilation", DateTime.UtcNow,
             [new() { Path = project, Name = source.Name, DesiredPolicy = new Dictionary<string, string>(), Changes = [], ExpectedFingerprint = "" }]);
@@ -905,7 +978,10 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         bool CheckUpdatesOnStartup, bool AutomaticUpdates, bool IncludeBetaUpdates, bool IncludeAlphaUpdates,
         string UnityEditorPath, string UnityProjectsRoot, string? UnityPackagesFolder, AppearancePreferences? Appearance,
         string? PreferenceLanguage);
-    private sealed record ProjectPackageEdit(string Path, string Fingerprint, Dictionary<string, string> Selected, string[] Removed);
+    private sealed record ProjectPackageEdit(Dictionary<string, string> Targets, Dictionary<string, string> Selected, string[] Removed,
+        Dictionary<string, string[]>? PackageTargets);
+    private sealed record ProjectPackageTarget(string Name, string Path);
+    private sealed record BatchResult(string Name, string Path, string Status, string? Message);
     private sealed record PackageApproval(string Id, bool AcceptRisk);
     private sealed record PresetEdit(string Revision, string Action, string? Name,
         string? NewName, Dictionary<string, string>? Packages, string? Package);

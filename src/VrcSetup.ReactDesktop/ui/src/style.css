@@ -10,6 +10,13 @@ main{height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;margi
 .project-table tbody th{width:50%;overflow-wrap:anywhere}
 .project-table small{display:block;margin-top:4px;color:var(--muted);font-weight:400}
 .project-table td:last-child{text-align:right}
+.project-table .project-select{width:1%;padding-inline:4px}
+.project-select input{margin:0;accent-color:var(--accent)}
+.batch-actions{margin-block:10px}
+.batch-targets{display:flex;flex-wrap:wrap;gap:6px 18px;padding:0;list-style:none;color:var(--muted)}
+.batch-package-targets{margin-bottom:10px}
+.batch-package-targets summary{cursor:pointer;color:var(--muted)}
+.batch-package-targets .batch-targets{margin-top:8px}
 .open-indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:#6cce8a}
 .jobs .actions{flex-wrap:wrap}
 .jobs p{color:var(--muted);margin:12px 0}

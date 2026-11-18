@@ -52,8 +52,8 @@ recorded by the installer, or its own `data/` in portable mode.
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
 | Import | Six archives, Quest name and prefab-path detection, version review, queue and real Unity import from React. Recovery planner validates relocated sources against the original bytes | Explorer drop, native relocation picker, existing destination recovery, pause/resume, owned-project cancellation and Creator Companion in an installed fixture |
-| Projects | Discovery, search and invalid name validation on an isolated Unity folder | Verify folder picker, create using installed Unity, opening and live editor indicator, batch and project options, external registrations |
-| Project packages | Read installed/locked versions, review restore and removal, protect required packages. Real vrc-get restored damaged locked SDK metadata via the React UI and preserved an imported asset | Exercise catalog and package edits from React with a real repository and validate Unity-open behavior |
+| Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders | Verify folder picker, create using installed Unity, opening and live editor indicator, project options and external registrations |
+| Project packages | Read installed/locked versions, review restore and removal, protect required packages. Real vrc-get restored damaged locked SDK metadata. Batch review and apply use per-package targets and show results by project; an unselected project with the same package was left untouched | Exercise catalog and add/update/downgrade from React with a real repository, validate Unity-open behavior and exercise partial batch failures |
 | Activity | Import and package operation history, per-project details, inline logs, and diagnostic ZIP containing the operation report and log | Native Save picker and multi-project failure presentation |
 | Settings | Import preferences, independent alpha opt-in, migrated Unity paths, themes and custom colors, quick help and version label. React applies the 0.3.7 language and appearance on startup. Italian and English switch without restart | Native pickers and edits, color picker interaction, live feed and preparation, review translated errors in native failure flows |
 | Presets | Select a saved preset during import, create and rename in the library, reopen and read saved state | Verify catalog browsing, pins, favourites, delete, unsaved edits and portable sharing flows |
@@ -62,6 +62,10 @@ recorded by the installer, or its own `data/` in portable mode.
 Run the offscreen `--smoke` with a fresh directory. It seeds the journal and
 Unity folder in that directory, exercises the React UI, and records
 `result.json`. The smoke uses no live Unity editor or project.
+
+With the bundled package tool available, run `--verify-batch-packages <fresh-path>`
+to remove a fixture package from one of two projects through the React review.
+The verifier checks both UI outcomes and that the other manifest is unchanged.
 
 For a real Unity/VPM test, launch the built React executable with
 `--verify-unity-workflow <fresh-short-path> <Unity.exe>`. It creates the

@@ -55,6 +55,7 @@
   "The selected folder is unavailable.": "La cartella selezionata non è disponibile.",
   "Set up the projects folder before continuing.": "Configura la cartella dei progetti prima di continuare.",
   "Select a project.": "Scegli un progetto.",
+  "Choose the projects for each package.": "Scegli i progetti per ogni pacchetto.",
   "The projects folder is unavailable.": "La cartella dei progetti non è disponibile.",
   "Wait for the import to finish.": "Attendi la fine dell’importazione.",
   "This import cannot be cancelled.": "Non è possibile annullare questa importazione.",

@@ -101,6 +101,7 @@ function ImportPage() {
   const [presetLibrary, setPresetLibrary] = useState<PresetLibrary>();
   const [presetDirty, setPresetDirty] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [projectPackages, setProjectPackages] = useState<ProjectPackageList>();
   const [newProject, setNewProject] = useState<{ name: string; target: string; preset: string }>();
@@ -175,7 +176,10 @@ function ImportPage() {
 
   function showProjects() {
     void run('Ricerca progetti…', async () => {
-      setProjects(await request<Project[]>('projects'));
+      const refreshed = await request<Project[]>('projects');
+      setProjects(refreshed);
+      setSelectedPaths(current => current.filter(path => refreshed.some(project =>
+        project.path === path && !project.importing && !project.incomplete)));
       setScreen('projects');
     });
   }
@@ -206,9 +210,9 @@ function ImportPage() {
     });
   }
 
-  function showProjectPackages(path: string) {
+  function showProjectPackages(path: string | string[]) {
     void run('Lettura pacchetti…', async () => {
-      setProjectPackages(await request<ProjectPackageList>('projectPackages', path));
+      setProjectPackages(await request<ProjectPackageList>(typeof path === 'string' ? 'projectPackages' : 'batchProjectPackages', path));
       setPackageBack(screen === 'import' ? 'import' : 'projects');
       setNotice('');
       setScreen('project-packages');
@@ -223,7 +227,7 @@ function ImportPage() {
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
     onDrop={event => { event.preventDefault(); setDragging(false); stage([...event.dataTransfer.files]); }}>
     <header><div><span className="brand">VRC Project Setup</span><h1>{screen === 'projects' ? t("Progetti") : screen === 'activity' ? t("Attività") : screen === 'settings' ? t("Impostazioni") : screen === 'presets' ? 'Preset' :
-      screen === 'project-packages' ? projectPackages?.name : panel === 'packages' ? t("Pacchetti") : panel === 'preset' ? t("Scegli un preset") : t("Importa")}</h1></div>
+      screen === 'project-packages' ? projectPackages?.name ?? t("Pacchetti dei progetti") : panel === 'packages' ? t("Pacchetti") : panel === 'preset' ? t("Scegli un preset") : t("Importa")}</h1></div>
       {screen !== 'import' ? <button disabled={!!busy || screen === 'presets' && presetDirty} onClick={() => {
         if (screen === 'project-packages') { setNotice(''); setScreen(packageBack); }
         else { setNotice(''); setNewProject(undefined); setNewProjectReview(undefined); setScreen('import'); }
@@ -336,6 +340,12 @@ function ImportPage() {
         })}>{t("Apri progetto esistente")}</button>
         <button disabled={!!busy || !!newProject} onClick={() => setNewProject({ name: '', target: 'StandaloneWindows64', preset: '' })}>{t("Nuovo progetto")}</button>
       </div>
+      {selectedPaths.length > 0 && <div className="actions batch-actions">
+        <button className="primary" disabled={!!busy} onClick={() => showProjectPackages(selectedPaths.length === 1 ? selectedPaths[0] : selectedPaths)}>
+          {t("Gestisci pacchetti · {count} selezionati", { count: selectedPaths.length })}
+        </button>
+        <button disabled={!!busy} onClick={() => setSelectedPaths([])}>{t("Deseleziona")}</button>
+      </div>}
       {newProject && <section className="extras settings">
         <h2>{t("Nuovo progetto")}</h2>
         {newProjectReview ? <>
@@ -370,10 +380,16 @@ function ImportPage() {
         </form>}
       </section>}
       {visibleProjects.length ? <table className="project-table">
-        <thead><tr><th><button onClick={() => setSort('name')}>{t("Nome")}</button></th>
+        <thead><tr><th className="project-select" scope="col" aria-label={t("Selezione")} /><th><button onClick={() => setSort('name')}>{t("Nome")}</button></th>
           <th><button onClick={() => setSort('lastUpdatedUtc')}>{t("Modifica")}</button></th>
           <th><button onClick={() => setSort('createdUtc')}>{t("Creazione")}</button></th><th scope="col" aria-label={t("Azioni")} /></tr></thead>
         <tbody>{visibleProjects.map(project => <tr key={project.path}>
+          <td className="project-select">
+            {!project.importing && !project.incomplete && <input type="checkbox" checked={selectedPaths.includes(project.path)}
+              disabled={!!busy} aria-label={t("Seleziona {name}", { name: project.name })}
+              onChange={event => setSelectedPaths(current => event.target.checked
+                ? [...current, project.path] : current.filter(path => path !== project.path))} />}
+          </td>
           <th scope="row">{project.open && <span className="open-indicator" role="img" aria-label={t("Aperto in Unity")} title={t("Aperto in Unity")} />}{project.name}<small>{project.unityVersion} · {project.path}</small></th>
           <td>{date.format(new Date(project.lastUpdatedUtc))}</td><td>{date.format(new Date(project.createdUtc))}</td>
           <td>{project.importing ? t("In importazione") : <div className="actions project-actions">
