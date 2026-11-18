@@ -18,6 +18,8 @@
   "Wait for the import to stop.": "Attendi che l’importazione si fermi.",
   "Choose a Unity project": "Scegli un progetto Unity",
   "Choose a project folder.": "Scegli una cartella di progetto.",
+  "Choose a Unity project folder containing Assets and Packages.": "Scegli la cartella del progetto Unity, quella che contiene Assets e Packages.",
+  "Choose a sort column.": "Scegli una colonna per ordinare i progetti.",
   "Choose a name and platform.": "Scegli un nome e una piattaforma.",
   "That name is already in use. Choose another name or open the project from the list.": "Il nome è già in uso. Scegli un nome diverso o apri il progetto dall’elenco.",
   "Review the new project first.": "Rivedi il nuovo progetto.",

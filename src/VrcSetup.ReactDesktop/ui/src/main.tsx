@@ -128,7 +128,7 @@ function ImportPage() {
   const [maintenanceAction, setMaintenanceAction] = useState<Maintenance>();
   const [update, setUpdate] = useState<UpdateView>();
   const [filter, setFilter] = useState('');
-  const [sort, setSort] = useState<'name' | 'lastUpdatedUtc' | 'createdUtc'>('lastUpdatedUtc');
+  const [sort, setSort] = useState('recent');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [manualPath, setManualPath] = useState('');
@@ -209,10 +209,11 @@ function ImportPage() {
     setDrafts(current => current.map(draft => draft.id === activeId ? { ...draft, ...change } : draft));
   }
 
-  function showProjects() {
+  function showProjects(column?: 'name' | 'modified' | 'created') {
     void run('Ricerca progetti…', async () => {
-      const refreshed = await request<Project[]>('projects');
+      const { items: refreshed, sort } = await request<{ items: Project[]; sort: string }>(column ? 'sortProjects' : 'projects', column);
       setProjects(refreshed);
+      setSort(sort);
       setSelectedPaths(current => current.filter(path => refreshed.some(project =>
         project.path === path && !project.importing && !project.incomplete)));
       setScreen('projects');
@@ -254,8 +255,12 @@ function ImportPage() {
     });
   }
 
-  const visibleProjects = projects.filter(project => project.name.toLocaleLowerCase(locale).includes(filter.toLocaleLowerCase(locale)))
-    .sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name, locale) : b[sort].localeCompare(a[sort]));
+  const visibleProjects = projects.filter(project => project.name.toLocaleLowerCase(locale).includes(filter.toLocaleLowerCase(locale)));
+  const sortColumns = [
+    { id: 'name', label: t("Nome") },
+    { id: 'modified', label: t("Modifica") },
+    { id: 'created', label: t("Creazione") }
+  ] as const;
   const date = new Intl.DateTimeFormat(locale === 'it' ? 'it-IT' : 'en-GB');
 
   return <Locale.Provider value={locale}><main data-ready={!!state} className={dragging ? 'dragging' : ''} onDragOver={event => { event.preventDefault(); setDragging(true); }}
@@ -267,7 +272,7 @@ function ImportPage() {
         if (screen === 'project-packages') { setNotice(''); setScreen(packageBack); }
         else { setNotice(''); setNewProject(undefined); setNewProjectReview(undefined); setNewProjectLibrary(undefined); setScreen('import'); }
       }}>{screen === 'project-packages' && packageBack === 'projects' ? t("← Progetti") : t("← Importa")}</button> :
-        panel === 'import' ? <div className="actions"><button disabled={!!busy || !state || !!review} onClick={showProjects}>{t("Progetti")}</button>
+        panel === 'import' ? <div className="actions"><button disabled={!!busy || !state || !!review} onClick={() => showProjects()}>{t("Progetti")}</button>
           <button disabled={!!busy || !state || !!review} onClick={showActivity}>{t("Attività")}</button>
           <button disabled={!!busy || !state || !!review} onClick={showPresets}>Preset</button>
           <button disabled={!!busy || !state || !!review} onClick={showSettings}>{t("Impostazioni")}</button>
@@ -451,7 +456,7 @@ function ImportPage() {
         onExported={() => setNotice(t("Diagnostica esportata."))} />
     </section> : screen === 'projects' ? <section className="view" key="projects">
       <div className="actions project-tools"><input aria-label={t("Cerca progetti")} placeholder={t("Cerca progetti")} value={filter} onChange={event => setFilter(event.target.value)} />
-        <button disabled={!!busy} onClick={showProjects}>{t("Aggiorna")}</button>
+        <button disabled={!!busy} onClick={() => showProjects()}>{t("Aggiorna")}</button>
         <button disabled={!!busy || !!newProject} onClick={() => void run(t("Apertura progetto…"), async () => {
           const project = await request<ProjectPackageList | false>('pickExistingProject');
           if (project) { setProjectPackages(project); setPackageBack('projects'); setScreen('project-packages'); }
@@ -517,9 +522,15 @@ function ImportPage() {
         </>}
       </section>}
       {visibleProjects.length ? <table className="project-table">
-        <thead><tr><th className="project-select" scope="col" aria-label={t("Selezione")} /><th><button onClick={() => setSort('name')}>{t("Nome")}</button></th>
-          <th><button onClick={() => setSort('lastUpdatedUtc')}>{t("Modifica")}</button></th>
-          <th><button onClick={() => setSort('createdUtc')}>{t("Creazione")}</button></th><th scope="col" aria-label={t("Azioni")} /></tr></thead>
+        <thead><tr><th className="project-select" scope="col" aria-label={t("Selezione")} />
+          {sortColumns.map(({ id, label }) => {
+            const active = (sort === 'recent' ? 'modified' : sort).replace(/-reverse$/, '') === id;
+            const ascending = (id === 'name') !== sort.endsWith('-reverse');
+            return <th key={id} scope="col" aria-sort={active ? ascending ? 'ascending' : 'descending' : undefined}>
+              <button disabled={!!busy} onClick={() => showProjects(id)}>{label}{active && <span aria-hidden="true"> {ascending ? '↑' : '↓'}</span>}</button>
+            </th>;
+          })}
+          <th scope="col" aria-label={t("Azioni")} /></tr></thead>
         <tbody>{visibleProjects.map(project => <tr key={project.path}>
           <td className="project-select">
             {!project.importing && !project.incomplete && <input type="checkbox" checked={selectedPaths.includes(project.path)}

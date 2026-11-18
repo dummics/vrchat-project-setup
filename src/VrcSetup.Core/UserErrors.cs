@@ -85,6 +85,7 @@ public static class UserErrors
         "A package version is required after @." or "Choose a version or latest." => "Choose a package version or Latest version.",
         "Project name contains invalid Windows filename characters." => "Enter a valid name for the project.",
         "Select at least one project." => "Select a project to manage its packages.",
+        _ when message.StartsWith("Not a Unity project: ", StringComparison.Ordinal) => "Choose a Unity project folder containing Assets and Packages.",
         "Choose the projects folder in Settings first." => "Choose the projects folder in Settings before creating a project.",
         "This file is not a valid UnityPackage. Choose the original .unitypackage file." => message,
         "Unity could not import some project files. Open the log, fix the errors in Unity, then try again." => message,

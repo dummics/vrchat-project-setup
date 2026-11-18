@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -92,6 +93,10 @@ internal static class ReactNativePickerVerification
             AtomicFile.Hash(sentinel) != assetHash || !Directory.GetFiles(backups, "config-*.json").Any(file => AtomicFile.Hash(file) == changedConfig))
             throw new IOException("Restoring settings did not preserve the previous configuration and project files.");
 
+        const string fixturePreset = "Portable fixture";
+        var shareSettings = restored.Copy();
+        shareSettings.PackagePresets[fixturePreset] = new() { ["com.vrchat.avatars"] = "3.10.6" };
+        shareSettings = await engine.Configuration.MergeAsync(restored, shareSettings, token);
         const string back = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === '← Importa')";
         await Program.RequireAsync(core, back + "?.disabled === false");
         await core.ExecuteScriptAsync(back + ".click()");
@@ -100,6 +105,15 @@ internal static class ReactNativePickerVerification
         const string importPreset = "Array.from(document.querySelectorAll('.settings button')).find(button => button.textContent === 'Importa preset')";
         await Program.RequireAsync(core, presets + "?.disabled === false");
         await core.ExecuteScriptAsync(presets + ".click()");
+        const string presetChoice = "document.querySelector('select[aria-label=Preset]')";
+        await Program.RequireAsync(core, presetChoice + "?.disabled === false");
+        await core.ExecuteScriptAsync($$"""
+            (() => {
+              const preset = {{presetChoice}};
+              preset.value = {{JsonSerializer.Serialize(fixturePreset)}};
+              preset.dispatchEvent(new Event('change', { bubbles: true }));
+            })()
+            """);
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
         var presetFile = Path.Combine(folder, "preset condiviso.json");
         await OpenPickerAsync(exportPreset, null);
@@ -107,7 +121,9 @@ internal static class ReactNativePickerVerification
         await OpenPickerAsync(exportPreset, presetFile);
         await Program.RequireAsync(core, exportPreset + "?.disabled === false");
         var portable = PortablePreset.Read(await File.ReadAllTextAsync(presetFile, token));
-        var presetName = portable.AvailableName(restored.PackagePresets.Keys);
+        if (portable.Name != fixturePreset || portable.Packages.Count != 1 || portable.Packages.GetValueOrDefault("com.vrchat.avatars") != "3.10.6")
+            throw new IOException("The exported preset did not preserve its name and version pin.");
+        var presetName = portable.AvailableName(shareSettings.PackagePresets.Keys);
         var restoredHash = AtomicFile.Hash(engine.Paths.ConfigFile);
         await OpenPickerAsync(importPreset, presetFile);
         await Task.Run(() => CompletePresetConfirmationAsync(owner, thread, NoButton, token), token);
@@ -122,12 +138,61 @@ internal static class ReactNativePickerVerification
             packages.Count != portable.Packages.Count ||
             portable.Packages.Any(package => !packages.TryGetValue(package.Key, out var version) || version != package.Value))
             throw new IOException("The imported preset did not preserve the exported package choices.");
+
+        await MakeProjectAsync(Path.Combine(originalRoot, "AA sort fixture"), token);
+        await MakeProjectAsync(Path.Combine(originalRoot, "ZZ sort fixture"), token);
+        var external = Path.Combine(folder, "Progetto esterno");
+        var externalManifest = await MakeProjectAsync(external, token);
+        var externalHash = AtomicFile.Hash(externalManifest);
+        var ordered = imported.Copy();
+        ordered.ProjectLibrarySort = "name-reverse";
+        await engine.Configuration.MergeAsync(imported, ordered, token);
+
+        await core.ExecuteScriptAsync(back + ".click()");
+        const string projects = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Progetti')";
+        const string pickProject = "Array.from(document.querySelectorAll('.project-tools button')).find(button => button.textContent === 'Apri progetto esistente')";
+        const string rows = "document.querySelectorAll('.project-table tbody th')";
+        await Program.RequireAsync(core, projects + "?.disabled === false");
+        await core.ExecuteScriptAsync(projects + ".click()");
+        await Program.RequireAsync(core, rows + "[0]?.textContent.startsWith('ZZ sort fixture') && document.querySelector('th[aria-sort=descending]')?.textContent.startsWith('Nome')");
+        await core.ExecuteScriptAsync("document.querySelector('th[aria-sort=descending] button').click()");
+        await Program.RequireAsync(core, rows + "[0]?.textContent.startsWith('AA sort fixture') && document.querySelector('th[aria-sort]') === null");
+        if ((await engine.Configuration.LoadAsync(token)).ProjectLibrarySort != "default")
+            throw new IOException("Changing the Projects sort did not persist the selected order.");
+        await OpenPickerAsync(pickProject, null);
+        await Program.RequireAsync(core, pickProject + "?.disabled === false");
+        await OpenPickerAsync(pickProject, extras);
+        await Program.RequireAsync(core, footer + " === 'Scegli la cartella del progetto Unity, quella che contiene Assets e Packages.'");
+        await OpenPickerAsync(pickProject, external);
+        await Program.RequireAsync(core, "document.querySelector('h1')?.textContent === 'Progetto esterno' && document.querySelector('.project-table') === null", attempts: 400);
+        if (AtomicFile.Hash(externalManifest) != externalHash)
+            throw new IOException("Opening an existing project's packages modified its manifest.");
+
+        await core.ExecuteScriptAsync("document.querySelector('header button').click()");
+        await Program.RequireAsync(core, back + "?.disabled === false");
+        await core.ExecuteScriptAsync(back + ".click()");
+        const string activity = "Array.from(document.querySelectorAll('header button')).find(button => button.textContent === 'Attività')";
+        const string diagnostics = "Array.from(document.querySelectorAll('.activity button')).find(button => button.textContent === 'Esporta diagnostica')";
+        var diagnosticsPath = Path.Combine(folder, "diagnostica fixture.zip");
+        await Program.RequireAsync(core, activity + "?.disabled === false");
+        await core.ExecuteScriptAsync(activity + ".click()");
+        await Program.RequireAsync(core, diagnostics + "?.disabled === false");
+        await OpenPickerAsync(diagnostics, null);
+        await Program.RequireAsync(core, diagnostics + "?.disabled === false");
+        await OpenPickerAsync(diagnostics, diagnosticsPath);
+        await Program.RequireAsync(core, footer + " === 'Diagnostica esportata.'", attempts: 400);
+        using var zip = ZipFile.OpenRead(diagnosticsPath);
+        if (zip.GetEntry("VRC-Project-Setup.txt") is null || zip.GetEntry("Archive-contents.txt") is null)
+            throw new IOException("The native diagnostic export did not produce a valid support archive.");
+
         await AtomicFile.WriteJsonAsync(Path.Combine(folder, "react-native-picker.json"), new
         {
             Passed = true, NativeDialogCancelledWithoutDraft = true, SelectedArchiveStagedThroughReact = true,
             ProjectEditorAndExtrasPathsPersisted = true, CancelledRestorePreservedConfiguration = true,
             SettingsFileRestored = true, PriorConfigurationAndProjectFilesPreserved = true,
-            PortablePresetRoundTrip = true, DeclinedPresetPreservedConfiguration = true
+            PortablePresetRoundTrip = true, DeclinedPresetPreservedConfiguration = true,
+            ProjectSortReadAndPersisted = true, ExistingProjectSelectedWithoutChanges = true,
+            InvalidFolderShowsAnAction = true, DiagnosticsExported = true
         }, token);
 
         async Task SelectSettingAsync(string id, string previousPath, string path)
@@ -151,6 +216,17 @@ internal static class ReactNativePickerVerification
             await click;
             File.AppendAllText(trace, "WebView completed the picker request.\n");
         }
+    }
+
+    private static async Task<string> MakeProjectAsync(string path, CancellationToken token)
+    {
+        Directory.CreateDirectory(Path.Combine(path, "Assets"));
+        Directory.CreateDirectory(Path.Combine(path, "Packages"));
+        Directory.CreateDirectory(Path.Combine(path, "ProjectSettings"));
+        await File.WriteAllTextAsync(Path.Combine(path, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.22f1\n", token);
+        var manifest = Path.Combine(path, "Packages", "vpm-manifest.json");
+        await File.WriteAllTextAsync(manifest, """{"dependencies":{},"locked":{}}""", token);
+        return manifest;
     }
 
     private static async Task CompletePresetConfirmationAsync(nint owner, uint thread, int button, CancellationToken token)

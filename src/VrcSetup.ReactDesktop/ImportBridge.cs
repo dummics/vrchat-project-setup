@@ -227,7 +227,16 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 await OpenProject(import.ProjectPath, token);
                 return true;
             case "projects":
-                return await Projects(token);
+                return await ReadProjectLibraryAsync(token);
+            case "sortProjects":
+                var column = data.GetString();
+                if (column is not ("name" or "modified" or "created"))
+                    throw new ArgumentException(UiText.Text("Choose a sort column."));
+                var librarySettings = await engine.Configuration.LoadAsync(token);
+                var currentSort = librarySettings.ProjectLibrarySort == "recent" ? "modified" : librarySettings.ProjectLibrarySort;
+                var sortedSettings = librarySettings.Copy();
+                sortedSettings.ProjectLibrarySort = ProjectOrdering.Cycle(currentSort, column);
+                return await ReadProjectLibraryAsync(token, await engine.Configuration.MergeAsync(librarySettings, sortedSettings, token));
             case "reviewProjectBackup":
                 backupReview = null;
                 var backupProject = await ProjectPath(data.GetString(), token);
@@ -902,15 +911,22 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         return job.State.ToLowerInvariant();
     }
 
-    private async Task<CandidateProject[]> Projects(CancellationToken token)
+    private async Task<object> ReadProjectLibraryAsync(CancellationToken token, AppConfiguration? configuration = null)
     {
-        var root = ProjectRoot(await engine.Configuration.LoadAsync(token));
+        configuration ??= await engine.Configuration.LoadAsync(token);
+        return new { Sort = configuration.ProjectLibrarySort, Items = await Projects(token, configuration) };
+    }
+
+    private async Task<CandidateProject[]> Projects(CancellationToken token, AppConfiguration? configuration = null)
+    {
+        configuration ??= await engine.Configuration.LoadAsync(token);
+        var root = ProjectRoot(configuration);
         if (!Directory.Exists(root))
         {
             projectStatusPaths = [];
             return [];
         }
-        var projects = await engine.Projects.ScanAsync(root, cancellationToken: token);
+        var projects = await engine.Projects.ScanAsync(root, configuration.ProjectLibrarySort, cancellationToken: token);
         projectStatusPaths = projects.Select(project => project.Path).ToArray();
         var jobs = engine.Imports.Snapshot();
         return await Task.Run(() =>
