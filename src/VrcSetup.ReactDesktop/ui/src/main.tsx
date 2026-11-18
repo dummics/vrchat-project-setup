@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ProjectPackages, type ProjectPackageList } from './ProjectPackages';
 import { Presets, type PresetLibrary } from './Presets';
+import { AppearanceForm, type Appearance, type Palettes, useAppearance } from './appearance';
+import { Activity, type ActivityEntry } from './Activity';
+import { Help } from './Help';
 import './style.css';
 
 type Packages = Record<string, string>;
@@ -21,11 +24,11 @@ type Project = {
 type Review = { id: string; continuation: boolean; projects: {
   name: string; path: string; target?: string; packages: { id: string; name: string; version?: string }[]; removals: string[];
 }[] };
-type Activity = { id: string; name: string; date: string; kind: 'project' | 'import' | 'operation'; status: string };
 type ImportPreferences = {
   maxParallelImports: number; autoHideCompletedImports: boolean; checkUpdatesOnStartup: boolean;
   automaticUpdates: boolean; includeBetaUpdates: boolean; includeAlphaUpdates: boolean;
   canEditPaths: boolean; unityEditorPath: string; unityProjectsRoot: string; unityPackagesFolder?: string;
+  appearance: Appearance; palettes: Palettes;
 };
 const workspaceOptions = [
   ['unityProjectsRoot', 'projects', 'Cartella progetti'],
@@ -39,12 +42,7 @@ const updateOptions = [
   ['includeBetaUpdates', 'Includi le versioni beta'],
   ['includeAlphaUpdates', 'Includi le versioni alpha sperimentali']
 ] as const;
-const activityStatuses: Record<string, string> = {
-  completed: 'Completata', recovered: 'Completata', warning: 'Completata con avviso', failed: 'Non riuscita',
-  cancelled: 'Annullata', interrupted: 'Interrotta', paused: 'In pausa', queued: 'In coda', running: 'In corso',
-  pausing: 'Messa in pausa…', cancelling: 'Arresto in corso…'
-};
-type State = { root: string; packages: Packages; presets: Record<string, Packages>; jobs: Job[]; initial: Source[]; waitingForMemory: boolean };
+type State = { root: string; packages: Packages; presets: Record<string, Packages>; jobs: Job[]; initial: Source[]; waitingForMemory: boolean; appearance: Appearance; version: string };
 type Reply = { id: string; result?: unknown; error?: string };
 type Host = { postMessage(message: unknown): void; postMessageWithAdditionalObjects(message: unknown, files: File[]): void; addEventListener(type: 'message', callback: (event: MessageEvent<Reply>) => void): void };
 const host = (window as Window & { chrome?: { webview?: Host } }).chrome?.webview;
@@ -101,7 +99,7 @@ function ImportPage() {
   const [presetLibrary, setPresetLibrary] = useState<PresetLibrary>();
   const [presetDirty, setPresetDirty] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [activity, setActivity] = useState<Activity[]>([]);
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [projectPackages, setProjectPackages] = useState<ProjectPackageList>();
   const [newProject, setNewProject] = useState<{ name: string; target: string; preset: string }>();
   const [newProjectReview, setNewProjectReview] = useState<{ id: string; destination: string }>();
@@ -118,6 +116,7 @@ function ImportPage() {
   const [review, setReview] = useState<Review>();
   const [log, setLog] = useState<{ id: string; text: string }>();
   const active = drafts.find(draft => draft.id === activeId);
+  useAppearance(screen === 'settings' ? preferences?.appearance ?? state?.appearance : state?.appearance);
   useEffect(() => {
     void request<State>('state').then(value => {
       setState(value);
@@ -178,7 +177,7 @@ function ImportPage() {
 
   function showActivity() {
     void run('Lettura attività…', async () => {
-      setActivity(await request<Activity[]>('activity'));
+      setActivity(await request<ActivityEntry[]>('activity'));
       setLog(undefined);
       setScreen('activity');
     });
@@ -261,14 +260,19 @@ function ImportPage() {
               })}>Sfoglia</button>
             </div>)}
           </section>}
+          <AppearanceForm value={preferences.appearance} palettes={preferences.palettes} onChange={appearance => {
+            setPreferences({ ...preferences, appearance });
+            setNotice('');
+            setSettingsDirty(true);
+          }} />
           <label className="package">Nascondi importazioni completate
-            <input type="checkbox" checked={preferences.autoHideCompletedImports} onChange={event => {
+            <input id="hide-completed" type="checkbox" checked={preferences.autoHideCompletedImports} onChange={event => {
               setPreferences({ ...preferences, autoHideCompletedImports: event.target.checked }); setNotice(''); setSettingsDirty(true);
             }} />
           </label>
           <details><summary>Impostazioni avanzate</summary>
             <label className="package">Limite importazioni simultanee
-              <select value={preferences.maxParallelImports} onChange={event => {
+              <select id="import-limit" value={preferences.maxParallelImports} onChange={event => {
                 setPreferences({ ...preferences, maxParallelImports: Number(event.target.value) }); setNotice(''); setSettingsDirty(true);
               }}>
                 <option value={0}>Automatico</option>
@@ -301,20 +305,13 @@ function ImportPage() {
             onClick={() => void run('Avvio aggiornamento…', async () => { await request('applyUpdate'); })}>Aggiorna e riavvia</button>}
         </div>
       </section>}
+      <Help onReport={() => void run('Apertura assistenza…', async () => { await request('openSupport'); })} />
     </section> : screen === 'project-packages' && projectPackages ? <section className="view" key="project-packages">
       <ProjectPackages project={projectPackages} busy={!!busy} request={request} run={run}
         onApplied={(project, message) => { setProjectPackages(project); setNotice(message); }} />
     </section> : screen === 'activity' ? <section className="view activity" key="activity">
-      <div className="actions"><button disabled={!!busy} onClick={showActivity}>Aggiorna</button>
-        <button disabled={!!busy} onClick={() => void run('Esportazione…', async () => { await request('exportDiagnostics'); })}>Esporta diagnostica</button></div>
-      {activity.length ? activity.map(entry => <article key={entry.kind + entry.id}>
-        <div className="package"><strong>{entry.name}</strong><span>{activityStatuses[entry.status] ?? 'Da verificare'} · {date.format(new Date(entry.date))}</span></div>
-        <button disabled={!!busy} onClick={() => void run('Apertura log…', async () => {
-          if (entry.kind === 'operation') await request('openOperationLog', entry.id);
-          else setLog(log?.id === entry.id ? undefined : { id: entry.id, text: await request<string>('log', entry.id) });
-        })}>{log?.id === entry.id ? 'Chiudi log' : 'Apri log'}</button>
-        {log?.id === entry.id && <pre>{log.text}</pre>}
-      </article>) : <p>Nessuna attività registrata.</p>}
+      <Activity entries={activity} busy={!!busy} date={date} request={request} run={run} refresh={showActivity}
+        onExported={() => setNotice('Diagnostica esportata.')} />
     </section> : screen === 'projects' ? <section className="view" key="projects">
       <div className="actions project-tools"><input aria-label="Cerca progetti" placeholder="Cerca progetti" value={filter} onChange={event => setFilter(event.target.value)} />
         <button disabled={!!busy} onClick={showProjects}>Aggiorna</button>
@@ -475,6 +472,7 @@ function ImportPage() {
         {active && panel === 'import' && !review && state?.root &&
           <button className="primary" disabled={!!busy} onClick={() => void run('Preparazione…', async () => setReview(await request('review', drafts)))}>Rivedi e importa</button>}
       </div>}
+      {state && <span className="app-version" aria-label={`Versione ${state.version}`}>{state.version}</span>}
     </footer>
   </main>;
 }

@@ -14,6 +14,11 @@ main{height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;margi
 .jobs .actions{flex-wrap:wrap}
 .jobs p{color:var(--muted);margin:12px 0}
 .activity article{padding:10px 0;border-bottom:1px solid var(--line)}
+.activity-actions{display:flex;gap:8px;flex-wrap:wrap}
+.activity-detail{margin:12px 0;padding:4px 12px;background:var(--surface);border-radius:8px}
+.activity-detail .path{margin:0 0 12px}
+.activity-detail li{padding:3px 0}
+.activity-detail li span{color:var(--muted)}
 .project-actions{justify-content:flex-end;flex-wrap:wrap}
 .settings fieldset{border:0;padding:0;margin:0}
 .settings input[type=checkbox]{accent-color:var(--accent)}
@@ -25,3 +30,54 @@ header .actions{flex-wrap:wrap;justify-content:flex-end}
 .workspace-path { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem .65rem; margin-bottom: .85rem; }
 .workspace-path label { grid-column: 1 / -1; }
 .workspace-path input { min-width: 0; font: inherit; padding: .55rem .65rem; background: var(--surface); color: inherit; border: 1px solid var(--line); border-radius: .45rem; }
+
+:root {
+  --canvas: #181a1d;
+  --accent-text: #ffb472;
+  --on-accent: #17181b;
+  --foreground: #f6f1ec;
+  color: var(--foreground);
+  background: var(--canvas);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --foreground: #17181b;
+  --muted: #505662;
+}
+
+button:hover { background: color-mix(in srgb, var(--surface), var(--foreground) 9%); }
+.primary { color: var(--on-accent); }
+.primary:hover { background: var(--accent); }
+:is(button, input, select, summary):focus-visible { outline-color: var(--accent-text); }
+.drop span, .extras strong { color: var(--accent-text); }
+.editor .package input, pre { background: var(--canvas); }
+
+.appearance-settings { margin: 0 0 1.5rem; }
+.appearance-colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.appearance-colors label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.appearance-colors input {
+  width: 30px;
+  height: 26px;
+  flex: none;
+  padding: 2px;
+  cursor: pointer;
+}
+.help{margin-top:24px}
+.help details{margin:0;border:0;border-top:1px solid var(--line);padding:12px 0}
+.help p{color:var(--muted);max-width:60ch}
+.help button{margin-top:8px}
+.app-version{font-size:12px;margin-left:auto;white-space:nowrap}

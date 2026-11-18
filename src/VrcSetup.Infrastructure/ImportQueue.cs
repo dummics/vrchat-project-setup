@@ -490,12 +490,7 @@ public sealed partial class ImportQueue(VrcSetupApplication app, Func<OperationP
             ProjectRules.EnsureContained(app.Paths.Logs, file);
             var info = new FileInfo(file); var stamp = info.Length + ":" + info.LastWriteTimeUtc.Ticks;
             if (stamp == previousStamp) return ("", stamp);
-            await using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.Asynchronous);
-            var offset = Math.Max(0, stream.Length - 65536); stream.Seek(offset, SeekOrigin.Begin);
-            using var reader = new StreamReader(stream);
-            if (offset > 0) await reader.ReadLineAsync(token);
-            var buffer = new char[65536]; var count = await reader.ReadBlockAsync(buffer, token);
-            return (new string(buffer, 0, count), stamp);
+            return (await SharedLog.ReadTailAsync(file, token), stamp);
         }, token);
     }
     private static string Phase(string phase) => phase switch

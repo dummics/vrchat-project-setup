@@ -244,6 +244,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                     preferencesBaseline.MaxParallelImports, preferencesBaseline.AutoHideCompletedImports,
                     preferencesBaseline.CheckUpdatesOnStartup, preferencesBaseline.AutomaticUpdates,
                     preferencesBaseline.IncludeBetaUpdates, preferencesBaseline.IncludeAlphaUpdates,
+                    appearance = Appearance(preferencesBaseline), palettes = AppearancePalette.Presets,
                     CanEditPaths = !isolated, preferencesBaseline.UnityEditorPath, preferencesBaseline.UnityProjectsRoot,
                     preferencesBaseline.UnityPackagesFolder
                 };
@@ -272,6 +273,18 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 updated.AutomaticUpdates = preferences.AutomaticUpdates;
                 updated.IncludeBetaUpdates = preferences.IncludeBetaUpdates;
                 updated.IncludeAlphaUpdates = preferences.IncludeAlphaUpdates;
+                if (preferences.Appearance is { } appearance && appearance != Appearance(baseline))
+                {
+                    if (appearance.Theme is not ("Dark" or "Light" or "System") ||
+                        appearance.ColorPalette != "Custom" && !AppearancePalette.Presets.ContainsKey(appearance.ColorPalette))
+                        throw new ArgumentException("Scegli un tema e una palette disponibili.");
+                    updated.Theme = appearance.Theme;
+                    updated.ColorPalette = appearance.ColorPalette;
+                    updated.CanvasColor = ColorSetting(appearance.CanvasColor);
+                    updated.SurfaceColor = ColorSetting(appearance.SurfaceColor);
+                    updated.AccentColor = ColorSetting(appearance.AccentColor);
+                    updated.StrokeColor = ColorSetting(appearance.StrokeColor);
+                }
                 if (!isolated)
                 {
                     if (preferences.UnityEditorPath != baseline.UnityEditorPath)
@@ -289,6 +302,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return await State(token);
             case "updateStatus":
                 return await updates.StatusAsync(token);
+            case "openSupport":
+                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ApplicationUpdates.BugReportUrl) { UseShellExecute = true })) { }
+                return true;
             case "checkUpdate":
                 return await updates.CheckAsync(manual: true, token);
             case "prepareUpdate":
@@ -351,15 +367,19 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return new { warning = result?.Status == OperationStatus.CompletedWithWarnings ? UserErrors.Message(new IOException(result.Message)) : null };
             case "activity":
                 return await Activity(token);
-            case "openOperationLog":
+            case "activityDetails":
+                var activity = data.Deserialize<ActivitySelection>(Json) ?? throw new IOException("Scegli un’attività.");
+                return await GetActivityDetails(activity, token);
+            case "readOperationLog":
                 var report = (await new ActivityHistory(engine.Paths).ReadAsync(token)).FirstOrDefault(x => x.Id == data.GetString());
                 var log = report?.Results.Select(x => x.LogFile).FirstOrDefault(File.Exists) ?? report?.ReportFile;
                 if (log is null || !File.Exists(log)) throw new IOException("Il log non è più disponibile.");
                 ProjectRules.EnsureContained(engine.Paths.Logs, log);
                 if (Path.GetExtension(log).ToLowerInvariant() is not (".log" or ".txt" or ".json" or ".jsonl"))
                     throw new IOException("Formato del log non riconosciuto.");
-                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(log) { UseShellExecute = true })) { }
-                return true;
+                if (File.GetAttributes(log).HasFlag(FileAttributes.ReparsePoint))
+                    throw new IOException("Il file di log non è disponibile.");
+                return await SharedLog.ReadTailAsync(log, token);
             case "exportDiagnostics":
                 var save = new SaveFileDialog { FileName = SupportLogs.SuggestedName, Filter = "ZIP|*.zip", DefaultExt = ".zip" };
                 if (save.ShowDialog(window) != true) return false;
@@ -615,6 +635,28 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             .OrderByDescending(x => x.Date).ToArray();
     }
 
+    private async Task<object> GetActivityDetails(ActivitySelection selected, CancellationToken token)
+    {
+        if (selected.Kind is "import" or "project")
+        {
+            var job = engine.Imports.Snapshot().FirstOrDefault(x => x.Id == selected.Id)
+                ?? throw new IOException("L’importazione non è più disponibile.");
+            var project = job.Plan.Projects.Single();
+            return new[] { new ActivityProject(job.Name, job.ProjectPath, JobStatus(job), ActivityPackages(project)) };
+        }
+        if (selected.Kind != "operation") throw new ArgumentException("Attività sconosciuta.");
+        var report = (await new ActivityHistory(engine.Paths).ReadAsync(token)).FirstOrDefault(x => x.Id == selected.Id)
+            ?? throw new IOException("Il report non è più disponibile.");
+        var details = report.Results.Select(result => new ActivityProject(result.Project, result.Path,
+            result.Status == OperationStatus.CompletedWithWarnings ? "warning" : result.Status.ToString().ToLowerInvariant(),
+            ActivityPackages(report.Plan?.Projects.FirstOrDefault(x => x.Path.Equals(result.Path, StringComparison.OrdinalIgnoreCase)))));
+        return details.Concat(report.NotProcessed.Select(path => new ActivityProject(Path.GetFileName(path), path, "skipped", []))).ToArray();
+    }
+
+    private static ActivityPackage[] ActivityPackages(ProjectPlan? project) =>
+        project?.Changes.Select(item => new ActivityPackage(item.Id, PackageCatalog.FriendlyName(item.Id),
+            item.ResolvedVersion ?? item.InstalledVersion, item.Kind.ToString().ToLowerInvariant())).ToArray() ?? [];
+
     private static string JobStatus(ImportJob job)
     {
         if (job.DiscardCompleted) return "cancelled";
@@ -698,6 +740,8 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 string.Equals(settings.UnityProjectsRoot, candidateProjects, StringComparison.OrdinalIgnoreCase)) ? settings.UnityProjectsRoot : "",
             packages = settings.VpmPackages,
             presets = settings.PackagePresets,
+            appearance = Appearance(settings),
+            version = ApplicationUpdates.CurrentVersion,
             initial,
             waitingForMemory = engine.Imports.EffectiveParallelism == 0,
             jobs = VisibleJobs(settings.AutoHideCompletedImports)
@@ -782,6 +826,14 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         var completedPlan = new OperationPlan("smoke-completed", DateTime.UtcNow, [plan.Projects[0] with { Path = completed.TargetPath, Name = completed.Name }]);
         var completedJob = new ImportJob("smoke-completed", completedPlan, completed, "Completed", "Finish", 100, "", log);
         await AtomicFile.WriteJsonAsync(Path.Combine(engine.Paths.Home, "imports.json"), new[] { job, completedJob }, lifetime.Token);
+        var operationLog = Path.Combine(engine.Paths.Logs, "smoke-vpm.log");
+        await File.WriteAllTextAsync(operationLog, "Fixture package operation completed.");
+        var packagePlan = new OperationPlan("smoke-packages", DateTime.UtcNow,
+            [plan.Projects[0] with { Name = "VPM di prova", Changes = [new("example.fixture", "1.0.0", "2.0.0", "2.0.0", ChangeKind.Update)] }]);
+        await AtomicFile.WriteJsonAsync(Path.Combine(engine.Paths.Logs, "operation-smoke-packages.json"),
+            new OperationReport(packagePlan.Id, DateTime.UtcNow,
+                [new("VPM di prova", project, OperationStatus.Completed, "Fixture packages updated.", operationLog)], [])
+            { Plan = packagePlan }, lifetime.Token);
     }
 
     internal async Task SeedUnityWorkflowAsync(string folder, string editor)
@@ -821,9 +873,24 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private sealed record CandidateProject(string Name, string Path, string UnityVersion, DateTime LastUpdatedUtc,
         DateTime CreatedUtc, bool Incomplete, bool Open, bool Importing, string? RecoveryId);
     private sealed record ActivityRow(string Id, string Name, DateTime Date, string Kind, string Status);
+    private sealed record ActivitySelection(string Id, string Kind);
+    private sealed record ActivityProject(string Name, string Path, string Status, ActivityPackage[] Packages);
+    private sealed record ActivityPackage(string Id, string Name, string? Version, string Change);
+    private static AppearancePreferences Appearance(AppConfiguration config) =>
+        new(config.Theme, config.ColorPalette, config.CanvasColor, config.SurfaceColor, config.AccentColor, config.StrokeColor);
+
+    private static string ColorSetting(string? value)
+    {
+        if (value is not { Length: 7 } || value[0] != '#' || !value.Skip(1).All(Uri.IsHexDigit))
+            throw new ArgumentException("Inserisci un colore esadecimale valido.");
+        return value.ToUpperInvariant();
+    }
+
+    private sealed record AppearancePreferences(string Theme, string ColorPalette, string CanvasColor,
+        string SurfaceColor, string AccentColor, string StrokeColor);
     private sealed record ImportPreferences(int MaxParallelImports, bool AutoHideCompletedImports,
         bool CheckUpdatesOnStartup, bool AutomaticUpdates, bool IncludeBetaUpdates, bool IncludeAlphaUpdates,
-        string UnityEditorPath, string UnityProjectsRoot, string? UnityPackagesFolder);
+        string UnityEditorPath, string UnityProjectsRoot, string? UnityPackagesFolder, AppearancePreferences? Appearance);
     private sealed record ProjectPackageEdit(string Path, string Fingerprint, Dictionary<string, string> Selected, string[] Removed);
     private sealed record PackageApproval(string Id, bool AcceptRisk);
     private sealed record PresetEdit(string Revision, string Action, string? Name,

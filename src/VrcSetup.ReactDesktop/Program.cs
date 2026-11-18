@@ -199,6 +199,12 @@ internal static class Program
                         await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, screenshot);
                         await VerifyProjectListAsync(core);
                         await VerifyRecoveryAndActivityAsync(core);
+                        var diagnostics = Path.Combine(smoke, "diagnostics.zip");
+                        await SupportLogs.ExportAsync(engine.Paths, diagnostics);
+                        using var diagnosticZip = System.IO.Compression.ZipFile.OpenRead(diagnostics);
+                        if (diagnosticZip.GetEntry("App/operation-smoke-packages.json") is null ||
+                            diagnosticZip.GetEntry("App/smoke-vpm.log") is null)
+                            throw new IOException("The diagnostic ZIP is missing the package report or its log.");
                         await VerifySettingsAsync(core);
                         await VerifyPresetsAsync(core);
                         await File.WriteAllTextAsync(Path.Combine(smoke, "result.json"), JsonSerializer.Serialize(new
@@ -206,8 +212,10 @@ internal static class Program
                             passed = true, readyMs, runtime = environment.BrowserVersionString, drafts = 6, target = "Android",
                             checks = new[] { "native handshake", "six analyzed archives", "Quest filename and prefab path detection",
                                 "independent tab state", "package panel and exclusion", "project discovery, search and name validation",
-                                "compilation recovery action and dismissal", "activity and import log", "VPM restore and removal review",
+                                "compilation recovery action and dismissal", "activity detail, operation log and diagnostics archive",
+                                "VPM restore and removal review",
                                 "import preferences persist and hide completed imports", "independent alpha opt-in persists",
+                                "theme changes and custom accent persist", "help and plain version label",
                                 "preset create and rename persist" }
                         }));
                         window.Close();
@@ -255,11 +263,20 @@ internal static class Program
         var activity = await Read("Attività", ".activity article strong");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Impostazioni').click()");
         await RequireAsync(core, $"document.querySelector('#unityProjectsRoot')?.value === {JsonSerializer.Serialize(configuration.UnityProjectsRoot)}");
+        await RequireAsync(core, $"document.querySelector('#appearance-theme')?.value === {JsonSerializer.Serialize(configuration.Theme)}");
+        await RequireAsync(core, $"document.querySelector('#appearance-palette')?.value === {JsonSerializer.Serialize(configuration.ColorPalette)}");
+        var rendered = await core.ExecuteScriptAsync("""
+            ({
+              theme: document.documentElement.dataset.theme,
+              accent: document.documentElement.style.getPropertyValue('--accent'),
+              boundary: document.documentElement.style.getPropertyValue('--line')
+            })
+            """);
         await File.WriteAllTextAsync(Path.Combine(folder, reportName), JsonSerializer.Serialize(new
         {
             home, version = ApplicationUpdates.CurrentVersion, process = Environment.ProcessId,
             configuration.UnityProjectsRoot, configuration.IncludeAlphaUpdates, projects, presets, activity,
-            workspaceSettingsVisible = true
+            workspaceSettingsVisible = true, appearance = JsonSerializer.Deserialize<JsonElement>(rendered)
         }));
     }
 
@@ -319,8 +336,18 @@ internal static class Program
         await RequireAsync(core, "!document.querySelector('#job-smoke-compilation').textContent.includes('Nascondi avviso')");
         await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Attività').click()");
         await RequireAsync(core, "document.querySelector('.activity')?.textContent.includes('Avatar di prova')");
-        await core.ExecuteScriptAsync("Array.from(document.querySelectorAll('.activity article')).find(x => x.textContent.includes('Avatar di prova')).querySelector('button').click()");
+        await core.ExecuteScriptAsync("""
+            const importRow = Array.from(document.querySelectorAll('.activity article')).find(x => x.textContent.includes('Avatar di prova'));
+            Array.from(importRow.querySelectorAll('button')).find(x => x.textContent === 'Apri log').click();
+            """);
         await RequireAsync(core, "document.querySelector('.activity pre')?.textContent.includes('Script compilation failed in test fixture')");
+        await core.ExecuteScriptAsync("""
+            const operationRow = Array.from(document.querySelectorAll('.activity article')).find(x => x.textContent.includes('VPM di prova'));
+            Array.from(operationRow.querySelectorAll('button')).find(x => x.textContent === 'Dettagli').click();
+            """);
+        await RequireAsync(core, "document.querySelector('.activity-detail li')?.textContent.includes('2.0.0')");
+        await core.ExecuteScriptAsync("Array.from(operationRow.querySelectorAll('button')).find(x => x.textContent === 'Apri log').click()");
+        await RequireAsync(core, "document.querySelector('.activity pre')?.textContent.includes('Fixture package operation completed')");
     }
 
     private static async Task VerifySettingsAsync(CoreWebView2 core)
@@ -329,20 +356,44 @@ internal static class Program
         await RequireAsync(core, "document.getElementById('job-smoke-completed') !== null");
         const string settings = "Array.from(document.querySelectorAll('header button')).find(x => x.textContent === 'Impostazioni').click()";
         await core.ExecuteScriptAsync(settings);
-        await RequireAsync(core, "document.querySelector('.settings input')?.checked === false");
+        await RequireAsync(core, "document.querySelector('#hide-completed')?.checked === false");
         await core.ExecuteScriptAsync("""
-            document.querySelector('.settings input').click();
+            document.querySelector('#hide-completed').click();
             Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('alpha sperimentali')).querySelector('input').click();
-            const limit = document.querySelector('.settings select');
+            const limit = document.querySelector('#import-limit');
             limit.value = '6';
             limit.dispatchEvent(new Event('change', { bubbles: true }));
             """);
+        await core.ExecuteScriptAsync("""
+            const theme = document.querySelector('#appearance-theme');
+            theme.value = 'Light';
+            theme.dispatchEvent(new Event('change', { bubbles: true }));
+            """);
+        await RequireAsync(core, "document.documentElement.dataset.theme === 'light'");
+        await core.ExecuteScriptAsync("""
+            const palette = document.querySelector('#appearance-palette');
+            palette.value = 'Ocean';
+            palette.dispatchEvent(new Event('change', { bubbles: true }));
+            """);
+        await RequireAsync(core, "document.querySelector('#accentColor').value === '#70b9f2'");
+        await core.ExecuteScriptAsync("""
+            const accent = document.querySelector('#accentColor');
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(accent, '#68cab6');
+            accent.dispatchEvent(new Event('input', { bubbles: true }));
+            accent.dispatchEvent(new Event('change', { bubbles: true }));
+            """);
+        await RequireAsync(core, "document.querySelector('#appearance-palette').value === 'Custom'");
         await core.ExecuteScriptAsync("document.querySelector('.settings button[type=submit]').click()");
         await RequireAsync(core, "document.querySelector('footer [role=status]').textContent === 'Impostazioni salvate.'");
         await core.ExecuteScriptAsync("document.querySelector('header button').click()");
         await RequireAsync(core, "document.getElementById('job-smoke-completed') === null");
+        await RequireAsync(core, "document.documentElement.style.getPropertyValue('--accent') === 'rgb(104, 202, 182)'");
         await core.ExecuteScriptAsync(settings);
-        await RequireAsync(core, "document.querySelector('.settings input')?.checked && document.querySelector('.settings select').value === '6'");
+        await RequireAsync(core, "document.querySelector('#hide-completed')?.checked && document.querySelector('#import-limit').value === '6'");
+        await RequireAsync(core, "document.querySelector('#appearance-theme').value === 'Light' && document.querySelector('#accentColor').value === '#68cab6'");
+        await RequireAsync(core, "document.querySelector('.app-version')?.textContent.trim().length > 0");
+        await core.ExecuteScriptAsync("document.querySelector('.help summary').click()");
+        await RequireAsync(core, "document.querySelector('.help details[open] p')?.textContent.includes('UnityPackage')");
         await RequireAsync(core, """
             Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('alpha sperimentali')).querySelector('input').checked &&
               !Array.from(document.querySelectorAll('.settings label')).find(x => x.textContent.includes('versioni beta')).querySelector('input').checked

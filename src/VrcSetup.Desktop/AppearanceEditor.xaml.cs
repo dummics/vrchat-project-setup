@@ -46,21 +46,13 @@ public sealed partial class AppearanceEditor : UserControl
     private void PaletteSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         if (!initialized || observed is null || updatingPalette || ViewModel.IsLoadingSettings || PaletteSelector.SelectedValue is not string palette) return;
-        var colors = palette switch
-        {
-            "Orange" => ("#181A1D", "#292D33", "#FFAD66"),
-            "Mint" => ("#25272A", "#303338", "#50CDBB"),
-            "Ocean" => ("#202A35", "#2A3848", "#70B9F2"),
-            "Violet" => ("#2A2532", "#393141", "#C49AF0"),
-            _ => ("", "", "")
-        };
-        if (colors.Item1.Length == 0) return;
+        if (!VrcSetup.Core.AppearancePalette.Presets.TryGetValue(palette, out var colors)) return;
         updatingPalette = true;
         try
         {
-            ViewModel.CanvasColor = colors.Item1;
-            ViewModel.SurfaceColor = colors.Item2;
-            ViewModel.AccentColor = colors.Item3;
+            ViewModel.CanvasColor = colors.Canvas;
+            ViewModel.SurfaceColor = colors.Surface;
+            ViewModel.AccentColor = colors.Accent;
         }
         finally { updatingPalette = false; }
         ApplyColorPalette();
