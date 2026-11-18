@@ -348,7 +348,9 @@ jobs:
       - name: Verify single-window installation engine
         shell: pwsh
         run: |
-          ./tests/Test-HostedSetup.ps1 -Installer (Join-Path $pwd 'release/installer-build/VrcSetupInstaller.exe') -TestRoot (Join-Path $env:RUNNER_TEMP 'hosted-setup') -Version $env:RELEASE_VERSION
+          $desktop = @{}
+          if ($env:REACT_DESKTOP -eq 'true') { $desktop.DesktopPayload = Join-Path $pwd "release/VrcSetup-$env:RELEASE_ASSET_ID-win-x64" }
+          ./tests/Test-HostedSetup.ps1 -Installer (Join-Path $pwd 'release/installer-build/VrcSetupInstaller.exe') -TestRoot (Join-Path $env:RUNNER_TEMP 'hosted-setup') -Version $env:RELEASE_VERSION @desktop
       - name: Verify unified installer update and restart
         if: env.UPDATE_BASE_ARCHIVE != ''
         shell: pwsh
