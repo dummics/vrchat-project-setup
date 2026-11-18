@@ -22,8 +22,11 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private OperationPlan? packageReview;
     private ProjectPackageTarget[] packageReviewTargets = [];
     private OperationPlan? newProjectReview;
+    private BackupReview? backupReview;
     private AppConfiguration? preferencesBaseline;
     private SourceDraft[] initial = [];
+    private string[] projectStatusPaths = [];
+    private Task<HashSet<string>>? editorStatusRead;
     private readonly string candidateProjects = Path.Combine(engine.Paths.Home, "candidate-projects");
     internal bool IsBusy => handlingRequest;
     internal bool Closing { get; set; }
@@ -47,9 +50,20 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             using var message = JsonDocument.Parse(args.WebMessageAsJson);
             var root = message.RootElement;
             id = root.GetProperty("id").GetString();
+            var method = root.GetProperty("method").GetString();
+            if (method == "projectEditorStates" && !Closing)
+            {
+                if (editorStatusRead is not { IsCompleted: false })
+                {
+                    var paths = projectStatusPaths;
+                    editorStatusRead = Task.Run(() => ProjectWorkspace.GetBusyProjectPaths(paths), lifetime.Token);
+                }
+                var open = await editorStatusRead;
+                Send(new { id, result = open });
+                return;
+            }
             if (handlingRequest || Closing) throw new InvalidOperationException(UiText.Text("Wait for the current operation to finish."));
             handlingRequest = ownsRequest = true;
-            var method = root.GetProperty("method").GetString();
             var result = await Dispatch(method, root.GetProperty("data"), args);
             closeAfterReply = method == "applyUpdate";
             Send(new { id, result });
@@ -196,6 +210,35 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 await OpenProject(import.ProjectPath, token);
                 return true;
             case "projects":
+                return await Projects(token);
+            case "reviewProjectBackup":
+                backupReview = null;
+                var backupProject = await ProjectPath(data.GetString(), token);
+                EnsureProjectIdle(backupProject);
+                var backup = await FindProjectBackupAsync(backupProject, token);
+                if (backup is null) throw new IOException(UiText.Text("No backup is available for this project."));
+                if (engine.Projects.IsBusy(backupProject))
+                    throw new IOException(UiText.Text("Close Unity or wait for the active import before restoring."));
+                backupReview = new(Guid.NewGuid().ToString("N"), backupProject, backup.Value.Record, AtomicFile.Hash(backup.Value.Record));
+                return new { backupReview.Id, Path = backupProject, backup.Value.CompletedUtc };
+            case "restoreProjectBackup":
+                if (backupReview is not { } selectedBackup || selectedBackup.Id != data.GetString())
+                    throw new IOException(UiText.Text("Review the backup before restoring."));
+                backupReview = null;
+                var restoreProjectPath = await ProjectPath(selectedBackup.Path, token);
+                using (await engine.Projects.AcquireAsync(restoreProjectPath, token))
+                {
+                    EnsureProjectIdle(restoreProjectPath);
+                    if (engine.Projects.IsBusy(restoreProjectPath))
+                        throw new IOException(UiText.Text("Close Unity or wait for the active import before restoring."));
+                    var newest = await FindProjectBackupAsync(restoreProjectPath, token);
+                    if (newest?.Record != selectedBackup.Record || AtomicFile.Hash(selectedBackup.Record) != selectedBackup.Hash)
+                        throw new IOException(UiText.Text("This backup is no longer available. Choose the latest backup for this project."));
+                    var record = await AtomicFile.ReadJsonAsync<BackupRecord>(selectedBackup.Record, token)
+                        ?? throw new IOException(UiText.Text("This backup is no longer available. Choose the latest backup for this project."));
+                    if (!await Task.Run(() => engine.Projects.RestoreAsync(restoreProjectPath, record, null, token), token))
+                        throw new IOException(UiText.Text("Close Unity or wait for the active import before restoring."));
+                }
                 return await Projects(token);
             case "pickExistingProject":
                 var configuredRoot = ProjectRoot(await engine.Configuration.LoadAsync(token));
@@ -745,16 +788,44 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private async Task<CandidateProject[]> Projects(CancellationToken token)
     {
         var root = ProjectRoot(await engine.Configuration.LoadAsync(token));
-        if (!Directory.Exists(root)) return [];
-        var projects = await engine.Projects.ScanAsync(root, cancellationToken: token);
-        var jobs = engine.Imports.Snapshot();
-        return await Task.Run(() => projects.Select(project =>
+        if (!Directory.Exists(root))
         {
-            var job = ImportQueue.CurrentForProject(jobs, project.Path);
-            return new CandidateProject(project.Name, project.Path, project.UnityVersion, project.LastUpdatedUtc,
-                project.CreatedUtc, project.Incomplete, engine.Projects.IsBusy(project.Path), job?.Active == true,
-                job is { Recoverable: true, RecoveryNoticeDismissed: false } ? job.Id : null);
-        }).ToArray(), token);
+            projectStatusPaths = [];
+            return [];
+        }
+        var projects = await engine.Projects.ScanAsync(root, cancellationToken: token);
+        projectStatusPaths = projects.Select(project => project.Path).ToArray();
+        var jobs = engine.Imports.Snapshot();
+        return await Task.Run(() =>
+        {
+            var open = ProjectWorkspace.GetBusyProjectPaths(projectStatusPaths);
+            return projects.Select(project =>
+            {
+                var job = ImportQueue.CurrentForProject(jobs, project.Path);
+                return new CandidateProject(project.Name, project.Path, project.UnityVersion, project.LastUpdatedUtc,
+                    project.CreatedUtc, project.Incomplete, open.Contains(project.Path), job?.Active == true,
+                    job is { Recoverable: true, RecoveryNoticeDismissed: false } ? job.Id : null);
+            }).ToArray();
+        }, token);
+    }
+
+    private async Task<(string Record, DateTime CompletedUtc)?> FindProjectBackupAsync(string path, CancellationToken token)
+    {
+        var backupRoot = Path.Combine(path, ".vrcsetup", "backups");
+        foreach (var report in await new ActivityHistory(engine.Paths).ReadAsync(token))
+        {
+            foreach (var result in report.Results)
+            {
+                if (!result.Path.Equals(path, StringComparison.OrdinalIgnoreCase) || result.BackupPath is not { Length: > 0 } folder) continue;
+                var record = Path.Combine(folder, "backup.json");
+                if (!File.Exists(record) || File.Exists(Path.Combine(folder, "superseded"))) continue;
+                ProjectRules.EnsureContained(backupRoot, record);
+                if (File.GetAttributes(record).HasFlag(FileAttributes.ReparsePoint))
+                    throw new IOException(UiText.Text("This backup is no longer available. Choose the latest backup for this project."));
+                return (record, report.CompletedUtc);
+            }
+        }
+        return null;
     }
 
     private async Task OpenProject(string path, CancellationToken token)
@@ -967,6 +1038,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private sealed record DraftChoice(Guid Id, string Name, string Target, string? Preset, Dictionary<string, string> Packages);
     private sealed record CandidateProject(string Name, string Path, string UnityVersion, DateTime LastUpdatedUtc,
         DateTime CreatedUtc, bool Incomplete, bool Open, bool Importing, string? RecoveryId);
+    private sealed record BackupReview(string Id, string Path, string Record, string Hash);
     private sealed record ActivityRow(string Id, string Name, DateTime Date, string Kind, string Status);
     private sealed record ActivitySelection(string Id, string Kind);
     private sealed record ActivityProject(string Name, string Path, string Status, ActivityPackage[] Packages);

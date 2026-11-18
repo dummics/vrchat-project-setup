@@ -241,6 +241,7 @@
   "Stop": "Interrompi",
   "Resume": "Riprendi",
   "Restore backup": "Ripristina backup",
+  "Review the backup before restoring.": "Controlla il backup prima di ripristinarlo.",
   "Check project": "Verifica progetto",
   "My packages": "I miei pacchetti",
   "Preset packages": "Pacchetti del preset",

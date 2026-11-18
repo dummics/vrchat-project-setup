@@ -19,6 +19,11 @@ main{height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;margi
 .batch-package-targets .batch-targets{margin-top:8px}
 .discard-confirmation{margin-block:12px;padding-inline-start:12px;border-inline-start:2px solid var(--line)}
 .discard-confirmation p{margin:0 0 8px}
+.project-options{position:relative}
+.project-options summary{list-style:none;cursor:pointer;padding:5px 8px;border:1px solid var(--line);border-radius:6px}
+.project-options button{position:absolute;z-index:1;right:0;white-space:nowrap}
+.backup-dialog{max-width:min(440px,90vw);color:var(--foreground);background:var(--surface)}
+.backup-dialog::backdrop{background:#0008}
 .open-indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:#6cce8a}
 .jobs .actions{flex-wrap:wrap}
 .jobs p{color:var(--muted);margin:12px 0}

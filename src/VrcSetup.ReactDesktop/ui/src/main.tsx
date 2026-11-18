@@ -102,6 +102,7 @@ function ImportPage() {
   const [presetDirty, setPresetDirty] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [backup, setBackup] = useState<{ id: string; path: string; completedUtc: string }>();
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [projectPackages, setProjectPackages] = useState<ProjectPackageList>();
   const [newProject, setNewProject] = useState<{ name: string; target: string; preset: string }>();
@@ -144,6 +145,22 @@ function ImportPage() {
     }, 1200);
     return () => clearInterval(timer);
   }, [busy, state?.jobs.some(job => job.active), log?.id]);
+  useEffect(() => {
+    if (screen !== 'projects' || busy || !projects.length) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function refreshEditors() {
+      try {
+        const open = new Set(await request<string[]>('projectEditorStates'));
+        if (!cancelled) setProjects(current => current.some(project => project.open !== open.has(project.path))
+          ? current.map(project => ({ ...project, open: open.has(project.path) }))
+          : current);
+      } catch { /* Keep displaying the last known editor state until the next poll. */ }
+      if (!cancelled) timer = setTimeout(refreshEditors, 2000);
+    }
+    timer = setTimeout(refreshEditors, 2000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [screen, busy, projects.length]);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || busy) return;
@@ -391,16 +408,42 @@ function ImportPage() {
               onChange={event => setSelectedPaths(current => event.target.checked
                 ? [...current, project.path] : current.filter(path => path !== project.path))} />}
           </td>
-          <th scope="row">{project.open && <span className="open-indicator" role="img" aria-label={t("Aperto in Unity")} title={t("Aperto in Unity")} />}{project.name}<small>{project.unityVersion} · {project.path}</small></th>
+          <th scope="row">{project.open && !project.importing && <span className="open-indicator" role="img" aria-label={t("Aperto in Unity")} title={t("Aperto in Unity")} />}{project.name}<small>{project.unityVersion} · {project.path}</small></th>
           <td>{date.format(new Date(project.lastUpdatedUtc))}</td><td>{date.format(new Date(project.createdUtc))}</td>
           <td>{project.importing ? t("In importazione") : <div className="actions project-actions">
             <button disabled={!!busy} onClick={() => showProjectPackages(project.path)}>{t("Pacchetti")}</button>
             {
             project.recoveryId ? <button onClick={() => { setScreen('import'); setPanel('import'); setTimeout(() => document.getElementById('job-' + project.recoveryId)?.scrollIntoView(), 0); }}>{t("Vedi importazione")}</button> :
             <button disabled={!!busy || project.open || project.incomplete} onClick={() => void run(t("Apertura di Unity…"), async () => { await request('openProject', project.path); })}>{t("Apri")}</button>}
+            <details className="project-options">
+              <summary aria-label={t("Opzioni per {name}", { name: project.name })}>···</summary>
+              <button disabled={!!busy} onClick={event => {
+                const options = event.currentTarget.closest('details');
+                if (options) options.open = false;
+                void run(t("Ricerca backup…"), async () => setBackup(await request('reviewProjectBackup', project.path)));
+              }}>{t("Ripristina backup")}</button>
+            </details>
           </div>}</td>
         </tr>)}</tbody>
       </table> : <p>{projects.length ? t("Nessun progetto corrispondente.") : t("Nessun progetto nella cartella selezionata.")}</p>}
+      {backup && <dialog className="extras backup-dialog" aria-labelledby="backup-title"
+        ref={node => { if (node && !node.open) node.showModal(); }}
+        onCancel={event => { event.preventDefault(); setBackup(undefined); }}>
+        <h2 id="backup-title">{t("Ripristina backup")}</h2>
+        <p className="path">{backup.path}</p>
+        <p>{t("Backup del {date}", { date: date.format(new Date(backup.completedUtc)) })}</p>
+        <p>{t("I file attuali verranno conservati in una cartella di recupero.")}</p>
+        <div className="actions">
+          <button autoFocus onClick={() => setBackup(undefined)}>{t("Annulla")}</button>
+          <button className="primary" onClick={() => {
+            setBackup(undefined);
+            void run(t("Ripristino backup…"), async () => {
+              setProjects(await request<Project[]>('restoreProjectBackup', backup.id));
+              setNotice(t("Backup ripristinato."));
+            });
+          }}>{t("Conferma ripristino")}</button>
+        </div>
+      </dialog>}
     </section> :
     <section className="view" key={panel}>
       {panel === 'import' && <>

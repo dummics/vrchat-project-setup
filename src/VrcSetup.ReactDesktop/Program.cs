@@ -20,7 +20,8 @@ internal static class Program
         var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import", var recovery]
             ? Path.GetFullPath(recovery) : null;
         var restoreFixture = args is ["--verify-restore-workflow", var restore] ? Path.GetFullPath(restore) : null;
-        var packageFixture = args is ["--verify-vpm-edits", _] or ["--verify-vpm-edits", _, _]
+        var verifyBackup = args is ["--verify-project-backup", _];
+        var packageFixture = args is ["--verify-vpm-edits" or "--verify-project-backup", _] or ["--verify-vpm-edits", _, _]
             ? Path.GetFullPath(args[1]) : null;
         var smoke = args switch
         {
@@ -234,8 +235,9 @@ internal static class Program
                 if (packageFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
-                    await ReactPackageVerification.RunAsync(core, engine, packageFixture,
-                        args.Length == 3 ? Path.GetFullPath(args[2]) : null, shutdown.Token);
+                    if (verifyBackup) await ReactPackageVerification.VerifyBackupAsync(core, engine, packageFixture, shutdown.Token);
+                    else await ReactPackageVerification.RunAsync(core, engine, packageFixture,
+                            args.Length == 3 ? Path.GetFullPath(args[2]) : null, shutdown.Token);
                     window.Close();
                     return;
                 }

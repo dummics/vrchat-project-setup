@@ -215,7 +215,18 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
         return ProjectOrdering.Apply(result.Select(x => x with { CreatedUtc = Directory.GetCreationTimeUtc(x.Path) }), sort);
     }
 
-    public bool IsBusy(string path)
+    public bool IsBusy(string path) => HasUnityLock(path) || GetUnityProcesses(path).Length > 0;
+
+    public static HashSet<string> GetBusyProjectPaths(IEnumerable<string> paths)
+    {
+        var projects = paths.Select(path => ProjectRules.NormalizePath(path)).ToArray();
+        if (projects.Length == 0) return new(StringComparer.OrdinalIgnoreCase);
+        var editors = ReadUnityEditors().Select(editor => editor.Project).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return projects.Where(path => editors.Contains(path) || HasUnityLock(path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool HasUnityLock(string path)
     {
         var lockFile = Path.Combine(path, "Temp", "UnityLockfile");
         if (File.Exists(lockFile))
@@ -224,7 +235,7 @@ public sealed class ProjectWorkspace(AppPaths paths, DiagnosticLog? diagnostics 
             catch (IOException) { return true; }
             catch (UnauthorizedAccessException) { return true; }
         }
-        return GetUnityProcesses(path).Length > 0;
+        return false;
     }
     public static (int Pid, string CommandLine)[] GetUnityProcesses(string project)
         => ReadUnityEditors().Where(editor => editor.Project.Equals(ProjectRules.NormalizePath(project), StringComparison.OrdinalIgnoreCase))

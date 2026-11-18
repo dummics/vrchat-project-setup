@@ -259,6 +259,13 @@ const english: Record<string, string> = {
   "L’importazione verrà rimossa dalla coda.": "The import will be removed from the queue.",
   "Elimina progetto": "Delete project",
   "Chiudi Unity per ripristinare i pacchetti.": "Close Unity to restore packages.",
+  "Opzioni per {name}": "Options for {name}",
+  "Ricerca backup…": "Finding backup…",
+  "Ripristina backup": "Restore backup",
+  "Backup del {date}": "Backup from {date}",
+  "I file attuali verranno conservati in una cartella di recupero.": "The current files will be kept in a recovery folder.",
+  "Ripristino backup…": "Restoring backup…",
+  "Backup ripristinato.": "Backup restored.",
   "Da installare · {version}": "To install · {version}",
   "Lingua": "Language"
 };
