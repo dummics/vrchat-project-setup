@@ -51,7 +51,7 @@ recorded by the installer, or its own `data/` in portable mode.
 
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
-| Import | Six archives, Quest name and prefab-path detection, manual file path using the saved naming policy, version review, queue and real Unity import from React. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive. Reimporting into a completed project restored a missing asset and its original metadata while keeping an edited script | Explorer drop, native relocation picker and installed Creator Companion registration. The recovery planner has separate checks for matching the original archive bytes |
+| Import | Six archives, Quest name and prefab-path detection, manual file path using the saved naming policy, version review, queue and real Unity import from React. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive. Reimporting into a completed project restored a missing asset and its original metadata while keeping an edited script. The installed React app handled a Creator Companion rejection and retry with the official VPM CLI on a disposable Windows runner | Explorer drop and native relocation picker. The recovery planner has separate checks for matching the original archive bytes |
 | Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders. The Unity indicator follows editor start and exit while the list stays open. Project options restore the newest VPM backup after confirmation, keeping displaced edits in a recovery folder. Empty project creation supports per-project package choices, numeric version review and saving choices as a preset. The Projects button opens the selected project with a matching installed editor if the configured path is stale | Verify the native folder picker and external registrations |
 | Project packages | Read installed/locked versions, protect required packages and restore damaged locked SDK metadata. Real vrc-get added, upgraded, downgraded and removed Gesture Manager from React, with Unity closed and in one open Unity batch session. Batch review and apply use per-package targets. A project edited after review was skipped with a localized next action. Cancelling before the project lock preserved both manifests. Cancelling after VPM changed the manifest while Unity was open retained the backup and displayed the recovery action. After closing Unity, restoring the backup recovered the exact original manifest and kept the displaced edit in the recovery copy | |
 | Activity | Import and package operation history, per-project details, inline logs and diagnostic ZIP. A real batch with one successful project and one skipped project displays a partially completed operation and both outcomes | Native Save picker |
@@ -134,6 +134,13 @@ Then run `--verify-open-project <same-path>` to click Open from Projects and
 test fallback from a missing configured executable. It launches the installed
 Unity that matches the project version in batch mode for the fixture and
 checks the exit receipt and unchanged preferences.
+
+The Windows release workflow runs `--verify-hosted-vcc` on an installed
+React fixture with the official VPM CLI. It verifies that a rejected
+registration leaves the import completed and gives the user a manual
+alternative. The second attempt must appear in the official project list,
+clear the persisted registration warning and preserve the fixture asset and
+package policy. The step writes `react-vcc-registration.json`.
 
 ## Distribution checkpoint
 
