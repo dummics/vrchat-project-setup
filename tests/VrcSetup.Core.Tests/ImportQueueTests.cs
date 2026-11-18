@@ -765,7 +765,7 @@ public sealed class ImportQueueTests : IDisposable
         queue.Changed += secondHandler;
         try
         {
-            await WaitUntil(() => Volatile.Read(ref notifications) >= 2);
+            await WaitUntil(() => Volatile.Read(ref notifications) >= 2 && Volatile.Read(ref secondNotifications) >= 2);
             Assert.True(Volatile.Read(ref samples) >= 2);
             Assert.True(Volatile.Read(ref secondNotifications) >= 2);
         }

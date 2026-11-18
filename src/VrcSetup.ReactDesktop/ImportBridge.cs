@@ -170,7 +170,9 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 await engine.Imports.DismissAsync(CurrentJob(data.GetString()).Id, token);
                 return await State(token);
             case "discard":
-                await Discard(CurrentJob(data.GetString()), token);
+                var discard = data.Deserialize<DiscardApproval>(Json)
+                    ?? throw new ArgumentException(UiText.Text("Select a project."));
+                await Discard(CurrentJob(discard.Id), discard.RemoveFolder, token);
                 return await State(token);
             case "clearFinished":
                 await engine.Imports.ClearFinishedAsync(token);
@@ -647,20 +649,17 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
         };
     }
 
-    private async Task Discard(ImportJob job, CancellationToken token)
+    private async Task Discard(ImportJob job, bool removeFolder, CancellationToken token)
     {
         if (!CanDiscard(job)) throw new IOException(UiText.Text("This import cannot be cancelled."));
         var root = ProjectRoot(await engine.Configuration.LoadAsync(token));
         if (!Directory.Exists(root)) throw new IOException(UiText.Text("The projects folder is unavailable."));
         ProjectRules.EnsureContained(root, job.ProjectPath);
         var noFolder = IsAbsent(job.ProjectPath);
+        if (removeFolder == noFolder)
+            throw new IOException(UiText.Text("The import changed. Choose it again to continue."));
         if (!noFolder && job.Source.CreationId is null)
             throw new IOException(UiText.Text("The project folder cannot be removed automatically."));
-        var message = string.Format(UiText.Text(noFolder
-            ? "Cancel the import of “{0}”?"
-            : "Cancel the import of “{0}” and delete the folder created for it?"), job.Name);
-        if (MessageBox.Show(window, message, UiText.Text("Cancel import"), MessageBoxButton.YesNo, MessageBoxImage.Warning,
-                MessageBoxResult.No) != MessageBoxResult.Yes) return;
         using var stopWait = CancellationTokenSource.CreateLinkedTokenSource(token);
         stopWait.CancelAfter(TimeSpan.FromSeconds(20));
         try
@@ -993,6 +992,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
     private sealed record ProjectPackageTarget(string Name, string Path);
     private sealed record BatchResult(string Name, string Path, string Status, string? Message);
     private sealed record PackageApproval(string Id, bool AcceptRisk);
+    private sealed record DiscardApproval(string Id, bool RemoveFolder);
     private sealed record PresetEdit(string Revision, string Action, string? Name,
         string? NewName, Dictionary<string, string>? Packages, string? Package);
     private sealed record NewProjectChoice(string Name, string Target, string? Preset);

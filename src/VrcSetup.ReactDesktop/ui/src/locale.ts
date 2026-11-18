@@ -254,6 +254,10 @@ const english: Record<string, string> = {
   "Non elaborato": "Not processed",
   "Nessuna modifica.": "No changes.",
   "Apri il log in Attività.": "Open the log in Activity.",
+  "Conferma annullamento": "Confirm cancellation",
+  "Verrà eliminata la cartella creata per questa importazione.": "The folder created for this import will be deleted.",
+  "L’importazione verrà rimossa dalla coda.": "The import will be removed from the queue.",
+  "Elimina progetto": "Delete project",
   "Da installare · {version}": "To install · {version}",
   "Lingua": "Language"
 };

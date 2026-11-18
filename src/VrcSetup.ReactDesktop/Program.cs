@@ -14,12 +14,16 @@ internal static class Program
     private static void Main(string[] args)
     {
         var startup = System.Diagnostics.Stopwatch.StartNew();
-        var unityEditor = args is ["--verify-unity-workflow", _, var editor] ? Path.GetFullPath(editor) : null;
+        var unityEditor = args is ["--verify-unity-workflow" or "--verify-pause-import", _, var editor] ? Path.GetFullPath(editor) : null;
+        var pauseImport = args is ["--verify-pause-import", _, _];
+        var discardImport = args is ["--verify-discard-import", _];
+        var recoveryFixture = args is ["--verify-resume-import" or "--verify-discard-import", var recovery]
+            ? Path.GetFullPath(recovery) : null;
         var restoreFixture = args is ["--verify-restore-workflow", var restore] ? Path.GetFullPath(restore) : null;
         var smoke = args switch
         {
             ["--smoke" or "--verify-batch-packages", var evidence] => Path.GetFullPath(evidence),
-            ["--verify-unity-workflow", var evidence, _] => Path.GetFullPath(evidence),
+            ["--verify-unity-workflow" or "--verify-pause-import", var evidence, _] => Path.GetFullPath(evidence),
             _ => null
         };
         var verifyBatchPackages = args is ["--verify-batch-packages", _];
@@ -39,13 +43,18 @@ internal static class Program
                 throw new IOException("Update fixture marker missing.");
             profileFixture = root;
         }
-        var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null || portableFixture is not null;
+        var offscreen = smoke is not null || profileFixture is not null || restoreFixture is not null || portableFixture is not null || recoveryFixture is not null;
         if (smoke is not null && Directory.Exists(smoke))
         {
             Environment.ExitCode = 2;
             return;
         }
         if (restoreFixture is not null && !File.Exists(Path.Combine(restoreFixture, "react-unity-import.json")))
+        {
+            Environment.ExitCode = 2;
+            return;
+        }
+        if (recoveryFixture is not null && !File.Exists(Path.Combine(recoveryFixture, "paused-import.json")))
         {
             Environment.ExitCode = 2;
             return;
@@ -72,8 +81,8 @@ internal static class Program
             ProjectRules.EnsureContained(profileFixture, paths.PayloadRoot);
             ProjectRules.EnsureContained(profileFixture, paths.Home);
         }
-        var isolated = smoke is not null || restoreFixture is not null || !distributed;
-        var home = smoke ?? restoreFixture ?? (isolated
+        var isolated = smoke is not null || restoreFixture is not null || recoveryFixture is not null || !distributed;
+        var home = smoke ?? restoreFixture ?? recoveryFixture ?? (isolated
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VrcSetup-React-Candidate")
             : paths.Home);
         Directory.CreateDirectory(home);
@@ -207,6 +216,13 @@ internal static class Program
                     window.Close();
                     return;
                 }
+                if (recoveryFixture is not null)
+                {
+                    await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
+                    await ReactImportVerification.VerifyRecoveryAsync(core, engine, recoveryFixture, discardImport, shutdown.Token);
+                    window.Close();
+                    return;
+                }
                 if (profileFixture is not null)
                 {
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
@@ -225,7 +241,8 @@ internal static class Program
                     if (unityEditor is not null)
                     {
                         await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null && document.querySelector('.tabs button') !== null");
-                        await ReactImportVerification.RunAsync(core, engine, smoke, shutdown.Token);
+                        if (pauseImport) await ReactImportVerification.VerifyPauseAsync(core, engine, smoke, shutdown.Token);
+                        else await ReactImportVerification.RunAsync(core, engine, smoke, shutdown.Token);
                         window.Close();
                         return;
                     }
@@ -275,7 +292,7 @@ internal static class Program
             }
             catch (Exception error)
             {
-                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture) is { } evidenceFolder)
+                if ((smoke ?? profileFixture ?? restoreFixture ?? portableFixture ?? recoveryFixture) is { } evidenceFolder)
                     File.WriteAllText(Path.Combine(evidenceFolder, "failure.txt"), error.ToString());
                 else MessageBox.Show(window, error.Message, window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 Environment.ExitCode = 1;

@@ -117,6 +117,7 @@ function ImportPage() {
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [review, setReview] = useState<Review>();
+  const [discard, setDiscard] = useState<{ id: string; removeFolder: boolean }>();
   const [log, setLog] = useState<{ id: string; text: string }>();
   const active = drafts.find(draft => draft.id === activeId);
   const locale = state?.language ?? 'it';
@@ -455,11 +456,21 @@ function ImportPage() {
               {t("Aggiungi a Creator Companion")}
             </button>}
             {job.canDismiss && <button disabled={!!busy || !!review} onClick={() => void run(t("Aggiornamento…"), async () => setState(await request<State>('dismiss', job.id)))}>{job.recoverable ? t("Nascondi avviso") : t("Rimuovi dalla lista")}</button>}
-            {job.canDiscard && <button disabled={!!busy || !!review} onClick={() => void run(t("Annullamento…"), async () => {
-              try { setState(await request<State>('discard', job.id)); }
-              catch (error) { setState(await request<State>('state')); throw error; }
-            })}>{job.discardRequested ? t("Completa annullamento") : job.discardRemovesFolder ? t("Annulla ed elimina progetto") : t("Annulla importazione")}</button>}
+            {job.canDiscard && discard?.id !== job.id && <button disabled={!!busy || !!review} onClick={() =>
+              setDiscard({ id: job.id, removeFolder: job.discardRemovesFolder })}>{job.discardRequested ? t("Completa annullamento") : job.discardRemovesFolder ? t("Annulla ed elimina progetto") : t("Annulla importazione")}</button>}
             <button disabled={!!busy} onClick={() => void run(t("Apertura log…"), async () => setLog(log?.id === job.id ? undefined : { id: job.id, text: await request<string>('log', job.id) }))}>{log?.id === job.id ? t("Chiudi log") : t("Apri log")}</button></div>
+          {discard?.id === job.id && <section className="discard-confirmation" aria-label={t("Conferma annullamento")}>
+            <p>{discard.removeFolder ? t("Verrà eliminata la cartella creata per questa importazione.") : t("L’importazione verrà rimossa dalla coda.")}</p>
+            {discard.removeFolder && <p className="path">{job.projectPath}</p>}
+            <div className="actions">
+              <button autoFocus disabled={!!busy} onClick={() => setDiscard(undefined)}>{t("Indietro")}</button>
+              <button disabled={!!busy || !!review || !job.canDiscard} onClick={() => void run(t("Annullamento…"), async () => {
+                try { setState(await request<State>('discard', discard)); }
+                catch (error) { setState(await request<State>('state')); throw error; }
+                finally { setDiscard(undefined); }
+              })}>{discard.removeFolder ? t("Elimina progetto") : t("Conferma annullamento")}</button>
+            </div>
+          </section>}
           {log?.id === job.id && <pre>{log.text || t("Nessun log disponibile.")}</pre>}</article>)}</section> : null}
       </>}
       {active && panel === 'preset' && <div className="presets">

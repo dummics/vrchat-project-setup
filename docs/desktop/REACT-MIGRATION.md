@@ -51,7 +51,7 @@ recorded by the installer, or its own `data/` in portable mode.
 
 | Surface | Verified in the candidate | Still required |
 | --- | --- | --- |
-| Import | Six archives, Quest name and prefab-path detection, version review, queue and real Unity import from React. Recovery planner validates relocated sources against the original bytes | Explorer drop, native relocation picker, existing destination recovery, pause/resume, owned-project cancellation and Creator Companion in an installed fixture |
+| Import | Six archives, Quest name and prefab-path detection, version review, queue and real Unity import from React. Pausing during Unity import preserves the owned project and persists across restart. A queued retry interrupted by process exit resumed and compiled in place. Cancellation after restart uses an inline confirmation with the exact folder and preserves the original archive | Explorer drop, native relocation picker, installed Creator Companion registration, and recovery of a pre-existing destination. The recovery planner has separate checks for matching the original archive bytes |
 | Projects | Discovery, search, multi-project selection and invalid name validation on isolated Unity folders | Verify folder picker, create using installed Unity, opening and live editor indicator, project options and external registrations |
 | Project packages | Read installed/locked versions, review restore and removal, protect required packages. Real vrc-get restored damaged locked SDK metadata. Batch review and apply use per-package targets and show results by project; an unselected project with the same package was left untouched | Exercise catalog and add/update/downgrade from React with a real repository, validate Unity-open behavior and exercise partial batch failures |
 | Activity | Import and package operation history, per-project details, inline logs, and diagnostic ZIP containing the operation report and log | Native Save picker and multi-project failure presentation |
@@ -75,6 +75,17 @@ SDK, a compiled assembly and the imported asset. A second run with
 the restore action and unchanged imported asset. If the automatic scheduler
 holds the import, the test permits one slot only when at least 6 GiB of
 physical and commit memory remain. This override applies to the fixture only.
+
+For import recovery, `--verify-pause-import <fresh-short-path> <Unity.exe>`
+pauses from the queue after the real Unity batch import begins and records
+the persisted state in `paused-import.json`. Reopen that profile with
+`--verify-resume-import <same-path>` to continue the owned project or with
+`--verify-discard-import <same-path>` to exercise both dismissing and accepting
+the inline confirmation. Use a separate paused fixture for each outcome.
+The discard check verifies the terminal journal entry and preservation of the
+source and a neighboring file. The resume check requires the same project and
+creation identity, the imported asset and a compiled C# assembly. The fixture
+runs one Unity import at a time following a 6 GiB physical and commit check.
 
 ## Distribution checkpoint
 
