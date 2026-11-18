@@ -189,6 +189,22 @@ jobs:
             if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
             if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $fixture 'react-vcc-registration.json'))) { throw 'React VCC verification failed.' }
           }
+      - name: Verify native UnityPackage picker on hosted profile
+        if: env.REACT_DESKTOP == 'true'
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP 'react-vcc'
+          $env:VRCSETUP_HOME = Join-Path $fixture 'home'
+          $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $fixture 'install/app/desktop/VrcSetup.Desktop.exe'))
+          $start.UseShellExecute = $false
+          $start.CreateNoWindow = $true
+          $start.ArgumentList.Add('--verify-hosted-native-picker')
+          $start.ArgumentList.Add($fixture)
+          $process = [Diagnostics.Process]::Start($start)
+          if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Native picker verification timed out.' }
+          $failure = Join-Path $fixture 'failure.txt'
+          if (Test-Path $failure) { Get-Content $failure -TotalCount 40 }
+          if ($process.ExitCode -ne 0 -or -not (Test-Path (Join-Path $fixture 'react-native-picker.json'))) { throw 'Native picker verification failed.' }
       - name: Native UI smoke verification
         if: env.REACT_DESKTOP != 'true'
         shell: pwsh
@@ -291,6 +307,7 @@ jobs:
           path: |
             ${{ runner.temp }}/vrcsetup-ui
             ${{ runner.temp }}/react-vcc/react-vcc-registration.json
+            ${{ runner.temp }}/react-vcc/react-native-picker.json
             ${{ runner.temp }}/react-vcc/failure.txt
             ${{ runner.temp }}/vrcsetup-react-batch/batch-packages.json
             ${{ runner.temp }}/vrcsetup-react-batch/failure.txt

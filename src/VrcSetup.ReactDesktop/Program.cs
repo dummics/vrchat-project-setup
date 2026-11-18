@@ -43,7 +43,8 @@ internal static class Program
         var portableFixture = args is ["--verify-portable-startup", var archiveRoot] ? Path.GetFullPath(archiveRoot) : null;
         var verifyMaintenance = args is ["--verify-installation-maintenance", _];
         var verifyVcc = args is ["--verify-hosted-vcc", _];
-        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update" or "--verify-installation-maintenance" or "--verify-hosted-vcc", var fixture]
+        var verifyNativePicker = args is ["--verify-hosted-native-picker", _];
+        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update" or "--verify-installation-maintenance" or "--verify-hosted-vcc" or "--verify-hosted-native-picker", var fixture]
             ? Path.GetFullPath(fixture) : null;
         if (verifyRestarted && profileFixture is not null && File.Exists(profileFixture))
         {
@@ -96,7 +97,7 @@ internal static class Program
         }
         if (profileFixture is not null)
         {
-            if (verifyVcc && !ReactVccVerification.IsHostedFixture(profileFixture))
+            if ((verifyVcc || verifyNativePicker) && !IsHostedFixture(profileFixture))
             {
                 Environment.ExitCode = 2;
                 return;
@@ -295,6 +296,12 @@ internal static class Program
                         window.Close();
                         return;
                     }
+                    if (verifyNativePicker)
+                    {
+                        await ReactNativePickerVerification.RunAsync(core, profileFixture, shutdown.Token);
+                        window.Close();
+                        return;
+                    }
                     await VerifyInstalledProfileAsync(core, profileFixture, home, configuration,
                         verifyRestarted ? "restarted-profile.json" : "installed-profile.json");
                     window.Close();
@@ -380,6 +387,15 @@ internal static class Program
         return string.Equals(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory), desktop, StringComparison.OrdinalIgnoreCase) &&
             (File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-install.json")) ||
              File.Exists(Path.Combine(paths.PayloadRoot, ".vrcsetup-portable")));
+    }
+
+    private static bool IsHostedFixture(string folder)
+    {
+        var temp = Environment.GetEnvironmentVariable("RUNNER_TEMP");
+        return Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" &&
+            Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") == "github-hosted" &&
+            !string.IsNullOrWhiteSpace(temp) &&
+            string.Equals(Path.GetDirectoryName(folder), Path.GetFullPath(temp), StringComparison.OrdinalIgnoreCase);
     }
 
     private static string VerifyFixedBrowser(CoreWebView2 core, string? runtime)

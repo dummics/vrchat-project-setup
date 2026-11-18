@@ -12,15 +12,6 @@ internal static class ReactVccVerification
     private const string ProjectName = "VccRetry";
     private const string JobId = "hosted-vcc-probe";
 
-    internal static bool IsHostedFixture(string folder)
-    {
-        var temp = Environment.GetEnvironmentVariable("RUNNER_TEMP");
-        return Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" &&
-            Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") == "github-hosted" &&
-            !string.IsNullOrWhiteSpace(temp) &&
-            string.Equals(Path.GetDirectoryName(folder), Path.GetFullPath(temp), StringComparison.OrdinalIgnoreCase);
-    }
-
     internal static async Task SeedAsync(VrcSetupApplication engine, string folder, AppConfiguration configuration, CancellationToken token)
     {
         var root = Path.Combine(folder, "projects");
