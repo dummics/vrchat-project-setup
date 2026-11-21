@@ -118,6 +118,45 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
 
     internal async Task<bool> StartReadyAsync(bool manual, CancellationToken token)
     {
+        if (!await CanReplaceAsync(token)) return false;
+        var config = await engine.Configuration.LoadAsync(token);
+        var ready = await automatic.TakeReadyAsync(ApplicationUpdates.CurrentVersion,
+            manual || config.CheckUpdatesOnStartup && config.AutomaticUpdates,
+            config.IncludeBetaUpdates, token, config.IncludeAlphaUpdates);
+        if (ready is null) return false;
+        LaunchReplacement(ready.Installer);
+        return true;
+    }
+
+    internal async Task<string?> FindPreviousStableAsync(CancellationToken token)
+    {
+        if (!enabled || !automatic.Installed) return null;
+        using var client = NewClient();
+        return (await new ApplicationUpdates(client).FindPreviousStableAsync(ApplicationUpdates.CurrentVersion, token))?.Version;
+    }
+
+    internal async Task RestorePreviousStableAsync(string? confirmedVersion, CancellationToken token)
+    {
+        await gate.WaitAsync(token);
+        try
+        {
+            if (!await CanReplaceAsync(token)) throw new UserInputException("update", "Finish imports and close other app windows before restoring a previous version.");
+            using var lease = automatic.TryAcquire() ?? throw new UserInputException("update", "An update is already being prepared.");
+            using var client = NewClient();
+            var updates = new ApplicationUpdates(client);
+            var release = await updates.FindPreviousStableAsync(ApplicationUpdates.CurrentVersion, token);
+            if (release is null || release.Version != confirmedVersion)
+                throw new UserInputException("update", "The available version changed. Check again before restoring.");
+            var installer = await updates.DownloadAsync(release, Path.Combine(engine.Paths.Home, "updates", release.Version), token: token);
+            if (!await CanReplaceAsync(token)) throw new UserInputException("update", "Finish imports and close other app windows before restoring a previous version.");
+            await automatic.PrepareStableRollbackAsync(ApplicationUpdates.CurrentVersion, token);
+            LaunchReplacement(installer);
+        }
+        finally { gate.Release(); }
+    }
+
+    private async Task<bool> CanReplaceAsync(CancellationToken token)
+    {
         if (!enabled || !automatic.Installed || engine.Imports.HasActiveJobs) return false;
         var journal = Path.Combine(engine.Paths.Home, "imports.json");
         if (File.Exists(journal))
@@ -126,16 +165,13 @@ internal sealed class DesktopUpdates(VrcSetupApplication engine, bool enabled)
             if ((await AtomicFile.ReadJsonAsync<ImportJob[]>(journal, token))?.Any(x => x is null || x.Active) == true)
                 return false;
         }
-        var executable = Environment.ProcessPath;
-        if (executable is null || !IsOnlyInstance(executable)) return false;
-        var config = await engine.Configuration.LoadAsync(token);
-        var ready = await automatic.TakeReadyAsync(ApplicationUpdates.CurrentVersion,
-            manual || config.CheckUpdatesOnStartup && config.AutomaticUpdates,
-            config.IncludeBetaUpdates, token, config.IncludeAlphaUpdates);
-        if (ready is null) return false;
-        using var process = Launch(ready.Installer, ["--silent", "--wait-for-pid", Environment.ProcessId.ToString(),
+        return Environment.ProcessPath is { } executable && IsOnlyInstance(executable);
+    }
+
+    private void LaunchReplacement(string installer)
+    {
+        using var process = Launch(installer, ["--silent", "--wait-for-pid", Environment.ProcessId.ToString(),
             "--result", Path.Combine(engine.Paths.Home, "updates", "last-result.json"), "--launch"]);
-        return true;
     }
 
     private async Task<bool> StillAllowedAsync(string version, bool manual, CancellationToken token)

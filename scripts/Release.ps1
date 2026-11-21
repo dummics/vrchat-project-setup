@@ -1,6 +1,6 @@
 # One intentional release action. Ordinary source commits never create updates.
 [CmdletBinding()]
-param([switch]$NextBeta, [string]$Version, [switch]$Publish)
+param([switch]$NextBeta, [string]$Version, [switch]$Publish, [switch]$ResumeStableSeries)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ReleaseVersion.ps1')
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -20,7 +20,19 @@ try {
     $release = Get-ReleaseVersion $Version
     if ($release.Build) { throw 'Publish numbered builds from the Windows release workflow without updating Directory.Build.props.' }
     $Version = $release.Text
-    if ((Compare-ReleaseVersion $Version $current) -le 0) { throw 'The release version must be newer than Directory.Build.props.' }
+    if ($ResumeStableSeries) {
+        $currentKey = Get-ReleaseVersion $current
+        $published = Get-Content (Join-Path $repoRoot '.github/updates/releases.json') -Raw | ConvertFrom-Json
+        $latest = $published | Where-Object { -not $_.draft -and -not $_.prerelease } |
+            ForEach-Object { Get-ReleaseVersion $_.tag_name } | Sort-Object Core -Descending | Select-Object -First 1
+        if ($currentKey.Rank -ne 0 -or $release.Rank -ne 3 -or -not $latest -or
+            $release.Core.Major -ne $latest.Core.Major -or $release.Core.Minor -ne $latest.Core.Minor -or
+            $release.Core.Build -ne ($latest.Core.Build + 1) -or $release.Core -ge $currentKey.Core) {
+            throw 'ResumeStableSeries requires the next patch of the published stable series below the current alpha.'
+        }
+    } elseif ((Compare-ReleaseVersion $Version $current) -le 0) {
+        throw 'The release version must be newer than Directory.Build.props.'
+    }
     $branch = (Git-Checked -Arguments @('branch','--show-current')).Trim()
     if (-not $branch) { throw 'Release from a named branch, not detached HEAD.' }
     $dirty = Git-Checked -Arguments @('status','--porcelain')

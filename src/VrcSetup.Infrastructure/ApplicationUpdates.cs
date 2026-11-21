@@ -34,9 +34,19 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
         }
     }
 
-    public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta, ApplicationUpdateSource? source = null, bool includeAlpha = false, bool includeBuilds = false)
+    public async Task<ApplicationRelease?> FindPreviousStableAsync(string installed, CancellationToken token = default)
     {
-        source ??= ApplicationUpdateSource.Default;
+        using var request = Request(Source.Feed.AbsoluteUri);
+        request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
+        var json = await UpdateFeed.ReadAsync(client, request, cacheDirectory, token, forceRefresh: true);
+        return json is null ? null : SelectReleaseCore(json, installed, false, Source, false, false, previousStable: true);
+    }
+
+    public static ApplicationRelease? SelectRelease(string json, string installed, bool includeBeta, ApplicationUpdateSource? source = null, bool includeAlpha = false, bool includeBuilds = false)
+        => SelectReleaseCore(json, installed, includeBeta, source ?? ApplicationUpdateSource.Default, includeAlpha, includeBuilds, previousStable: false);
+
+    private static ApplicationRelease? SelectReleaseCore(string json, string installed, bool includeBeta, ApplicationUpdateSource source, bool includeAlpha, bool includeBuilds, bool previousStable)
+    {
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("Expected a GitHub releases list.");
         var current = new ApplicationBuild(installed);
@@ -55,14 +65,15 @@ public sealed class ApplicationUpdates(HttpClient client, ApplicationUpdateSourc
             if (!AllowsChannel(version, includeBeta, includeAlpha, entry.GetProperty("prerelease").GetBoolean())) continue;
             // Old 2.0 previews predate the owner-approved 0.2 beta numbering.
             var legacyMigration = current.Version.Major == 2 && current.Version.PreRelease.FirstOrDefault() == "preview" && version.Major == 0 && version.Minor >= 2;
-            if (!legacyMigration && build.CompareTo(current) <= 0) continue;
+            var comparison = build.CompareTo(current);
+            if (previousStable ? comparison >= 0 : !legacyMigration && comparison <= 0) continue;
             var installerName = $"Install-VrcSetup-{build.AssetId}-win-x64.exe";
             var assets = entry.GetProperty("assets").EnumerateArray().ToArray();
             string? Asset(string name) => assets.FirstOrDefault(x => x.GetProperty("name").GetString() == name) is var asset && asset.ValueKind == JsonValueKind.Object ? asset.GetProperty("browser_download_url").GetString() : null;
             if (!source.AllowsAsset(Asset(installerName), out var installer) || !source.AllowsAsset(Asset("SHA256SUMS.txt"), out var checksums)) continue;
             var page = new Uri(source.Repository.AbsoluteUri.TrimEnd('/') + "/releases/tag/" + Uri.EscapeDataString(tag));
             Uri? delta = null;
-            if (build.Number == 0 && current.Number == 0)
+            if (!previousStable && build.Number == 0 && current.Number == 0)
                 source.AllowsAsset(Asset($"Update-VrcSetup-{build.AssetId}-from-{current.AssetId}-win-x64.exe"), out delta);
             source.AllowsAsset(Asset("components.json"), out var components);
             candidates.Add((build, new(build.Identity, installer!, checksums!, page, delta, delta is null ? null : current.Identity, components)));

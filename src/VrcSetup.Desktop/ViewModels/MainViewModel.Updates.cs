@@ -11,7 +11,6 @@ public sealed partial class MainViewModel
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsCheckingUpdate { get; set; }
     [ObservableProperty] public partial bool CheckUpdatesOnStartup { get; set; } = true;
     [ObservableProperty] public partial bool IncludeBetaUpdates { get; set; }
-    [ObservableProperty] public partial bool IncludeAlphaUpdates { get; set; }
     [ObservableProperty] public partial bool AutomaticUpdateEnabled { get; set; } = true;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool IsUpdateReady { get; set; }
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateLabel))] public partial bool HasApplicationUpdate { get; set; }
@@ -26,8 +25,7 @@ public sealed partial class MainViewModel
     partial void OnUpdateStatusChanged(string value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); OnPropertyChanged(nameof(UpdateLabel)); }
     partial void OnUpdateFailedChanged(bool value) { OnPropertyChanged(nameof(UpdateSummary)); OnPropertyChanged(nameof(UpdateSummaryVisibility)); OnPropertyChanged(nameof(UpdateLabel)); }
     partial void OnIncludeBetaUpdatesChanged(bool value) => ResetUpdateOffer();
-    partial void OnIncludeAlphaUpdatesChanged(bool value) => ResetUpdateOffer();
-    private bool AllowsUpdateVersion(string version) => ApplicationUpdates.AllowsChannel(new VrcSetup.Core.SemanticVersion(version), IncludeBetaUpdates, IncludeAlphaUpdates);
+    private bool AllowsUpdateVersion(string version) => ApplicationUpdates.AllowsChannel(new VrcSetup.Core.SemanticVersion(version), IncludeBetaUpdates, includeAlpha: false);
     private void ResetUpdateOffer()
     {
         availableUpdate = null; HasApplicationUpdate = false; IsUpdateReady = false;
@@ -52,9 +50,8 @@ public sealed partial class MainViewModel
             using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
             client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
             var includeBeta = IncludeBetaUpdates;
-            var includeAlpha = IncludeAlphaUpdates;
-            var release = await new ApplicationUpdates(client, cacheDirectory: Path.Combine(app.Paths.Home, "updates")).CheckAsync(AppVersion, includeBeta, timeout.Token, forceRefresh: manual, includeAlpha: includeAlpha);
-            if (includeBeta != IncludeBetaUpdates || includeAlpha != IncludeAlphaUpdates) { availableUpdate = null; HasApplicationUpdate = false; UpdateStatus = "Update channel changed. Check for updates again."; return false; }
+            var release = await new ApplicationUpdates(client, cacheDirectory: Path.Combine(app.Paths.Home, "updates")).CheckAsync(AppVersion, includeBeta, timeout.Token, forceRefresh: manual);
+            if (includeBeta != IncludeBetaUpdates) { availableUpdate = null; HasApplicationUpdate = false; UpdateStatus = "Update channel changed. Check for updates again."; return false; }
             availableUpdate = release;
             UpdateFailed = false; updateDetails = "";
             HasApplicationUpdate = availableUpdate is not null;
@@ -131,4 +128,51 @@ public sealed partial class MainViewModel
     }
     [RelayCommand] private void ReportBug() => OpenPath(ApplicationUpdates.BugReportUrl);
     [RelayCommand] private void OpenReleases() => OpenPath(ApplicationUpdates.Repository + "/releases");
+
+    [RelayCommand] private async Task RestorePreviousVersion()
+    {
+        if (IsCheckingUpdate || IsDownloadingUpdate || IsInstallingUpdate) return;
+        var automatic = new AutomaticUpdates(app.Paths);
+        if (!automatic.Installed) { await ui.ShowErrorAsync(UiText.Text("Restoring a previous version requires an installed copy.")); return; }
+        bool CanRestore() => !IsBusy && !IsCreatingProject && !HasActiveImports && !WorkspaceDirty && !PresetDirty && !SettingsDirty;
+        if (!CanRestore()) { await ui.ShowErrorAsync(UiText.Text("Finish imports and save or revert changes before updating.")); return; }
+        IsDownloadingUpdate = true;
+        UpdateFailed = false;
+        UpdateStatus = "Looking for a previous stable version…";
+        try
+        {
+            using var client = app.UpdateHttpClientFactory?.Invoke() ?? new HttpClient();
+            client.Timeout = TimeSpan.FromMinutes(15);
+            client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
+            var updates = new ApplicationUpdates(client);
+            using var discovery = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            discovery.CancelAfter(TimeSpan.FromSeconds(15));
+            var release = await updates.FindPreviousStableAsync(AppVersion, discovery.Token);
+            if (release is null)
+            {
+                UpdateStatus = "";
+                await ui.ShowUpdateInfoAsync(UiText.Text("No previous stable version is available."));
+                return;
+            }
+            var message = string.Format(UiText.Text("VRC Project Setup will restart in version {0}. Your Unity projects and settings are preserved. Alpha updates will be turned off."), release.Version);
+            if (!await ui.ConfirmAsync("Restore a previous version", message, "Restore and restart")) { UpdateStatus = ""; return; }
+            using var lease = automatic.TryAcquire() ?? throw new IOException(UiText.Text("An update is already being prepared."));
+            UpdateStatus = "Downloading previous version…";
+            var folder = Path.Combine(app.Paths.Home, "updates", release.Version);
+            var installer = await updates.DownloadAsync(release, folder, token: lifetime.Token);
+            if (!CanRestore()) { UpdateStatus = "Finish imports and save or revert changes before updating."; return; }
+            await automatic.PrepareStableRollbackAsync(AppVersion, lifetime.Token);
+            UpdateStatus = "Restarting to install update…";
+            if (!await ui.InstallApplicationUpdateAsync(installer, Path.Combine(app.Paths.Home, "updates", "last-result.json")))
+                UpdateStatus = "Finish imports and save or revert changes before updating.";
+        }
+        catch (Exception error) when (error is IOException or HttpRequestException or OperationCanceledException or System.ComponentModel.Win32Exception or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            app.Diagnostics.Write("Restore previous application version", error.Message, error);
+            UpdateFailed = true;
+            updateDetails = "Could not restore the previous version. Check your connection and try again.";
+            UpdateStatus = updateDetails;
+        }
+        finally { IsDownloadingUpdate = false; }
+    }
 }

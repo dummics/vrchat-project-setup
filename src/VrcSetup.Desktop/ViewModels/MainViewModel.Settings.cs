@@ -23,7 +23,7 @@ public sealed partial class MainViewModel
             AutoHideCompletedImports = config.AutoHideCompletedImports;
             app.Imports.ConfigureAutomaticLimit(ImportLimit == 0 ? 8 : ImportLimit);
             OnPropertyChanged(nameof(ImportLimit));
-            CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates; IncludeAlphaUpdates = config.IncludeAlphaUpdates;
+            CheckUpdatesOnStartup = config.CheckUpdatesOnStartup; IncludeBetaUpdates = config.IncludeBetaUpdates;
             AutomaticUpdateEnabled = config.AutomaticUpdates;
             SelectedLanguage = config.Language;
             NamingPrefix = config.Naming.DefaultPrefix; NamingSuffix = config.Naming.DefaultSuffix; NamingPatterns = string.Join(Environment.NewLine, config.Naming.RegexRemovePatterns);
@@ -39,8 +39,8 @@ public sealed partial class MainViewModel
         NotifySettingsState();
     }
     private bool setupMode;
-    private static readonly HashSet<string> SettingsProperties = [nameof(UnityEditorPath), nameof(ProjectsRoot), nameof(ExtraImportsFolder), nameof(NamingPrefix), nameof(NamingSuffix), nameof(NamingPatterns), nameof(RememberNames), nameof(Theme), nameof(ColorPalette), nameof(CanvasColor), nameof(SurfaceColor), nameof(AccentColor), nameof(StrokeColor), nameof(ManualImportPath), nameof(AutoHideCompletedImports), nameof(CheckUpdatesOnStartup), nameof(IncludeBetaUpdates), nameof(IncludeAlphaUpdates), nameof(AutomaticUpdateEnabled), nameof(SelectedLanguage), nameof(DeveloperMode), nameof(VerboseDiagnostics), nameof(TraceTools)];
-    private string SettingsSnapshot() => JsonSerializer.Serialize(new object[] { UnityEditorPath, ProjectsRoot, ExtraImportsFolder, NamingPrefix, NamingSuffix, NamingPatterns, RememberNames, Theme, ColorPalette, CanvasColor, SurfaceColor, AccentColor, StrokeColor, ManualImportPath, AutoHideCompletedImports, CheckUpdatesOnStartup, IncludeBetaUpdates, IncludeAlphaUpdates, AutomaticUpdateEnabled, SelectedLanguage, DeveloperMode, VerboseDiagnostics, TraceTools });
+    private static readonly HashSet<string> SettingsProperties = [nameof(UnityEditorPath), nameof(ProjectsRoot), nameof(ExtraImportsFolder), nameof(NamingPrefix), nameof(NamingSuffix), nameof(NamingPatterns), nameof(RememberNames), nameof(Theme), nameof(ColorPalette), nameof(CanvasColor), nameof(SurfaceColor), nameof(AccentColor), nameof(StrokeColor), nameof(ManualImportPath), nameof(AutoHideCompletedImports), nameof(CheckUpdatesOnStartup), nameof(IncludeBetaUpdates), nameof(AutomaticUpdateEnabled), nameof(SelectedLanguage), nameof(DeveloperMode), nameof(VerboseDiagnostics), nameof(TraceTools)];
+    private string SettingsSnapshot() => JsonSerializer.Serialize(new object[] { UnityEditorPath, ProjectsRoot, ExtraImportsFolder, NamingPrefix, NamingSuffix, NamingPatterns, RememberNames, Theme, ColorPalette, CanvasColor, SurfaceColor, AccentColor, StrokeColor, ManualImportPath, AutoHideCompletedImports, CheckUpdatesOnStartup, IncludeBetaUpdates, AutomaticUpdateEnabled, SelectedLanguage, DeveloperMode, VerboseDiagnostics, TraceTools });
     public bool SettingsDirty => !loadingSettings && settingsBaseline.Length > 0 && settingsBaseline != SettingsSnapshot();
     public Visibility SettingsChangesVisibility => SettingsDirty || setupMode || LanguageRestartVisibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     public Visibility SetupVisibility => setupMode ? Visibility.Visible : Visibility.Collapsed;
@@ -79,7 +79,7 @@ public sealed partial class MainViewModel
         {
             config.ManualImportPath = ManualImportPath;
             config.AutoHideCompletedImports = AutoHideCompletedImports;
-            config.CheckUpdatesOnStartup = CheckUpdatesOnStartup; config.IncludeBetaUpdates = IncludeBetaUpdates; config.IncludeAlphaUpdates = IncludeAlphaUpdates;
+            config.CheckUpdatesOnStartup = CheckUpdatesOnStartup; config.IncludeBetaUpdates = IncludeBetaUpdates;
             config.AutomaticUpdates = AutomaticUpdateEnabled;
             config.Language = SelectedLanguage;
             config.UnityEditorPath = string.IsNullOrWhiteSpace(UnityEditorPath) ? "" : ProjectRules.NormalizePath(UnityEditorPath);

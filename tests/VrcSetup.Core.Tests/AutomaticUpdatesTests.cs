@@ -57,6 +57,31 @@ public sealed class AutomaticUpdatesTests
         using var f = new Fixture(); var path = await f.Prepare(); await File.AppendAllTextAsync(path, "corrupt");
         Assert.Null(await f.Updates.TakeReadyAsync("0.2.0-beta.15", true, true));
     }
+    [Fact] public async Task ReturningToStableClearsThePendingAlphaAndKeepsOtherPreferences()
+    {
+        using var f = new Fixture();
+        var store = new ConfigurationStore(f.Paths);
+        var config = await store.LoadAsync();
+        config.IncludeAlphaUpdates = true;
+        config.IncludeBetaUpdates = false;
+        config.AutomaticUpdates = true;
+        config.Theme = "Dark";
+        await store.SaveAsync(config);
+        await f.Prepare("0.4.0-alpha.3");
+        using (var lease = f.Updates.TryAcquire())
+        {
+            Assert.NotNull(lease);
+            await f.Updates.PrepareStableRollbackAsync("0.4.0-alpha.2");
+        }
+        var updated = await store.LoadAsync();
+        Assert.False(updated.IncludeAlphaUpdates);
+        Assert.False(updated.IncludeBetaUpdates);
+        Assert.True(updated.AutomaticUpdates);
+        Assert.Equal("Dark", updated.Theme);
+        var state = await f.Updates.ReadAsync();
+        Assert.Null(state.Ready);
+        Assert.Equal("0.4.0-alpha.2", state.LastAttemptVersion);
+    }
     [Fact] public async Task PreparedNumberedBuildCanAdvanceTheSameStableRelease()
     {
         using var f = new Fixture();

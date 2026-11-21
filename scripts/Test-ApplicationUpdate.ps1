@@ -7,10 +7,12 @@ param(
     [switch]$DirectInstaller,
     [switch]$NextLaunch,
     [switch]$ReactTarget,
+    [switch]$Rollback,
     [string]$ComponentsDirectory,
     [ValidateRange(30,600)][int]$TimeoutSeconds = 180
 )
 $ErrorActionPreference = 'Stop'
+if ($Rollback -and ($ReactTarget -or $NextLaunch -or $DirectInstaller -or $UseRealNetwork)) { throw 'Rollback verifies React Settings with an isolated feed and a stable WinUI target.' }
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $BasePayload = [IO.Path]::GetFullPath($BasePayload)
 $UpdateInstaller = [IO.Path]::GetFullPath($UpdateInstaller)
@@ -39,7 +41,7 @@ if ($ComponentsDirectory) {
     Get-ChildItem -LiteralPath $ComponentsDirectory -File -Filter '*.zip' | Where-Object Name -Match '^[a-f0-9]{64}\.zip$' | Copy-Item -Destination $cache
 }
 [IO.File]::WriteAllText((Join-Path $OutputDirectory '.vrcsetup-update-smoke'), 'Owned isolated updater fixture. No user projects.')
-if ($ReactTarget) { [IO.File]::WriteAllText((Join-Path $OutputDirectory '.react-profile-fixture'), 'Owned isolated React profile.') }
+if ($ReactTarget -or $Rollback) { [IO.File]::WriteAllText((Join-Path $OutputDirectory '.react-profile-fixture'), 'Owned isolated React profile.') }
 foreach ($item in Get-ChildItem -LiteralPath $BasePayload -Force) { Copy-Item -LiteralPath $item.FullName -Destination $install -Recurse }
 $record = @{Version=$manifest.Version;Root=$install;InstalledUtc=[DateTime]::UtcNow;PreviousInstall=$null}
 $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $install '.vrcsetup-install.json') -Encoding utf8
@@ -54,7 +56,14 @@ $specFile = Join-Path $OutputDirectory 'update-test.json'
 $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'app/desktop/VrcSetup.Desktop.exe'))
 $start.UseShellExecute = $false; $start.CreateNoWindow = $true
 $start.WorkingDirectory = $install
-$start.ArgumentList.Add('--update-smoke-test'); $start.ArgumentList.Add($specFile)
+if ($Rollback) {
+    $start.ArgumentList.Add('--verify-stable-rollback')
+    $start.ArgumentList.Add($OutputDirectory)
+    $start.Environment['VRCSETUP_HOME'] = $testHome
+} else {
+    $start.ArgumentList.Add('--update-smoke-test')
+    $start.ArgumentList.Add($specFile)
+}
 if ($NextLaunch) {
     if ($DirectInstaller) { throw 'Choose next-launch or direct-installer verification.' }
     $prefetch = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'app/desktop/VrcSetup.Desktop.exe')); $prefetch.UseShellExecute=$false; $prefetch.CreateNoWindow=$true; $prefetch.WorkingDirectory=[IO.Path]::GetTempPath()
@@ -103,6 +112,11 @@ while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
             $result | Add-Member -NotePropertyName Passed -NotePropertyValue $true
         }
         if (-not $result.Passed) { throw 'Updater did not report success.' }
+        if ($Rollback) {
+            $installed = Get-Content -LiteralPath (Join-Path $install '.vrcsetup-install.json') -Raw | ConvertFrom-Json
+            $previous = Get-Content -LiteralPath (Join-Path $installed.PreviousInstall '.vrcsetup-install.json') -Raw | ConvertFrom-Json
+            if ($installed.Version -ne $targetVersion -or $previous.Version -ne $manifest.Version) { throw 'Rollback installed or retained the wrong version.' }
+        }
         if ($outcome.PSObject.Properties['DispatcherTicks']) {
             if ($outcome.DispatcherTicks -lt 2 -or $outcome.DispatcherMaximumGapMs -gt 1000) { throw 'Updater dispatcher stalled during installation.' }
             $result | Add-Member -NotePropertyName DispatcherMaximumGapMs -NotePropertyValue $outcome.DispatcherMaximumGapMs

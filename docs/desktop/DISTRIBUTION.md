@@ -104,6 +104,20 @@ Ordinary package changes can run while Unity is open; Unity reloads the changes.
 
 Repair rebuilds the command and shortcuts after validating payload hashes. Uninstall removes the program and its scoped shortcuts/PATH entry, preserving settings and Unity projects. Successful upgrades and repairs retain only the current installation's direct previous-program rollback. Older recognized snapshots and failed candidates are removed after successful verification/integration. A failed update restores its previous version before any pruning. Unknown folders, linked paths and portable data are preserved; locked obsolete files are logged and retried at the next successful update/repair. GitHub releases provide historical installers, rather than keeping unlimited full copies on the PC.
 
+Installed desktop copies with the rollback feature expose **Restore a previous
+version** in Settings under Updates. The app looks up the newest complete stable
+release below the running version, displays the target version for confirmation,
+and downloads its full installer with checksum verification. The installer
+replaces the application at the same path and preserves its data root and Unity
+projects. Rollback turns off the experimental channel and clears any prepared
+update. The build being replaced is held back from automatic reinstallation.
+Manual update checks can still reinstall a newer stable version.
+
+WinUI resumes on the 0.3 stable series. The React 0.4.0 alpha tags and their
+installers remain in GitHub history, and the stable WinUI updater checks stable
+and optionally beta releases. To resume the stable series after an alpha, use
+`./scripts/Release.ps1 -Version 0.3.8 -ResumeStableSeries -Publish`.
+
 ## Feedback
 
 Report the app version, action, result and relevant diagnostic log. Avoid sharing personal paths or private avatar content unnecessarily. This package includes source, fixture and native-render verification on its development branch; interactive mouse/keyboard acceptance is a separate test.

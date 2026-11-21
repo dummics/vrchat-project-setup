@@ -75,7 +75,7 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
             if (handlingRequest || Closing) throw new InvalidOperationException(UiText.Text("Wait for the current operation to finish."));
             handlingRequest = ownsRequest = true;
             var result = await Dispatch(method, root.GetProperty("data"), args);
-            closeAfterReply = method is "applyUpdate" or "uninstallInstallation";
+            closeAfterReply = method is "applyUpdate" or "restorePreviousStable" or "uninstallInstallation";
             Send(new { id, result });
         }
         catch (Exception error) when (!lifetime.IsCancellationRequested)
@@ -512,6 +512,11 @@ internal sealed class ImportBridge(Window window, VrcSetupApplication engine, bo
                 return await updates.CheckAsync(manual: true, token);
             case "prepareUpdate":
                 return await updates.PrepareAsync(data.GetString(), token);
+            case "previousStable":
+                return await updates.FindPreviousStableAsync(token) ?? "";
+            case "restorePreviousStable":
+                await updates.RestorePreviousStableAsync(data.GetString(), token);
+                return true;
             case "applyUpdate":
                 if (!await updates.StartReadyAsync(manual: true, token))
                     throw new IOException(UiText.Text("Wait for imports to finish or prepare the update again."));

@@ -69,6 +69,20 @@ public sealed class AutomaticUpdates(AppPaths paths, TimeProvider? time = null)
     }
     public async Task MarkAttemptAsync(string version, CancellationToken token = default)
     { var state = await ReadAsync(token); state.Ready = null; state.LastAttemptVersion = version; await SaveAsync(state, token); }
+
+    // Callers hold the updater lease from confirmation through handoff.
+    public async Task PrepareStableRollbackAsync(string currentVersion, CancellationToken token = default)
+    {
+        var store = new ConfigurationStore(paths);
+        var baseline = await store.LoadAsync(token);
+        if (baseline.IncludeAlphaUpdates)
+        {
+            var stable = baseline.Copy();
+            stable.IncludeAlphaUpdates = false;
+            await store.MergeAsync(baseline, stable, token);
+        }
+        await MarkAttemptAsync(currentVersion, token);
+    }
     private bool IsExpectedPath(string path, string version)
     {
         var build = new ApplicationBuild(version);

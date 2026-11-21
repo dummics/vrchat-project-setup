@@ -141,6 +141,7 @@ function ImportPage() {
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [maintenanceAction, setMaintenanceAction] = useState<Maintenance>();
   const [update, setUpdate] = useState<UpdateView>();
+  const [rollbackVersion, setRollbackVersion] = useState<string>();
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState('recent');
   const [busy, setBusy] = useState('');
@@ -511,8 +512,28 @@ function ImportPage() {
           </button>}
           {update.installed && update.ready && <button data-update-action="apply" className="primary" disabled={!!busy || settingsDirty}
             onClick={() => void run(t("Avvio aggiornamento…"), async () => { await request('applyUpdate'); })}>{t("Aggiorna e riavvia")}</button>}
+          {update.installed && <button data-update-action="rollback" disabled={!!busy || settingsDirty || state?.jobs.some(job => job.active)}
+            onClick={() => void run(t("Ricerca versione precedente…"), async () => {
+              const version = await request<string>('previousStable');
+              if (version) setRollbackVersion(version);
+              else setNotice(t("Non è disponibile una versione stabile precedente."));
+            })}>{t("Torna a una versione precedente")}</button>}
         </div>
       </section>}
+      {rollbackVersion && <dialog className="extras backup-dialog" aria-labelledby="rollback-title"
+        ref={node => { if (node && !node.open) node.showModal(); }}
+        onCancel={event => { event.preventDefault(); if (!busy) setRollbackVersion(undefined); }}>
+        <h2 id="rollback-title">{t("Torna alla {version}", { version: rollbackVersion })}</h2>
+        <p>{t("L’app si riavvierà. Progetti e impostazioni saranno conservati. Gli aggiornamenti alpha saranno disattivati.")}</p>
+        <div className="actions">
+          <button autoFocus disabled={!!busy} onClick={() => setRollbackVersion(undefined)}>{t("Annulla")}</button>
+          <button data-update-action="confirm-rollback" className="primary" disabled={!!busy}
+            onClick={() => void run(t("Preparazione ripristino…"), async () => {
+              setRollbackVersion(undefined);
+              await request('restorePreviousStable', rollbackVersion);
+            })}>{t("Ripristina e riavvia")}</button>
+        </div>
+      </dialog>}
       <Help onReport={() => void run(t("Apertura assistenza…"), async () => { await request('openSupport'); })} />
     </section> : screen === 'information' ? <section className="view information" key="information">
       <Help onReport={() => void run(t("Apertura assistenza…"), async () => { await request('openSupport'); })} />

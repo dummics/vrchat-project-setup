@@ -42,12 +42,13 @@ internal static class Program
         var verifyBatchPackages = verifyBatchConflict || verifyPackageCancellation || args is ["--verify-batch-packages", _];
         var verifyPrepared = args is ["--verify-prepared-update", _];
         var verifyFeed = args is ["--verify-feed-update", _];
+        var verifyRollback = args is ["--verify-stable-rollback", _];
         var verifyRestarted = args is ["--verify-update-smoke", _];
         var portableFixture = args is ["--verify-portable-startup", var archiveRoot] ? Path.GetFullPath(archiveRoot) : null;
         var verifyMaintenance = args is ["--verify-installation-maintenance", _];
         var verifyVcc = args is ["--verify-hosted-vcc", _];
         var verifyNativePicker = args is ["--verify-hosted-native-picker", _];
-        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update" or "--verify-installation-maintenance" or "--verify-hosted-vcc" or "--verify-hosted-native-picker", var fixture]
+        var profileFixture = args is ["--verify-installed-profile" or "--verify-prepared-update" or "--verify-update-smoke" or "--verify-feed-update" or "--verify-stable-rollback" or "--verify-installation-maintenance" or "--verify-hosted-vcc" or "--verify-hosted-native-picker", var fixture]
             ? Path.GetFullPath(fixture) : null;
         if (verifyRestarted && profileFixture is not null && File.Exists(profileFixture))
         {
@@ -129,14 +130,14 @@ internal static class Program
         Directory.CreateDirectory(home);
         using var lease = new FileStream(Path.Combine(home, "react-desktop.lock"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
         var app = new Application();
-        var feedFixture = verifyFeed && profileFixture is not null ? new ReactUpdateVerification(profileFixture) : null;
+        var feedFixture = (verifyFeed || verifyRollback) && profileFixture is not null ? new ReactUpdateVerification(profileFixture, verifyRollback) : null;
         var engine = new VrcSetupApplication(isolated || portable ? home : null, verifyVcc
             ? ["--no-catalog-refresh"] : isolated || offscreen
             ? ["--no-vcc-registration", "--no-catalog-refresh"] : args)
         { UpdateHttpClientFactory = feedFixture is null ? null : feedFixture.CreateClient };
         UiText.LoadPreference(engine.Paths.ConfigFile);
         using var shutdown = new CancellationTokenSource();
-        var updates = new DesktopUpdates(engine, !isolated && (!offscreen || verifyPrepared || verifyFeed));
+        var updates = new DesktopUpdates(engine, !isolated && (!offscreen || verifyPrepared || verifyFeed || verifyRollback));
         var web = new WebView2();
         var window = new Window
         {
@@ -198,7 +199,7 @@ internal static class Program
             {
                 try
                 {
-                    if (!verifyFeed && await updates.StartReadyAsync(manual: false, shutdown.Token))
+                    if (!verifyFeed && !verifyRollback && await updates.StartReadyAsync(manual: false, shutdown.Token))
                     {
                         window.Close();
                         return;
@@ -321,7 +322,8 @@ internal static class Program
                     await RequireAsync(core, "document.querySelector('[data-ready=true]') !== null");
                     if (feedFixture is not null)
                     {
-                        await feedFixture.VerifyAsync(core, engine, shutdown.Token);
+                        if (verifyRollback) await feedFixture.VerifyRollbackAsync(core, engine, shutdown.Token);
+                        else await feedFixture.VerifyAsync(core, engine, shutdown.Token);
                         return;
                     }
                     if (verifyMaintenance)

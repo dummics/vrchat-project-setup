@@ -82,6 +82,24 @@ public sealed class ApplicationUpdatesTests
         using var client = new HttpClient(new FixtureHandler(_ => new(HttpStatusCode.NotFound)));
         Assert.Null(await new ApplicationUpdates(client).CheckAsync("0.2.0-beta.1", true));
     }
+
+    [Theory]
+    [InlineData("0.4.0-alpha.3", "0.3.8")]
+    [InlineData("0.3.8", "0.3.7")]
+    [InlineData("0.3.7", null)]
+    public async Task RollbackFindsOnlyCompletePublishedStableVersionsBelowCurrent(string current, string? expected)
+    {
+        var json = JsonSerializer.Serialize(new[] { Release("0.4.0-alpha.2"), Release("0.3.9", beta: false, complete: false),
+            Release("0.3.8", beta: false), Release("0.3.7", beta: false), Release("0.3.6", beta: false, draft: true) });
+        using var client = new HttpClient(new FixtureHandler(request =>
+        {
+            Assert.Equal("releases.json", Path.GetFileName(request.RequestUri!.AbsolutePath));
+            return new(HttpStatusCode.OK) { Content = new StringContent(json) };
+        }));
+        var release = await new ApplicationUpdates(client).FindPreviousStableAsync(current);
+        Assert.Equal(expected, release?.Version);
+        Assert.Null(release?.DeltaInstaller);
+    }
     [Theory]
     [InlineData(false, "releases.json", "0.4.0")]
     [InlineData(true, "releases-experimental.json", "0.4.1-alpha.1")]

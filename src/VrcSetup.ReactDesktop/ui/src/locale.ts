@@ -1,6 +1,13 @@
 import { createContext, useContext } from 'react';
 
 const english: Record<string, string> = {
+  "Torna a una versione precedente": "Restore a previous version",
+  "Torna alla {version}": "Return to {version}",
+  "Ricerca versione precedente…": "Looking for a previous version…",
+  "Non è disponibile una versione stabile precedente.": "No previous stable version is available.",
+  "L’app si riavvierà. Progetti e impostazioni saranno conservati. Gli aggiornamenti alpha saranno disattivati.": "The app will restart. Projects and settings will be preserved. Alpha updates will be turned off.",
+  "Preparazione ripristino…": "Preparing rollback…",
+  "Ripristina e riavvia": "Restore and restart",
   "Informazioni": "Information",
   "Importa package": "Import package",
   "Menu di navigazione": "Toggle navigation menu",

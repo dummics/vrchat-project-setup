@@ -9,10 +9,10 @@ using VrcSetup.Infrastructure;
 
 namespace VrcSetup.ReactDesktop;
 
-internal sealed class ReactUpdateVerification(string root)
+internal sealed class ReactUpdateVerification(string root, bool rollback = false)
 {
-    private readonly string specification = Path.Combine(root, "spec.json");
-    private readonly string delivery = Path.Combine(root, "delivery");
+    private readonly string specification = Path.Combine(root, rollback ? "update-test.json" : "spec.json");
+    private string delivery = Path.Combine(root, "delivery");
     private readonly string legacyFeed = ApplicationUpdateSource.Default.Feed.AbsoluteUri;
     private string installerName = "";
     private string version = "";
@@ -20,6 +20,43 @@ internal sealed class ReactUpdateVerification(string root)
     private readonly List<string> requests = [];
 
     internal HttpClient CreateClient() => new(new FixtureHandler(Respond));
+
+    internal async Task VerifyRollbackAsync(CoreWebView2 core, VrcSetupApplication engine, CancellationToken token)
+    {
+        if (!File.Exists(Path.Combine(root, ".vrcsetup-update-smoke")))
+            throw new IOException("Rollback fixture marker missing.");
+        using var spec = JsonDocument.Parse(await File.ReadAllTextAsync(specification, token));
+        if (!root.Equals(spec.RootElement.GetProperty("Root").GetString(), StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Rollback specification does not match the fixture.");
+        version = spec.RootElement.GetProperty("Version").GetString() ?? "";
+        var build = new ApplicationBuild(version);
+        if (build.Version.IsPrerelease || build.Number != 0 || build.CompareTo(new(ApplicationUpdates.CurrentVersion)) >= 0)
+            throw new IOException("Choose an older stable fixture.");
+        installerName = $"Install-VrcSetup-{build.AssetId}-win-x64.exe";
+        delivery = Path.GetDirectoryName(Path.GetFullPath(spec.RootElement.GetProperty("Installer").GetString()!))!;
+        corruptInstaller = false;
+
+        const string action = """document.querySelector('[data-update-action="rollback"]')""";
+        const string confirm = """document.querySelector('[data-update-action="confirm-rollback"]')""";
+        var settings = JsonSerializer.Serialize(UiText.Text("Settings"));
+        await core.ExecuteScriptAsync($"Array.from(document.querySelectorAll('.nav-item')).find(x => x.getAttribute('aria-label') === {settings}).click()");
+        await Program.RequireAsync(core, action + "?.disabled === false");
+        await core.ExecuteScriptAsync(action + ".click()");
+        await Program.RequireAsync(core, confirm + "?.disabled === false && document.querySelector('#rollback-title').textContent.includes(" + JsonSerializer.Serialize(version) + ")");
+        await core.ExecuteScriptAsync("document.querySelector('dialog[open] button').click()");
+        await Program.RequireAsync(core, "document.querySelector('dialog[open]') === null");
+        if (requests.Contains(installerName) || AtomicFile.Hash(engine.Paths.ConfigFile) != spec.RootElement.GetProperty("SettingsHash").GetString())
+            throw new IOException("Cancelling rollback downloaded or changed the installation.");
+        await core.ExecuteScriptAsync(action + ".click()");
+        await Program.RequireAsync(core, confirm + "?.disabled === false");
+        await AtomicFile.WriteJsonAsync(Path.Combine(root, "handoff.json"), new
+        {
+            FromVersion = ApplicationUpdates.CurrentVersion, TargetVersion = version, UsedSettings = true, CancelledFirst = true
+        }, token);
+        ConfigureInstallerFixture();
+        try { await core.ExecuteScriptAsync(confirm + ".click()"); }
+        catch (InvalidOperationException) when (token.IsCancellationRequested) { }
+    }
 
     internal async Task VerifyAsync(CoreWebView2 core, VrcSetupApplication engine, CancellationToken token)
     {
@@ -90,24 +127,29 @@ internal sealed class ReactUpdateVerification(string root)
             CorruptInstallerRejected = true, PreparedInstallerHash = downloadedHash, Requests = requests,
             ComponentTransport = "Hash-verified fixture cache"
         }, token);
+        ConfigureInstallerFixture();
+        try { await Click(apply); }
+        catch (InvalidOperationException) when (token.IsCancellationRequested) { }
+    }
+
+    private void ConfigureInstallerFixture()
+    {
         Environment.SetEnvironmentVariable("VRCSETUP_UPDATE_SMOKE_SPEC", specification);
         Environment.SetEnvironmentVariable("VRCSETUP_SKIP_PATH_UPDATE", "1");
         Environment.SetEnvironmentVariable("VRCSETUP_START_MENU_ROOT", Path.Combine(root, "start-menu"));
         Environment.SetEnvironmentVariable("VRCSETUP_DESKTOP_ROOT", Path.Combine(root, "desktop"));
-        try { await Click(apply); }
-        catch (InvalidOperationException) when (token.IsCancellationRequested) { }
     }
 
     private HttpContent Respond(Uri uri)
     {
         var numberedFeed = new Uri(new Uri(legacyFeed), "releases-builds.json").AbsoluteUri;
         var prefix = ApplicationUpdateSource.Default.AssetPrefix + Uri.EscapeDataString("v" + version) + "/";
-        if (uri.AbsoluteUri == numberedFeed)
+        if (uri.AbsoluteUri == (rollback ? legacyFeed : numberedFeed))
         {
             requests.Add("builds");
             return new StringContent(JsonSerializer.Serialize(new[]
             {
-                new { tag_name = "v" + version, draft = false, prerelease = true,
+                new { tag_name = "v" + version, draft = false, prerelease = !rollback,
                     assets = new[] { installerName, "components.json", "SHA256SUMS.txt" }
                         .Select(name => new { name, browser_download_url = prefix + name }) }
             }));

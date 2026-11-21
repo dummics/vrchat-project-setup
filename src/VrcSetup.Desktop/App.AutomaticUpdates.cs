@@ -31,7 +31,7 @@ public partial class App
                 }
             }
             var config = await application.Configuration.LoadAsync();
-            var ready = await automatic.TakeReadyAsync(ApplicationUpdates.CurrentVersion, config.CheckUpdatesOnStartup && config.AutomaticUpdates, config.IncludeBetaUpdates, includeAlpha: config.IncludeAlphaUpdates);
+            var ready = await automatic.TakeReadyAsync(ApplicationUpdates.CurrentVersion, config.CheckUpdatesOnStartup && config.AutomaticUpdates, config.IncludeBetaUpdates);
             if (ready is null) return false;
             var start = new ProcessStartInfo(ready.Installer) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() };
             foreach (var value in new[] { "--silent", "--wait-for-pid", Environment.ProcessId.ToString(), "--root", application.Paths.PayloadRoot, "--home", application.Paths.Home, "--result", Path.Combine(application.Paths.Home, "updates", "last-result.json"), "--launch" }) start.ArgumentList.Add(value);

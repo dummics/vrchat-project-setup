@@ -362,12 +362,32 @@ jobs:
           # cross-framework setup directly, including the new app's first launch.
           $react = $env:REACT_DESKTOP -eq 'true'
           ./scripts/Test-ApplicationUpdate.ps1 -BasePayload $basis -UpdateInstaller $full -OutputDirectory (Join-Path $env:RUNNER_TEMP 'update-full') -ComponentsDirectory (Join-Path $pwd release) -ReactTarget:$react -DirectInstaller:$react
+      - name: Verify return from React alpha to WinUI 0.3.8
+        if: env.RELEASE_VERSION == '0.3.8'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $download = Join-Path $env:RUNNER_TEMP 'react-rollback-base'
+          $name = 'VrcSetup-0.4.0-alpha.3-win-x64.zip'
+          gh release download v0.4.0-alpha.3 --repo dummics/vrchat-project-setup --pattern $name --pattern SHA256SUMS.txt --dir $download
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the transition alpha.' }
+          $archive = Join-Path $download $name
+          $expected = @(Get-Content (Join-Path $download 'SHA256SUMS.txt') | Where-Object { $_.Trim().EndsWith('  ' + $name) } | ForEach-Object { ($_ -split '\s+')[0] })
+          if ($expected.Count -ne 1 -or (Get-FileHash -LiteralPath $archive).Hash -ne $expected[0]) { throw 'Transition alpha archive checksum failed.' }
+          $payload = Join-Path $download 'payload'
+          Expand-Archive -LiteralPath $archive -DestinationPath $payload
+          $installer = Join-Path $pwd 'release/Install-VrcSetup-0.3.8-win-x64.exe'
+          ./scripts/Test-ApplicationUpdate.ps1 -Rollback -BasePayload $payload -UpdateInstaller $installer -OutputDirectory (Join-Path $env:RUNNER_TEMP 'rollback-to-winui') -ComponentsDirectory (Join-Path $pwd release)
       - name: Preserve upgrade evidence
         if: always() && env.UPDATE_BASE_ARCHIVE != ''
         uses: actions/upload-artifact@v4
         with:
           name: installer-upgrade-verification
-          path: ${{ runner.temp }}/update-full/*.json
+          path: |
+            ${{ runner.temp }}/update-full/*.json
+            ${{ runner.temp }}/rollback-to-winui/*.json
+            ${{ runner.temp }}/rollback-to-winui/failure.txt
           if-no-files-found: ignore
           retention-days: 7
       - name: Verify install from candidate archive
