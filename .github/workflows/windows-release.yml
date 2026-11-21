@@ -369,8 +369,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $download = Join-Path $env:RUNNER_TEMP 'react-rollback-base'
-          $name = 'VrcSetup-0.4.0-alpha.3-win-x64.zip'
-          gh release download v0.4.0-alpha.3 --repo dummics/vrchat-project-setup --pattern $name --pattern SHA256SUMS.txt --dir $download
+          $name = 'VrcSetup-0.4.0-alpha.4-win-x64.zip'
+          gh release download v0.4.0-alpha.4 --repo dummics/vrchat-project-setup --pattern $name --pattern SHA256SUMS.txt --dir $download
           if ($LASTEXITCODE -ne 0) { throw 'Could not download the transition alpha.' }
           $archive = Join-Path $download $name
           $expected = @(Get-Content (Join-Path $download 'SHA256SUMS.txt') | Where-Object { $_.Trim().EndsWith('  ' + $name) } | ForEach-Object { ($_ -split '\s+')[0] })

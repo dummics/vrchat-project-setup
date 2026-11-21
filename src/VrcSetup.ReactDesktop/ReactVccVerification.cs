@@ -9,7 +9,7 @@ namespace VrcSetup.ReactDesktop;
 internal static class ReactVccVerification
 {
     // Keep the probe name short so the CLI's text table does not wrap it.
-    private const string ProjectName = "VccRetry";
+    private const string ProjectName = "VccOk";
     private const string JobId = "hosted-vcc-probe";
 
     internal static async Task SeedAsync(VrcSetupApplication engine, string folder, AppConfiguration configuration, CancellationToken token)
